@@ -221,9 +221,9 @@ public class ChatPresenceController {
     }
 
     public void clearOurTypingStatus() {
-        lastWrittenTypingValue = false;
-        FirebaseUtils.db().getReference("typing")
-                .child(delegate.getChatId()).child(delegate.getCurrentUid()).setValue(false);
+        // Reuse the strict transition guard: repeated lifecycle cleanup,
+        // send, and empty-state callbacks must not write false again.
+        setOurTypingStatus(false);
         clearTypingReplyTarget();
     }
 
@@ -403,7 +403,7 @@ public class ChatPresenceController {
 
             Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
             if (Boolean.TRUE.equals(partnerGhost)) {
-                binding.tvStatus.setVisibility(View.GONE);
+                setHeaderStatusText(binding, "", false);
                 setHeaderOnlineDotVisible(binding, false);
                 return;
             }
@@ -426,13 +426,32 @@ public class ChatPresenceController {
                 statusText = "";
             }
 
-            binding.tvStatus.setText(statusText);
-            binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
+            setHeaderStatusText(binding, statusText, statusText.length() > 0);
             // FIX (missing symbol): showAsOnline was computed but never
             // applied anywhere — wire it to the header avatar's dot, same
             // as the ghost-mode branch above already tried to.
             setHeaderOnlineDotVisible(binding, showAsOnline);
         });
+    }
+
+    // PERF FIX (header re-bind on every unrelated snapshot): watchPartnerStatus()'s
+    // callback replays on ANY change to users/{partnerUid} — not just
+    // online/lastSeen. A partner updating their photo, bio, or any other
+    // profile field re-fires this with the exact same statusText, and
+    // tvStatus.setText()/setVisibility() used to run unconditionally every
+    // time, forcing a needless relayout+redraw of the header text. Same
+    // "unchanged -> skip" guard as updateHeaderStoryRing() in ChatActivity.
+    private String  lastHeaderStatusText    = null;
+    private Boolean lastHeaderStatusVisible = null;
+
+    private void setHeaderStatusText(ActivityChatBinding binding, String statusText, boolean visible) {
+        boolean unchanged = statusText.equals(lastHeaderStatusText)
+                && Boolean.valueOf(visible).equals(lastHeaderStatusVisible);
+        if (unchanged) return;
+        lastHeaderStatusText    = statusText;
+        lastHeaderStatusVisible = visible;
+        binding.tvStatus.setText(statusText);
+        binding.tvStatus.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     /** The header's online dot (view_header_online_dot in activity_chat.xml)
@@ -510,6 +529,8 @@ public class ChatPresenceController {
     private final android.os.Handler presenceDebounceHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingOffWrite;
+    /** Last effective chat-presence value written to Firebase. */
+    private Boolean lastWrittenInChatPresence = null;
     /** Quick away-and-back navigation (e.g. rotation, brief app-switch) within
      *  this window won't flicker the "watching" banner for the partner. */
     private static final long PRESENCE_OFF_DEBOUNCE_MS = 1500;
@@ -557,6 +578,12 @@ public class ChatPresenceController {
             SecurityManager secMgr = SecurityManager.get(delegate.getActivity());
             if (!secMgr.isWatchingPresenceEnabled()) active = false;
         }
+
+        if (lastWrittenInChatPresence != null
+                && lastWrittenInChatPresence == active) {
+            return;
+        }
+        lastWrittenInChatPresence = active;
 
         DatabaseReference ref = FirebaseUtils.getChatPresenceRef(chatId).child(uid);
         ref.setValue(active);

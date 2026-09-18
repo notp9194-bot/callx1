@@ -11,8 +11,11 @@ import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
+import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.chat.ui.ChatLazyViewUtils;
 import com.callx.app.chat.ui.MentionSuggestAdapter;
 
 import java.util.ArrayList;
@@ -76,10 +79,9 @@ public class GroupMentionController {
 
     public void attach() {
         if (attached || binding == null
-                || binding.rvMentionSuggest == null
                 || binding.etMessage == null) return;
         attached = true;
-        setupRecyclerView();
+        suggestAdapter = new MentionSuggestAdapter(activity, item -> insertMention(item.name));
         rebuildItems();
         textWatcher = buildWatcher();
         binding.etMessage.addTextChangedListener(textWatcher);
@@ -97,16 +99,16 @@ public class GroupMentionController {
 
     /** Hides the suggestion list. Call on send, back-press, or onStop. */
     public void dismissSuggestions() {
-        if (binding.rvMentionSuggest != null
-                && binding.rvMentionSuggest.getVisibility() == View.VISIBLE) {
-            animateHide(binding.rvMentionSuggest);
+        RecyclerView list = findMentionList();
+        if (list != null && list.getVisibility() == View.VISIBLE) {
+            animateHide(list);
         }
     }
 
     /** True when the dropdown is currently visible. */
     public boolean isShowing() {
-        return binding.rvMentionSuggest != null
-                && binding.rvMentionSuggest.getVisibility() == View.VISIBLE;
+        RecyclerView list = findMentionList();
+        return list != null && list.getVisibility() == View.VISIBLE;
     }
 
     public void onDestroy() {
@@ -118,12 +120,25 @@ public class GroupMentionController {
 
     // ── Setup ─────────────────────────────────────────────────────────────
 
-    private void setupRecyclerView() {
-        suggestAdapter = new MentionSuggestAdapter(activity, item -> insertMention(item.name));
-        binding.rvMentionSuggest.setLayoutManager(new LinearLayoutManager(activity));
-        binding.rvMentionSuggest.setAdapter(suggestAdapter);
-        binding.rvMentionSuggest.setNestedScrollingEnabled(false);
-        binding.rvMentionSuggest.setVisibility(View.GONE);
+    private RecyclerView findMentionList() {
+        View list = binding.getRoot().findViewById(R.id.rv_mention_suggest);
+        return list instanceof RecyclerView ? (RecyclerView) list : null;
+    }
+
+    private RecyclerView ensureRecyclerView() {
+        RecyclerView list = findMentionList();
+        if (list == null) {
+            View inflated = ChatLazyViewUtils.ensureInflated(
+                    binding.getRoot(), R.id.stub_mention_suggestions, R.id.rv_mention_suggest);
+            if (inflated instanceof RecyclerView) list = (RecyclerView) inflated;
+        }
+        if (list == null || list.getAdapter() != null) return list;
+
+        list.setLayoutManager(new LinearLayoutManager(activity));
+        list.setAdapter(suggestAdapter);
+        list.setNestedScrollingEnabled(false);
+        list.setVisibility(View.GONE);
+        return list;
     }
 
     private void rebuildItems() {
@@ -148,14 +163,14 @@ public class GroupMentionController {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                if (binding.rvMentionSuggest == null) return;
                 int cursor = start + count;
                 int atIdx  = findAtBefore(s.toString(), cursor);
                 if (atIdx < 0) { dismissSuggestions(); return; }
                 String prefix = s.subSequence(atIdx + 1, cursor).toString();
                 suggestAdapter.filter(prefix);
                 if (suggestAdapter.getItemCount() > 0) {
-                    animateShow(binding.rvMentionSuggest);
+                    RecyclerView list = ensureRecyclerView();
+                    if (list != null) animateShow(list);
                 } else {
                     dismissSuggestions();
                 }

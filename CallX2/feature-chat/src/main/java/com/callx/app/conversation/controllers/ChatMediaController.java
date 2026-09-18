@@ -2864,7 +2864,7 @@ public class ChatMediaController {
 
         LayoutRecordingBarBinding rb = recordingBar(binding);
 
-        binding.llInputRow.setVisibility(View.GONE);
+        binding.cvInputCapsule.setInputContentVisible(false);
         rb.getRoot().setAlpha(0f);
         rb.getRoot().setVisibility(View.VISIBLE);
         rb.getRoot().animate().alpha(1f).setDuration(120).start();
@@ -3242,7 +3242,7 @@ public class ChatMediaController {
         rb.getRoot().animate().alpha(0f).setDuration(120).withEndAction(() -> {
             rb.getRoot().setVisibility(View.GONE);
             rb.getRoot().setAlpha(1f);
-            binding.llInputRow.setVisibility(View.VISIBLE);
+            binding.cvInputCapsule.setInputContentVisible(true);
         }).start();
 
         binding.cvRecordLock.animate().cancel();

@@ -279,139 +279,21 @@
                 android:progressTint="@color/brand_primary"
                 android:visibility="gone"/>
 
-            <!-- ═══════════════════════════════════════════════════════════
-                 REPLY BAR — Upgraded: media thumbnail + animated slide-up
-                 ═══════════════════════════════════════════════════════════ -->
-            <LinearLayout
-                android:id="@+id/ll_reply_bar"
+            <!-- Reply and link previews stay outside the initial measure tree.
+                 Their full view hierarchies inflate only when used. -->
+            <ViewStub
+                android:id="@+id/stub_reply_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:background="@drawable/bg_reply_bar"
-                android:paddingStart="12dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:layout_marginStart="10dp"
-                android:layout_marginEnd="10dp"
-                android:gravity="center_vertical"
-                android:visibility="gone">
+                android:layout="@layout/layout_chat_reply_preview"
+                android:visibility="gone"/>
 
-                <!-- Left accent stripe -->
-                <View
-                    android:id="@+id/view_reply_accent"
-                    android:layout_width="3dp"
-                    android:layout_height="44dp"
-                    android:background="@color/brand_primary"
-                    android:layout_marginEnd="10dp"/>
-
-                <!-- Media thumbnail (image/video preview) -->
-                <ImageView
-                    android:id="@+id/iv_reply_bar_thumb"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:scaleType="centerCrop"
-                    android:layout_marginEnd="8dp"
-                    android:background="@color/divider"
-                    android:visibility="gone"/>
-
-                <!-- Sender name + content text -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-                    <TextView
-                        android:id="@+id/tv_reply_bar_name"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/brand_primary"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                    <TextView
-                        android:id="@+id/tv_reply_bar_text"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/text_secondary"
-                        android:textStyle="italic"
-                        android:textSize="12sp"
-                        android:maxLines="2"
-                        android:ellipsize="end"/>
-                </LinearLayout>
-
-                <!-- Cancel button -->
-                <ImageButton
-                    android:id="@+id/btn_cancel_reply"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:src="@drawable/ic_back"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Cancel reply"/>
-            </LinearLayout>
-
-            <!-- Smart link preview — WhatsApp/Telegram-style: user URL type
-                 karte hi (debounced) OG title/thumbnail card yahan dikhta
-                 hai, send se pehle hi. Same LinkPreviewFetcher jo already
-                 sent-message bubbles ke liye use hota hai. -->
-            <LinearLayout
-                android:id="@+id/ll_link_preview_bar"
+            <ViewStub
+                android:id="@+id/stub_link_preview_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:background="@drawable/bg_reply_bar"
-                android:paddingStart="12dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:layout_marginStart="10dp"
-                android:layout_marginEnd="10dp"
-                android:layout_marginTop="6dp"
-                android:gravity="center_vertical"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/iv_link_preview_thumb"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:scaleType="centerCrop"
-                    android:layout_marginEnd="8dp"
-                    android:background="@color/divider"
-                    android:visibility="gone"/>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-                    <TextView
-                        android:id="@+id/tv_link_preview_domain"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/brand_primary"
-                        android:textSize="11sp"
-                        android:textStyle="bold"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                    <TextView
-                        android:id="@+id/tv_link_preview_title"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12sp"
-                        android:maxLines="2"
-                        android:ellipsize="end"/>
-                </LinearLayout>
-
-                <ImageButton
-                    android:id="@+id/btn_cancel_link_preview"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:src="@drawable/ic_back"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Dismiss link preview"/>
-            </LinearLayout>
+                android:layout="@layout/layout_chat_link_preview"
+                android:visibility="gone"/>
 
             <!-- Block banner — shown when YOU have blocked this person -->
             <LinearLayout
@@ -455,52 +337,20 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════════════════════════════════
-                 FLOATING CAPSULE INPUT BAR — pill shape, subtle elevation,
-                 floats above the bottom safe-area over the chat area.
+                 FLOATING CAPSULE INPUT BAR — one lightweight custom container
+                 owns the pill background and lays out the controls directly.
+                 This replaces the old row -> MaterialCardView ->
+                 ConstraintLayout wrapper chain.
                  ═══════════════════════════════════════════════════════════ -->
 
-            <!-- ═══════════════════════════════════════════════════════════
-                 @MENTION SUGGESTION LIST — slides in above the input capsule
-                 when the user types "@" in the message field.
-                 Shown by ChatMentionController / GroupMentionController.
-                 visibility=gone by default; controller shows/hides it.
-                 ═══════════════════════════════════════════════════════════ -->
-            <!--
-                @MENTION SUGGESTION LIST — slides in above the input capsule when the
-                user types "@" in the message field.  The MaterialCardView provides
-                rounded corners + elevation; it collapses to 0 height automatically
-                when its only child (rv_mention_suggest) is GONE (wrap_content).
-                Controllers only manage rv_mention_suggest visibility.
-            -->
-            <com.google.android.material.card.MaterialCardView
+            <!-- Mention suggestions are also action-triggered: the card and
+                 RecyclerView are absent from the initial measure pass. -->
+            <ViewStub
+                android:id="@+id/stub_mention_suggestions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:layout_marginEnd="10dp"
-                android:layout_marginBottom="4dp"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="8dp"
-                app:cardBackgroundColor="@color/surface_input"
-                app:strokeColor="@color/divider"
-                app:strokeWidth="0.5dp"
-                xmlns:app="http://schemas.android.com/apk/res-auto">
-
-                <!--
-                    visibility="gone" here — controllers call
-                    binding.rvMentionSuggest.setVisibility(VISIBLE/GONE).
-                    When GONE, the parent card collapses to 0 height (wrap_content).
-                -->
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rv_mention_suggest"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:maxHeight="192dp"
-                    android:overScrollMode="never"
-                    android:nestedScrollingEnabled="false"
-                    android:clipToPadding="false"
-                    android:visibility="gone"/>
-
-            </com.google.android.material.card.MaterialCardView>
+                android:layout="@layout/layout_chat_mention_suggestions"
+                android:visibility="gone"/>
 
             <!-- ═══════════════════════════════════════════════════════════
                  WhatsApp-style input row: the pill (cv_input_capsule) holds
@@ -525,70 +375,32 @@
                 android:textColor="@color/text_muted"
                 android:visibility="gone"/>
 
-            <LinearLayout
-                android:id="@+id/ll_input_bar_row"
+            <com.callx.app.chat.ui.ChatInputBarContainer
+                android:id="@+id/cv_input_capsule"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
                 android:layout_marginTop="6dp"
                 android:layout_marginBottom="10dp"
-                android:orientation="horizontal"
-                android:gravity="bottom"
                 android:clipChildren="false"
-                android:clipToPadding="false">
-
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/cv_input_capsule"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="10dp"
-                    android:layout_marginEnd="10dp"
-                    app:cardCornerRadius="28dp"
-                    app:cardElevation="0dp"
-                    app:cardBackgroundColor="@color/chat_input_bar_bg"
-                    app:strokeColor="@color/divider"
-                    app:strokeWidth="0.5dp"
-                    app:cardPreventCornerOverlap="false"
-                    app:cardUseCompatPadding="false">
+                android:background="@drawable/bg_chat_input_capsule">
 
                     <!-- Input row — view-once toggle on the left, message
                          field in the middle, attach+camera grouped on the
                          right, all inside the pill (WhatsApp layout).
 
-                         PERF (ultra-opt pass v12): converted from a nested-
-                         weight LinearLayout to ConstraintLayout. The old
-                         LinearLayout had a single weighted child (et_message)
-                         so it was already single-pass, but it still sat
-                         inside ll_input_bar_row -> cv_input_capsule, two
-                         more weight/measure-bearing ancestors above it —
-                         every one of those participates in the same
-                         measure/layout pass whenever the capsule resizes
-                         (keyboard show/hide, line-count change). A flat
-                         ConstraintLayout resolves all six children's
-                         positions in one pass via constraints instead of
-                         LinearLayout's sequential child measurement, which
-                         matters most here since this row re-measures on
+                         PERF: these are direct children of
+                         ChatInputBarContainer. Its fixed layout avoids the
+                         generic row/card/ConstraintLayout measure chain on
                          every capsule height change. -->
-                    <androidx.constraintlayout.widget.ConstraintLayout
-                        android:id="@+id/ll_input_row"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="4dp"
-                        android:paddingEnd="4dp"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:background="@android:color/transparent">
-
                         <ImageButton
                             android:id="@+id/btn_view_once"
                             android:layout_width="34dp"
                             android:layout_height="34dp"
                             android:padding="6dp"
                             android:contentDescription="View Once"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            app:layout_constraintStart_toStartOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintBottom_toBottomOf="parent"/>
+                            android:background="?attr/selectableItemBackgroundBorderless"/>
 
                         <!-- PERF (ultra-opt pass): et_message used to sit inside a
                              FrameLayout that existed only to hold its weight/
@@ -599,10 +411,8 @@
                              directly on the EditText, same visual result. -->
                         <com.callx.app.chat.ui.GifAwareEditText
                             android:id="@+id/et_message"
-                            android:layout_width="0dp"
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="4dp"
-                            android:layout_marginEnd="4dp"
                             android:hint="@string/hint_message"
                             android:textColorHint="@color/text_muted"
                             android:textColor="@color/chat_input_text"
@@ -613,11 +423,7 @@
                             android:paddingEnd="10dp"
                             android:textSize="17sp"
                             android:maxLines="4"
-                            android:maxLength="4000"
-                            app:layout_constraintStart_toEndOf="@id/btn_view_once"
-                            app:layout_constraintEnd_toStartOf="@id/chat_icon_bar"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintBottom_toBottomOf="parent"/>
+                            android:maxLength="4000"/>
 
                         <!-- PERF (icon-bar merge pass): btn_attach, btn_camera,
                              btn_mic and btn_send used to be four separate
@@ -634,16 +440,10 @@
                         <com.callx.app.chat.ui.ChatIconBarView
                             android:id="@+id/chat_icon_bar"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:contentDescription="Attach, camera, voice message and send"
-                            app:layout_constraintStart_toEndOf="@id/et_message"
-                            app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintBottom_toBottomOf="parent"/>
-                    </androidx.constraintlayout.widget.ConstraintLayout>
-
+                            android:layout_height="34dp"
+                            android:contentDescription="Attach, camera, voice message and send"/>
                     <!-- ═══════════════════════════════════════════════════════
-                         RECORDING BAR — replaces ll_input_row while a voice
+                         RECORDING BAR — replaces the normal input controls
                          message is being held/locked (see
                          layout_recording_bar.xml for the full view tree and
                          PERF rationale). Lazily inflated via ViewStub on
@@ -660,9 +460,7 @@
                         android:layout="@layout/layout_recording_bar"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"/>
-                </com.google.android.material.card.MaterialCardView>
-
-            </LinearLayout>
+            </com.callx.app.chat.ui.ChatInputBarContainer>
 
         </LinearLayout>
 

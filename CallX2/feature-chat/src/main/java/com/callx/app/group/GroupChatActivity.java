@@ -49,6 +49,7 @@ import com.callx.app.utils.VoiceTrimmer;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.AdaptiveChatScrollPolicy;
 import com.callx.app.utils.PushNotify;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.callx.app.bots.BotManager;
@@ -129,6 +130,9 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Paging 3 (FIX #7) ─────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
+    private AdaptiveChatScrollPolicy messageScrollPolicy;
+    private int lastAdaptivePrefetchCount = -1;
+    private int lastAdaptiveCacheSize = -1;
     // BUG FIX (WhatsApp-level theme switch) — see ChatActivity's
     // lastUiNightMode/handlePossibleNightModeChange javadoc for full
     // rationale; same fix mirrored here for group chats.
@@ -258,6 +262,10 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Handlers ───────────────────────────────────────────────────────────
     private final android.os.Handler typingHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final long DRAFT_SAVE_DEBOUNCE_MS = 650L;
+    private final android.os.Handler draftSaveHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pendingDraftSave;
     // ── Disappearing messages expiry cleanup ──────────────────────────────
     private final android.os.Handler expiryHandler  = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable expiryRunnable;
@@ -479,7 +487,6 @@ public class GroupChatActivity extends AppCompatActivity
         setupPagingRecyclerView();   // RecyclerView + adapter ready (Room query baad mein)
         setupInputBar();
         restoreGroupDraft();
-        setupReplyCancel();
         setupNetworkMonitor();
         // PERF FIX: typing-only header wiring stays immediate (cheap, and
         // gives the "X is typing" feel right away); the heavy member-list +
@@ -782,7 +789,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     @Override
     protected void onDestroy() {
-        saveGroupDraft();
+        flushGroupDraftSave();
         // Pair with the keepSynced(true) set on groupMessagesRef above.
         if (groupMessagesRef != null) {
             try { groupMessagesRef.keepSynced(false); } catch (Exception ignored) {}
@@ -909,7 +916,7 @@ public class GroupChatActivity extends AppCompatActivity
             watchingController.clearViewingMessage();
         }
         onTypingStripScreenPaused();
-        saveGroupDraft();
+        flushGroupDraftSave();
         super.onPause();
     }
 
@@ -945,6 +952,26 @@ public class GroupChatActivity extends AppCompatActivity
         String text = binding.etMessage.getText() != null
                 ? binding.etMessage.getText().toString() : "";
         com.callx.app.utils.DraftStore.save(this, key, text);
+    }
+
+    private void scheduleGroupDraftSave() {
+        if (pendingDraftSave != null) {
+            draftSaveHandler.removeCallbacks(pendingDraftSave);
+        }
+        pendingDraftSave = () -> {
+            pendingDraftSave = null;
+            saveGroupDraft();
+        };
+        draftSaveHandler.postDelayed(pendingDraftSave, DRAFT_SAVE_DEBOUNCE_MS);
+    }
+
+    /** Flushes the latest group draft immediately when the screen pauses. */
+    private void flushGroupDraftSave() {
+        if (pendingDraftSave != null) {
+            draftSaveHandler.removeCallbacks(pendingDraftSave);
+            pendingDraftSave = null;
+        }
+        saveGroupDraft();
     }
 
     private void restoreGroupDraft() {
@@ -1124,6 +1151,31 @@ public class GroupChatActivity extends AppCompatActivity
     // FIX #7 — PAGING 3: RecyclerView + Adapter
     // ─────────────────────────────────────────────────────────────────────
 
+    private AdaptiveChatScrollPolicy messageScrollPolicy() {
+        if (messageScrollPolicy == null) {
+            messageScrollPolicy = new AdaptiveChatScrollPolicy(this);
+        }
+        return messageScrollPolicy;
+    }
+
+    private void applyAdaptiveMessageRecyclerBudget(int scrollState, int flingVelocity) {
+        if (binding == null || binding.rvMessages == null) return;
+        RecyclerView.LayoutManager raw = binding.rvMessages.getLayoutManager();
+        if (raw instanceof LinearLayoutManager) {
+            int prefetch = messageScrollPolicy().initialPrefetchCount(
+                    scrollState, flingVelocity);
+            if (prefetch != lastAdaptivePrefetchCount) {
+                ((LinearLayoutManager) raw).setInitialPrefetchItemCount(prefetch);
+                lastAdaptivePrefetchCount = prefetch;
+            }
+        }
+        int cacheSize = messageScrollPolicy().itemViewCacheSize(scrollState);
+        if (cacheSize != lastAdaptiveCacheSize) {
+            binding.rvMessages.setItemViewCacheSize(cacheSize);
+            lastAdaptiveCacheSize = cacheSize;
+        }
+    }
+
     private void setupPagingRecyclerView() {
         pagingAdapter = new MessagePagingAdapter(currentUid, true /* isGroup */);
 
@@ -1180,27 +1232,25 @@ public class GroupChatActivity extends AppCompatActivity
             protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state,
                                                      @NonNull int[] extraLayoutSpace) {
                 int screenHeight = getResources().getDisplayMetrics().heightPixels;
-                // v3 ULTRA-ADVANCED: same velocity-aware scaling as 1:1 chat's
-                // ChatActivity — see that class's calculateExtraLayoutSpace()
-                // doc. Group chat's rows are already taller on average (see
-                // note above), so a fast boosted fling races through the
-                // pre-laid area even quicker here; scaling 1.5x -> 2.2x by
-                // launch velocity keeps that headroom matched to the actual
-                // glide instead of a fixed constant.
-                float extraMultiplier = 1.5f;
+                // Use the same adaptive RAM/network/velocity budget as 1:1
+                // chat. Group rows are taller, so only an actual fast fling
+                // earns the larger runway.
+                int flingVelocity = 0;
                 if (binding.rvMessages instanceof com.callx.app.chat.performance.FastFlingRecyclerView) {
-                    int flingV = Math.abs(((com.callx.app.chat.performance.FastFlingRecyclerView)
+                    flingVelocity = Math.abs(((com.callx.app.chat.performance.FastFlingRecyclerView)
                             binding.rvMessages).getLastFlingVelocityY());
-                    float speedRatio = Math.min(1f, flingV / 6000f); // 6000 == FastFlingRecyclerView.REF_VELOCITY
-                    extraMultiplier = 1.5f + speedRatio * 0.7f; // up to 2.2x at/above ref speed
                 }
+                float extraMultiplier = messageScrollPolicy().layoutMultiplier(
+                        binding.rvMessages.getScrollState(), flingVelocity);
                 int extra = (int) (screenHeight * extraMultiplier);
                 extraLayoutSpace[0] = extra;
                 extraLayoutSpace[1] = extra;
             }
         };
         llm.setStackFromEnd(true);
-        llm.setInitialPrefetchItemCount(6);
+        llm.setInitialPrefetchItemCount(
+                messageScrollPolicy().initialPrefetchCount(
+                        RecyclerView.SCROLL_STATE_IDLE, 0));
         binding.rvMessages.setLayoutManager(llm);
         // PERF: build the 4 bubble-drawable combos now, before the first
         // layout pass — see ChatThemeManager.preWarm() for why.
@@ -1213,7 +1263,7 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setAdapter(pagingAdapter);
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
-        binding.rvMessages.setItemViewCacheSize(20);
+        applyAdaptiveMessageRecyclerBudget(RecyclerView.SCROLL_STATE_IDLE, 0);
         androidx.recyclerview.widget.RecyclerView.RecycledViewPool groupPool =
                 new androidx.recyclerview.widget.RecyclerView.RecycledViewPool();
         // PERF: pool sizes 5→10 for sent/received — same reasoning as 1:1 chat.
@@ -1263,53 +1313,6 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
         binding.rvMessages.setSaveEnabled(false);
 
-        // PERF: Glide RecyclerViewPreloader — group chats are media-heavy (photos,
-        // memes, forwarded images), so prefetching the next few media bubbles in the
-        // scroll direction matters even more here than in 1:1 chat. Same strategy:
-        // paused on SETTLING/DRAGGING (see scroll listener below), executed on IDLE.
-        com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>
-                groupSizeProvider = new com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>() {
-            @Override
-            public int[] getPreloadSize(@NonNull com.callx.app.models.Message item,
-                                        int adapterPosition, int perItemPosition) {
-                if (item.mediaUrl == null && item.thumbnailUrl == null) return null;
-                return new int[]{320, 320};
-            }
-        };
-        com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>
-                groupModelProvider = new com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>() {
-            @NonNull @Override
-            public java.util.List<com.callx.app.models.Message> getPreloadItems(int position) {
-                com.callx.app.models.Message m = pagingAdapter.peek(position);
-                if (m == null) return java.util.Collections.emptyList();
-                String type = m.type != null ? m.type : "";
-                boolean isMedia = "image".equals(type) || "gif".equals(type) || "sticker".equals(type) || "video".equals(type);
-                if (!isMedia || (m.mediaUrl == null && m.thumbnailUrl == null))
-                    return java.util.Collections.emptyList();
-                return java.util.Collections.singletonList(m);
-            }
-            @Nullable @Override
-            public com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable>
-                    getPreloadRequestBuilder(@NonNull com.callx.app.models.Message item) {
-                String url = "video".equals(item.type)
-                        ? (item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl)
-                        : (item.mediaUrl != null ? item.mediaUrl : item.imageUrl);
-                if (url == null) return null;
-                return com.bumptech.glide.Glide.with(GroupChatActivity.this)
-                        .load(url)
-                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                        .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
-                        .override(320, 320);
-            }
-        };
-        com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<com.callx.app.models.Message>
-                groupGlidePreloader = new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
-                        com.bumptech.glide.Glide.with(this),
-                        groupModelProvider,
-                        groupSizeProvider,
-                        5 /* preload 5 items in the scroll direction */);
-        binding.rvMessages.addOnScrollListener(groupGlidePreloader);
-
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
@@ -1332,6 +1335,13 @@ public class GroupChatActivity extends AppCompatActivity
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                int flingVelocity = 0;
+                if (rv instanceof com.callx.app.chat.performance.FastFlingRecyclerView) {
+                    flingVelocity = Math.abs(
+                            ((com.callx.app.chat.performance.FastFlingRecyclerView) rv)
+                                    .getLastFlingVelocityY());
+                }
+                applyAdaptiveMessageRecyclerBudget(newState, flingVelocity);
                 // PERF: Glide pause during fling — avoids decoding images for items
                 // that scroll past before becoming visible; resume on idle/drag so
                 // images load as soon as the user stops or slows down.
@@ -2156,24 +2166,70 @@ public class GroupChatActivity extends AppCompatActivity
     // ─────────────────────────────────────────────────────────────────────
 
     private com.callx.app.chat.ui.ComposeLinkPreviewController composeLinkPreview;
+    private View replyBarView;
+    private TextView replyBarNameView;
+    private TextView replyBarTextView;
+    private View linkPreviewBarView;
+    private ImageView linkPreviewThumbView;
+    private TextView linkPreviewDomainView;
+    private TextView linkPreviewTitleView;
+    private ImageButton linkPreviewCancelView;
+
+    private boolean ensureReplyBarViews() {
+        if (replyBarView != null) return true;
+        View root = binding.getRoot();
+        replyBarView = com.callx.app.chat.ui.ChatLazyViewUtils.ensureInflated(
+                root, R.id.stub_reply_bar, R.id.ll_reply_bar);
+        if (replyBarView == null) return false;
+
+        replyBarNameView = root.findViewById(R.id.tv_reply_bar_name);
+        replyBarTextView = root.findViewById(R.id.tv_reply_bar_text);
+        ImageButton cancel = root.findViewById(R.id.btn_cancel_reply);
+        if (cancel != null) cancel.setOnClickListener(v -> clearReply());
+
+        int primary = com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor();
+        View accent = root.findViewById(R.id.view_reply_accent);
+        if (accent != null) accent.setBackgroundColor(primary);
+        if (replyBarNameView != null) replyBarNameView.setTextColor(primary);
+        return true;
+    }
+
+    private void ensureComposeLinkPreviewController() {
+        if (composeLinkPreview != null) return;
+        View root = binding.getRoot();
+        linkPreviewBarView = com.callx.app.chat.ui.ChatLazyViewUtils.ensureInflated(
+                root, R.id.stub_link_preview_bar, R.id.ll_link_preview_bar);
+        if (linkPreviewBarView == null) return;
+
+        linkPreviewThumbView = root.findViewById(R.id.iv_link_preview_thumb);
+        linkPreviewDomainView = root.findViewById(R.id.tv_link_preview_domain);
+        linkPreviewTitleView = root.findViewById(R.id.tv_link_preview_title);
+        linkPreviewCancelView = root.findViewById(R.id.btn_cancel_link_preview);
+        if (linkPreviewThumbView == null || linkPreviewDomainView == null
+                || linkPreviewTitleView == null || linkPreviewCancelView == null) {
+            return;
+        }
+        composeLinkPreview = new com.callx.app.chat.ui.ComposeLinkPreviewController(
+                binding.etMessage,
+                linkPreviewBarView,
+                linkPreviewThumbView,
+                linkPreviewDomainView,
+                linkPreviewTitleView,
+                linkPreviewCancelView);
+    }
 
     private void setupInputBar() {
-        if (binding.llLinkPreviewBar != null) {
-            composeLinkPreview = new com.callx.app.chat.ui.ComposeLinkPreviewController(
-                    binding.etMessage,
-                    binding.llLinkPreviewBar,
-                    binding.ivLinkPreviewThumb,
-                    binding.tvLinkPreviewDomain,
-                    binding.tvLinkPreviewTitle,
-                    binding.btnCancelLinkPreview);
-        }
-
         binding.etMessage.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
                 boolean has = s.toString().trim().length() > 0;
                 binding.chatIconBar.setHasText(has);
+                if (composeLinkPreview == null
+                        && com.callx.app.chat.ui.ComposeLinkPreviewController
+                                .mayContainUrl(s)) {
+                    ensureComposeLinkPreviewController();
+                }
                 if (composeLinkPreview != null) composeLinkPreview.onTextChanged(s.toString());
 
                 // Character counter: 200 se kam bacha ho toh dikhao
@@ -2201,6 +2257,7 @@ public class GroupChatActivity extends AppCompatActivity
                     typingHandler.removeCallbacks(stopTyping);
                     setMyTyping(false);
                 }
+                scheduleGroupDraftSave();
             }
         });
         binding.chatIconBar.setOnAttachClickListener(() -> showAttachSheet());
@@ -2734,28 +2791,21 @@ public class GroupChatActivity extends AppCompatActivity
     // REPLY (Feature 2)
     // ─────────────────────────────────────────────────────────────────────
 
-    private void setupReplyCancel() {
-        if (binding.btnCancelReply != null)
-            binding.btnCancelReply.setOnClickListener(v -> clearReply());
-    }
-
     private void startReply(Message m) {
         replyingTo = m;
-        if (binding.llReplyBar != null) {
-            binding.llReplyBar.setVisibility(View.VISIBLE);
-            if (binding.tvReplyBarName != null)
-                binding.tvReplyBarName.setText(m.senderName != null ? m.senderName : "");
-            if (binding.tvReplyBarText != null)
-                binding.tvReplyBarText.setText(
-                        m.text != null ? m.text : "[" + m.type + "]");
-        }
+        if (!ensureReplyBarViews()) return;
+        replyBarView.setVisibility(View.VISIBLE);
+        if (replyBarNameView != null)
+            replyBarNameView.setText(m.senderName != null ? m.senderName : "");
+        if (replyBarTextView != null)
+            replyBarTextView.setText(m.text != null ? m.text : "[" + m.type + "]");
         binding.etMessage.requestFocus();
     }
 
     private void clearReply() {
         replyingTo = null;
-        if (binding.llReplyBar != null)
-            binding.llReplyBar.setVisibility(View.GONE);
+        if (replyBarView != null)
+            replyBarView.setVisibility(View.GONE);
         // Don't wait for the next keystroke's setMyTyping() call — the
         // bubble highlight should disappear the instant the reply bar does.
         if (amTyping && typingReplyRef != null) {
@@ -5195,7 +5245,7 @@ public class GroupChatActivity extends AppCompatActivity
 
         LayoutRecordingBarBinding rb = recordingBar();
 
-        binding.llInputRow.setVisibility(View.GONE);
+        binding.cvInputCapsule.setInputContentVisible(false);
         rb.getRoot().setAlpha(0f);
         rb.getRoot().setVisibility(View.VISIBLE);
         rb.getRoot().animate().alpha(1f).setDuration(120).start();
@@ -5467,7 +5517,7 @@ public class GroupChatActivity extends AppCompatActivity
         rb.getRoot().animate().alpha(0f).setDuration(120).withEndAction(() -> {
             rb.getRoot().setVisibility(View.GONE);
             rb.getRoot().setAlpha(1f);
-            binding.llInputRow.setVisibility(View.VISIBLE);
+            binding.cvInputCapsule.setInputContentVisible(true);
         }).start();
 
         binding.cvRecordLock.animate().cancel();
@@ -5690,11 +5740,14 @@ public class GroupChatActivity extends AppCompatActivity
 
         android.view.View toolbar   = binding.toolbar;
         android.view.View chatRoot  = binding.getRoot();
-        android.view.View inputRow  = binding.llInputRow;
-        android.view.View replyAccent = binding.viewReplyAccent;
+        android.view.View inputRow  = binding.cvInputCapsule;
+        android.view.View replyAccent =
+                binding.getRoot().findViewById(R.id.view_reply_accent);
 
-        if (binding.tvReplyBarName != null) {
-            binding.tvReplyBarName.setTextColor(mgr.getPrimaryColor());
+        android.view.View replyName =
+                binding.getRoot().findViewById(R.id.tv_reply_bar_name);
+        if (replyName instanceof TextView) {
+            ((TextView) replyName).setTextColor(mgr.getPrimaryColor());
         }
 
         mgr.applyScreenTheme(

@@ -29,7 +29,7 @@ import static android.content.Context.INPUT_METHOD_SERVICE;
  * ChatSearchController — in-chat full-text search.
  *
  * Features:
- *   • 300 ms debounce — no DB hit on every keystroke.
+ *   • 120 ms debounce — no DB hit on every keystroke while keeping typing responsive.
  *   • DB-side search via {@code MessageDao#searchMessagesByText} — a LIKE
  *     query on (chatId, text), not a full-chat load filtered in Java, so
  *     cost doesn't grow unbounded with chat history size.
@@ -96,7 +96,7 @@ public class ChatSearchController {
 
     // ─────────────────────────────────────────────────────────────────────
 
-    private static final long DEBOUNCE_MS      = 300L;
+    private static final long DEBOUNCE_MS      = 120L;
     private static final long ANIM_DURATION_MS = 180L;
     /** Hard cap on how many hits a single search pulls back — plenty for
      *  "find the message", keeps a giant chat from building a huge list. */

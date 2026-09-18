@@ -1169,14 +1169,21 @@ public class MessagePagingAdapter
         String norm = (query != null && !query.isEmpty()) ? query : null;
         if (java.util.Objects.equals(norm, activeSearchQuery)) return; // no-op, nothing to redraw
         activeSearchQuery = norm;
-        // PERF: notifyItemRangeChanged(..., PAYLOAD_SEARCH) instead of
-        // notifyDataSetChanged() — RecyclerView only actually invokes
-        // onBindViewHolder(...,payloads) for holders currently attached
-        // (the visible window + a small prefetch margin), so a keystroke
-        // in the search box repaints a handful of on-screen bubbles, not
-        // the whole chat, and doesn't reset scroll position or restart any
-        // in-flight animations the way notifyDataSetChanged() would.
-        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SEARCH);
+        // PERF: target only currently attached children. A range notification
+        // still walks the adapter's entire loaded window and can enqueue work
+        // for prefetched holders; search only needs the pixels on screen.
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return;
+        RecyclerView.LayoutManager lm = rv.getLayoutManager();
+        if (lm == null) return;
+        for (int childIndex = 0; childIndex < lm.getChildCount(); childIndex++) {
+            View child = lm.getChildAt(childIndex);
+            int position = child == null ? RecyclerView.NO_POSITION
+                    : rv.getChildAdapterPosition(child);
+            if (position != RecyclerView.NO_POSITION && position < getItemCount()) {
+                notifyItemChanged(position, PAYLOAD_SEARCH);
+            }
+        }
     }
 
     // PERF: Linkify.addLinks() runs several regex passes (URL/phone/email)
@@ -1684,15 +1691,7 @@ public class MessagePagingAdapter
         java.util.Set<String> changed = new java.util.HashSet<>(old);
         changed.addAll(newIds);
         currentlyViewedMessageIds = newIds;
-        for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
-            if (m == null) continue;
-            String id = m.messageId != null ? m.messageId : m.id;
-            // PERF: payload-only refresh — see PAYLOAD_PRESENCE. Avoids
-            // re-running the full bindMessage() (Glide reloads, Linkify,
-            // bubble redraw, countdown restart) just to flip a dot.
-            if (id != null && changed.contains(id)) notifyItemChanged(i, PAYLOAD_PRESENCE);
-        }
+        notifyVisiblePresenceChanges(changed);
     }
 
     // ── "Someone is currently composing a reply to this message" glow ──────
@@ -1712,13 +1711,7 @@ public class MessagePagingAdapter
         java.util.Set<String> changed = new java.util.HashSet<>(old);
         changed.addAll(newIds);
         replyTargetMessageIds = newIds;
-        for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
-            if (m == null) continue;
-            String id = m.messageId != null ? m.messageId : m.id;
-            // PERF: payload-only refresh — see PAYLOAD_PRESENCE.
-            if (id != null && changed.contains(id)) notifyItemChanged(i, PAYLOAD_PRESENCE);
-        }
+        notifyVisiblePresenceChanges(changed);
     }
 
     // ── "Someone is currently playing this voice note / video" badge ───────
@@ -1736,14 +1729,44 @@ public class MessagePagingAdapter
         java.util.Set<String> changed = new java.util.HashSet<>(old);
         changed.addAll(newIds);
         currentlyPlayingMessageIds = newIds;
-        for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
-            if (m == null) continue;
-            String id = m.messageId != null ? m.messageId : m.id;
-            // PERF: payload-only refresh — see PAYLOAD_PRESENCE.
-            if (id != null && changed.contains(id)) notifyItemChanged(i, PAYLOAD_PRESENCE);
+        notifyVisiblePresenceChanges(changed);
+    }
+
+    /**
+     * Refresh only attached rows whose presence state changed.
+     * PagingDataAdapter positions can shift as pages load or invalidate, so a
+     * permanent id-to-position index would add stale-position risk. The
+     * RecyclerView already owns the authoritative attached-holder set; scanning
+     * that small window keeps this O(visible children), not O(all messages).
+     *
+     * Rows outside the attached window read the latest presence sets on their
+     * next normal bind, so they do not need an immediate notification.
+     */
+    private void notifyVisiblePresenceChanges(java.util.Set<String> changedIds) {
+        if (changedIds == null || changedIds.isEmpty()) return;
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return;
+
+        for (int childIndex = 0; childIndex < rv.getChildCount(); childIndex++) {
+            android.view.View child = rv.getChildAt(childIndex);
+            RecyclerView.ViewHolder rawHolder = rv.getChildViewHolder(child);
+            if (!(rawHolder instanceof VH)) continue;
+
+            VH holder = (VH) rawHolder;
+            Message message = holder.boundMessage;
+            if (message == null) continue;
+            String id = message.messageId != null ? message.messageId : message.id;
+            if (id == null || !changedIds.contains(id)) continue;
+
+            int position = holder.getBindingAdapterPosition();
+            if (position != RecyclerView.NO_POSITION) {
+                // Payload-only refresh: no Glide reload, Linkify pass, full
+                // bubble redraw or countdown restart for a dot/badge change.
+                notifyItemChanged(position, PAYLOAD_PRESENCE);
+            }
         }
     }
+
     private MultiSelectListener multiSelectListener;
 
     public void setMultiSelectListener(MultiSelectListener l) { this.multiSelectListener = l; }

@@ -1,28 +1,26 @@
 package com.callx.app.utils;
 
 import android.content.Context;
+import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.ListPreloader;
-import com.bumptech.glide.RequestBuilder;
-import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * SCROLL-AHEAD MEDIA PRELOADER
  * ──────────────────────────────────────────────────────────────────────
- * Reusable wrapper around Glide's RecyclerViewPreloader. Fast scroll ke
- * dauran, list mein aage (ya peeche, scroll direction ke hisaab se) jo
- * ~N items abhi screen par nahi hain unki image Glide disk/memory cache
- * mein pehle se hi fetch kar leta hai — taaki jab wo item screen par
- * aaye, image turant dikhe, blank/late-load na ho.
+ * Adaptive scroll-ahead media preloader. Fast scroll ke dauran, list mein
+ * aage (ya peeche, scroll direction ke hisaab se) jo bounded number of items
+ * abhi screen par nahi hain unki image Glide cache mein pehle se fetch karta
+ * hai — lekin RAM, connection aur velocity ke hisaab se window chhoti/badi
+ * hoti hai.
  *
  * Kisi bhi RecyclerView + adapter ke saath kaam karta hai (PagingDataAdapter
  * ho ya normal list-backed adapter) — bas ek chhota callback chahiye jo
@@ -53,7 +51,7 @@ public final class ChatMediaPreloader {
         // no instances
     }
 
-    /** Kitne aage/peeche items preload karne hain — zyada = zyada bandwidth, kam = kam benefit. */
+    /** Hard ceiling; the adaptive policy normally stays well below this. */
     private static final int MAX_PRELOAD = 8;
 
     /** Position se preload-URL nikaalne wala callback. Null/empty return karo agar us position pe media nahi hai. */
@@ -91,16 +89,8 @@ public final class ChatMediaPreloader {
     }
 
     /**
-     * Full control overload — lets a fast-scrolling call site (e.g. a
-     * RecyclerView using FastFlingRecyclerView's boosted flings, which
-     * sustain a higher average speed for longer than a stock fling) ask for
-     * a bigger scroll-ahead window than MAX_PRELOAD without changing that
-     * shared default for every other caller of this helper. Glide's
-     * RecyclerViewPreloader takes maxPreload as a constructor argument with
-     * no setter, so this can't be adjusted live mid-glide the way the
-     * LayoutManager's pre-layout buffer can (see ChatActivity's
-     * calculateExtraLayoutSpace()) — it's a one-time, per-screen tuning
-     * knob, not a per-frame one.
+     * Full control overload. The supplied value is a hard ceiling, while the
+     * live request count is selected by AdaptiveChatScrollPolicy.
      */
     public static RecyclerView.OnScrollListener attach(
             @NonNull Context context,
@@ -110,38 +100,81 @@ public final class ChatMediaPreloader {
             int maxPreload,
             @NonNull UrlProvider urlProvider) {
 
-        // NOTE: Glide's recyclerview-integration artifact does NOT ship a
-        // ready-made "FixedPreloadSizeProvider" class — only ViewPreloadSizeProvider
-        // (which measures an actual target view). Since we always want a fixed
-        // thumbnail size, we implement PreloadSizeProvider ourselves — it's a
-        // one-method interface, trivial to satisfy.
-        final int[] fixedSize = new int[]{preloadWidth, preloadHeight};
-        ListPreloader.PreloadSizeProvider<String> sizeProvider =
-                (item, adapterPosition, perItemPosition) -> fixedSize;
+        final Context appContext = context.getApplicationContext();
+        final AdaptiveChatScrollPolicy policy = new AdaptiveChatScrollPolicy(appContext);
+        final Set<String> requestedUrls = new HashSet<>();
+        final long[] lastSampleMs = {0L};
+        final int[] lastDy = {0};
+        final int[] velocityPxPerSecond = {0};
 
-        ListPreloader.PreloadModelProvider<String> modelProvider =
-                new ListPreloader.PreloadModelProvider<String>() {
-                    @NonNull
-                    @Override
-                    public List<String> getPreloadItems(int position) {
-                        String url = urlProvider.getPreloadUrl(position);
-                        if (url == null || url.isEmpty()) {
-                            return Collections.emptyList();
-                        }
-                        return Collections.singletonList(url);
+        RecyclerView.OnScrollListener preloader = new RecyclerView.OnScrollListener() {
+            private int scrollState = RecyclerView.SCROLL_STATE_IDLE;
+
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                long now = SystemClock.uptimeMillis();
+                long elapsed = lastSampleMs[0] == 0L ? 0L : now - lastSampleMs[0];
+                if (elapsed > 0L && elapsed <= 250L) {
+                    velocityPxPerSecond[0] = (int) Math.min(12_000L,
+                            Math.abs((long) dy) * 1000L / elapsed);
+                }
+                if (dy != 0) lastDy[0] = dy;
+                lastSampleMs[0] = now;
+                preloadAroundViewport(rv);
+            }
+
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                scrollState = newState;
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING
+                        || newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    preloadAroundViewport(rv);
+                }
+            }
+
+            private void preloadAroundViewport(@NonNull RecyclerView rv) {
+                RecyclerView.LayoutManager raw = rv.getLayoutManager();
+                if (!(raw instanceof androidx.recyclerview.widget.LinearLayoutManager)) return;
+                androidx.recyclerview.widget.LinearLayoutManager lm =
+                        (androidx.recyclerview.widget.LinearLayoutManager) raw;
+                int first = lm.findFirstVisibleItemPosition();
+                int last = lm.findLastVisibleItemPosition();
+                if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
+
+                int count = policy.mediaPreloadCount(
+                        scrollState, velocityPxPerSecond[0], maxPreload);
+                if (count <= 0 || rv.getAdapter() == null) return;
+                int direction = lastDy[0] >= 0 ? 1 : -1;
+                int itemCount = rv.getAdapter().getItemCount();
+                int start = direction > 0 ? last + 1 : first - count;
+                int end = direction > 0 ? last + count : first - 1;
+                start = Math.max(0, Math.min(itemCount, start));
+                end = Math.max(-1, Math.min(itemCount - 1, end));
+                if (direction > 0) end = Math.min(end, start + count - 1);
+                else start = Math.max(start, end - count + 1);
+
+                for (int position = start; position <= end; position++) {
+                    String url = urlProvider.getPreloadUrl(position);
+                    if (url == null || url.isEmpty() || !requestedUrls.add(url)) continue;
+                    Glide.with(appContext)
+                            .load(url)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .override(preloadWidth, preloadHeight)
+                            .preload();
+                }
+
+                // Avoid retaining every URL from a long chat. Re-requesting a
+                // URL after this small rolling set is cheap because Glide
+                // serves an existing cache hit without another download.
+                if (requestedUrls.size() > 64) {
+                    java.util.Iterator<String> iterator = requestedUrls.iterator();
+                    while (requestedUrls.size() > 48 && iterator.hasNext()) {
+                        iterator.next();
+                        iterator.remove();
                     }
-
-                    @Nullable
-                    @Override
-                    public RequestBuilder<?> getPreloadRequestBuilder(@NonNull String url) {
-                        return Glide.with(context)
-                                .load(url)
-                                .diskCacheStrategy(DiskCacheStrategy.ALL);
-                    }
-                };
-
-        RecyclerViewPreloader<String> preloader = new RecyclerViewPreloader<>(
-                Glide.with(context), modelProvider, sizeProvider, maxPreload);
+                }
+            }
+        };
 
         recyclerView.addOnScrollListener(preloader);
         return preloader;

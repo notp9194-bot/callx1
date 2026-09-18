@@ -32,16 +32,18 @@ public class ChatThemeController {
         ActivityChatBinding binding = delegate.getBinding();
         ChatThemeManager mgr = ChatThemeManager.get(delegate.getActivity());
 
-        if (binding.tvReplyBarName != null) {
-            binding.tvReplyBarName.setTextColor(mgr.getPrimaryColor());
+        View root = binding.getRoot();
+        View replyName = root.findViewById(com.callx.app.chat.R.id.tv_reply_bar_name);
+        if (replyName instanceof android.widget.TextView) {
+            ((android.widget.TextView) replyName).setTextColor(mgr.getPrimaryColor());
         }
 
         mgr.applyScreenTheme(
                 binding.toolbar,
-                binding.getRoot(),
-                binding.llInputRow,
+                root,
+                binding.cvInputCapsule,
                 binding.fabBackToLatest,
-                binding.viewReplyAccent);
+                root.findViewById(com.callx.app.chat.R.id.view_reply_accent));
         binding.chatIconBar.setAccentColor(
                 com.callx.app.utils.FollowButtonStyler.primaryColor(delegate.getActivity()));
 

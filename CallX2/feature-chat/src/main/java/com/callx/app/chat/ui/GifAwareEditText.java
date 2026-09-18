@@ -47,8 +47,26 @@ public class GifAwareEditText extends AppCompatEditText
         void onLargePaste(String pastedText, Runnable insertAsText);
     }
 
+    /**
+     * Single frame-coalesced text callback for the chat composer.
+     *
+     * The chat screen used to attach its own TextWatcher while this view
+     * attached one watcher for auto-lists and another for auto-capitalization.
+     * That made every keystroke walk three watcher callbacks. Keeping the
+     * host callback here lets the EditText dispatch all input work from one
+     * watcher and at most once per rendered frame.
+     */
+    public interface TextChangeListener {
+        void onTextChanged(CharSequence text, int start, int before, int count);
+    }
+
     private GifReceivedListener gifListener;
     private PasteAsFileListener pasteAsFileListener;
+    private TextChangeListener textChangeListener;
+    private boolean textChangeDispatchPosted;
+    private int pendingTextChangeStart = -1;
+    private int pendingTextChangeBefore;
+    private int pendingTextChangeCount;
 
     // WhatsApp/Telegram send this kind of paste as a document instead of a
     // wall of text in the bubble — this is the length past which we ask.
@@ -66,22 +84,19 @@ public class GifAwareEditText extends AppCompatEditText
 
     public GifAwareEditText(Context context) {
         super(context);
-        setupAutoListContinuation();
-        setupAutoCapitalize();
+        setupTextChangeDispatcher();
         setupFormattingToolbar();
     }
 
     public GifAwareEditText(Context context, AttributeSet attrs) {
         super(context, attrs);
-        setupAutoListContinuation();
-        setupAutoCapitalize();
+        setupTextChangeDispatcher();
         setupFormattingToolbar();
     }
 
     public GifAwareEditText(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        setupAutoListContinuation();
-        setupAutoCapitalize();
+        setupTextChangeDispatcher();
         setupFormattingToolbar();
     }
 
@@ -91,6 +106,12 @@ public class GifAwareEditText extends AppCompatEditText
 
     public void setPasteAsFileListener(PasteAsFileListener listener) {
         this.pasteAsFileListener = listener;
+    }
+
+    public void setTextChangeListener(TextChangeListener listener) {
+        removeCallbacks(textChangeDispatchRunnable);
+        textChangeDispatchPosted = false;
+        textChangeListener = listener;
     }
 
     /**
@@ -124,60 +145,56 @@ public class GifAwareEditText extends AppCompatEditText
         return text != null ? text.toString() : null;
     }
 
-    private void setupAutoListContinuation() {
+    private final Runnable textChangeDispatchRunnable = () -> {
+        textChangeDispatchPosted = false;
+        TextChangeListener listener = textChangeListener;
+        if (listener == null) return;
+        listener.onTextChanged(getText(), pendingTextChangeStart,
+                pendingTextChangeBefore, pendingTextChangeCount);
+    };
+
+    private void scheduleTextChangeDispatch(int start, int before, int count) {
+        pendingTextChangeStart = start;
+        pendingTextChangeBefore = before;
+        pendingTextChangeCount = count;
+        if (textChangeListener != null && !textChangeDispatchPosted) {
+            textChangeDispatchPosted = true;
+            postOnAnimation(textChangeDispatchRunnable);
+        }
+    }
+
+    /**
+     * One TextWatcher owns the two small editor behaviours and the host
+     * callback. Auto-list/auto-capitalization remain immediate, while the
+     * chat screen's heavier UI/presence work is dispatched once per frame.
+     */
+    private void setupTextChangeDispatcher() {
         addTextChangedListener(new TextWatcher() {
+            private int changeStart = -1;
+            private int changeBefore;
+            private int changeCount;
+
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
 
             @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                // Edits made by auto-list/auto-capitalization re-enter the
+                // watcher. They are part of the same user change and must not
+                // replace the original cursor/change metadata.
+                if (isAutoListUpdating || isAutoCapitalizing) return;
+                changeStart = start;
+                changeBefore = before;
+                changeCount = count;
+            }
 
             @Override
             public void afterTextChanged(Editable editable) {
                 if (isAutoListUpdating || isAutoCapitalizing) return;
 
-                int cursorPos = getSelectionStart();
-                if (cursorPos <= 0 || cursorPos > editable.length()) return;
-                if (editable.charAt(cursorPos - 1) != '\n') return; // sirf Enter dabane par trigger
-
-                // Just-completed line ka range nikalo (\n se pehle wali line)
-                int newlineIndex = cursorPos - 1;
-                int prevLineStart = newlineIndex;
-                while (prevLineStart > 0 && editable.charAt(prevLineStart - 1) != '\n') {
-                    prevLineStart--;
-                }
-                String prevLine = editable.subSequence(prevLineStart, newlineIndex).toString();
-                if (prevLine.isEmpty()) return;
-
-                Matcher numMatch = NUMBERED_LINE.matcher(prevLine);
-                Matcher bulletMatch = BULLET_LINE.matcher(prevLine);
-
-                if (numMatch.matches()) {
-                    String indent = numMatch.group(1);
-                    String content = numMatch.group(5);
-                    if (content == null || content.trim().isEmpty()) {
-                        // Khaali numbered line par Enter -> marker hata kar list khatam karo
-                        removeMarkerFromPrevLine(editable, prevLineStart, newlineIndex);
-                        return;
-                    }
-                    int nextNumber;
-                    try {
-                        nextNumber = Integer.parseInt(numMatch.group(2)) + 1;
-                    } catch (NumberFormatException e) {
-                        return;
-                    }
-                    String marker = indent + nextNumber + numMatch.group(3) + " ";
-                    insertMarker(editable, cursorPos, marker);
-                } else if (bulletMatch.matches()) {
-                    String indent = bulletMatch.group(1);
-                    String content = bulletMatch.group(4);
-                    if (content == null || content.trim().isEmpty()) {
-                        removeMarkerFromPrevLine(editable, prevLineStart, newlineIndex);
-                        return;
-                    }
-                    String marker = indent + bulletMatch.group(2) + " ";
-                    insertMarker(editable, cursorPos, marker);
-                }
+                applyAutoListContinuation(editable);
+                applyAutoCapitalization(editable, changeStart, changeCount);
+                scheduleTextChangeDispatch(changeStart, changeBefore, changeCount);
             }
         });
     }
@@ -188,54 +205,77 @@ public class GifAwareEditText extends AppCompatEditText
      * Sirf single-character typing par trigger hota hai (paste/autocomplete
      * jaisi bulk insertions ko chhod diya jata hai).
      */
-    private void setupAutoCapitalize() {
-        addTextChangedListener(new TextWatcher() {
-            private int changeStart = -1;
-            private int changeCount = 0;
+    private void applyAutoListContinuation(Editable editable) {
+        int cursorPos = getSelectionStart();
+        if (cursorPos <= 0 || cursorPos > editable.length()) return;
+        if (editable.charAt(cursorPos - 1) != '\n') return;
 
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+        int newlineIndex = cursorPos - 1;
+        int prevLineStart = newlineIndex;
+        while (prevLineStart > 0 && editable.charAt(prevLineStart - 1) != '\n') {
+            prevLineStart--;
+        }
+        String prevLine = editable.subSequence(prevLineStart, newlineIndex).toString();
+        if (prevLine.isEmpty()) return;
 
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                changeStart = start;
-                changeCount = count;
+        Matcher numMatch = NUMBERED_LINE.matcher(prevLine);
+        Matcher bulletMatch = BULLET_LINE.matcher(prevLine);
+
+        if (numMatch.matches()) {
+            String indent = numMatch.group(1);
+            String content = numMatch.group(5);
+            if (content == null || content.trim().isEmpty()) {
+                removeMarkerFromPrevLine(editable, prevLineStart, newlineIndex);
+                return;
             }
-
-            @Override
-            public void afterTextChanged(Editable editable) {
-                if (isAutoCapitalizing || isAutoListUpdating) return;
-                if (changeCount != 1) return; // sirf ek letter typing hi handle karo
-
-                int pos = changeStart;
-                if (pos < 0 || pos >= editable.length()) return;
-                char typed = editable.charAt(pos);
-                if (!Character.isLowerCase(typed)) return;
-
-                // Pichhe ki taraf non-space character dhoondo
-                int i = pos - 1;
-                while (i >= 0 && (editable.charAt(i) == ' ' || editable.charAt(i) == '\t')) {
-                    i--;
-                }
-
-                boolean shouldCapitalize;
-                if (i < 0) {
-                    shouldCapitalize = true; // text ki shuruaat
-                } else {
-                    char prevNonSpace = editable.charAt(i);
-                    shouldCapitalize = prevNonSpace == '\n'
-                            || prevNonSpace == '.'
-                            || prevNonSpace == '!'
-                            || prevNonSpace == '?';
-                }
-
-                if (shouldCapitalize) {
-                    isAutoCapitalizing = true;
-                    editable.replace(pos, pos + 1, String.valueOf(Character.toUpperCase(typed)));
-                    isAutoCapitalizing = false;
-                }
+            int nextNumber;
+            try {
+                nextNumber = Integer.parseInt(numMatch.group(2)) + 1;
+            } catch (NumberFormatException e) {
+                return;
             }
-        });
+            insertMarker(editable, cursorPos,
+                    indent + nextNumber + numMatch.group(3) + " ");
+        } else if (bulletMatch.matches()) {
+            String content = bulletMatch.group(4);
+            if (content == null || content.trim().isEmpty()) {
+                removeMarkerFromPrevLine(editable, prevLineStart, newlineIndex);
+                return;
+            }
+            insertMarker(editable, cursorPos,
+                    bulletMatch.group(1) + bulletMatch.group(2) + " ");
+        }
+    }
+
+    private void applyAutoCapitalization(Editable editable, int changeStart, int changeCount) {
+        if (changeCount != 1) return;
+
+        int pos = changeStart;
+        if (pos < 0 || pos >= editable.length()) return;
+        char typed = editable.charAt(pos);
+        if (!Character.isLowerCase(typed)) return;
+
+        int i = pos - 1;
+        while (i >= 0 && (editable.charAt(i) == ' ' || editable.charAt(i) == '\t')) {
+            i--;
+        }
+
+        boolean shouldCapitalize;
+        if (i < 0) {
+            shouldCapitalize = true;
+        } else {
+            char prevNonSpace = editable.charAt(i);
+            shouldCapitalize = prevNonSpace == '\n'
+                    || prevNonSpace == '.'
+                    || prevNonSpace == '!'
+                    || prevNonSpace == '?';
+        }
+
+        if (shouldCapitalize) {
+            isAutoCapitalizing = true;
+            editable.replace(pos, pos + 1, String.valueOf(Character.toUpperCase(typed)));
+            isAutoCapitalizing = false;
+        }
     }
 
     private void insertMarker(Editable editable, int cursorPos, String marker) {

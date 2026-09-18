@@ -18,6 +18,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CopyOnWriteArrayList;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.CallLogEntity;
 
@@ -47,6 +48,34 @@ public class CallForegroundService extends android.app.Service {
     public static volatile String  activeCallId       = "";
     public static volatile boolean activeIsVideo      = false;
     public static volatile boolean activeIsCaller     = false;
+
+    /** Lightweight in-process state channel for the MainActivity banner. */
+    public interface StateListener {
+        void onCallStateChanged();
+    }
+
+    private static final CopyOnWriteArrayList<StateListener> STATE_LISTENERS =
+            new CopyOnWriteArrayList<>();
+
+    public static void addStateListener(StateListener listener) {
+        if (listener != null && !STATE_LISTENERS.contains(listener)) {
+            STATE_LISTENERS.add(listener);
+        }
+    }
+
+    public static void removeStateListener(StateListener listener) {
+        if (listener != null) STATE_LISTENERS.remove(listener);
+    }
+
+    private static void notifyStateListeners() {
+        for (StateListener listener : STATE_LISTENERS) {
+            try {
+                listener.onCallStateChanged();
+            } catch (Exception ignored) {
+                // UI lifecycle can race service teardown; never affect the call.
+            }
+        }
+    }
 
     // ── Mute / Camera state — CallActivity sets these via broadcast ───────
     // NotificationActionReceiver bhi read karta hai taaki notification update ho
@@ -89,6 +118,7 @@ public class CallForegroundService extends android.app.Service {
 
         // Mark service as running — visible to banner + busy-check
         isRunning = true;
+        notifyStateListeners();
 
         startForeground(ID, buildNotification("Connecting..."));
         startTicker();
@@ -121,6 +151,7 @@ public class CallForegroundService extends android.app.Service {
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         isRunning = false;
+        notifyStateListeners();
         if (!activeCallId.isEmpty()) {
             try {
                 com.callx.app.utils.FirebaseUtils.db()
@@ -252,6 +283,7 @@ public class CallForegroundService extends android.app.Service {
     @Override
     public void onDestroy() {
         isRunning = false;  // Banner hide ho jaaye
+        notifyStateListeners();
         tickHandler.removeCallbacksAndMessages(null);
         try { bgEx.shutdownNow(); } catch (Exception ignored) {}
         super.onDestroy();

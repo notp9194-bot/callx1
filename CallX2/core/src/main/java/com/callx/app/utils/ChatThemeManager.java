@@ -184,13 +184,9 @@ public class ChatThemeManager {
         toolbar.setBackground(toolbarBg);
 
         if (chatRoot != null) chatRoot.setBackgroundColor(chatBgColor);
-        // inputBarRoot (ll_input_row) is intentionally NOT recolored here
-        // anymore — it's the transparent ConstraintLayout INSIDE the
-        // cv_input_capsule pill, and painting it barColor (white/black) used
-        // to completely hide the pill's own @color/chat_input_bar_bg behind
-        // an opaque rectangle. The pill's color is set once, statically, in
-        // activity_chat.xml and already picks up the right light/dark value
-        // automatically via values/ vs values-night/.
+        // inputBarRoot (the custom ChatInputBarContainer) is intentionally
+        // NOT recolored here. It owns the pill background and already picks
+        // up the right light/dark value from its drawable's color resources.
 
         // NOTE: the mic/send accent used to be applied here via a
         // GradientDrawable background swap on btnSend/btnMic. Since the

@@ -66,6 +66,15 @@ public class ComposeLinkPreviewController {
             pendingFetch = null;
         }
 
+        // Cheap gate before extractFirstUrl(): most chat input does not
+        // contain a URL at all. Avoid parser work, allocations, and preview
+        // state churn until the text has at least one URL-shaped signal.
+        if (!mayContainUrl(text)) {
+            dismissedUrl = null;
+            hide();
+            return;
+        }
+
         String url = LinkPreviewFetcher.extractFirstUrl(text);
         if (url == null) {
             dismissedUrl = null;
@@ -92,6 +101,37 @@ public class ComposeLinkPreviewController {
         handler.postDelayed(pendingFetch, DEBOUNCE_MS);
     }
 
+    /**
+     * Allocation-free prefilter for compose-time URL detection. This is
+     * deliberately broader than the real parser: false positives are cheap,
+     * while calling the parser for ordinary prose on every keystroke is not.
+     */
+    public static boolean mayContainUrl(CharSequence text) {
+        if (text == null || text.length() == 0) return false;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '.') return true;
+        }
+        return containsIgnoreCase(text, "http") || containsIgnoreCase(text, "www");
+    }
+
+    private static boolean containsIgnoreCase(CharSequence text, String needle) {
+        int lastStart = text.length() - needle.length();
+        for (int start = 0; start <= lastStart; start++) {
+            boolean match = true;
+            for (int i = 0; i < needle.length(); i++) {
+                char c = text.charAt(start + i);
+                char expected = needle.charAt(i);
+                if (c == expected) continue;
+                if (Character.toLowerCase(c) != expected) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return true;
+        }
+        return false;
+    }
+
     /** Clears all state — call on send / clearReply-equivalent reset. */
     public void reset() {
         if (pendingFetch != null) {
@@ -110,6 +150,7 @@ public class ComposeLinkPreviewController {
 
     private boolean isStillCurrent(String url) {
         CharSequence current = editText.getText();
+        if (!mayContainUrl(current)) return false;
         String currentUrl = current != null
                 ? LinkPreviewFetcher.extractFirstUrl(current.toString()) : null;
         return url.equals(currentUrl);

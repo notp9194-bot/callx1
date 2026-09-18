@@ -142,24 +142,54 @@ public class MainActivity extends AppCompatActivity
 
     // Notification badge counter
     private int totalNotifUnread = 0;
-    private ValueEventListener notifChatBadgeListener;
-    private ValueEventListener notifGroupBadgeListener;
-    private ValueEventListener notifReelBadgeListener;
-    private ValueEventListener notifCallBadgeListener;
     private int notifChatUnread   = 0;
     private int notifGroupUnread  = 0;
     private int notifReelUnread   = 0;
     private int notifCallUnread   = 0;
     // Status unseen count — included in the header notification ball
     private int notifStatusUnread = 0;
+    private final java.util.Map<Integer, Integer> navBadgeCounts =
+            new java.util.HashMap<>();
+    private String lastNotificationBadgeText;
+    private boolean badgeListenersAttached;
+    private String badgeListenersUid;
 
-    // Firebase listeners — kept to detach in onDestroy
+    // Firebase listeners — attached only while MainActivity is started.
     private ValueEventListener unreadChatsListener;
     private ValueEventListener missedCallsListener;
     private ValueEventListener unseenStatusListener;
     private ValueEventListener unreadGroupsListener;
     private ValueEventListener unreadReelNotifsListener;
-    private ChildEventListener  contactStatusChildListener;
+    private final java.util.Map<DatabaseReference, ChildEventListener>
+            storyStatusListeners = new java.util.HashMap<>();
+    private boolean storyListenersLoading;
+
+    // Header/chrome views are resolved once from ViewBinding. These methods are
+    // hit on tab changes and lifecycle callbacks, so walking the root view tree
+    // there is unnecessary work.
+    private View headerView;
+    private View navContainerView;
+    private TextView notificationBadgeView;
+    private View returnToCallBannerView;
+    private TextView returnToCallNameView;
+    private TextView returnToCallTimerView;
+    private ViewGroup.MarginLayoutParams viewPagerMargins;
+    private int chromeBackgroundColor = Integer.MIN_VALUE;
+    private boolean chromeNavVisible;
+    private boolean chromeHeaderVisible;
+    private boolean chromeStateInitialized;
+
+    // Cached profile/avatar state prevents a Firebase + Glide round trip on
+    // every onResume (which happens whenever a child Activity is closed).
+    private static final String PREFS_MAIN_PROFILE_CACHE = "main_header_cache";
+    private static final long HEADER_CACHE_TTL_MS = 6 * 60 * 60 * 1000L;
+    private String reelsAvatarLoadedUrl;
+    private com.bumptech.glide.request.target.CustomTarget<Bitmap> reelsAvatarTarget;
+
+    // Direct callback from the foreground call service; no reflection or
+    // 500ms service-state polling is needed.
+    private final CallForegroundService.StateListener callStateListener =
+            () -> runOnUiThread(this::updateReturnToCallBanner);
 
     // Track already-notified status IDs so we don't re-notify on re-attach
     private final java.util.Set<String> notifiedStatusIds = new java.util.HashSet<>();
@@ -262,6 +292,7 @@ public class MainActivity extends AppCompatActivity
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        cacheHeaderViews();
 
         // v391 WHATSAPP-LEVEL FIX — moved off the critical cold-start path.
         // See requestPermissions()'s own doc + OptionalPermissionPrefs for
@@ -308,17 +339,17 @@ public class MainActivity extends AppCompatActivity
         });
 
         setupVoiceMiniPlayer();
+        setupReturnToCallBanner();
 
         // v244: avatar removed from toolbar — Settings (AccountMenuActivity)
         // now opens from the 3-dot overflow menu instead (see onOptionsItemSelected).
 
         binding.viewPager.setAdapter(new ViewPagerAdapter(this));
-        // FIX #LAZY: offscreenPageLimit 2 → 1 kiya gaya.
-        // Pehle: Tab 0 open hone par Tab 1 + Tab 2 dono immediately load hote the.
-        // Ab:    Sirf Tab 1 (Status) pre-load hoga — Tab 2 (Groups), Tab 3 (Reels),
-        //        Tab 4 (Calls) tab par tap karne par hi load honge.
-        // Faida: ~15% less memory on startup, Reels ExoPlayer init tab switch pe hoga.
-        binding.viewPager.setOffscreenPageLimit(1);
+        // Keep ViewPager2's default adaptive retention. A fixed limit of 1
+        // eagerly creates the adjacent Reels fragment (and its player) on
+        // every cold start; the default lets RecyclerView retain only what
+        // the current layout actually needs.
+        binding.viewPager.setOffscreenPageLimit(ViewPager2.OFFSCREEN_PAGE_LIMIT_DEFAULT);
         
         // Initialize tab history with starting tab (chats)
         tabHistoryStack.push(TAB_CHATS);
@@ -361,7 +392,6 @@ public class MainActivity extends AppCompatActivity
                 // X/YouTube/Games entry) only belongs on the Chats tab. Status,
                 // Groups and Calls each have their own top area (or none) —
                 // Reels is skipped here since it already fully owns its chrome.
-                updateHeaderVisibilityForTab(position);
                 // ── Reel playback: pause when leaving, resume when entering ──
                 // Track previous tab so we know whether user is going TO or FROM Reels
                 notifyReelsTabVisibility(position == TAB_REELS, position);
@@ -410,7 +440,6 @@ public class MainActivity extends AppCompatActivity
         loadMyAvatar();
         loadReelsAvatarIntoNavTab();  // Reels nav tab mein Reels profile avatar dikhao
         refreshFcmToken();
-        startBadgeListeners();
         // ── In-App Update Check — Firebase se version compare karta hai ──
         AppUpdateManager.check(this);
     }
@@ -456,8 +485,6 @@ public class MainActivity extends AppCompatActivity
 
     @Override protected void onResume() {
         super.onResume();
-        loadMyAvatar();
-        loadReelsAvatarIntoNavTab();
         int currentTab = binding.viewPager.getCurrentItem();
         boolean isReelsTab = currentTab == TAB_REELS;
 
@@ -481,7 +508,6 @@ public class MainActivity extends AppCompatActivity
             notifyReelsTabVisibility(isReelsTab, currentTab);
         }
         applyReelsTabChrome(isReelsTab);
-        updateHeaderVisibilityForTab(currentTab);
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
         // Voice-note mini player — re-sync in case a clip started/stopped
@@ -490,14 +516,50 @@ public class MainActivity extends AppCompatActivity
         updateVoiceMiniPlayer();
     }
 
+    @Override protected void onStart() {
+        super.onStart();
+        CallForegroundService.addStateListener(callStateListener);
+        startBadgeListeners();
+        updateReturnToCallBanner();
+    }
+
     // ── Voice-note mini player ────────────────────────────────────────────
     // WhatsApp-style green strip — shown above the toolbar whenever
     // GlobalVoicePlaybackManager has an active voice note (playing OR
     // paused-but-still-active), which happens once the user leaves the
     // ChatActivity screen it was started from. See MessagePagingAdapter's
     // onDetachedFromRecyclerView for the hand-off that keeps it alive.
+    private void cacheHeaderViews() {
+        headerView = binding.appBarLayout;
+        navContainerView = binding.navContainer;
+        notificationBadgeView = binding.tvNotifBadge;
+        returnToCallBannerView = binding.bannerReturnToCall;
+        returnToCallNameView = binding.tvReturnToCallName;
+        returnToCallTimerView = binding.tvReturnToCallTimer;
+        viewPagerMargins = (ViewGroup.MarginLayoutParams) binding.viewPager.getLayoutParams();
+        chromeStateInitialized = false;
+    }
+
+    private void setupReturnToCallBanner() {
+        if (returnToCallBannerView == null) return;
+        returnToCallBannerView.setOnClickListener(v -> {
+            Intent i = new Intent(this, com.callx.app.call.CallActivity.class);
+            i.putExtra("partnerUid", CallForegroundService.activePartnerUid);
+            i.putExtra("partnerName", CallForegroundService.activePartnerName);
+            i.putExtra("partnerPhoto", CallForegroundService.activePartnerPhoto);
+            i.putExtra("partnerThumb", CallForegroundService.activePartnerThumb);
+            i.putExtra("callId", CallForegroundService.activeCallId);
+            i.putExtra("video", CallForegroundService.activeIsVideo);
+            i.putExtra("isCaller", CallForegroundService.activeIsCaller);
+            i.putExtra("isRestore", true);
+            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+        });
+    }
+
     private void setupVoiceMiniPlayer() {
-        View banner = binding.getRoot().findViewById(R.id.banner_voice_mini_player);
+        View banner = binding.bannerVoiceMiniPlayer;
         if (banner == null) return;
         // PERF: resolve every child view once here; updateVoiceMiniPlayer()
         // (the hot path — runs on every play/pause/start/stop and every
@@ -590,102 +652,65 @@ public class MainActivity extends AppCompatActivity
     private Runnable bannerTickRunnable;
 
     private void updateReturnToCallBanner() {
-        // CallForegroundService ke static field se check karo
-        boolean callActive;
-        try {
-            Class<?> cls = Class.forName(
-                "com.callx.app.services.CallForegroundService");
-            callActive = (boolean) cls.getField("isRunning").get(null);
-        } catch (Exception e) {
-            callActive = false;
-        }
-
-        View banner = binding.getRoot().findViewById(R.id.banner_return_to_call);
-        if (banner == null) return;
+        if (returnToCallBannerView == null) return;
+        boolean callActive = CallForegroundService.isRunning;
 
         if (!callActive) {
-            banner.setVisibility(View.GONE);
+            if (returnToCallBannerView.getVisibility() != View.GONE) {
+                returnToCallBannerView.setVisibility(View.GONE);
+            }
             bannerTickHandler.removeCallbacksAndMessages(null);
             return;
         }
 
-        // Banner dikhao
-        banner.setVisibility(View.VISIBLE);
+        if (returnToCallBannerView.getVisibility() != View.VISIBLE) {
+            returnToCallBannerView.setVisibility(View.VISIBLE);
+        }
+        String name = CallForegroundService.activePartnerName;
+        if (returnToCallNameView != null) {
+            String label = (name == null || name.isEmpty())
+                    ? "Tap to return to call" : name + " · Tap to return";
+            if (!label.contentEquals(returnToCallNameView.getText())) {
+                returnToCallNameView.setText(label);
+            }
+        }
 
-        // Name set karo
-        android.widget.TextView tvName =
-            banner.findViewById(R.id.tv_return_to_call_name);
-        android.widget.TextView tvTimer =
-            banner.findViewById(R.id.tv_return_to_call_timer);
-
-        try {
-            Class<?> cls = Class.forName(
-                "com.callx.app.services.CallForegroundService");
-            String name = (String) cls.getField("activePartnerName").get(null);
-            if (tvName != null && name != null && !name.isEmpty())
-                tvName.setText(name + " · Tap to return");
-        } catch (Exception ignored) {}
-
-        // Live timer tick karo
+        // Only the visual timer is periodic; service state changes arrive via
+        // StateListener, so this runnable never performs reflection/polling.
         bannerTickHandler.removeCallbacksAndMessages(null);
         bannerTickRunnable = new Runnable() {
             @Override public void run() {
-                boolean still;
-                try {
-                    Class<?> cls = Class.forName(
-                        "com.callx.app.services.CallForegroundService");
-                    still = (boolean) cls.getField("isRunning").get(null);
-                } catch (Exception ex) { still = false; }
-                if (!still) {
-                    banner.setVisibility(View.GONE);
+                if (!CallForegroundService.isRunning) {
+                    updateReturnToCallBanner();
                     return;
                 }
-                if (tvTimer != null) {
-                    // Duration from startedAt not exposed — show animated dots instead
+                if (returnToCallTimerView != null) {
                     String[] dots = {"●○○", "○●○", "○○●"};
-                    tvTimer.setText(dots[(int)((System.currentTimeMillis() / 500) % 3)]);
+                    returnToCallTimerView.setText(
+                            dots[(int) ((System.currentTimeMillis() / 500) % 3)]);
                 }
                 bannerTickHandler.postDelayed(this, 500);
             }
         };
         bannerTickHandler.post(bannerTickRunnable);
-
-        // Tap → CallActivity wapas kholo with isRestore=true
-        banner.setOnClickListener(v -> {
-            try {
-                Class<?> cls = Class.forName(
-                    "com.callx.app.services.CallForegroundService");
-                String uid   = (String) cls.getField("activePartnerUid").get(null);
-                String name  = (String) cls.getField("activePartnerName").get(null);
-                String photo = (String) cls.getField("activePartnerPhoto").get(null);
-                String thumb = (String) cls.getField("activePartnerThumb").get(null);
-                String cid   = (String) cls.getField("activeCallId").get(null);
-                boolean vid  = (boolean) cls.getField("activeIsVideo").get(null);
-                boolean iCal = (boolean) cls.getField("activeIsCaller").get(null);
-
-                Intent i = new Intent();
-                i.setClassName(this,
-                    "com.callx.app.call.CallActivity");
-                i.putExtra("partnerUid",   uid);
-                i.putExtra("partnerName",  name);
-                i.putExtra("partnerPhoto", photo);
-                i.putExtra("partnerThumb", thumb);
-                i.putExtra("callId",       cid);
-                i.putExtra("video",        vid);
-                i.putExtra("isCaller",     iCal);
-                i.putExtra("isRestore",    true);
-                i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                startActivity(i);
-            } catch (Exception ex) {
-                android.util.Log.w("MainActivity", "Banner tap failed", ex);
-            }
-        });
     }
 
     @Override protected void onPause() {
         super.onPause();
         bannerTickHandler.removeCallbacksAndMessages(null);
+    }
+
+    @Override protected void onStop() {
+        CallForegroundService.removeStateListener(callStateListener);
+        detachBadgeListeners();
+        bannerTickHandler.removeCallbacksAndMessages(null);
+        super.onStop();
+        // Some OEMs skip onUserLeaveHint; retain the PiP fallback.
+        if (dockedPlayer != null && dockedPlayer.isShowing()
+                && !dockedPlayer.isInPipMode()
+                && !isFinishing()) {
+            dockedPlayer.enterPipIfSupported();
+        }
     }
 
     // ── Feature 5: Picture-in-Picture support ─────────────────────────────
@@ -709,19 +734,6 @@ public class MainActivity extends AppCompatActivity
         // Layer 2 fallback — covers hardware home button + API 26-30 gesture
         if (dockedPlayer != null && dockedPlayer.isShowing()
                 && !dockedPlayer.isInPipMode()) {
-            dockedPlayer.enterPipIfSupported();
-        }
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        // Layer 3 fallback — some OEM ROMs (MIUI, ColorOS) skip onUserLeaveHint.
-        // If we reach onStop() with a visible mini player and NOT already in PiP,
-        // attempt to enter PiP now.
-        if (dockedPlayer != null && dockedPlayer.isShowing()
-                && !dockedPlayer.isInPipMode()
-                && !isFinishing()) {
             dockedPlayer.enterPipIfSupported();
         }
     }
@@ -753,40 +765,15 @@ public class MainActivity extends AppCompatActivity
         // touched by a stray lock()/unlock() call from a Reels fragment
         // still finishing off its own lifecycle.
         com.callx.app.utils.ReelTabSwipeLock.setController(null);
+        CallForegroundService.removeStateListener(callStateListener);
+        detachBadgeListeners();
         GlobalVoicePlaybackManager.getInstance().removeListener(voiceMiniPlayerListener);
         // Clean up any active docked reel player to release the ExoPlayer surface
         if (dockedPlayer != null) {
             dockedPlayer.dismiss(false);
             dockedPlayer = null;
         }
-        String uid = currentUid();
-        if (uid != null) {
-            if (unreadChatsListener    != null) FirebaseUtils.getContactsRef(uid).removeEventListener(unreadChatsListener);
-            if (missedCallsListener    != null) FirebaseUtils.getCallsRef(uid).removeEventListener(missedCallsListener);
-            if (unseenStatusListener   != null) FirebaseUtils.getStatusRef().removeEventListener(unseenStatusListener);
-            if (unreadGroupsListener   != null) FirebaseUtils.getUserGroupsRef(uid).removeEventListener(unreadGroupsListener);
-            if (unreadReelNotifsListener != null)
-                FirebaseUtils.db().getReference("reel_notifications").child(uid)
-                    .removeEventListener(unreadReelNotifsListener);
-            if (notifChatBadgeListener  != null) FirebaseUtils.getContactsRef(uid).removeEventListener(notifChatBadgeListener);
-            if (notifGroupBadgeListener != null) FirebaseUtils.getUserGroupsRef(uid).removeEventListener(notifGroupBadgeListener);
-            if (notifReelBadgeListener  != null)
-                FirebaseUtils.db().getReference("reel_notifications").child(uid).removeEventListener(notifReelBadgeListener);
-            if (notifCallBadgeListener  != null) FirebaseUtils.getCallsRef(uid).removeEventListener(notifCallBadgeListener);
-            // contactStatusChildListener is attached per-contact; detach the most recent reference
-            // (full cleanup would require storing a map of uid → listener, but this prevents leaks
-            //  on the most recently attached contact's listener chain)
-            if (contactStatusChildListener != null) {
-                // Best-effort: listener was last attached to a specific contact path, which is
-                // already cleaned up by Firebase when the app process ends.
-            }
-        }
         super.onDestroy();
-
-          // X badge listener cleanup
-          if (xNotifBadgeListener != null) {
-              if (uid != null) XFirebaseUtils.xUnreadNotifCountRef(uid).removeEventListener(xNotifBadgeListener);
-          }
     }
 
     private String currentUid() {
@@ -964,13 +951,29 @@ public class MainActivity extends AppCompatActivity
     private void loadMyAvatar() {
         String uid = currentUid();
         if (uid == null) return;
+        android.content.SharedPreferences cache =
+                getSharedPreferences(PREFS_MAIN_PROFILE_CACHE, MODE_PRIVATE);
+        String prefix = uid + "_";
+        myName = cache.getString(prefix + "name", "");
+        myPhotoUrl = cache.getString(prefix + "photo", "");
+        long cachedAt = cache.getLong(prefix + "updated_at", 0L);
+        if (!myName.isEmpty() || !myPhotoUrl.isEmpty()) {
+            if (cachedAt > 0
+                    && System.currentTimeMillis() - cachedAt < HEADER_CACHE_TTL_MS) {
+                return;
+            }
+        }
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 String name  = snap.child("name").getValue(String.class);
                 String photo = snap.child("photoUrl").getValue(String.class);
-                String thumb = snap.child("thumbUrl").getValue(String.class);
                 if (name  != null) myName     = name;
                 if (photo != null) myPhotoUrl = photo;
+                cache.edit()
+                        .putString(prefix + "name", myName)
+                        .putString(prefix + "photo", myPhotoUrl)
+                        .putLong(prefix + "updated_at", System.currentTimeMillis())
+                        .apply();
                 // v244: toolbar avatar (ivAvatarMenu) removed — Settings now lives
                 // in the 3-dot overflow menu instead. myName/myPhotoUrl fetched
                 // above are still used elsewhere (e.g. openMyReelsProfile()), so
@@ -999,16 +1002,30 @@ public class MainActivity extends AppCompatActivity
     private void startBadgeListeners() {
         String uid = currentUid();
         if (uid == null) return;
+        if (badgeListenersAttached && uid.equals(badgeListenersUid)) return;
+        detachBadgeListeners();
+        badgeListenersAttached = true;
+        badgeListenersUid = uid;
 
         // 1. Unread chats → nav_chats badge
         unreadChatsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 long total = 0;
+                int threads = 0;
                 for (DataSnapshot c : snap.getChildren()) {
                     Long u = c.child("unread").getValue(Long.class);
-                    if (u != null) total += u;
+                    if (u != null && u > 0) {
+                        total += u;
+                        threads++;
+                    }
                 }
                 setBadge(R.id.nav_chats, (int) total);
+                notifChatUnread = threads;
+                updateNotifBadge();
+                if (!storyListenersLoading && storyStatusListeners.isEmpty()) {
+                    storyListenersLoading = true;
+                    loadContactUidsForStoryNotif(uid, snap);
+                }
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -1022,10 +1039,14 @@ public class MainActivity extends AppCompatActivity
                 int missed = 0;
                 for (DataSnapshot c : snap.getChildren()) {
                     String dir = c.child("direction").getValue(String.class);
+                    String status = c.child("status").getValue(String.class);
                     Long ts    = c.child("timestamp").getValue(Long.class);
-                    if ("missed".equals(dir) && ts != null && ts > seenTs) missed++;
+                    boolean isMissed = "missed".equals(dir) || "missed".equals(status);
+                    if (isMissed && ts != null && ts > seenTs) missed++;
                 }
                 setBadge(R.id.nav_calls, missed);
+                notifCallUnread = missed;
+                updateNotifBadge();
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -1077,22 +1098,21 @@ public class MainActivity extends AppCompatActivity
         };
         FirebaseUtils.getStatusRef().addValueEventListener(unseenStatusListener);
 
-        // 4b. Story notification wiring — when a contact posts a NEW status item,
-        //     enqueue StoryNotificationWorker so the device shows a notification even
-        //     if the app is in the background or killed.
-        //     Uses ChildEventListener on statuses/{uid} (all owners) and compares
-        //     against contacts list to decide whether to enqueue.
-        loadContactUidsForStoryNotif(uid);
-
         // 4. Unread group messages → nav_groups badge (index shifted — was #4, now after 4b)
         unreadGroupsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 int unread = 0;
+                int threads = 0;
                 for (DataSnapshot g : snap.getChildren()) {
                     Long u = g.child("unread").getValue(Long.class);
-                    if (u != null && u > 0) unread += u;
+                    if (u != null && u > 0) {
+                        unread += u;
+                        threads++;
+                    }
                 }
                 setBadge(R.id.nav_groups, unread);
+                notifGroupUnread = threads;
+                updateNotifBadge();
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -1107,14 +1127,48 @@ public class MainActivity extends AppCompatActivity
                     if (read == null || !read) unread++;
                 }
                 setBadge(R.id.nav_reels, unread);
+                notifReelUnread = unread;
+                updateNotifBadge();
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
         FirebaseUtils.db().getReference("reel_notifications")
             .child(uid).addValueEventListener(unreadReelNotifsListener);
+    }
 
-        // 6. AllNotifications toolbar badge
-        startNotifBadgeListeners(uid);
+    private void detachBadgeListeners() {
+        String uid = badgeListenersUid;
+        if (uid != null) {
+            if (unreadChatsListener != null) {
+                FirebaseUtils.getContactsRef(uid).removeEventListener(unreadChatsListener);
+            }
+            if (missedCallsListener != null) {
+                FirebaseUtils.getCallsRef(uid).removeEventListener(missedCallsListener);
+            }
+            if (unseenStatusListener != null) {
+                FirebaseUtils.getStatusRef().removeEventListener(unseenStatusListener);
+            }
+            if (unreadGroupsListener != null) {
+                FirebaseUtils.getUserGroupsRef(uid).removeEventListener(unreadGroupsListener);
+            }
+            if (unreadReelNotifsListener != null) {
+                FirebaseUtils.db().getReference("reel_notifications").child(uid)
+                        .removeEventListener(unreadReelNotifsListener);
+            }
+        }
+        for (java.util.Map.Entry<DatabaseReference, ChildEventListener> entry
+                : storyStatusListeners.entrySet()) {
+            entry.getKey().removeEventListener(entry.getValue());
+        }
+        storyStatusListeners.clear();
+        storyListenersLoading = false;
+        unreadChatsListener = null;
+        missedCallsListener = null;
+        unseenStatusListener = null;
+        unreadGroupsListener = null;
+        unreadReelNotifsListener = null;
+        badgeListenersAttached = false;
+        badgeListenersUid = null;
     }
 
     /** Reels tab ke bottom nav icon mein Reels profile ka avatar load karo.
@@ -1122,6 +1176,18 @@ public class MainActivity extends AppCompatActivity
     private void loadReelsAvatarIntoNavTab() {
         String uid = currentUid();
         if (uid == null) return;
+        android.content.SharedPreferences cache =
+                getSharedPreferences(PREFS_MAIN_PROFILE_CACHE, MODE_PRIVATE);
+        String prefix = uid + "_reels_";
+        String cachedUrl = cache.getString(prefix + "url", "");
+        long cachedAt = cache.getLong(prefix + "updated_at", 0L);
+        if (!cachedUrl.isEmpty()) {
+            applyReelsAvatar(cachedUrl);
+            if (cachedAt > 0
+                    && System.currentTimeMillis() - cachedAt < HEADER_CACHE_TTL_MS) {
+                return;
+            }
+        }
         com.google.firebase.database.FirebaseDatabase.getInstance()
             .getReference("reels/users").child(uid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1130,43 +1196,53 @@ public class MainActivity extends AppCompatActivity
                     String photoUrl = snap.child("photoUrl").getValue(String.class);
                     String url = (thumbUrl != null && !thumbUrl.isEmpty()) ? thumbUrl : photoUrl;
                     if (url == null || url.isEmpty()) return;
-                    // Load as circular bitmap, then set as nav tab icon
-                    int iconSizePx = (int) (24 * getResources().getDisplayMetrics().density);
-                    Glide.with(MainActivity.this)
-                        .asBitmap()
-                        .load(url)
-                        .apply(new RequestOptions().circleCrop().override(iconSizePx, iconSizePx))
-                        .into(new CustomTarget<Bitmap>() {
-                            @Override public void onResourceReady(
-                                    @NonNull Bitmap resource,
-                                    @Nullable Transition<? super Bitmap> transition) {
-                                android.graphics.drawable.Drawable d =
-                                    new BitmapDrawable(getResources(), resource);
-                                android.view.MenuItem mi = binding.bottomNav.getMenu()
-                                    .findItem(R.id.nav_reels);
-                                mi.setIcon(d);
-                                // Tint band karo — warna BottomNav avatar ko grey/tinted kar deta hai
-                                if (binding.bottomNav instanceof com.google.android.material.bottomnavigation.BottomNavigationView) {
-                                    com.google.android.material.bottomnavigation.BottomNavigationMenuView menuView =
-                                        (com.google.android.material.bottomnavigation.BottomNavigationMenuView)
-                                            binding.bottomNav.getChildAt(0);
-                                    for (int i = 0; i < menuView.getChildCount(); i++) {
-                                        com.google.android.material.bottomnavigation.BottomNavigationItemView itemView =
-                                            (com.google.android.material.bottomnavigation.BottomNavigationItemView)
-                                                menuView.getChildAt(i);
-                                        if (itemView.getItemData() != null &&
-                                            itemView.getItemData().getItemId() == R.id.nav_reels) {
-                                            itemView.setIconTintList(null);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
-                        });
+                    cache.edit().putString(prefix + "url", url)
+                            .putLong(prefix + "updated_at", System.currentTimeMillis())
+                            .apply();
+                    applyReelsAvatar(url);
                 }
                 @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {}
             });
+    }
+
+    private void applyReelsAvatar(String url) {
+        if (url == null || url.isEmpty() || url.equals(reelsAvatarLoadedUrl)) return;
+        reelsAvatarLoadedUrl = url;
+        int iconSizePx = (int) (24 * getResources().getDisplayMetrics().density);
+        reelsAvatarTarget = new CustomTarget<Bitmap>() {
+            @Override public void onResourceReady(
+                    @NonNull Bitmap resource,
+                    @Nullable Transition<? super Bitmap> transition) {
+                android.view.MenuItem item = binding.bottomNav.getMenu()
+                        .findItem(R.id.nav_reels);
+                if (item == null) return;
+                item.setIcon(new BitmapDrawable(getResources(), resource));
+                // BottomNavigationView's default tint would grey out the avatar.
+                if (binding.bottomNav.getChildCount() > 0
+                        && binding.bottomNav.getChildAt(0)
+                        instanceof com.google.android.material.bottomnavigation.BottomNavigationMenuView) {
+                    com.google.android.material.bottomnavigation.BottomNavigationMenuView menuView =
+                            (com.google.android.material.bottomnavigation.BottomNavigationMenuView)
+                                    binding.bottomNav.getChildAt(0);
+                    for (int i = 0; i < menuView.getChildCount(); i++) {
+                        View child = menuView.getChildAt(i);
+                        if (child instanceof com.google.android.material.bottomnavigation.BottomNavigationItemView) {
+                            com.google.android.material.bottomnavigation.BottomNavigationItemView itemView =
+                                    (com.google.android.material.bottomnavigation.BottomNavigationItemView) child;
+                            if (itemView.getItemData() != null
+                                    && itemView.getItemData().getItemId() == R.id.nav_reels) {
+                                itemView.setIconTintList(null);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+        };
+        Glide.with(this).asBitmap().load(url)
+                .apply(new RequestOptions().circleCrop().override(iconSizePx, iconSizePx))
+                .into(reelsAvatarTarget);
     }
 
     // v242: setupXEntryButton() / setupYouTubeEntryButton() / setupGamesEntryButton()
@@ -1176,89 +1252,27 @@ public class MainActivity extends AppCompatActivity
     // quick-access card row instead. YouTubeNotificationWorker.schedule(this) — the one
     // non-UI side effect these methods had — is still called from onCreate() above.
 
-    /** Real-time badge on the 🔔 notification icon in the main toolbar */
-    private void startNotifBadgeListeners(String uid) {
-        // Chat unread
-        notifChatBadgeListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                int n = 0;
-                for (DataSnapshot c : snap.getChildren()) {
-                    Long u = c.child("unread").getValue(Long.class);
-                    if (u != null && u > 0) n++;
-                }
-                notifChatUnread = n;
-                updateNotifBadge();
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        FirebaseUtils.getContactsRef(uid).addValueEventListener(notifChatBadgeListener);
-
-        // Group unread
-        notifGroupBadgeListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                int n = 0;
-                for (DataSnapshot g : snap.getChildren()) {
-                    Long u = g.child("unread").getValue(Long.class);
-                    if (u != null && u > 0) n++;
-                }
-                notifGroupUnread = n;
-                updateNotifBadge();
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        FirebaseUtils.getUserGroupsRef(uid).addValueEventListener(notifGroupBadgeListener);
-
-        // Reel unread
-        notifReelBadgeListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                int n = 0;
-                for (DataSnapshot r : snap.getChildren()) {
-                    Boolean read = r.child("read").getValue(Boolean.class);
-                    if (read == null || !read) n++;
-                }
-                notifReelUnread = n;
-                updateNotifBadge();
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        FirebaseUtils.db().getReference("reel_notifications")
-            .child(uid).addValueEventListener(notifReelBadgeListener);
-
-        // Missed calls
-        notifCallBadgeListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                long seenTs = getSharedPreferences("callx_prefs", MODE_PRIVATE)
-                    .getLong("last_seen_calls_ts", 0L);
-                int n = 0;
-                for (DataSnapshot c : snap.getChildren()) {
-                    String dir = c.child("direction").getValue(String.class);
-                    // Also support "status" = "missed" field used in some versions
-                    String status = c.child("status").getValue(String.class);
-                    Long ts = c.child("timestamp").getValue(Long.class);
-                    boolean isMissed = "missed".equals(dir) || "missed".equals(status);
-                    if (isMissed && ts != null && ts > seenTs) n++;
-                }
-                notifCallUnread = n;
-                updateNotifBadge();
-            }
-            @Override public void onCancelled(DatabaseError e) {}
-        };
-        FirebaseUtils.getCallsRef(uid).addValueEventListener(notifCallBadgeListener);
-    }
-
     private void updateNotifBadge() {
         totalNotifUnread = notifChatUnread + notifGroupUnread + notifReelUnread + notifCallUnread + notifStatusUnread;
-        android.widget.TextView badge = binding.getRoot().findViewById(R.id.tv_notif_badge);
+        TextView badge = notificationBadgeView;
         if (badge == null) return;
         if (totalNotifUnread > 0) {
-            badge.setText(totalNotifUnread > 99 ? "99+" : String.valueOf(totalNotifUnread));
-            badge.setVisibility(android.view.View.VISIBLE);
+            String text = totalNotifUnread > 99 ? "99+" : String.valueOf(totalNotifUnread);
+            if (!text.equals(lastNotificationBadgeText)) {
+                badge.setText(text);
+                lastNotificationBadgeText = text;
+            }
+            if (badge.getVisibility() != View.VISIBLE) badge.setVisibility(View.VISIBLE);
         } else {
-            badge.setVisibility(android.view.View.GONE);
+            lastNotificationBadgeText = null;
+            if (badge.getVisibility() != View.GONE) badge.setVisibility(View.GONE);
         }
     }
 
     private void setBadge(int navItemId, int count) {
+        Integer previous = navBadgeCounts.get(navItemId);
+        if (previous != null && previous == count) return;
+        navBadgeCounts.put(navItemId, count);
         if (count > 0) {
             BadgeDrawable badge = binding.bottomNav.getOrCreateBadge(navItemId);
             badge.setVisible(true);
@@ -1271,6 +1285,7 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void clearBadge(int navItemId) {
+        navBadgeCounts.put(navItemId, 0);
         binding.bottomNav.removeBadge(navItemId);
     }
 
@@ -1281,38 +1296,58 @@ public class MainActivity extends AppCompatActivity
      * for how these combine on the Reels tab.
      */
     private void setMainNavVisible(boolean visible) {
-          int vis = visible ? android.view.View.VISIBLE : android.view.View.GONE;
+        setMainNavVisible(visible, visible);
+    }
 
-          // 1. Header (AppBarLayout)
-          android.view.View appBar = binding.getRoot().findViewById(R.id.app_bar_layout);
-          if (appBar != null) appBar.setVisibility(vis);
+    private void setMainNavVisible(boolean navVisible, boolean headerVisible) {
+        int navVisibility = navVisible ? View.VISIBLE : View.GONE;
+        int headerVisibility = headerVisible ? View.VISIBLE : View.GONE;
+        boolean changed = !chromeStateInitialized
+                || chromeNavVisible != navVisible
+                || chromeHeaderVisible != headerVisible;
 
-          // 2. Bottom nav container + FAB
-          android.view.View navContainer = binding.getRoot().findViewById(R.id.nav_container);
-          if (navContainer != null) navContainer.setVisibility(vis);
-          else binding.bottomNav.setVisibility(vis);
-          binding.fabAction.setVisibility(vis);
+        if (headerView != null && headerView.getVisibility() != headerVisibility) {
+            headerView.setVisibility(headerVisibility);
+            changed = true;
+        }
+        if (navContainerView != null
+                && navContainerView.getVisibility() != navVisibility) {
+            navContainerView.setVisibility(navVisibility);
+            changed = true;
+        }
+        if (binding.fabAction.getVisibility() != navVisibility) {
+            binding.fabAction.setVisibility(navVisibility);
+            changed = true;
+        }
 
-          // 3. ViewPager2: adjust top + bottom margins instantly (no behavior delay)
-          //    topMargin = AppBar height (56dp) when normal, 0 when Reels full-screen
-          //    bottomMargin = BottomNav height (58dp) when normal, 0 when Reels
-          float density = getResources().getDisplayMetrics().density;
-          ViewGroup.MarginLayoutParams lp =
-              (ViewGroup.MarginLayoutParams) binding.viewPager.getLayoutParams();
-          lp.topMargin    = visible ? (int)(56 * density) : 0;
-          lp.bottomMargin = visible ? (int)(58 * density) : 0;
-          binding.viewPager.setLayoutParams(lp);
+        int density = Math.round(getResources().getDisplayMetrics().density);
+        int topMargin = headerVisible ? 56 * density : 0;
+        int bottomMargin = navVisible ? 58 * density : 0;
+        if (viewPagerMargins == null) {
+            viewPagerMargins = (ViewGroup.MarginLayoutParams)
+                    binding.viewPager.getLayoutParams();
+        }
+        if (viewPagerMargins.topMargin != topMargin
+                || viewPagerMargins.bottomMargin != bottomMargin) {
+            viewPagerMargins.topMargin = topMargin;
+            viewPagerMargins.bottomMargin = bottomMargin;
+            binding.viewPager.setLayoutParams(viewPagerMargins);
+            changed = true;
+        }
 
-          // 4. Root background: black when Reels tab so no grey/white shows
-          //    behind the video in the status bar area (edge-to-edge fix)
-          binding.getRoot().setBackgroundColor(
-              visible ? 0xFFF5F6FA : 0xFF000000);
-
-          // Force an explicit relayout so nav_container/appBar visibility
-          // changes are always re-measured immediately (avoids the view
-          // staying visually collapsed after a window inset toggle).
-          binding.getRoot().requestLayout();
-      }
+        int background = navVisible ? 0xFFF5F6FA : 0xFF000000;
+        if (chromeBackgroundColor != background) {
+            binding.getRoot().setBackgroundColor(background);
+            chromeBackgroundColor = background;
+            changed = true;
+        }
+        chromeNavVisible = navVisible;
+        chromeHeaderVisible = headerVisible;
+        chromeStateInitialized = true;
+        // Visibility/margin changes already schedule layout. Avoid the
+        // unconditional requestLayout() that used to run on every tab event.
+        if (changed) binding.viewPager.invalidate();
+    }
 
     /**
      * WhatsApp-level behaviour: the app's own top header — title, search,
@@ -1332,23 +1367,7 @@ public class MainActivity extends AppCompatActivity
      */
     private void updateHeaderVisibilityForTab(int position) {
         if (position == TAB_REELS) return; // Reels owns its own chrome fully
-
-        boolean showHeader = (position == TAB_CHATS);
-        int vis = showHeader ? android.view.View.VISIBLE : android.view.View.GONE;
-
-        android.view.View appBar = binding.getRoot().findViewById(R.id.app_bar_layout);
-        if (appBar != null) appBar.setVisibility(vis);
-
-        // Only the top margin changes here — bottom margin (bottom nav
-        // space) is left alone since the nav bar stays visible on all
-        // non-Reels tabs.
-        float density = getResources().getDisplayMetrics().density;
-        ViewGroup.MarginLayoutParams lp =
-            (ViewGroup.MarginLayoutParams) binding.viewPager.getLayoutParams();
-        lp.topMargin = showHeader ? (int) (56 * density) : 0;
-        binding.viewPager.setLayoutParams(lp);
-
-        binding.getRoot().requestLayout();
+        setMainNavVisible(true, position == TAB_CHATS);
     }
 
     /**
@@ -1367,11 +1386,11 @@ public class MainActivity extends AppCompatActivity
      */
     private void applyReelsTabChrome(boolean isReelsTab) {
         if (!isReelsTab) {
-            setMainNavVisible(true);
+            setMainNavVisible(true, binding.viewPager.getCurrentItem() == TAB_CHATS);
             setImmersiveMode(false);
             return;
         }
-        setMainNavVisible(false);
+        setMainNavVisible(false, false);
         boolean showSystemBars = com.callx.app.utils.ReelDisplayModePrefs.isNormalMode(this);
         setReelsSystemBarsVisible(showSystemBars);
     }
@@ -1600,11 +1619,8 @@ public class MainActivity extends AppCompatActivity
      * statuses/{contactUid} for each contact. When a new child is added (new status
      * posted), enqueues StoryNotificationWorker to show a notification kill-safely.
      */
-    private void loadContactUidsForStoryNotif(String myUid) {
-        FirebaseUtils.getContactsRef(myUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(DataSnapshot snap) {
-                    for (DataSnapshot c : snap.getChildren()) {
+    private void loadContactUidsForStoryNotif(String myUid, DataSnapshot snap) {
+        for (DataSnapshot c : snap.getChildren()) {
                         String contactUid = c.getKey();
                         if (contactUid == null) continue;
 
@@ -1612,13 +1628,16 @@ public class MainActivity extends AppCompatActivity
                         FirebaseUtils.getUserRef(contactUid).addListenerForSingleValueEvent(
                             new ValueEventListener() {
                                 @Override public void onDataChange(DataSnapshot userSnap) {
+                                    if (!badgeListenersAttached) return;
                                     String cName  = userSnap.child("name").getValue(String.class);
                                     String cThumb = userSnap.child("thumbUrl").getValue(String.class);
                                     String cPhotoFull = userSnap.child("photoUrl").getValue(String.class);
                                     String cPhoto = (cThumb != null && !cThumb.isEmpty()) ? cThumb : cPhotoFull;
 
                                     // Listen for new status items from this contact
-                                    contactStatusChildListener =
+                                    DatabaseReference statusRef =
+                                            FirebaseUtils.getUserStatusRef(contactUid);
+                                    ChildEventListener statusListener =
                                         new ChildEventListener() {
                                             @Override public void onChildAdded(
                                                     DataSnapshot statusSnap, String prev) {
@@ -1655,15 +1674,13 @@ public class MainActivity extends AppCompatActivity
                                             @Override public void onCancelled(DatabaseError e) {}
                                         };
 
-                                    FirebaseUtils.getUserStatusRef(contactUid)
-                                        .addChildEventListener(contactStatusChildListener);
+                                    if (!badgeListenersAttached) return;
+                                    storyStatusListeners.put(statusRef, statusListener);
+                                    statusRef.addChildEventListener(statusListener);
                                 }
                                 @Override public void onCancelled(DatabaseError e) {}
                             });
-                    }
-                }
-                @Override public void onCancelled(DatabaseError e) {}
-            });
+        }
     }
 
     private void refreshFcmToken() {

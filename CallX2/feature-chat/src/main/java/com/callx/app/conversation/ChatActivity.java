@@ -65,6 +65,7 @@ import com.callx.app.chat.gesture.SwipeReplyHandler;
 import com.callx.app.chat.performance.SwipeOptimizer;
 import com.callx.app.chat.reply.ReplyController;
 import com.callx.app.chat.reply.ReplyDataMapper;
+import com.callx.app.chat.ui.ChatLazyViewUtils;
 import com.callx.app.chat.ui.GifAwareEditText;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
 import com.callx.app.conversation.controllers.ChatActivityDelegate;
@@ -98,6 +99,7 @@ import com.callx.app.repository.ChatRepository;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.ChatIoExecutor;
 import com.callx.app.utils.ChatPresenceRepo;
+import com.callx.app.utils.AdaptiveChatScrollPolicy;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.ChildEventListener;
@@ -206,6 +208,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Paging 3 ──────────────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
+    private AdaptiveChatScrollPolicy messageScrollPolicy;
+    private int lastAdaptivePrefetchCount = -1;
+    private int lastAdaptiveCacheSize = -1;
     // BUG FIX (WhatsApp-level theme switch): system light↔dark toggle used
     // to destroy+recreate this entire Activity (fresh Firebase listeners,
     // adapter rebuild, scroll-jump/flicker) because "uiMode" wasn't in the
@@ -499,6 +504,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // "illegal forward reference" — presenceController is declared further down.
     private final Runnable stopTypingRunnable = this::onStopTypingTimeout;
 
+    // ── Draft persistence debounce ─────────────────────────────────────────
+    private static final long DRAFT_SAVE_DEBOUNCE_MS = 650L;
+    private final android.os.Handler draftSaveHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pendingDraftSave;
+
     // ── Disappearing messages expiry ───────────────────────────────────────
     private final android.os.Handler expiryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable expiryRunnable;
@@ -540,6 +551,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatEmojiBurstController emojiBurstController;
     private ChatPinController      pinController;
     private TextWatcher messageTextWatcher; // PERF-FIX: stored so it can be detached in onDestroy()
+    // PERF FIX (input bar re-bind on every keystroke): cache the last error
+    // text so setError() is skipped when the rendered error is unchanged.
+    private String lastMessageErrorText = null;
+    private String lastCharCountText = null;
+    private Integer lastCharCountColor = null;
     private MessageEditHistoryController editHistoryController;
     private ChatReactionController reactionController;
     private ChatPollController     pollController;
@@ -1502,7 +1518,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // WhatsApp-style: persist scroll position + last-seen-ts so we can
         // intelligently restore (or jump to first unread) on re-open.
         saveScrollState();
-        saveDraft();
+        flushDraftSave();
         if (presenceController != null) {
             presenceController.clearOurTypingStatus();
             // We've left this chat screen (backgrounded app, or navigated to
@@ -1602,7 +1618,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     protected void onDestroy() {
         super.onDestroy();
-        saveDraft();
+        flushDraftSave();
         // PERF ADV: this chat's Canvas ViewHolders may still be parked in
         // the now-shared/static RecycledViewPool with their click listener
         // pointing back at THIS adapter (see getSharedCanvasPool() doc).
@@ -1689,7 +1705,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
         if (pinController      != null) pinController.release();
-        if (messageTextWatcher != null && binding != null && binding.etMessage != null) {
+        if (binding != null && binding.etMessage
+                instanceof com.callx.app.chat.ui.GifAwareEditText) {
+            ((com.callx.app.chat.ui.GifAwareEditText) binding.etMessage)
+                    .setTextChangeListener(null);
+        } else if (messageTextWatcher != null && binding != null
+                && binding.etMessage != null) {
             binding.etMessage.removeTextChangedListener(messageTextWatcher);
         }
         messageTextWatcher = null;
@@ -1901,11 +1922,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // so if we're still typing, immediately drop the highlight on
         // whatever bubble was being replied to.
         if (presenceController != null) presenceController.publishTypingReplyTarget();
-        if (binding.llReplyBar == null) return;
-        binding.llReplyBar.setVisibility(View.GONE);
-        binding.llReplyBar.setAlpha(1f);
-        binding.llReplyBar.setTranslationY(0f);
-        if (binding.ivReplyBarThumb != null) binding.ivReplyBarThumb.setVisibility(View.GONE);
+        if (replyBarView == null) return;
+        replyBarView.setVisibility(View.GONE);
+        replyBarView.setAlpha(1f);
+        replyBarView.setTranslationY(0f);
+        if (replyBarThumbView != null) replyBarThumbView.setVisibility(View.GONE);
     }
 
     @Override
@@ -1926,7 +1947,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     public void activateReplyDirect(Message m) {
         replyingTo = m;
-        if (binding.llReplyBar == null) return;
+        if (!ensureReplyBarViews()) return;
 
         // Item-specific gallery reply: if the swipe-up happened on a specific
         // image/video inside a multi_media group, quote THAT item instead of
@@ -1956,10 +1977,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             preview = buildTypePreviewLocal(m);
         }
 
-        if (binding.tvReplyBarName != null) binding.tvReplyBarName.setText(senderName);
-        if (binding.tvReplyBarText != null) binding.tvReplyBarText.setText(preview);
+        if (replyBarNameView != null) replyBarNameView.setText(senderName);
+        if (replyBarTextView != null) replyBarTextView.setText(preview);
 
-        if (binding.ivReplyBarThumb != null) {
+        if (replyBarThumbView != null) {
             String thumbUrl = null;
             if (galleryItem != null) {
                 Object u  = galleryItem.get("thumbUrl");
@@ -1969,16 +1990,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             } else if ("image".equals(m.type)) thumbUrl = m.mediaUrl;
             else if ("video".equals(m.type)) thumbUrl = m.thumbnailUrl;
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                binding.ivReplyBarThumb.setVisibility(View.VISIBLE);
-                Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(binding.ivReplyBarThumb);
+                replyBarThumbView.setVisibility(View.VISIBLE);
+                Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(replyBarThumbView);
             } else {
-                binding.ivReplyBarThumb.setVisibility(View.GONE);
+                replyBarThumbView.setVisibility(View.GONE);
             }
         }
 
-        binding.llReplyBar.setAlpha(1f);
-        binding.llReplyBar.setTranslationY(0f);
-        binding.llReplyBar.setVisibility(View.VISIBLE);
+        replyBarView.setAlpha(1f);
+        replyBarView.setTranslationY(0f);
+        replyBarView.setVisibility(View.VISIBLE);
         binding.etMessage.requestFocus();
         // WhatsApp-style: swiping to reply should pop the keyboard back up
         // immediately, exactly like tapping the input field would — plain
@@ -2007,6 +2028,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 ? binding.etMessage.getText().toString() : "";
         safeIoExecute(() ->
                 db.chatDao().saveDraft(chatId, draftText));
+    }
+
+    private void scheduleDraftSave() {
+        if (pendingDraftSave != null) {
+            draftSaveHandler.removeCallbacks(pendingDraftSave);
+        }
+        pendingDraftSave = () -> {
+            pendingDraftSave = null;
+            saveDraft();
+        };
+        draftSaveHandler.postDelayed(pendingDraftSave, DRAFT_SAVE_DEBOUNCE_MS);
+    }
+
+    /** Flushes the latest field value immediately when the chat leaves view. */
+    private void flushDraftSave() {
+        if (pendingDraftSave != null) {
+            draftSaveHandler.removeCallbacks(pendingDraftSave);
+            pendingDraftSave = null;
+        }
+        saveDraft();
     }
 
     private void restoreDraft() {
@@ -2760,25 +2801,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state,
                                                      @NonNull int[] extraLayoutSpace) {
                 int screenHeight = getResources().getDisplayMetrics().heightPixels;
-                // v3 ULTRA-ADVANCED: scale the buffer to how fast THIS glide
-                // actually is instead of a fixed 1.5x for every scroll.
-                // FastFlingRecyclerView's boosted flings sustain a higher
-                // average speed for longer than a stock fling would (that's
-                // the whole point of the feature), so a fixed buffer sized
-                // for the old profile can run dry mid-glide on a fast boosted
-                // fling — the exact "flash of blank rows" this buffer exists
-                // to prevent. Scaling 1.5x -> 2.2x as launch velocity
-                // approaches/exceeds REF_VELOCITY covers that, while a slow
-                // drag or gentle scroll (velocity 0) still only pays the
-                // original 1.5x cost — no wasted layout/memory on the common
-                // case, extra headroom only when a fast glide needs it.
-                float extraMultiplier = 1.5f;
+                // Keep layout runway proportional to the current gesture,
+                // but also account for RAM and network budget. The old code
+                // paid 1.5x (up to 2.2x) on every layout, including idle and
+                // low-memory devices.
+                int flingVelocity = 0;
                 if (binding.rvMessages instanceof com.callx.app.chat.performance.FastFlingRecyclerView) {
-                    int flingV = Math.abs(((com.callx.app.chat.performance.FastFlingRecyclerView)
+                    flingVelocity = Math.abs(((com.callx.app.chat.performance.FastFlingRecyclerView)
                             binding.rvMessages).getLastFlingVelocityY());
-                    float speedRatio = Math.min(1f, flingV / 6000f); // 6000 == FastFlingRecyclerView.REF_VELOCITY
-                    extraMultiplier = 1.5f + speedRatio * 0.7f; // up to 2.2x at/above ref speed
                 }
+                float extraMultiplier = messageScrollPolicy().layoutMultiplier(
+                        binding.rvMessages.getScrollState(), flingVelocity);
                 int extra = (int) (screenHeight * extraMultiplier);
                 extraLayoutSpace[0] = extra;
                 extraLayoutSpace[1] = extra;
@@ -2786,11 +2819,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         };
         llm.setStackFromEnd(true);
         llm.setReverseLayout(false);
-        // PERF #3: Tell LinearLayoutManager how many items to prefetch.
-        // Default is 2 — increasing to 8 means the next 8 items are inflated
-        // and bound during RenderThread idle time before the user scrolls to
-        // them. Matches the gap visible on a fast fling on a 6.5" display.
-        llm.setInitialPrefetchItemCount(8);
+        // Start with a bounded budget; the unified scroll listener adjusts it
+        // when the gesture state/velocity changes.
+        llm.setInitialPrefetchItemCount(
+                messageScrollPolicy().initialPrefetchCount(
+                        RecyclerView.SCROLL_STATE_IDLE, 0));
         binding.rvMessages.setLayoutManager(llm);
         // v2 FastFlingRecyclerView: a real touch-released fling now glides
         // noticeably further than a stock RecyclerView (see that class's
@@ -2819,13 +2852,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // its own size every time an item changes; valid because the RV fills
         // the screen and its own size never changes (only item content changes).
         binding.rvMessages.setHasFixedSize(true);
-        // PERF #3: Increase view cache from default 2 → 10.
-        // With 5 view types (sent/received/status-seen/reel-seen/call) and a
-        // typical visible window of ~12 items, cache=2 means almost every
-        // onBind() must pull from the recycle pool (slow). 28 keeps more
-        // recently off-screen views ready to rebind without reinflation,
-        // especially at fast flings that can scroll past 20+ items instantly.
-        binding.rvMessages.setItemViewCacheSize(28);
+        // The policy raises this only for a settling fling and shrinks it
+        // during idle/dragging to avoid retaining a 28-holder decode/layout
+        // footprint all the time.
+        applyAdaptiveMessageRecyclerBudget(RecyclerView.SCROLL_STATE_IDLE, 0);
         // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
         // Default pool size is 5 already but explicit sizing prevents the pool
         // from being exhausted on fast flings that scroll past many bubbles.
@@ -4540,6 +4570,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // Tracks whether the attach/camera icons are currently expanded (shown),
     // so we don't restart the same animation redundantly on every keystroke.
     private Boolean inputIconsExpanded = null;
+    private Boolean lastInputHasText = null;
 
     // Drives the capsule's own height with real spring physics whenever the
     // EditText grows/shrinks between 1-4 lines. Re-entrancy guard prevents
@@ -4561,75 +4592,82 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // Smart link detection — compose-time preview card above input bar.
     private com.callx.app.chat.ui.ComposeLinkPreviewController composeLinkPreview;
+    private View replyBarView;
+    private ImageView replyBarThumbView;
+    private TextView replyBarNameView;
+    private TextView replyBarTextView;
+    private View linkPreviewBarView;
+    private ImageView linkPreviewThumbView;
+    private TextView linkPreviewDomainView;
+    private TextView linkPreviewTitleView;
+    private ImageButton linkPreviewCancelView;
+
+    private boolean ensureReplyBarViews() {
+        if (replyBarView != null) return true;
+        View root = binding.getRoot();
+        replyBarView = ChatLazyViewUtils.ensureInflated(
+                root, R.id.stub_reply_bar, R.id.ll_reply_bar);
+        if (replyBarView == null) return false;
+
+        replyBarThumbView = root.findViewById(R.id.iv_reply_bar_thumb);
+        replyBarNameView = root.findViewById(R.id.tv_reply_bar_name);
+        replyBarTextView = root.findViewById(R.id.tv_reply_bar_text);
+        ImageButton cancel = root.findViewById(R.id.btn_cancel_reply);
+        if (cancel != null) cancel.setOnClickListener(v -> clearReply());
+
+        int primary = com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor();
+        View accent = root.findViewById(R.id.view_reply_accent);
+        if (accent != null) accent.setBackgroundColor(primary);
+        if (replyBarNameView != null) replyBarNameView.setTextColor(primary);
+        return true;
+    }
+
+    private void ensureComposeLinkPreviewController() {
+        if (composeLinkPreview != null || binding == null) return;
+        View root = binding.getRoot();
+        linkPreviewBarView = ChatLazyViewUtils.ensureInflated(
+                root, R.id.stub_link_preview_bar, R.id.ll_link_preview_bar);
+        if (linkPreviewBarView == null) return;
+
+        linkPreviewThumbView = root.findViewById(R.id.iv_link_preview_thumb);
+        linkPreviewDomainView = root.findViewById(R.id.tv_link_preview_domain);
+        linkPreviewTitleView = root.findViewById(R.id.tv_link_preview_title);
+        linkPreviewCancelView = root.findViewById(R.id.btn_cancel_link_preview);
+        if (linkPreviewThumbView == null || linkPreviewDomainView == null
+                || linkPreviewTitleView == null || linkPreviewCancelView == null) {
+            return;
+        }
+        composeLinkPreview = new com.callx.app.chat.ui.ComposeLinkPreviewController(
+                binding.etMessage,
+                linkPreviewBarView,
+                linkPreviewThumbView,
+                linkPreviewDomainView,
+                linkPreviewTitleView,
+                linkPreviewCancelView);
+    }
 
     private void setupInputBar() {
         setupInputCapsuleAnimations();
 
-        if (binding.llLinkPreviewBar != null) {
-            composeLinkPreview = new com.callx.app.chat.ui.ComposeLinkPreviewController(
-                    binding.etMessage,
-                    binding.llLinkPreviewBar,
-                    binding.ivLinkPreviewThumb,
-                    binding.tvLinkPreviewDomain,
-                    binding.tvLinkPreviewTitle,
-                    binding.btnCancelLinkPreview);
+        if (binding.etMessage instanceof com.callx.app.chat.ui.GifAwareEditText) {
+            // GifAwareEditText owns the one physical TextWatcher for this
+            // field. Its frame-coalesced dispatcher combines auto-list,
+            // auto-capitalization and this host's input-bar work.
+            ((com.callx.app.chat.ui.GifAwareEditText) binding.etMessage)
+                    .setTextChangeListener((s, st, before, count) ->
+                            handleMessageTextChanged(s));
+        } else {
+            // Defensive fallback for older layouts that may still use a plain
+            // EditText. New chat layouts take the single-dispatcher path.
+            messageTextWatcher = new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                @Override public void afterTextChanged(Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                    handleMessageTextChanged(s);
+                }
+            };
+            binding.etMessage.addTextChangedListener(messageTextWatcher);
         }
-
-        messageTextWatcher = new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-            @Override public void afterTextChanged(Editable s) {}
-            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
-                // PERF: this fires on every keystroke. s.toString() copies the
-                // whole buffer (up to MAX_MESSAGE_LENGTH chars) — compute it
-                // once and reuse everywhere below instead of calling it 3x.
-                String text = s.toString();
-                final boolean hasText = !text.trim().isEmpty();
-
-                // PERF: debounce the relayout-triggering calls only (mic<->send
-                // swap + attach/camera collapse, which drive ll_input_row's
-                // width changes and the capsule height spring). Coalesce
-                // same-frame/rapid-typing bursts into one update instead of
-                // running the icon animations + relayout once per keystroke.
-                if (pendingInputVisibilityUpdate != null) {
-                    inputVisibilityDebounceHandler.removeCallbacks(pendingInputVisibilityUpdate);
-                }
-                pendingInputVisibilityUpdate = () -> {
-                    animateSendMicSwap(hasText);
-                    animateAttachCameraIcons(!hasText);
-                    pendingInputVisibilityUpdate = null;
-                };
-                inputVisibilityDebounceHandler.postDelayed(
-                        pendingInputVisibilityUpdate, INPUT_VISIBILITY_DEBOUNCE_MS);
-
-                int remaining = MAX_MESSAGE_LENGTH - s.length();
-                if (binding.tvCharCount != null) {
-                    if (remaining <= 200) {
-                        binding.tvCharCount.setVisibility(View.VISIBLE);
-                        binding.tvCharCount.setText(s.length() + "/" + MAX_MESSAGE_LENGTH);
-                        binding.tvCharCount.setTextColor(ContextCompat.getColor(
-                                ChatActivity.this,
-                                remaining < 0 ? R.color.error_red : R.color.text_muted));
-                    } else {
-                        binding.tvCharCount.setVisibility(View.GONE);
-                    }
-                }
-                binding.etMessage.setError(remaining < 0
-                        ? "Limit exceeded! (" + Math.abs(remaining) + " extra)"
-                        : null);
-
-                if (hasText) {
-                    if (presenceController != null) presenceController.setOurTypingStatus(true);
-                    typingHandler.removeCallbacks(stopTypingRunnable);
-                    typingHandler.postDelayed(stopTypingRunnable, 2000);
-                } else {
-                    typingHandler.removeCallbacks(stopTypingRunnable);
-                    if (presenceController != null) presenceController.setOurTypingStatus(false);
-                }
-                if (liveTypingController != null) liveTypingController.onOurTextChanged(text);
-                if (composeLinkPreview != null) composeLinkPreview.onTextChanged(text);
-            }
-        };
-        binding.etMessage.addTextChangedListener(messageTextWatcher);
 
         binding.chatIconBar.setOnSendClickListener(this::sendTextMessage);
         binding.chatIconBar.setOnSendLongClickListener(() -> {
@@ -4661,9 +4699,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setViewOnceMode(false);
         binding.chatIconBar.setOnCameraClickListener(() -> mediaController.launchCamera());
 
-        if (binding.btnCancelReply != null)
-            binding.btnCancelReply.setOnClickListener(v -> clearReply());
-
         if (binding.etMessage instanceof GifAwareEditText) {
             ((GifAwareEditText) binding.etMessage).setGifReceivedListener(contentInfo -> {
                 contentInfo.requestPermission();
@@ -4682,6 +4717,86 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         "Cancel");
             });
         }
+    }
+
+    /**
+     * Handles the input bar from the GifAwareEditText's single,
+     * frame-coalesced text dispatcher. Keeping all downstream work here means
+     * a fast burst of edits performs one string copy and one UI/presence pass
+     * per frame instead of one pass per TextWatcher callback.
+     */
+    private void handleMessageTextChanged(CharSequence changedText) {
+        String text = changedText != null ? changedText.toString() : "";
+        final boolean hasText = !text.trim().isEmpty();
+
+        // Relayout-triggering icon work is still delayed by one short window,
+        // but repeated same-state callbacks do not restart the send/mic swap.
+        if (pendingInputVisibilityUpdate != null) {
+            inputVisibilityDebounceHandler.removeCallbacks(pendingInputVisibilityUpdate);
+        }
+        pendingInputVisibilityUpdate = () -> {
+            if (lastInputHasText == null || lastInputHasText != hasText) {
+                lastInputHasText = hasText;
+                animateSendMicSwap(hasText);
+                animateAttachCameraIcons(!hasText);
+            }
+            pendingInputVisibilityUpdate = null;
+        };
+        inputVisibilityDebounceHandler.postDelayed(
+                pendingInputVisibilityUpdate, INPUT_VISIBILITY_DEBOUNCE_MS);
+
+        int length = changedText != null ? changedText.length() : 0;
+        int remaining = MAX_MESSAGE_LENGTH - length;
+        if (binding.tvCharCount != null) {
+            boolean shouldShowCount = remaining <= 200;
+            boolean isCountVisible = binding.tvCharCount.getVisibility() == View.VISIBLE;
+            if (isCountVisible != shouldShowCount) {
+                binding.tvCharCount.setVisibility(
+                        shouldShowCount ? View.VISIBLE : View.GONE);
+            }
+            if (shouldShowCount) {
+                String countText = length + "/" + MAX_MESSAGE_LENGTH;
+                if (!countText.equals(lastCharCountText)) {
+                    binding.tvCharCount.setText(countText);
+                    lastCharCountText = countText;
+                }
+                int countColor = ContextCompat.getColor(
+                        ChatActivity.this,
+                        remaining < 0 ? R.color.error_red : R.color.text_muted);
+                if (lastCharCountColor == null || lastCharCountColor != countColor) {
+                    binding.tvCharCount.setTextColor(countColor);
+                    lastCharCountColor = countColor;
+                }
+            }
+        }
+
+        boolean overLimit = remaining < 0;
+        String errorText = overLimit
+                ? "Limit exceeded! (" + Math.abs(remaining) + " extra)" : null;
+        if (errorText == null ? lastMessageErrorText != null
+                : !errorText.equals(lastMessageErrorText)) {
+            binding.etMessage.setError(errorText);
+            lastMessageErrorText = errorText;
+        }
+
+        // ChatPresenceController also guards at the Firebase boundary. This
+        // call stays on every frame so the 2-second idle timeout moves with
+        // typing, while only first-true and empty-state transitions write.
+        if (hasText) {
+            if (presenceController != null) presenceController.setOurTypingStatus(true);
+            typingHandler.removeCallbacks(stopTypingRunnable);
+            typingHandler.postDelayed(stopTypingRunnable, 2000);
+        } else {
+            typingHandler.removeCallbacks(stopTypingRunnable);
+            if (presenceController != null) presenceController.setOurTypingStatus(false);
+        }
+        if (liveTypingController != null) liveTypingController.onOurTextChanged(text);
+        scheduleDraftSave();
+        if (composeLinkPreview == null
+                && com.callx.app.chat.ui.ComposeLinkPreviewController.mayContainUrl(text)) {
+            ensureComposeLinkPreviewController();
+        }
+        if (composeLinkPreview != null) composeLinkPreview.onTextChanged(text);
     }
 
     /**
@@ -6279,6 +6394,37 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
     }
 
+    private AdaptiveChatScrollPolicy messageScrollPolicy() {
+        if (messageScrollPolicy == null) {
+            messageScrollPolicy = new AdaptiveChatScrollPolicy(this);
+        }
+        return messageScrollPolicy;
+    }
+
+    /**
+     * Applies the small RecyclerView-side part of the adaptive budget on
+     * state transitions. Layout-space calculation reads the same policy live,
+     * while these two setters are intentionally skipped when their value did
+     * not change.
+     */
+    private void applyAdaptiveMessageRecyclerBudget(int scrollState, int flingVelocity) {
+        if (binding == null || binding.rvMessages == null) return;
+        RecyclerView.LayoutManager raw = binding.rvMessages.getLayoutManager();
+        if (raw instanceof LinearLayoutManager) {
+            int prefetch = messageScrollPolicy().initialPrefetchCount(
+                    scrollState, flingVelocity);
+            if (prefetch != lastAdaptivePrefetchCount) {
+                ((LinearLayoutManager) raw).setInitialPrefetchItemCount(prefetch);
+                lastAdaptivePrefetchCount = prefetch;
+            }
+        }
+        int cacheSize = messageScrollPolicy().itemViewCacheSize(scrollState);
+        if (cacheSize != lastAdaptiveCacheSize) {
+            binding.rvMessages.setItemViewCacheSize(cacheSize);
+            lastAdaptiveCacheSize = cacheSize;
+        }
+    }
+
     /**
      * PERF (scroll-listener consolidation): rv_messages previously had FOUR
      * separate RecyclerView.OnScrollListener instances registered on it —
@@ -6293,10 +6439,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * its own handle*() method, still individually null/flag-guarded
      * exactly as it was before.
      *
-     * Glide's RecyclerViewPreloader (registered separately in
-     * setupFabBackToLatest) is intentionally left out of this merge — it's
-     * a self-contained library component with its own internal state, not
-     * one of ours to combine.
+     * The adaptive ChatMediaPreloader is intentionally separate: it owns
+     * bounded media look-ahead and is not part of this UI-state listener.
      *
      * Must run after setupPagingRecyclerView()/setupFabBackToLatest()/
      * setupStickyDateHeader() so every field each handler touches
@@ -6572,55 +6716,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             });
         }
 
-        // PERF: Glide RecyclerViewPreloader — prefetches images for upcoming items
-        // in the scroll direction before they're needed. The preloader integrates with
-        // the existing pause/resume strategy: Glide is paused on SETTLING/DRAGGING,
-        // so preloads are queued and executed on IDLE when loads are safe to start.
-        com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>
-                sizeProvider = new com.bumptech.glide.ListPreloader.PreloadSizeProvider<com.callx.app.models.Message>() {
-            @Override
-            public int[] getPreloadSize(@NonNull com.callx.app.models.Message item,
-                                        int adapterPosition, int perItemPosition) {
-                if (item.mediaUrl == null && item.thumbnailUrl == null) return null;
-                return new int[]{320, 320};
-            }
-        };
-        com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>
-                modelProvider = new com.bumptech.glide.ListPreloader.PreloadModelProvider<com.callx.app.models.Message>() {
-            @NonNull @Override
-            public List<com.callx.app.models.Message> getPreloadItems(int position) {
-                com.callx.app.models.Message m = pagingAdapter.peek(position);
-                if (m == null) return Collections.emptyList();
-                String type = m.type != null ? m.type : "";
-                boolean isMedia = "image".equals(type) || "gif".equals(type) || "sticker".equals(type) || "video".equals(type);
-                if (!isMedia || (m.mediaUrl == null && m.thumbnailUrl == null))
-                    return Collections.emptyList();
-                return Collections.singletonList(m);
-            }
-            @Nullable @Override
-            public com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable>
-                    getPreloadRequestBuilder(@NonNull com.callx.app.models.Message item) {
-                String url = "video".equals(item.type)
-                        ? (item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl)
-                        : (item.mediaUrl != null ? item.mediaUrl : item.imageUrl);
-                if (url == null) return null;
-                return com.bumptech.glide.Glide.with(ChatActivity.this)
-                        .load(url)
-                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                        .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
-                        .override(320, 320);
-            }
-        };
-        com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<com.callx.app.models.Message>
-                glidePreloader = new com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<>(
-                        com.bumptech.glide.Glide.with(this),
-                        modelProvider,
-                        sizeProvider,
-                        5 /* preload 5 items in the scroll direction */);
-        binding.rvMessages.addOnScrollListener(glidePreloader);
-
-        // PERF (scroll-listener consolidation): the bottom/FAB-tracking +
-        // Glide pause/resume + presence-publish logic below moved into
+        // PERF: adaptive ChatMediaPreloader is the single media look-ahead
+        // path. Keeping a second fixed Glide preloader here used to stack
+        // another five requests on top of the 14-item chat window.
+        // The bottom/FAB-tracking + Glide pause/resume + presence-publish logic
+        // below moved into
         // handleBottomTrackingScrolled() / handleGlideAndPresenceStateChanged(),
         // invoked from the single unified listener — see
         // attachUnifiedMessagesScrollListener()'s doc.
@@ -6666,6 +6766,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // destroyed activity"). Same guard already used everywhere
         // else in this class before touching Glide/UI post-teardown.
         if (isFinishing() || isDestroyed()) return;
+        int flingVelocity = 0;
+        if (rv instanceof com.callx.app.chat.performance.FastFlingRecyclerView) {
+            flingVelocity = Math.abs(((com.callx.app.chat.performance.FastFlingRecyclerView) rv)
+                    .getLastFlingVelocityY());
+        }
+        applyAdaptiveMessageRecyclerBudget(newState, flingVelocity);
         // PERF: Glide pause/resume — during a fast fling, pausing Glide stops
         // it from starting new image-decode tasks for off-screen items that
         // will scroll past before they're needed. Resuming on idle/settling

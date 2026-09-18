@@ -10,8 +10,11 @@ import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
+import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.chat.ui.ChatLazyViewUtils;
 import com.callx.app.chat.ui.MentionSuggestAdapter;
 
 import java.util.ArrayList;
@@ -62,9 +65,15 @@ public class ChatMentionController {
 
     public void attach() {
         ActivityChatBinding b = delegate.getBinding();
-        if (attached || b == null || b.rvMentionSuggest == null || b.etMessage == null) return;
+        if (attached || b == null || b.etMessage == null) return;
         attached = true;
-        setupRecyclerView(b);
+        suggestAdapter = new MentionSuggestAdapter(
+                delegate.getActivity(),
+                item -> insertMention(b, item.name));
+        List<MentionSuggestAdapter.MentionItem> items = new ArrayList<>();
+        items.add(new MentionSuggestAdapter.MentionItem(
+                partnerUid, partnerName, partnerPhoto));
+        suggestAdapter.setItems(items);
         textWatcher = buildWatcher(b);
         b.etMessage.addTextChangedListener(textWatcher);
     }
@@ -72,17 +81,16 @@ public class ChatMentionController {
     /** Hides the suggestion list. Call on send, back press, or fragment stop. */
     public void dismissSuggestions() {
         ActivityChatBinding b = delegate.getBinding();
-        if (b != null && b.rvMentionSuggest != null
-                && b.rvMentionSuggest.getVisibility() == View.VISIBLE) {
-            animateHide(b.rvMentionSuggest);
+        RecyclerView list = findMentionList(b);
+        if (list != null && list.getVisibility() == View.VISIBLE) {
+            animateHide(list);
         }
     }
 
     /** True if the suggestion dropdown is currently visible. */
     public boolean isShowing() {
-        ActivityChatBinding b = delegate.getBinding();
-        return b != null && b.rvMentionSuggest != null
-                && b.rvMentionSuggest.getVisibility() == View.VISIBLE;
+        RecyclerView list = findMentionList(delegate.getBinding());
+        return list != null && list.getVisibility() == View.VISIBLE;
     }
 
     public void onDestroy() {
@@ -95,21 +103,28 @@ public class ChatMentionController {
 
     // ── Setup ─────────────────────────────────────────────────────────────
 
-    private void setupRecyclerView(ActivityChatBinding b) {
-        suggestAdapter = new MentionSuggestAdapter(
-                delegate.getActivity(),
-                item -> insertMention(b, item.name));
+    private RecyclerView findMentionList(ActivityChatBinding b) {
+        if (b == null) return null;
+        View list = b.getRoot().findViewById(R.id.rv_mention_suggest);
+        return list instanceof RecyclerView ? (RecyclerView) list : null;
+    }
 
-        List<MentionSuggestAdapter.MentionItem> items = new ArrayList<>();
-        items.add(new MentionSuggestAdapter.MentionItem(
-                partnerUid, partnerName, partnerPhoto));
-        suggestAdapter.setItems(items);
+    private RecyclerView ensureRecyclerView(ActivityChatBinding b) {
+        if (b == null) return null;
+        RecyclerView list = findMentionList(b);
+        if (list == null) {
+            View inflated = ChatLazyViewUtils.ensureInflated(
+                    b.getRoot(), R.id.stub_mention_suggestions, R.id.rv_mention_suggest);
+            if (inflated instanceof RecyclerView) list = (RecyclerView) inflated;
+        }
+        if (list == null || list.getAdapter() != null) return list;
 
-        b.rvMentionSuggest.setLayoutManager(
+        list.setLayoutManager(
                 new LinearLayoutManager(delegate.getActivity()));
-        b.rvMentionSuggest.setAdapter(suggestAdapter);
-        b.rvMentionSuggest.setNestedScrollingEnabled(false);
-        b.rvMentionSuggest.setVisibility(View.GONE);
+        list.setAdapter(suggestAdapter);
+        list.setNestedScrollingEnabled(false);
+        list.setVisibility(View.GONE);
+        return list;
     }
 
     // ── Text watcher ──────────────────────────────────────────────────────
@@ -119,7 +134,6 @@ public class ChatMentionController {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                if (b.rvMentionSuggest == null) return;
                 int cursor = start + count;
                 int atIdx  = findAtBefore(s.toString(), cursor);
                 if (atIdx < 0) {
@@ -129,7 +143,8 @@ public class ChatMentionController {
                 String prefix = s.subSequence(atIdx + 1, cursor).toString();
                 suggestAdapter.filter(prefix);
                 if (suggestAdapter.getItemCount() > 0) {
-                    animateShow(b.rvMentionSuggest);
+                    RecyclerView list = ensureRecyclerView(b);
+                    if (list != null) animateShow(list);
                 } else {
                     dismissSuggestions();
                 }
