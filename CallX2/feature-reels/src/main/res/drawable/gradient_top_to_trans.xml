@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Flat 5% black scrim behind the home-feed reel header, ending exactly at
-     the avatar's bottom edge (60dp) — fades smoothly to transparent in the
-     last 5dp so the cutoff isn't visible, no overhang past the avatar. -->
+<!-- Flat 5% black scrim (top 40dp), then a gradual 20dp fade (40dp→60dp)
+     down to fully transparent — long fade so the cutoff is unnoticeable. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Flat 5% black — top 55dp -->
-    <item android:bottom="5dp">
+    <!-- Flat 5% black — top 40dp -->
+    <item android:bottom="20dp">
         <shape android:shape="rectangle">
             <solid android:color="#0D000000"/>
         </shape>
     </item>
 
-    <!-- Last 5dp only — fades 5% black to fully transparent, ends at 60dp -->
-    <item android:top="55dp">
+    <!-- 40dp to 60dp — fades 5% black to fully transparent -->
+    <item android:top="40dp">
         <shape android:shape="rectangle">
             <gradient
                 android:type="linear"
