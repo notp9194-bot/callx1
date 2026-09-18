@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="28dp" android:height="28dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="@android:color/transparent" android:pathData="M20,12C20,16.418 16.418,20 12,20C7.582,20 4,16.418 4,12C4,8.652 6.057,5.784 9,4.571" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"/>
-    <path android:fillColor="@android:color/transparent" android:pathData="M9,4.5L9,12.2C9,14.022 10.478,15.5 12.3,15.5C14.122,15.5 15.6,14.022 15.6,12.2C15.6,10.378 14.122,8.9 12.3,8.9" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"/>
-    <path android:fillColor="@android:color/transparent" android:pathData="M9,4.5C10.3,7.3 12.8,8.8 16,8.8" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    android:width="28dp"
+    android:height="28dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- TikTok-style curved share arrow: bold, simple and readable at header size -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,19.5C4,12.55 9.55,7 16.5,7H19V4L23,8L19,12V9H16.5C10.66,9 6,13.66 6,19.5C6,20.05 5.55,20.5 5,20.5C4.45,20.5 4,20.05 4,19.5Z" />
 </vector>
