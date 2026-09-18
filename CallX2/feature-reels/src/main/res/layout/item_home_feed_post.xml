@@ -106,20 +106,22 @@
                 <!-- Avatar + optional gradient ring -->
                 <FrameLayout
                     android:id="@+id/frame_post_avatar"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
+                    android:layout_width="39.2dp"
+                    android:layout_height="39.2dp"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
                     app:layout_constraintBottom_toBottomOf="parent">
 
-                    <!-- Matched to the reel comment system's avatar size
-                         (item_reel_comment.xml: 36dp ring / 32dp avatar)
-                         so it's consistent with the rest of the avatar
-                         pipeline instead of its own one-off 46/38dp. -->
+                    <!-- v: bumped to 39.2dp ring / 1.8dp stroke / 1.8dp
+                         transparent gap / 32dp avatar (32 + 2×1.8 gap +
+                         2×1.8 stroke = 39.2), matching the reel player's
+                         owner-ring proportions. Stroke width is set at
+                         runtime via StoryRingGradientDrawable.withStrokeDp(1.8f, ...)
+                         — see HomeFragment adapter bind code. -->
                     <ImageView
                         android:id="@+id/iv_post_story_ring"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
+                        android:layout_width="39.2dp"
+                        android:layout_height="39.2dp"
                         android:layout_gravity="center"
                         android:background="@drawable/story_ring_insta_gradient"
                         android:visibility="gone"/>

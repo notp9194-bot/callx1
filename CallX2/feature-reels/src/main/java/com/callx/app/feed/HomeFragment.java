@@ -7223,7 +7223,7 @@ public class HomeFragment extends Fragment
                 if (state == 2) {
                     ivPostStoryRing.setImageDrawable(null);
                     ivPostStoryRing.setBackground(
-                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2f,
+                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.8f,
                                     getResources().getDisplayMetrics().density));
                     ivPostStoryRing.setVisibility(View.VISIBLE);
                 } else if (state == 1) {
