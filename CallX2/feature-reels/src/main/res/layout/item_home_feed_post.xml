@@ -85,7 +85,7 @@
             android:layout_gravity="top"
             android:paddingStart="12dp"
             android:paddingEnd="8dp"
-            android:paddingTop="14dp"
+            android:paddingTop="8dp"
             android:paddingBottom="20dp">
 
             <!-- ── Normal solo-owner row: avatar + username/suggested/audio ──
@@ -106,24 +106,28 @@
                 <!-- Avatar + optional gradient ring -->
                 <FrameLayout
                     android:id="@+id/frame_post_avatar"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
                     app:layout_constraintBottom_toBottomOf="parent">
 
+                    <!-- Matched to the reel comment system's avatar size
+                         (item_reel_comment.xml: 36dp ring / 32dp avatar)
+                         so it's consistent with the rest of the avatar
+                         pipeline instead of its own one-off 46/38dp. -->
                     <ImageView
                         android:id="@+id/iv_post_story_ring"
-                        android:layout_width="46dp"
-                        android:layout_height="46dp"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
                         android:layout_gravity="center"
                         android:background="@drawable/story_ring_insta_gradient"
                         android:visibility="gone"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_post_avatar"
-                        android:layout_width="38dp"
-                        android:layout_height="38dp"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_person"
                         app:civ_border_width="0dp"
@@ -185,7 +189,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Suggested for you"
-                        android:textColor="#CCCCCC"
+                        android:textColor="#FFFFFF"
                         android:textSize="11sp"
                         android:visibility="gone"/>
 
@@ -196,9 +200,9 @@
                         android:layout_height="wrap_content"
                         android:drawableStart="@drawable/ic_music"
                         android:drawablePadding="4dp"
-                        android:drawableTint="#CCCCCC"
+                        android:drawableTint="#FFFFFF"
                         android:text="Original audio"
-                        android:textColor="#CCCCCC"
+                        android:textColor="#FFFFFF"
                         android:textSize="11sp"
                         android:visibility="gone"/>
                 </LinearLayout>
