@@ -3340,6 +3340,16 @@ public class MessagePagingAdapter
                         @Override public void onReady(java.io.File file) {
                             downloadingMediaUrls.remove(gifUrl);
                             CACHED_FILE_CHECK.put(gifUrl, file);
+                            // PERF/UX: explicit user tap on the download gate =
+                            // the same "manual save" moment WhatsApp/Telegram use
+                            // — mirror the cached file into the public Gallery
+                            // (Pictures/CallX) too. Fire-and-forget; failure here
+                            // must never affect the in-chat render below.
+                            com.callx.app.utils.MediaSaveHelper.save(ctx, file, "gif", gifUrl,
+                                    new com.callx.app.utils.MediaSaveHelper.Callback() {
+                                        @Override public void onSaved(android.net.Uri uri) {}
+                                        @Override public void onError(String reason) {}
+                                    });
                             if (h.canvasBindToken != myToken) return;
                             cv.clearMediaDownloadGate();
                             glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
@@ -3380,6 +3390,12 @@ public class MessagePagingAdapter
                             @Override public void onReady(java.io.File file) {
                                 MediaDownloadQueue.getInstance(ctx).markComplete(vDlUrl);
                                 downloadingMediaUrls.remove(vDlUrl);
+                                // PERF/UX: see matching comment on the GIF path above.
+                                com.callx.app.utils.MediaSaveHelper.save(ctx, file, "video", vDlUrl,
+                                        new com.callx.app.utils.MediaSaveHelper.Callback() {
+                                            @Override public void onSaved(android.net.Uri uri) {}
+                                            @Override public void onError(String reason) {}
+                                        });
                                 if (h.canvasBindToken != myToken) return;
                                 cv.clearMediaDownloadGate();
                                 ((android.app.Activity) ctx).runOnUiThread(() -> {
@@ -3462,6 +3478,12 @@ public class MessagePagingAdapter
                     @Override public void onReady(java.io.File file) {
                         downloadingMediaUrls.remove(fullUrl);
                         tapFullyLoaded[0] = true;
+                        // PERF/UX: see matching comment on the GIF path above.
+                        com.callx.app.utils.MediaSaveHelper.save(ctx, file, "image", fullUrl,
+                                new com.callx.app.utils.MediaSaveHelper.Callback() {
+                                    @Override public void onSaved(android.net.Uri uri) {}
+                                    @Override public void onError(String reason) {}
+                                });
                         if (h.canvasBindToken != myToken) return;
                         cv.clearMediaDownloadGate();
                         // PERF #4 + #1: density-aware size, store in pool on decode
@@ -7666,6 +7688,13 @@ public class MessagePagingAdapter
                 }
                 @Override public void onReady(java.io.File file) {
                     downloadingMediaUrls.remove(fullUrl);
+                    // PERF/UX: see matching comment on the canvas download-gate
+                    // path (onMediaDownloadClick) — same explicit-tap-to-save.
+                    com.callx.app.utils.MediaSaveHelper.save(ctx, file, "image", fullUrl,
+                            new com.callx.app.utils.MediaSaveHelper.Callback() {
+                                @Override public void onSaved(android.net.Uri uri) {}
+                                @Override public void onError(String reason) {}
+                            });
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
                     h.fl_download_overlay.setVisibility(View.GONE);
                     glide(ctx).load(file).override(480, 480).centerCrop().into(h.ivImage);

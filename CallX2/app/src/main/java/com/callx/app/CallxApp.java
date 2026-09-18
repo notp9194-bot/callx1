@@ -101,6 +101,22 @@ public class CallxApp extends Application {
         // RecyclerView starts binding rows.
         com.callx.app.utils.ThumbHashPlaceholder.warmUpFromDisk(this);
 
+        // PERF/UX (EmojiCompat): render emoji from a bitmap font instead of
+        // the OEM system font — identical look across devices, and
+        // MessageBubbleCanvasView's StaticLayout skips per-cluster
+        // font-fallback shaping for emoji once this is ready.
+        //
+        // No manual init call needed here: androidx.emoji2 self-registers
+        // an androidx.startup Initializer (EmojiCompatInitializer) that
+        // runs automatically at process start and configures the
+        // downloadable-font provider on its own — no FontRequest/cert
+        // boilerplate for this app to get right. It fetches the font via
+        // Play Services on first use (cached by it afterwards), so no font
+        // bytes are bundled in the APK. If Play Services or the provider
+        // is ever unavailable, EmojiCompat just never becomes ready and
+        // MessageBubbleCanvasView's isEmojiCompatReady() check (see that
+        // file) skips processing — plain system emoji render, no crash.
+
         // ── CRASH CAPTURE: on-device crash trace (no adb/logcat needed) ────
         // Registered first so it wraps every subsequent line in onCreate too.
         // On any uncaught exception anywhere in the app: saves the full

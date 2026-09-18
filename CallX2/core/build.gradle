@@ -51,6 +51,16 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.core:core:1.13.1'
+    // EmojiCompat — renders emoji from a bitmap font instead of relying on
+    // the OEM system font, so emoji look identical across devices and skip
+    // per-cluster font-fallback shaping. 'api' so MessageBubbleCanvasView's
+    // StaticLayout/Paint-based drawing (in :feature-chat) can process text
+    // through EmojiCompat before layout. Font source is the *downloadable*
+    // Play-Services variant (FontRequestEmojiCompatConfig, wired in
+    // CallxApp) — no font bytes bundled in the APK, only this ~150-300KB
+    // library. Falls back to plain system-rendered emoji automatically if
+    // Play Services / the font provider is unavailable — never crashes.
+    api 'androidx.emoji2:emoji2:1.4.0'
     implementation 'androidx.work:work-runtime:2.9.0'
     // Required alongside work-runtime — without it javac can't resolve
     // ListenableFuture on Worker's supertype chain (SyncWorker /

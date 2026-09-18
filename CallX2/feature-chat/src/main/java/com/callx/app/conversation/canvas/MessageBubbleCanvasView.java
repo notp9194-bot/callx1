@@ -182,6 +182,32 @@ import com.callx.app.utils.ChatThemeManager;
  */
 public class MessageBubbleCanvasView extends View {
 
+    // PERF/UX (EmojiCompat): process MarkdownFormatter's output through
+    // EmojiCompat so emoji clusters get replaced with EmojiSpans (bitmap
+    // glyphs) before StaticLayout ever measures/breaks the text — same
+    // result Telegram/WhatsApp get from their own bitmap emoji fonts:
+    // identical look across OEMs, and no per-cluster system-font-fallback
+    // shaping cost during layout.
+    //
+    // EmojiCompat.get() throws IllegalStateException if the library's
+    // androidx.startup Initializer hasn't finished configuring yet (e.g.
+    // very first frames right after process start, or if Play
+    // Services/the font provider is unavailable and it never finishes) —
+    // caught here so every call site below stays crash-proof and just
+    // falls back to plain system-rendered emoji for that bind; later
+    // binds pick it up correctly once EmojiCompat becomes ready.
+    static CharSequence applyEmojiCompat(CharSequence text) {
+        try {
+            androidx.emoji2.text.EmojiCompat emojiCompat = androidx.emoji2.text.EmojiCompat.get();
+            if (emojiCompat.getLoadState() == androidx.emoji2.text.EmojiCompat.LOAD_STATE_SUCCEEDED) {
+                return emojiCompat.process(text);
+            }
+        } catch (IllegalStateException notReadyYet) {
+            // EmojiCompat not configured yet (or ever) — fall through.
+        }
+        return text;
+    }
+
     static final float CORNER_RADIUS_DP = 18f;
     static final float TAIL_RADIUS_DP    = 4f;
     static final float H_PADDING_DP      = 12f;
@@ -1014,6 +1040,15 @@ public class MessageBubbleCanvasView extends View {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                     .setLineSpacing(0f, 1f)
                     .setIncludePad(false)
+                    // PERF: chat bubbles don't need justified-text quality —
+                    // BREAK_STRATEGY_SIMPLE (greedy) skips the optimal-fit
+                    // line-breaking pass, and HYPHENATION_FREQUENCY_NONE
+                    // skips hyphenation analysis entirely. Telegram/WhatsApp
+                    // use the same combo for message bubbles. Must stay
+                    // identical to the sync-fallback build below so a
+                    // cache hit never differs from a cache miss.
+                    .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                    .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
                     .build();
         } catch (Exception ex) {
             // Never let a background precompute failure affect anything —
@@ -2915,7 +2950,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaBitmap = null;
         this.mediaBitmapIsPlaceholder = false;
         this.messageText = text != null ? text : "";
-        this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
+        this.messageTextSpanned = applyEmojiCompat(MarkdownFormatter.format(this.messageText));
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;
@@ -3044,7 +3079,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
         this.messageText = caption != null ? caption : "";
-        this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
+        this.messageTextSpanned = applyEmojiCompat(MarkdownFormatter.format(this.messageText));
         this.mediaHasCaption = !this.messageText.isEmpty();
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
@@ -3797,7 +3832,7 @@ public class MessageBubbleCanvasView extends View {
         java.util.Arrays.fill(this.groupCellProgress, -1);
         this.groupHasCaption = caption != null && !caption.isEmpty();
         this.messageText = groupHasCaption ? caption : "";
-        this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
+        this.messageTextSpanned = applyEmojiCompat(MarkdownFormatter.format(this.messageText));
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;
@@ -5837,6 +5872,11 @@ public class MessageBubbleCanvasView extends View {
                         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                         .setLineSpacing(0f, 1f)
                         .setIncludePad(false)
+                        // PERF: match precomputeTextLayoutIfPossible()'s build
+                        // params exactly (see its javadoc) — greedy break,
+                        // no hyphenation.
+                        .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
                         .build();
             }
 
@@ -5855,6 +5895,9 @@ public class MessageBubbleCanvasView extends View {
                         .setIncludePad(false)
                         .setMaxLines(MAX_COLLAPSED_LINES)
                         .setEllipsize(TextUtils.TruncateAt.END)
+                        // PERF: same greedy/no-hyphenation combo as above.
+                        .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
                         .build();
             }
 
