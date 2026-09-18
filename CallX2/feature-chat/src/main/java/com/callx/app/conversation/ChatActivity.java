@@ -27,7 +27,9 @@ import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -2559,10 +2561,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     /** Extracts the first http/https URL from a string, or null if none found. */
     private static String extractFirstUrl(String text) {
-        // Share-intent parsing uses the same bounded detector as message
-        // bubbles and the compose preview; do not compile a new Pattern on
-        // every incoming share.
-        return com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(text);
+        if (text == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("https?://[^\\s]+").matcher(text);
+        return m.find() ? m.group() : null;
     }
 
     // ─────────────────────────────────────────────────────────────────────
