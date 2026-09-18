@@ -63,6 +63,21 @@ public class LinkPreviewFetcher {
             "https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+",
             Pattern.CASE_INSENSITIVE);
 
+    // Message bubbles commonly rebind the same text several times while a
+    // user scrolls. Keep URL detection itself bounded and cache negative
+    // results too, so those binds do not repeatedly scan the same caption or
+    // allocate a Matcher. Large texts are intentionally not retained.
+    private static final int MAX_URL_TEXT_CACHE = 128;
+    private static final int MAX_CACHED_URL_TEXT_LENGTH = 4096;
+    private static final String NO_URL = "\u0000";
+    @SuppressWarnings("serial")
+    private static final Map<String, String> firstUrlCache =
+            new LinkedHashMap<String, String>(16, 0.75f, true) {
+                @Override protected boolean removeEldestEntry(Map.Entry<String, String> e) {
+                    return size() > MAX_URL_TEXT_CACHE;
+                }
+            };
+
     // YouTube video ID patterns
     private static final Pattern YT_LONG  = Pattern.compile(
             "(?:youtube\\.com/watch\\?.*v=)([\\w\\-]{11})", Pattern.CASE_INSENSITIVE);
@@ -166,15 +181,29 @@ public class LinkPreviewFetcher {
     /** Returns first HTTP/HTTPS URL in text, or null. */
     public static String extractFirstUrl(String text) {
         if (text == null || text.isEmpty()) return null;
+        if (text.length() <= MAX_CACHED_URL_TEXT_LENGTH) {
+            synchronized (firstUrlCache) {
+                String cached = firstUrlCache.get(text);
+                if (cached != null) return NO_URL.equals(cached) ? null : cached;
+            }
+        }
         // PERF: this runs on every keystroke of the compose box (via
         // ComposeLinkPreviewController.onTextChanged) and on every bind of a
         // sent text bubble. The overwhelming majority of both calls have no
         // "http" anywhere in them, so a plain substring scan — no regex
         // engine, no Matcher allocation — skips the expensive part entirely
         // for the common case. Case-insensitive check since the pattern is too.
-        if (!containsIgnoreCaseHttp(text)) return null;
-        Matcher m = URL_PATTERN.matcher(text);
-        return m.find() ? m.group() : null;
+        String result = null;
+        if (containsIgnoreCaseHttp(text)) {
+            Matcher m = URL_PATTERN.matcher(text);
+            result = m.find() ? m.group() : null;
+        }
+        if (text.length() <= MAX_CACHED_URL_TEXT_LENGTH) {
+            synchronized (firstUrlCache) {
+                firstUrlCache.put(text, result == null ? NO_URL : result);
+            }
+        }
+        return result;
     }
 
     private static boolean containsIgnoreCaseHttp(String text) {

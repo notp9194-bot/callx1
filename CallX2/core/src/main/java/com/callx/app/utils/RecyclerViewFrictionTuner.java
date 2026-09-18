@@ -1,5 +1,8 @@
 package com.callx.app.utils;
 
+import android.app.ActivityManager;
+import android.content.Context;
+
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.lang.reflect.Field;
@@ -7,9 +10,9 @@ import java.lang.reflect.Field;
 /**
  * Shared, reusable version of the reflection trick that {@code
  * FastFlingRecyclerView} (feature-chat) uses to lower a RecyclerView's
- * internal OverScroller friction — the real "Telegram-glide" fix (friction,
- * not launch velocity): same launch speed decelerates over a longer
- * distance because the deceleration curve itself is slower.
+ * internal OverScroller friction. The default is deliberately device-aware:
+ * long-glide tuning is useful on a capable device, but a fixed low friction
+ * value can keep work, decodes, and battery usage high on low-RAM phones.
  *
  * Pulled out here so screens that use a *plain* {@code RecyclerView} (no
  * custom subclass — e.g. comment lists bound straight from XML) can opt in
@@ -26,8 +29,17 @@ public final class RecyclerViewFrictionTuner {
     /** android.widget.OverScroller's own default (SCROLL_FRICTION). */
     public static final float STOCK_FRICTION = 0.015f;
 
-    /** Same value FastFlingRecyclerView uses for chat — long, Telegram-like coast. */
+    /**
+     * Legacy explicit value kept for callers that intentionally request the
+     * old profile. Default callers use {@link #recommendedFriction(Context)}.
+     */
     public static final float TELEGRAM_FRICTION = 0.007f;
+
+    // Conservative profile values. Unknown devices use the middle profile,
+    // never the most aggressive long-glide setting.
+    private static final float LOW_RAM_FRICTION = 0.013f;
+    private static final float MID_RAM_FRICTION = 0.011f;
+    private static final float HIGH_RAM_FRICTION = 0.010f;
 
     private RecyclerViewFrictionTuner() {}
 
@@ -62,9 +74,45 @@ public final class RecyclerViewFrictionTuner {
         }
     }
 
-    /** Convenience overload using the standard {@link #TELEGRAM_FRICTION} value. */
+    /** Convenience overload using the conservative device-aware profile. */
     public static boolean applyReducedFriction(RecyclerView rv) {
-        return applyReducedFriction(rv, TELEGRAM_FRICTION);
+        return applyReducedFriction(rv, recommendedFriction(rv != null ? rv.getContext() : null));
+    }
+
+    /**
+     * Returns a conservative fling profile based only on stable platform
+     * memory signals. This is intentionally closer to stock than the old
+     * fixed 0.007f setting when the device cannot afford a long glide.
+     */
+    public static float recommendedFriction(Context context) {
+        if (context == null) return MID_RAM_FRICTION;
+        try {
+            ActivityManager manager =
+                    (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager != null && manager.isLowRamDevice()) return LOW_RAM_FRICTION;
+            int memoryClassMb = manager != null ? manager.getMemoryClass() : 0;
+            if (memoryClassMb > 0 && memoryClassMb <= 192) return LOW_RAM_FRICTION;
+            if (memoryClassMb >= 384) return HIGH_RAM_FRICTION;
+        } catch (Exception ignored) {
+            // Unknown profile: keep the conservative middle value.
+        }
+        return MID_RAM_FRICTION;
+    }
+
+    /** Diminishing velocity boost paired with {@link #recommendedFriction}. */
+    public static float recommendedBoostGain(Context context) {
+        if (context == null) return 0.25f;
+        try {
+            ActivityManager manager =
+                    (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager != null && manager.isLowRamDevice()) return 0.12f;
+            int memoryClassMb = manager != null ? manager.getMemoryClass() : 0;
+            if (memoryClassMb > 0 && memoryClassMb <= 192) return 0.16f;
+            if (memoryClassMb >= 384) return 0.30f;
+        } catch (Exception ignored) {
+            // Unknown profile: use the conservative middle boost.
+        }
+        return 0.22f;
     }
 
     private static Field findFieldByTypeName(Class<?> start, String simpleNameContains) {
