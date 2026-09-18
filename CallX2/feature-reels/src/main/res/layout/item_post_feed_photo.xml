@@ -59,24 +59,24 @@
             <!-- Avatar + optional gradient ring -->
             <FrameLayout
                 android:id="@+id/frame_post_avatar"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
+                android:layout_width="39.2dp"
+                android:layout_height="39.2dp"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toBottomOf="parent">
 
                 <ImageView
                     android:id="@+id/iv_post_story_ring"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
+                    android:layout_width="39.2dp"
+                    android:layout_height="39.2dp"
                     android:layout_gravity="center"
                     android:background="@drawable/story_ring_insta_gradient"
                     android:visibility="gone"/>
 
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_post_avatar"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_person"
                     app:civ_border_width="0dp"
@@ -399,7 +399,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
-                android:textColor="@color/text_secondary"
+                android:textColor="@color/text_primary"
                 android:textSize="12sp"
                 android:layout_marginStart="4dp"
                 android:clickable="true"
@@ -435,7 +435,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
-                android:textColor="@color/text_secondary"
+                android:textColor="@color/text_primary"
                 android:textSize="12sp"
                 android:layout_marginStart="4dp"/>
         </LinearLayout>
@@ -466,7 +466,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
-                android:textColor="@color/text_secondary"
+                android:textColor="@color/text_primary"
                 android:textSize="12sp"
                 android:layout_marginStart="4dp"/>
         </LinearLayout>
@@ -496,7 +496,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
-                android:textColor="@color/text_secondary"
+                android:textColor="@color/text_primary"
                 android:textSize="12sp"
                 android:layout_marginStart="4dp"/>
         </LinearLayout>

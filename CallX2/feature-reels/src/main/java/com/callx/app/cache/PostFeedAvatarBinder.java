@@ -25,7 +25,7 @@ import com.callx.app.utils.AvatarUrlBuilder;
  * sheet (ReelCommentAvatarBinder), the Home Stories tray
  * (HomeStoryAvatarBinder), and the Follow lists (FollowAvatarBinder)
  * already have to PostsFeedActivity's profile grid feed (item_post_feed_photo
- * rows: the 38dp owner avatar, plus the 32dp collab dual-avatar for collab
+ * rows: the 32dp owner avatar, plus the 32dp collab dual-avatar for collab
  * repost cards).
  *
  * GAP THIS CLOSES: PostsAdapter#onBindViewHolder previously did a flat
@@ -48,7 +48,7 @@ import com.callx.app.utils.AvatarUrlBuilder;
  * Unlike the Follow lists' CircleImageView rows, PostsFeedActivity's
  * iv_post_avatar (and the dynamically-added collab "av2") are a mix of
  * plain ImageView and CircleImageView — CircleImageView already clips at
- * draw time, but the main 38dp slot is a plain ImageView, so {@link #bind}
+ * draw time, but the main 32dp slot is a plain ImageView, so {@link #bind}
  * takes an explicit circleCrop flag instead of assuming one shape app-wide.
  *
  *  • url()      — AvatarUrlBuilder#buildResponsive: shared SMALL tier
@@ -85,7 +85,7 @@ public final class PostFeedAvatarBinder {
 
     private PostFeedAvatarBinder() {}
 
-    /** item_post_feed_photo.xml's iv_post_avatar is a fixed 38dp circle; rounds up to shared SMALL(48) tier. Also used for the 32dp collab av2 — no reason to fetch a separate size for a slightly smaller slot. */
+    /** item_post_feed_photo.xml's iv_post_avatar is a fixed 32dp circle; rounds up to shared SMALL(48) tier. Also used for the 32dp collab av2 — no reason to fetch a separate size for a slightly smaller slot. */
     public static final AvatarSizeTier TIER = AvatarSizeTier.forViewSizeDp(38);
 
     // Same thresholds/depths as AvatarPrefetcher/FollowAvatarBinder/

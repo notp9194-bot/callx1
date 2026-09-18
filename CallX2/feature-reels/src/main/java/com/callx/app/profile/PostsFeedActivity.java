@@ -1480,7 +1480,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 if (hasUnseen) {
                     h.ivStoryRing.setImageDrawable(null);
                     h.ivStoryRing.setBackground(
-                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2f,
+                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.8f,
                                     h.ivStoryRing.getResources().getDisplayMetrics().density));
                     h.ivStoryRing.setVisibility(View.VISIBLE);
                 } else if (hasAny) {
