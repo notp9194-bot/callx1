@@ -845,8 +845,10 @@ public class MessagePagingAdapter
     // on a background thread and cached; the bind uses the cached verdict
     // (defaulting to "not yet known" → falls back to fullUrl for that one
     // frame) and only refreshes the row once the real answer is in.
-    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> LOCAL_AVAIL_CACHE =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    // Bounded: a long-lived process may visit many chats and content Uris;
+    // old verdicts should not grow the process heap forever.
+    private static final android.util.LruCache<String, Boolean> LOCAL_AVAIL_CACHE =
+            new android.util.LruCache<>(256);
     private static final java.util.concurrent.ExecutorService LOCAL_AVAIL_EXECUTOR =
             java.util.concurrent.Executors.newSingleThreadExecutor();
 
@@ -903,25 +905,25 @@ public class MessagePagingAdapter
      * yet. Never blocks the calling (main) thread.
      */
     private Boolean checkLocalAvailabilityAsync(Context ctx, String mediaLocalPath, String messageId) {
-        Boolean cached = LOCAL_AVAIL_CACHE.get(mediaLocalPath);
+        Boolean cached;
+        synchronized (LOCAL_AVAIL_CACHE) {
+            cached = LOCAL_AVAIL_CACHE.get(mediaLocalPath);
+        }
         if (cached != null) return cached;
         final Context appCtx = ctx.getApplicationContext();
         LOCAL_AVAIL_EXECUTOR.execute(() -> {
             boolean avail = com.callx.app.utils.LocalMediaAvailability.isAvailable(appCtx, mediaLocalPath);
-            LOCAL_AVAIL_CACHE.put(mediaLocalPath, avail);
+            synchronized (LOCAL_AVAIL_CACHE) {
+                LOCAL_AVAIL_CACHE.put(mediaLocalPath, avail);
+            }
             if (avail && messageId != null) {
                 // Refresh just this row once we know the local file is
                 // usable — cheap full rebind, one-time per message.
                 LOCAL_AVAIL_MAIN_HANDLER.post(() -> {
-                    for (int i = 0; i < getItemCount(); i++) {
-                        Message mm = getItem(i);
-                        if (mm == null) continue;
-                        String id = mm.messageId != null ? mm.messageId : mm.id;
-                        if (messageId.equals(id)) {
-                            notifyItemChanged(i);
-                            break;
-                        }
-                    }
+                    // Use the attached-holder index instead of scanning every
+                    // loaded message. Off-screen rows use the cached verdict
+                    // naturally when they are rebound later.
+                    notifyAttachedMessageChanged(messageId, null);
                 });
             }
         });
@@ -1125,26 +1127,10 @@ public class MessagePagingAdapter
     public void onMediaUploadProgress(String messageId, int percent) {
         if (messageId == null) return;
         uploadProgressTracker.setProgress(messageId, percent);
-        // PERF: scan from the TAIL, not the head. A message with an
-        // in-flight upload is, by definition, one *this device* just sent —
-        // with stackFromEnd layout that's always at or extremely near the
-        // last position. Walking from getItemCount()-1 backwards turns the
-        // common case into an O(1)-ish lookup (found in 1-2 steps) instead
-        // of an O(n) scan of the whole history from the front, every single
-        // throttled progress tick, on a long chat.
-        // (A messageId->position map isn't used here on purpose: positions
-        // shift under a PagingDataAdapter on every page load/invalidate, so
-        // keeping one in sync would add real complexity for a case this
-        // tail-scan already makes cheap.)
-        for (int i = getItemCount() - 1; i >= 0; i--) {
-            Message m = getItem(i);
-            if (m == null) continue;
-            String id = m.messageId != null ? m.messageId : m.id;
-            if (messageId.equals(id)) {
-                notifyItemChanged(i, PAYLOAD_MEDIA_PROGRESS);
-                break;
-            }
-        }
+        // The upload bubble only needs an immediate repaint while attached.
+        // If it has scrolled away, the cached progress is consumed by its
+        // next normal bind, so do not scan the whole Paging window.
+        notifyAttachedMessageChanged(messageId, PAYLOAD_MEDIA_PROGRESS);
     }
 
     /** Call once an upload finishes (success or failure) to stop tracking its progress. */
@@ -1957,11 +1943,60 @@ public class MessagePagingAdapter
     // list — see attachedRecyclerView usage below.
     private RecyclerView attachedRecyclerView;
 
+    // ── BOUNDED MESSAGE LOOKUP INDEX ─────────────────────────────────────
+    // Paging positions are allowed to move as pages load/invalidate, so an
+    // all-items id->position map would become stale. The attached-holder map
+    // is the safer index for the hot paths below: a local reaction, upload
+    // progress tick, or local-media verdict only needs a row that is already
+    // on screen. Off-screen rows consume the latest value on their next bind.
+    // This keeps those updates O(attached holders) at worst, without walking
+    // the entire loaded Paging window on every tick.
+    private final java.util.HashMap<String, VH> attachedMessageIndex =
+            new java.util.HashMap<>();
+
+    private static String messageIdOf(@Nullable Message message) {
+        if (message == null) return null;
+        return message.messageId != null ? message.messageId : message.id;
+    }
+
+    private void unindexBoundHolder(@NonNull VH holder) {
+        String id = messageIdOf(holder.boundMessage);
+        if (id != null && attachedMessageIndex.get(id) == holder) {
+            attachedMessageIndex.remove(id);
+        }
+    }
+
+    private void indexBoundHolder(@NonNull VH holder) {
+        String id = messageIdOf(holder.boundMessage);
+        if (id != null) attachedMessageIndex.put(id, holder);
+    }
+
+    @Nullable
+    private VH findAttachedHolder(String messageId) {
+        if (messageId == null) return null;
+        VH holder = attachedMessageIndex.get(messageId);
+        if (holder == null || !messageId.equals(messageIdOf(holder.boundMessage))) {
+            if (holder != null) attachedMessageIndex.remove(messageId);
+            return null;
+        }
+        return holder;
+    }
+
+    private void notifyAttachedMessageChanged(String messageId, @Nullable Object payload) {
+        VH holder = findAttachedHolder(messageId);
+        if (holder == null) return;
+        int position = holder.getBindingAdapterPosition();
+        if (position == RecyclerView.NO_POSITION) return;
+        if (payload == null) notifyItemChanged(position);
+        else notifyItemChanged(position, payload);
+    }
+
     @Override
     public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onAttachedToRecyclerView(recyclerView);
         glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
         attachedRecyclerView = recyclerView;
+        attachedMessageIndex.clear();
         GlobalVoicePlaybackManager.getInstance().addListener(globalPlaybackListener);
     }
 
@@ -1970,6 +2005,7 @@ public class MessagePagingAdapter
         super.onDetachedFromRecyclerView(recyclerView);
         glideRequestManager = null;
         attachedRecyclerView = null;
+        attachedMessageIndex.clear();
         GlobalVoicePlaybackManager.getInstance().removeListener(globalPlaybackListener);
 
         // WhatsApp-style persistent mini player: if a voice note is still
@@ -2517,13 +2553,17 @@ public class MessagePagingAdapter
         try {
         Message m = getItem(position);
         if (m == null) {
+            unindexBoundHolder(h);
+            h.boundMessage = null;
             // Placeholder — show shimmer or empty
             if (h.tvMessage != null) h.tvMessage.setVisibility(View.GONE);
             return;
         }
         
         // Store reference for height caching on recycle
+        unindexBoundHolder(h);
         h.boundMessage = m;
+        indexBoundHolder(h);
 
         // PERF ADV: cross-adapter pool sharing safety net.
         // createBubbleClickListener() closes over THIS adapter instance
@@ -5482,7 +5522,7 @@ public class MessagePagingAdapter
         cv.setBigReactionEmoji(isStoryReactionEmojiMessage(m) ? m.text : null);
 
         // ── Reaction badge ──
-        String reactionsText = formatReactions(m.reactions);
+        String reactionsText = formatReactions(messageIdOf(m), m.reactions);
         if (reactionsText != null) cv.setReactions(reactionsText);
         else cv.clearReactions();
 
@@ -8453,6 +8493,7 @@ public class MessagePagingAdapter
         // before the view gets recycled. When this message is bound again
         // (or a similar message), we can reuse this height to avoid re-measure.
         Message m = holder.boundMessage; // Track which message was bound to this holder
+        unindexBoundHolder(holder);
         if (m != null && m.messageId != null && holder.itemView.getHeight() > 0) {
             messagHeightCache.put(m.messageId, holder.itemView.getHeight());
         }
@@ -8669,20 +8710,19 @@ public class MessagePagingAdapter
      *  and is a no-op. */
     public void applyLocalReaction(String messageId, String uid, String emoji, boolean removing) {
         if (messageId == null || uid == null) return;
-        for (int i = 0; i < getItemCount(); i++) {
-            Message m = getItem(i);
-            if (m == null) continue;
-            String id = m.messageId != null ? m.messageId : m.id;
-            if (!messageId.equals(id)) continue;
-            if (m.reactions == null) m.reactions = new java.util.LinkedHashMap<>();
-            if (removing) {
-                m.reactions.remove(uid);
-            } else {
-                m.reactions.put(uid, emoji);
-            }
-            notifyItemChanged(i, PAYLOAD_REACTIONS);
-            break;
+        // This method is called from a tap/long-press on an on-screen bubble,
+        // so the holder index is authoritative and avoids an O(n) Paging
+        // window scan for every optimistic reaction update.
+        VH holder = findAttachedHolder(messageId);
+        if (holder == null || holder.boundMessage == null) return;
+        Message m = holder.boundMessage;
+        if (m.reactions == null) m.reactions = new java.util.LinkedHashMap<>();
+        if (removing) {
+            m.reactions.remove(uid);
+        } else {
+            m.reactions.put(uid, emoji);
         }
+        notifyAttachedMessageChanged(messageId, PAYLOAD_REACTIONS);
     }
 
     /** Fast-path: rebind ONLY the reactions row. Called both from the full
@@ -8692,7 +8732,7 @@ public class MessagePagingAdapter
      *  no Linkify, no new GradientDrawable, no countdown restart) just to
      *  refresh a 1-line TextView. */
     private void bindReactionsOnly(@NonNull VH h, @NonNull Message m) {
-        String formatted = formatReactions(m.reactions);
+        String formatted = formatReactions(messageIdOf(m), m.reactions);
         if (h.canvasView != null) {
             // Canvas path: setReactions()/clearReactions() handles its own
             // requestLayout()+invalidate(), and the tap target is wired
@@ -8719,12 +8759,27 @@ public class MessagePagingAdapter
     /** Shared emoji-counting/formatting logic for both the legacy
      *  tv_reactions TextView and MessageBubbleCanvasView's reaction badge.
      *  Returns null if there are no reactions to show. */
+    private static final String EMPTY_REACTION_FORMAT = "\u0000";
+    private final android.util.LruCache<String, String> reactionFormatCache =
+            new android.util.LruCache<>(128);
+
     @Nullable
-    private String formatReactions(@Nullable java.util.Map<String, String> rxMap) {
+    private String formatReactions(@Nullable String messageId,
+                                   @Nullable java.util.Map<String, String> rxMap) {
         if (rxMap == null || rxMap.isEmpty()) return null;
+        String cacheKey = messageId == null
+                ? null
+                : messageId + '\u0001' + rxMap.size() + '\u0001' + rxMap.hashCode();
+        if (cacheKey != null) {
+            String cached = reactionFormatCache.get(cacheKey);
+            if (cached != null) {
+                return EMPTY_REACTION_FORMAT.equals(cached) ? null : cached;
+            }
+        }
         java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
         for (String emoji : rxMap.values()) {
-            counts.put(emoji, counts.containsKey(emoji) ? counts.get(emoji) + 1 : 1);
+            Integer previous = counts.get(emoji);
+            counts.put(emoji, previous == null ? 1 : previous + 1);
         }
         StringBuilder sb = new StringBuilder();
         int shown = 0;
@@ -8735,6 +8790,10 @@ public class MessagePagingAdapter
             if (++shown >= 4) break; // max 4 distinct emojis shown
         }
         String result = sb.toString().trim();
+        if (cacheKey != null) {
+            reactionFormatCache.put(cacheKey,
+                    result.isEmpty() ? EMPTY_REACTION_FORMAT : result);
+        }
         return result.isEmpty() ? null : result;
     }
 
