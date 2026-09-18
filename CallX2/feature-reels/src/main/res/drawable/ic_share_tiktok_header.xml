@@ -5,8 +5,12 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- TikTok-style curved share arrow: bold, simple and readable at header size -->
+    <!-- TikTok profile-header style share arrow: thin outlined curved arrow -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M4,19.5C4,12.55 9.55,7 16.5,7H19V4L23,8L19,12V9H16.5C10.66,9 6,13.66 6,19.5C6,20.05 5.55,20.5 5,20.5C4.45,20.5 4,20.05 4,19.5Z" />
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.5,18.5 C4.5,11.9 9.2,6.5 16,6.5 L20,6.5 M20,6.5 L15.2,2.2 M20,6.5 L15.2,10.8" />
 </vector>
