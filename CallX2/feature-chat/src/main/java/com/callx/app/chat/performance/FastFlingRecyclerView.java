@@ -92,18 +92,21 @@ import androidx.recyclerview.widget.RecyclerView;
  */
 public class FastFlingRecyclerView extends RecyclerView {
 
-    // Device-aware cap on the *relative* boost a soft flick can get. The
-    // previous fixed +55% could make a low-RAM device coast and decode for
-    // much longer than its frame/battery budget allowed.
-    private float boostGain;
+    // Cap on the *relative* boost a soft flick can get (≈+55% at v→0).
+    private static final float BOOST_GAIN = 0.55f;
     // Speed (px/s) at which the boost has fallen to half its small-flick
     // value. Tuned around a typical medium flick on a ~2400px-tall 6.5"
     // display; a light "nudge" scroll sits well below this, a hard corner-
     // to-corner fling sits well above it.
     private static final float REF_VELOCITY = 6000f;
 
-    // v4/v5: selected once from conservative platform memory signals.
-    private float tunedFriction;
+    // v4: OverScroller's default friction (android.widget.OverScroller's
+    // internal SCROLL_FRICTION constant) is 0.015f. Setting it lower makes
+    // the SAME launch velocity decelerate over a longer distance — this is
+    // the actual physics knob behind Telegram/WhatsApp's long-glide feel.
+    // 0.007f roughly doubles glide distance versus stock; tune down for an
+    // even longer coast, up (towards 0.015f) to pull it back closer to stock.
+    private static final float TELEGRAM_FRICTION = 0.007f;
 
     private int maxFlingVelocity;
     private boolean userGestureInProgress = false;
@@ -139,10 +142,6 @@ public class FastFlingRecyclerView extends RecyclerView {
 
     private void init(Context context) {
         maxFlingVelocity = ViewConfiguration.get(context).getScaledMaximumFlingVelocity();
-        boostGain = com.callx.app.utils.RecyclerViewFrictionTuner
-                .recommendedBoostGain(context);
-        tunedFriction = com.callx.app.utils.RecyclerViewFrictionTuner
-                .recommendedFriction(context);
         // v3: self-registered listener (public API, no reflection needed)
         // purely to clear lastFlingVelocityY the instant the glide ends —
         // keeps the field meaningful as "how fast is THIS glide" rather than
@@ -174,10 +173,45 @@ public class FastFlingRecyclerView extends RecyclerView {
      * @return true if the friction was actually reduced.
      */
     private boolean tryApplyReducedFriction() {
-        // Keep the reflection in one shared, failure-safe helper. The helper
-        // also lets plain RecyclerViews use the same conservative profile.
-        return com.callx.app.utils.RecyclerViewFrictionTuner
-                .applyReducedFriction(this, tunedFriction);
+        try {
+            java.lang.reflect.Field flingerField = findFieldByTypeName(RecyclerView.class, "ViewFlinger");
+            if (flingerField == null) return false;
+            flingerField.setAccessible(true);
+            Object flinger = flingerField.get(this);
+            if (flinger == null) return false;
+
+            java.lang.reflect.Field scrollerField =
+                    findFieldByAssignableType(flinger.getClass(), android.widget.OverScroller.class);
+            if (scrollerField == null) return false;
+            scrollerField.setAccessible(true);
+            Object scroller = scrollerField.get(flinger);
+            if (!(scroller instanceof android.widget.OverScroller)) return false;
+
+            ((android.widget.OverScroller) scroller).setFriction(TELEGRAM_FRICTION);
+            return true;
+        } catch (Exception e) {
+            // ReflectiveOperationException family + any unexpected cast issue —
+            // never let a reflection hiccup take down the chat screen.
+            return false;
+        }
+    }
+
+    private static java.lang.reflect.Field findFieldByTypeName(Class<?> start, String simpleNameContains) {
+        for (Class<?> c = start; c != null; c = c.getSuperclass()) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (f.getType().getSimpleName().contains(simpleNameContains)) return f;
+            }
+        }
+        return null;
+    }
+
+    private static java.lang.reflect.Field findFieldByAssignableType(Class<?> start, Class<?> assignableTo) {
+        for (Class<?> c = start; c != null; c = c.getSuperclass()) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (assignableTo.isAssignableFrom(f.getType())) return f;
+            }
+        }
+        return null;
     }
 
     /** True if the v4 reflective friction reduction took on this device — see class javadoc. */
@@ -227,7 +261,7 @@ public class FastFlingRecyclerView extends RecyclerView {
     /** Diminishing-gain boost — see class javadoc for the shape/reasoning. */
     private int applyBoostCurve(int v) {
         float absV = Math.abs((float) v);
-        float boosted = v + (boostGain * v) / (1f + absV / REF_VELOCITY);
+        float boosted = v + (BOOST_GAIN * v) / (1f + absV / REF_VELOCITY);
         return (int) boosted;
     }
 

@@ -4686,6 +4686,49 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
+     * Re-resolves the small set of theme-dependent drawing primitives for an
+     * already-bound holder. ChatActivity keeps the RecyclerView alive across a
+     * day/night switch, so re-running bindMedia()/bindText() here would repeat
+     * Glide/linkification/measurement work for content that did not change.
+     *
+     * Geometry is deliberately untouched: a theme switch changes colors, not
+     * the message's measured size. The cached Canvas recording is marked dirty
+     * so the next draw uses the new paints.
+     */
+    public void refreshThemeColors() {
+        Context ctx = getContext();
+        textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
+        footerPaint.setColor(textPaint.getColor());
+        tickPaint.setColor(ChatThemeManager.getTickColor(read));
+
+        boolean darkMode = ChatThemeManager.isDarkMode(ctx);
+        mediaPlaceholderPaint.setColor(
+                darkMode ? MEDIA_PLACEHOLDER_COLOR_DARK : MEDIA_PLACEHOLDER_COLOR_LIGHT);
+        mediaBorderPaint.setColor(
+                darkMode ? MEDIA_BORDER_COLOR_DARK : MEDIA_BORDER_COLOR_LIGHT);
+
+        if (isMediaGroup) {
+            groupCellBgPaint.setColor(
+                    darkMode ? MEDIA_PLACEHOLDER_COLOR_DARK : MEDIA_PLACEHOLDER_COLOR_LIGHT);
+            groupCellBorderPaint.setColor(
+                    darkMode ? MEDIA_BORDER_COLOR_DARK : MEDIA_BORDER_COLOR_LIGHT);
+        }
+        if (isAudio) {
+            audioWaveformIdlePaint.setColor(textPaint.getColor());
+            audioDurPaint.setColor(textPaint.getColor());
+        }
+        if (hasReply) resolveReplyColors(ctx);
+
+        // Keep the same tail geometry as the original bind path. Creating the
+        // cached drawable is cheap and avoids carrying the previous theme's
+        // fill color into the next frame.
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent,
+                isMedia || isReelShare, density);
+        staticPictureDirty = true;
+        invalidate();
+    }
+
+    /**
      * Marks (or clears, passing null) this bubble as a story/reel-reaction
      * message so drawReplyPreview() paints `emoji` large, overlapping the
      * bottom-left corner of the quoted thumbnail (Instagram DM "reacted to
@@ -4959,6 +5002,11 @@ public class MessageBubbleCanvasView extends View {
 
     /** Swap in the OG-image thumbnail once Glide decodes it — no full rebind needed. Pass null while still loading / on load failure (placeholder box stays up). */
     public void setLinkPreviewThumbBitmap(@Nullable Bitmap bitmap) {
+        // The thumbnail occupies a reserved, fixed-height band decided by
+        // setLinkPreview(). Never call requestLayout() here: an async bitmap
+        // completion must be a draw-only update, otherwise fast scrolling can
+        // re-measure the whole message list once the image arrives.
+        if (this.linkThumbBitmap == bitmap) return;
         this.linkThumbBitmap = bitmap;
         invalidate();
     }

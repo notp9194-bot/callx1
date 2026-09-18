@@ -169,6 +169,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // fires on large pastes, but now also triggered for typed long messages.
     private static final int    LARGE_MSG_SEND_THRESHOLD = 500;
 
+    // Share intents can be delivered more than once while an Activity is
+    // recreated. Compile the regexes once and cache repeated share payloads.
+    private static final java.util.regex.Pattern FIRST_HTTP_URL_PATTERN =
+            java.util.regex.Pattern.compile("https?://[^\\s]+");
+    private static final java.util.regex.Pattern SHARED_USERNAME_PATTERN =
+            java.util.regex.Pattern.compile("@([A-Za-z0-9._]+)");
+    private static final android.util.LruCache<String, String> FIRST_URL_CACHE =
+            new android.util.LruCache<>(64);
+    private static final String NO_URL_CACHE_VALUE = "";
+
     // ── View binding ───────────────────────────────────────────────────────
     private ActivityChatBinding binding;
 
@@ -534,15 +544,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         return emptyChatView;
     }
 
-    // ── Glide preload state ────────────────────────────────────────────────
-    // Strong references to in-flight WarmCacheTargets so Glide cannot GC/cancel
-    // them before the decoded Bitmap is stored in the LRU memory cache.
-    // Cleared (and the requests cancelled) in onPause() and onDestroy().
+    // Retained only for source compatibility with the legacy warm-up helper
+    // below. That helper is no longer invoked; ChatMediaPreloader is the sole
+    // runtime media look-ahead path.
     private final java.util.List<WarmCacheTarget> activePreloadTargets = new java.util.ArrayList<>();
-    // Timestamp of the last preload run — used to debounce onResume() calls
-    // (e.g. returning immediately from a permission dialog should not re-fire).
     private long lastPreloadTimeMs = 0L;
-    private static final long PRELOAD_DEBOUNCE_MS = 3_000L; // 3 s between warm-up runs
+    private static final long PRELOAD_DEBOUNCE_MS = 3_000L;
 
     // ── Controllers ────────────────────────────────────────────────────────
     private ChatBlockController    blockController;
@@ -1332,10 +1339,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         }
 
-        // PERF: warm the Glide cache with the last 10 image-bearing messages so
-        // the first scroll feels instant — decoded Bitmaps land in Glide's LRU
-        // memory cache before the user ever touches the list.
-        preloadLastImageMessages();
+        // PERF: ChatMediaPreloader is the single media look-ahead path.
+        // Do not also warm the last N cached messages here: that onResume
+        // preload overlaps the adaptive scroll window and duplicates both
+        // network/decode work and Glide memory pressure.
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1472,18 +1479,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
     }
 
-    /**
-     * Cancels every in-flight Glide preload and releases the strong
-     * references so the targets can be collected normally.
-     * Called from {@link #onPause()} and {@link #onDestroy()}.
-     */
-    private void clearActivePreloadTargets() {
-        for (WarmCacheTarget t : activePreloadTargets) {
-            Glide.with(this).clear(t);
-        }
-        activePreloadTargets.clear();
-    }
-
     @Override
     protected void onStop() {
         super.onStop();
@@ -1513,10 +1508,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // after leaving this chat or opening a different reel.
         ReelSharePeekBridge.dismiss(this);
 
-        // Cancel any in-flight Glide preloads so we don't decode images for a
-        // chat the user just left.  Clearing the strong references also lets
-        // Glide GC the targets normally.
-        clearActivePreloadTargets();
         // WhatsApp-style: persist scroll position + last-seen-ts so we can
         // intelligently restore (or jump to first unread) on re-open.
         saveScrollState();
@@ -1635,8 +1626,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (messagesRef != null) {
             try { messagesRef.keepSynced(false); } catch (Exception ignored) {}
         }
-        // Cancel any remaining Glide preloads before the activity is torn down.
-        clearActivePreloadTargets();
         shimmerHandler.removeCallbacks(shimmerShowRunnable);
 
         // LISTENER-LEAK FIX: remove from the exact Query each listener was
@@ -2333,8 +2322,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 binding.getRoot().post(() -> {
                     String url = extractFirstUrl(sharedText);
                     if (url == null) return;
-                    java.util.regex.Matcher um = java.util.regex.Pattern
-                            .compile("@([A-Za-z0-9._]+)").matcher(sharedText);
+                    java.util.regex.Matcher um = SHARED_USERNAME_PATTERN.matcher(sharedText);
                     String username = um.find() ? um.group(1) : "";
                     String caption  = sharedText.replace(url, "").trim();
                     com.callx.app.models.Message msg = buildOutgoing();
@@ -2527,8 +2515,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (isInstagramReel) {
             // Extract @username if present in the shared text (Instagram often includes it)
             String username = "";
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("@([A-Za-z0-9._]+)").matcher(sharedText);
+            java.util.regex.Matcher m = SHARED_USERNAME_PATTERN.matcher(sharedText);
             if (m.find()) username = m.group(1);
 
             // Use the rest of the text (minus the URL) as caption
@@ -2561,10 +2548,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     /** Extracts the first http/https URL from a string, or null if none found. */
     private static String extractFirstUrl(String text) {
-        // Share-intent parsing uses the same bounded detector as message
-        // bubbles and the compose preview; do not compile a new Pattern on
-        // every incoming share.
-        return com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(text);
+        if (text == null) return null;
+        String cached = FIRST_URL_CACHE.get(text);
+        if (cached != null) {
+            return cached.isEmpty() ? null : cached;
+        }
+        java.util.regex.Matcher m = FIRST_HTTP_URL_PATTERN.matcher(text);
+        String result = m.find() ? m.group() : null;
+        FIRST_URL_CACHE.put(text, result == null ? NO_URL_CACHE_VALUE : result);
+        return result;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -3532,16 +3524,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             return;
         }
         if (pagingAdapter == null) return;
-        for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
-            Message message = pagingAdapter.peek(i);
-            if (message == null) continue;
-            String id = message.messageId != null ? message.messageId : message.id;
-            if (!messageId.equals(id)) continue;
-            if (status.equals(message.status)) return;
-            message.status = status;
-            pagingAdapter.notifyItemChanged(i, MessagePagingAdapter.PAYLOAD_STATUS);
-            return;
-        }
+        pagingAdapter.updateMessageStatus(messageId, status);
     }
 
     private void startRealtimeListenerEarly() {
