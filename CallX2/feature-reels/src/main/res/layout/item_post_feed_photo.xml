@@ -380,14 +380,14 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginEnd="14dp"
+            android:layout_marginEnd="18dp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageButton
                 android:id="@+id/btn_post_like"
-                android:layout_width="36dp"
+                android:layout_width="32dp"
                 android:layout_height="36dp"
                 android:src="@drawable/ic_heart"
                 android:tint="@color/text_primary"
@@ -401,7 +401,7 @@
                 android:text="0"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="6dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="?attr/selectableItemBackgroundBorderless"
@@ -416,14 +416,14 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginEnd="14dp"
+            android:layout_marginEnd="18dp"
             app:layout_constraintStart_toEndOf="@id/ll_post_like_group"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageButton
                 android:id="@+id/btn_post_comment"
-                android:layout_width="36dp"
+                android:layout_width="32dp"
                 android:layout_height="36dp"
                 android:src="@drawable/ic_comment_reel"
                 android:tint="@color/text_primary"
@@ -437,7 +437,7 @@
                 android:text="0"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp"
-                android:layout_marginStart="4dp"/>
+                android:layout_marginStart="6dp"/>
         </LinearLayout>
 
         <!-- 🔄 Repost + count group -->
@@ -447,14 +447,14 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginEnd="14dp"
+            android:layout_marginEnd="18dp"
             app:layout_constraintStart_toEndOf="@id/ll_post_comment_group"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageButton
                 android:id="@+id/btn_post_repost"
-                android:layout_width="36dp"
+                android:layout_width="32dp"
                 android:layout_height="36dp"
                 android:src="@drawable/ic_repost"
                 android:tint="@color/text_primary"
@@ -468,7 +468,7 @@
                 android:text="0"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp"
-                android:layout_marginStart="4dp"/>
+                android:layout_marginStart="6dp"/>
         </LinearLayout>
 
         <!-- ▷ Send / Share + count group -->
@@ -484,7 +484,7 @@
 
             <ImageButton
                 android:id="@+id/btn_post_send"
-                android:layout_width="36dp"
+                android:layout_width="32dp"
                 android:layout_height="36dp"
                 android:src="@drawable/ic_share_reel"
                 android:tint="@color/text_primary"
@@ -498,7 +498,7 @@
                 android:text="0"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp"
-                android:layout_marginStart="4dp"/>
+                android:layout_marginStart="6dp"/>
         </LinearLayout>
 
         <!-- 🔖 Save — right-aligned -->

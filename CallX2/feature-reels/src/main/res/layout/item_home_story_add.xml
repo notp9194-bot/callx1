@@ -10,6 +10,7 @@
     android:orientation="vertical"
     android:gravity="center"
     android:padding="6dp"
+    android:clipToPadding="false"
     android:clickable="true"
     android:focusable="true"
     android:background="?attr/selectableItemBackground">
