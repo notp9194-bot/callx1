@@ -19,4 +19,13 @@ public class ChatMediaRow {
     public String thumbnailUrl;
     public String mediaLocalPath;
     public String mediaItemsJson;  // only populated for type == "multi_media"
+
+    // Auto-download gate for the swipe gallery (MediaViewerActivity): the
+    // viewer must know WHO sent each item (to tell "mine, always loadable"
+    // apart from "received, only loadable if the user already downloaded it
+    // from the chat bubble") and, for a Media-E2E image, the key envelope
+    // needed if the user taps "Download" on a not-yet-downloaded page.
+    public String senderId;
+    public String mediaKeyEnc;
+    public Long   fileSize;        // nullable — lets the un-downloaded page show "1.2 MB" with no HEAD request
 }

@@ -164,6 +164,12 @@ public final class ChatMediaGalleryBuilder {
             if ("multi_media".equals(row.type) && row.mediaItemsJson != null && !row.mediaItemsJson.isEmpty()) {
                 List<Map<String, Object>> group = MediaItemsJsonUtil.mediaItemsFromJson(row.mediaItemsJson);
                 if (group.isEmpty()) continue;
+                // Sender/message identity for the viewer's auto-download gate
+                // (see KEY_SENDER_ID). Group cells carry no per-cell E2E key
+                // envelope, so no KEY_MEDIA_KEY_ENC here.
+                for (Map<String, Object> g : group) {
+                    stampOrigin(g, row);
+                }
                 int base = items.size();
                 items.addAll(group);
                 if (row.id != null) idRangesOut.put(row.id, new int[]{base, group.size()});
@@ -177,6 +183,10 @@ public final class ChatMediaGalleryBuilder {
                     item.put("thumbUrl", row.thumbnailUrl);
                 }
                 item.put("mediaType", "video".equals(row.type) ? "video" : "image");
+                stampOrigin(item, row);
+                if (row.mediaKeyEnc != null && !row.mediaKeyEnc.isEmpty()) {
+                    item.put(KEY_MEDIA_KEY_ENC, row.mediaKeyEnc);
+                }
 
                 int idx = items.size();
                 items.add(item);
@@ -184,6 +194,36 @@ public final class ChatMediaGalleryBuilder {
             }
         }
         return items;
+    }
+
+    // ── Auto-download gate metadata (read by GalleryPagerAdapter) ───────
+    // Swiping in MediaViewerActivity used to silently download every
+    // neighbouring RECEIVED item the user hadn't downloaded yet (the chat
+    // bubble shows a manual "Download" pill for those). The viewer now
+    // needs to know, per item, who sent it and where its local copy lives:
+    //   KEY_SENDER_ID     — message sender uid ("mine" vs "received")
+    //   KEY_MESSAGE_ID    — Room message id (E2E per-message decrypt cache key)
+    //   KEY_LOCAL_PATH    — mediaLocalPath (Uri string) if the row has one
+    //   KEY_MEDIA_KEY_ENC — Media-E2E key envelope (single image/video rows only)
+    //   "fileSize"        — same key group cells already use in mediaItemsJson
+    public static final String KEY_SENDER_ID     = "senderId";
+    public static final String KEY_MESSAGE_ID    = "msgId";
+    public static final String KEY_LOCAL_PATH    = "localPath";
+    public static final String KEY_MEDIA_KEY_ENC = "mediaKeyEnc";
+
+    private static void stampOrigin(Map<String, Object> item, ChatMediaRow row) {
+        if (row.senderId != null && !row.senderId.isEmpty()) item.put(KEY_SENDER_ID, row.senderId);
+        if (row.id != null && !row.id.isEmpty())             item.put(KEY_MESSAGE_ID, row.id);
+        // A group's mediaLocalPath (if any) is per-message, not per-cell, so
+        // only single-item rows get it — see flatten().
+        if (row.fileSize != null && row.fileSize > 0 && !item.containsKey("fileSize")
+                && !"multi_media".equals(row.type)) {
+            item.put("fileSize", row.fileSize);
+        }
+        if (!"multi_media".equals(row.type)
+                && row.mediaLocalPath != null && !row.mediaLocalPath.isEmpty()) {
+            item.put(KEY_LOCAL_PATH, row.mediaLocalPath);
+        }
     }
 
     private static int locate(Map<String, int[]> idRanges, String tappedMessageId, int tappedSubIndex) {

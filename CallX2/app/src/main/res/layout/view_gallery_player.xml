@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Video page of MediaViewerActivity's swipe gallery (GalleryPagerAdapter).
+     surface_type=texture_view is REQUIRED here for the same reason it is in
+     activity_media_viewer.xml's single-media player: the gallery pager gets
+     hardware-layered, scaled, alpha-faded and outline-clipped by the
+     open/close/drag animations (MediaSwipeReplyCloseHelper,
+     animateOpenFromSource). A default SurfaceView is composited by the system
+     outside the view canvas, so under any of those it renders as a BLACK
+     rectangle (audio still plays) — TextureView draws through the normal
+     canvas pipeline and always shows. -->
+<androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    app:surface_type="texture_view"/>

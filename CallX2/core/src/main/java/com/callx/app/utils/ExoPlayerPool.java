@@ -59,6 +59,10 @@ public final class ExoPlayerPool {
         if (player == null) return;
         player.stop();
         player.clearMediaItems();
+        // A pooled player must come back "factory fresh": the next page that
+        // acquires it may start from a paused/normal state, not inherit
+        // another page's play flag.
+        player.setPlayWhenReady(false);
         if (POOL.size() < MAX_POOL_SIZE) {
             POOL.addLast(player);
         } else {

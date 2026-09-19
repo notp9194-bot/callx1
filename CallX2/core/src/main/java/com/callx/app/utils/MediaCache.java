@@ -362,6 +362,27 @@ public class MediaCache {
     }
 
     /**
+     * Deletes the cached copy of {@code url} (plus any half-written .tmp).
+     * Used when a "cached" file turns out to be undecodable — truncated, or
+     * ciphertext that an old key-less prefetch saved as if it were the image —
+     * so it stops passing {@link #getCached}'s "is it downloaded?" test (which
+     * made the chat bubble show it as downloaded and the viewer open to a
+     * black screen forever). After this the media simply reads as "not
+     * downloaded" again and can be re-fetched properly.
+     */
+    public static boolean invalidate(Context ctx, String url) {
+        if (ctx == null || url == null || url.isEmpty()) return false;
+        File f = cacheFileFor(ctx, url);
+        if (f == null) return false;
+        boolean deleted = f.exists() && f.delete();
+        File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
+        if (tmp.exists()) tmp.delete();
+        sRemoteSizeCache.remove(url);
+        Log.w(TAG, "invalidate(): dropped undecodable cache entry " + f.getName() + " deleted=" + deleted);
+        return deleted;
+    }
+
+    /**
      * Seeds the cache with a LOCAL file for a given remote URL — used right
      * after a successful upload so the sender can immediately self-play
      * their own just-sent media without re-downloading it (and, for

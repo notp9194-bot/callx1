@@ -224,7 +224,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="8dp"
-            android:layout_marginBottom="128dp"
+            android:layout_marginBottom="132dp"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             android:paddingTop="7dp"
@@ -382,7 +382,7 @@
                 android:layout_marginStart="10dp"
                 android:layout_marginEnd="10dp"
                 android:layout_marginTop="6dp"
-                android:layout_marginBottom="10dp"
+                android:layout_marginBottom="12dp"
                 android:clipChildren="false"
                 android:background="@drawable/bg_chat_input_capsule">
 

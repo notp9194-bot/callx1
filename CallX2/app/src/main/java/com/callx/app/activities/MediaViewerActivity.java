@@ -718,6 +718,11 @@ public class MediaViewerActivity extends AppCompatActivity {
         if (galleryItems == null) return;
         for (int neighbor : new int[]{position - 1, position + 1}) {
             if (neighbor < 0 || neighbor >= galleryItems.size()) continue;
+            // BUG FIX (swipe auto-download): only warm neighbours that would load
+            // on their own anyway (sent by me / user-approved). A RECEIVED item the
+            // user hasn't downloaded from the chat bubble must NOT be fetched here —
+            // its page shows a tap-to-download pill instead (see GalleryPagerAdapter).
+            if (galleryAdapter == null || !galleryAdapter.mayPrefetch(this, neighbor)) continue;
             String url = safeStr(galleryItems.get(neighbor).get("url"));
             if (url.isEmpty() || MediaCache.getCached(this, url) != null) continue;
             MediaCache.get(this, url, new MediaCache.Callback() {
@@ -741,6 +746,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         // risk for a page that's still two swipes away, so left out.
         for (int neighbor : new int[]{position - 2, position + 2}) {
             if (neighbor < 0 || neighbor >= galleryItems.size()) continue;
+            if (galleryAdapter == null || !galleryAdapter.mayPrefetch(this, neighbor)) continue; // same gate as ±1 above
             Map<String, Object> item = galleryItems.get(neighbor);
             if (!"video".equals(item.get("mediaType"))) continue;
             String url = safeStr(item.get("url"));
@@ -768,6 +774,14 @@ public class MediaViewerActivity extends AppCompatActivity {
         binding.tvPageCounter.setVisibility(galleryItems.size() > 1 ? View.VISIBLE : View.GONE);
 
         galleryAdapter = new GalleryPagerAdapter(galleryItems, this::toggleUI);
+        // BUG FIX (swipe auto-download): tell the adapter who "me" is so it can leave
+        // received-but-not-downloaded pages as tap-to-download instead of fetching them.
+        // The item the user opened the viewer on was explicitly chosen (they tapped it),
+        // so it always loads; everything reached by swiping only loads if it's sent by me,
+        // already on the device, or the user taps its Download pill.
+        galleryAdapter.setCurrentUid(FirebaseUtils.getCurrentUid());
+        galleryAdapter.setDefaultSent(isOwnMessage);
+        galleryAdapter.allowLoad(safeStr(galleryItems.get(start).get("url")));
         galleryAdapter.setLongPressListener(pos -> enterSelectMode(pos));
         galleryAdapter.setSelectionToggleListener(pos -> updateSelectToolbar());
         // PERF (priority tuning): set before setAdapter() so the very first
@@ -1295,6 +1309,60 @@ public class MediaViewerActivity extends AppCompatActivity {
         loadImageProgressive(fullUrl, thumbUrl, null);
     }
 
+    // ── Black-screen protection (single-media mode) ──────────────────────
+    // A failed Glide load used to be silent: the PhotoView just stayed empty on the
+    // black background. Every load below now reports through singleImageListener().
+    private static final int IMG_CACHE = 0, IMG_LOCAL = 1, IMG_REMOTE = 2;
+    private boolean localImageFallbackTried;
+    private boolean localVideoFallbackTried;
+    private String currentVideoUrl;
+
+    private com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> singleImageListener(
+            final String fullUrl, final String thumbUrl, final int kind) {
+        return new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+            @Override public boolean onLoadFailed(
+                    @androidx.annotation.Nullable com.bumptech.glide.load.engine.GlideException e,
+                    Object model,
+                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                    boolean isFirstResource) {
+                boolean oom = false;
+                if (e != null && e.getRootCauses() != null) {
+                    for (Throwable t : e.getRootCauses()) {
+                        if (t instanceof OutOfMemoryError) { oom = true; break; }
+                    }
+                }
+                final boolean outOfMemory = oom;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (kind == IMG_LOCAL && !localImageFallbackTried) {
+                        // Device copy vanished / permission revoked after the availability probe —
+                        // fall back to the normal cache/remote path instead of a black screen.
+                        localImageFallbackTried = true;
+                        loadImageProgressive(fullUrl, thumbUrl, null);
+                        return;
+                    }
+                    if (kind == IMG_CACHE && !isOwnMessage && !outOfMemory) {
+                        // "Downloaded" but undecodable (truncated / ciphertext cached without its key):
+                        // drop it so the chat bubble reads "not downloaded" again and can re-fetch it.
+                        MediaCache.invalidate(MediaViewerActivity.this, fullUrl);
+                        Toast.makeText(MediaViewerActivity.this,
+                                "This photo's file was damaged and has been removed. Download it again from the chat.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    Toast.makeText(MediaViewerActivity.this, "Couldn't load photo", Toast.LENGTH_SHORT).show();
+                });
+                return false;
+            }
+            @Override public boolean onResourceReady(
+                    android.graphics.drawable.Drawable resource, Object model,
+                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                    com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                return false;
+            }
+        };
+    }
+
     private void loadImageProgressive(String fullUrl, String thumbUrl, String localPath) {
         PhotoView pv = binding.ivFull;
 
@@ -1309,6 +1377,7 @@ public class MediaViewerActivity extends AppCompatActivity {
                 .apply(com.bumptech.glide.request.RequestOptions.formatOf(
                         com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                 .diskCacheStrategy(DiskCacheStrategy.NONE)
+                .listener(singleImageListener(fullUrl, thumbUrl, IMG_LOCAL))
                 .into(pv);
             return;
         }
@@ -1329,6 +1398,7 @@ public class MediaViewerActivity extends AppCompatActivity {
                 .thumbnail(Glide.with(this)
                     .load(thumbUrl)
                     .diskCacheStrategy(DiskCacheStrategy.ALL))
+                .listener(singleImageListener(fullUrl, thumbUrl, IMG_REMOTE))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .transition(com.bumptech.glide.load.resource.drawable
                     .DrawableTransitionOptions.withCrossFade(500))
@@ -1340,6 +1410,7 @@ public class MediaViewerActivity extends AppCompatActivity {
                     .apply(com.bumptech.glide.request.RequestOptions.formatOf(
                             com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .listener(singleImageListener(fullUrl, thumbUrl, IMG_CACHE))
                     .into(pv);
             } else if (mediaDecryptKey != null) {
                 // Media E2E: fullUrl is ciphertext (resource_type=raw) — it
@@ -1348,10 +1419,12 @@ public class MediaViewerActivity extends AppCompatActivity {
                 // MediaCache first, then load the resulting plaintext file.
                 MediaCache.get(this, fullUrl, mediaDecryptKey, new MediaCache.Callback() {
                     @Override public void onReady(File f) {
+                        if (isFinishing() || isDestroyed()) return;
                         Glide.with(MediaViewerActivity.this).load(f)
                             .apply(com.bumptech.glide.request.RequestOptions.formatOf(
                                     com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .listener(singleImageListener(fullUrl, thumbUrl, IMG_CACHE))
                             .into(pv);
                     }
                     @Override public void onError(String r) {
@@ -1364,6 +1437,7 @@ public class MediaViewerActivity extends AppCompatActivity {
                     .apply(com.bumptech.glide.request.RequestOptions.formatOf(
                             com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .listener(singleImageListener(fullUrl, thumbUrl, IMG_REMOTE))
                     .into(pv);
                 MediaCache.get(this, fullUrl, new MediaCache.Callback() {
                     @Override public void onReady(File f) {}
@@ -1389,6 +1463,7 @@ public class MediaViewerActivity extends AppCompatActivity {
      *                  with audio and a scrub bar.
      */
     private void playVideo(String url, String localPath, boolean loopMuted) {
+        currentVideoUrl = url;
         // WhatsApp-style local-first: original local file still on the
         // device → play it directly, full quality, no download at all.
         // Falls back to the normal cache-first remote path the moment
@@ -1423,6 +1498,7 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     private void startExoPlayer(Uri uri, boolean loopMuted) {
         if (isFinishing() || isDestroyed()) return;
+        if (player != null) { player.release(); player = null; } // fallback re-entry must not leak the failed player
         player = new ExoPlayer.Builder(this).build();
         binding.player.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(uri));
@@ -1432,6 +1508,34 @@ public class MediaViewerActivity extends AppCompatActivity {
         }
         player.prepare();
         player.setPlayWhenReady(true);
+
+        // Black-screen protection: a playback error used to leave an empty black player with
+        // no message. Local-file failure falls back to the cache/stream path once; a cached
+        // file whose CONTAINER can't be parsed (truncated / ciphertext) is dropped so the
+        // bubble shows "Download" again; anything else (codec, network) just tells the user.
+        final boolean uriIsCacheFile = "file".equals(uri.getScheme())
+                && uri.getPath() != null && uri.getPath().contains("callx_media_cache");
+        final boolean uriIsLocal = !uriIsCacheFile && !"http".equals(uri.getScheme()) && !"https".equals(uri.getScheme());
+        player.addListener(new Player.Listener() {
+            @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                if (isFinishing() || isDestroyed()) return;
+                boolean badFile = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
+                        || error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED;
+                if (uriIsLocal && !localVideoFallbackTried && currentVideoUrl != null) {
+                    localVideoFallbackTried = true;
+                    playVideo(currentVideoUrl, null, loopMuted);
+                    return;
+                }
+                if (uriIsCacheFile && badFile && !isOwnMessage && currentVideoUrl != null) {
+                    MediaCache.invalidate(MediaViewerActivity.this, currentVideoUrl);
+                    Toast.makeText(MediaViewerActivity.this,
+                            "This video's file was damaged and has been removed. Download it again from the chat.",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Toast.makeText(MediaViewerActivity.this, "Couldn't play video", Toast.LENGTH_SHORT).show();
+            }
+        });
 
         // Mirror actual play/pause state into chatPlayback — onIsPlayingChanged
         // fires for user pause/resume AND for buffering stalls, which is

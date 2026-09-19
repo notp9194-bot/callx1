@@ -332,7 +332,8 @@ public interface MessageDao {
      * is completely unaffected by this feature.
      */
     @WorkerThread
-    @Query("SELECT id, timestamp, type, mediaUrl, text, thumbnailUrl, mediaLocalPath, mediaItemsJson " +
+    @Query("SELECT id, timestamp, type, mediaUrl, text, thumbnailUrl, mediaLocalPath, mediaItemsJson, " +
+           "senderId, mediaKeyEnc, fileSize " +
            "FROM messages WHERE chatId = :chatId " +
            "AND (type = 'image' OR type = 'video' OR type = 'multi_media') " +
            "ORDER BY timestamp ASC")
