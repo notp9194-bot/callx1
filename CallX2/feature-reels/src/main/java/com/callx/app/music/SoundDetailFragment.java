@@ -318,6 +318,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // guards against redoing the (cheap, in-memory) derivation on every
     // subsequent page/live-listener append.
     private boolean soundUsersComputed = false;
+    // Bumped on every derive so a slow "my network" callback from an older
+    // derive can never overwrite the ordering computed by a newer one.
+    private int soundUsersGen = 0;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
     private SoundDetailActivity.RelatedAdapter relatedAdapter;
@@ -1594,21 +1597,64 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
      * the reels grid (each ReelThumbItem carries .uid) — so instead of a
      * second "sounds/{soundId}/reels" query duplicating that read, this
      * derives the unique-uid list straight from reelItems already sitting
-     * in memory. Called once (see soundUsersComputed) from
-     * finishAppendingPage() as soon as the first page of reels lands, and
-     * from restoreFromViewModel() on rotation where reelItems is already
-     * fully populated synchronously.
+     * in memory. Called from finishAppendingPage() on every page (cheap —
+     * it bails out unless the unique-user set changed) and from
+     * restoreFromViewModel() on rotation where reelItems is already fully
+     * populated synchronously. Users from the viewer's own network are
+     * ranked first.
      */
     private void deriveSoundUsersFromReelItems() {
-        if (isGone() || soundUsersComputed) return;
-        soundUsersComputed = true;
-        soundUserUidsList.clear();
-        soundUserUidsSeen.clear();
+        if (isGone()) return;
+
+        // Unique owners in reelItems order (original creator first, then by
+        // views — see finishAppendingPage()). In-memory only, no Firebase.
+        List<String> fresh = new ArrayList<>();
+        HashSet<String> freshSeen = new HashSet<>();
         for (SoundDetailActivity.ReelThumbItem item : reelItems) {
-            if (item.uid != null && !item.uid.isEmpty() && soundUserUidsSeen.add(item.uid)) {
-                soundUserUidsList.add(item.uid);
+            if (item.uid != null && !item.uid.isEmpty() && freshSeen.add(item.uid)) {
+                fresh.add(item.uid);
             }
         }
+        // Later pages / live adds re-enter here: only redo the work when the
+        // set of unique users actually changed since the last derive.
+        if (soundUsersComputed && fresh.size() == soundUserUidsList.size()) return;
+        soundUsersComputed = true;
+
+        final int gen = ++soundUsersGen;
+        String myUid = null;
+        try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) { }
+
+        if (myUid == null || myUid.isEmpty() || fresh.isEmpty()) {
+            applySoundUserOrder(fresh, freshSeen);
+            return;
+        }
+
+        // FIX: the avatars used to be simply the first 3 owners of the first
+        // page of reels, whether or not they had anything to do with the
+        // viewer. Now people in the viewer's own network (followers ∪
+        // following — same "my network" definition MutualFollowersCache
+        // already uses for mutual rows) are ranked first, so "Used by"
+        // shows familiar faces before strangers. Cached (3-min TTL) and
+        // in-flight de-duplicated, so usually zero extra Firebase reads.
+        final String me = myUid;
+        MutualFollowersCache.getInstance().getMyNetwork(me, network -> {
+            if (isGone() || gen != soundUsersGen) return; // superseded by a newer derive
+            List<String> ranked = new ArrayList<>(fresh.size());
+            List<String> others = new ArrayList<>();
+            for (String uid : fresh) {
+                if (!uid.equals(me) && network.contains(uid)) ranked.add(uid);
+                else others.add(uid);
+            }
+            ranked.addAll(others); // stable: original order kept inside each group
+            applySoundUserOrder(ranked, freshSeen);
+        });
+    }
+
+    private void applySoundUserOrder(List<String> ordered, HashSet<String> seen) {
+        soundUserUidsList.clear();
+        soundUserUidsList.addAll(ordered);
+        soundUserUidsSeen.clear();
+        soundUserUidsSeen.addAll(seen);
         fetchSoundUserProfiles();
     }
 
@@ -1673,8 +1719,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             text = "Used by " + names.get(0) + " and " + names.get(1);
         } else {
             int others = count - 2;
+            // Only the pages loaded so far are known — while more reels
+            // remain unloaded this is a lower bound, so mark it "N+".
+            String othersStr = hasMoreReels ? (others + "+") : String.valueOf(others);
             text = "Used by " + names.get(0) + ", " + names.get(1)
-                + " and " + others + (others == 1 ? " other" : " others");
+                + " and " + othersStr + ((others == 1 && !hasMoreReels) ? " other" : " others");
         }
 
         if (tvSoundUsers != null) tvSoundUsers.setText(text);
@@ -1770,7 +1819,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         }
         syncReelsToViewModel();
         attachSoundReelsLiveListener();
-        deriveSoundUsersFromReelItems(); // no-op after first call — see soundUsersComputed
+        deriveSoundUsersFromReelItems(); // no-op unless the unique-user set changed
     }
 
     /**

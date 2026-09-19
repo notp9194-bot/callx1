@@ -779,28 +779,28 @@
 
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_reel_mutual_3"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
                     android:layout_gravity="center_vertical"
-                    android:layout_marginStart="28dp"
+                    android:layout_marginStart="20dp"
                     android:src="@drawable/ic_person"
                     android:visibility="gone"
                     />
 
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_reel_mutual_2"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
                     android:layout_gravity="center_vertical"
-                    android:layout_marginStart="14dp"
+                    android:layout_marginStart="10dp"
                     android:src="@drawable/ic_person"
                     android:visibility="gone"
                     />
 
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_reel_mutual_1"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
                     android:layout_gravity="center_vertical"
                     android:src="@drawable/ic_person"
                     android:visibility="gone"

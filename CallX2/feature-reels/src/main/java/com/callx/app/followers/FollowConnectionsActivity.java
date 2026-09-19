@@ -928,12 +928,21 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                     break;
 
                 case TAB_SUGGESTED:
-                    // Suggested candidates are always users I don't yet follow.
+                    // FIX: this used to always paint "Follow" (assuming every
+                    // suggestion is un-followed), so after a tap the follow
+                    // write went through but the button never changed and a
+                    // second tap could never unfollow. Now it reflects the
+                    // live myFollowing state like the Followers/Mutual tabs
+                    // (and like the old SuggestedListActivity toggle did).
                     if (u.uid.equals(myUid)) {
                         h.btnAction.setVisibility(View.GONE);
                     } else {
                         h.btnAction.setVisibility(View.VISIBLE);
-                        styleBtn(h.btnAction, "Follow", true);
+                        if (myFollowing.contains(u.uid)) {
+                            styleBtn(h.btnAction, "Following", false);
+                        } else {
+                            styleBtn(h.btnAction, "Follow", true);
+                        }
                     }
                     break;
             }
@@ -1029,14 +1038,12 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                     switch (tabIdx) {
                         case TAB_FOLLOWERS:
                         case TAB_MUTUAL:
+                        case TAB_SUGGESTED:
                             boolean currentlyFollowing = myFollowing.contains(boundItem.uid);
                             toggleFollowFromBtn(boundItem, this, pos, currentlyFollowing);
                             break;
                         case TAB_FOLLOWING:
                             unfollowUser(boundItem, pos);
-                            break;
-                        case TAB_SUGGESTED:
-                            toggleFollowFromBtn(boundItem, this, pos, false);
                             break;
                     }
                 });
