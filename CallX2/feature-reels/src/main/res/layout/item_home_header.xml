@@ -42,6 +42,7 @@
             android:textColor="@color/text_primary"
             android:textSize="28sp"
             android:fontFamily="cursive"
+            android:textStyle="bold"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
