@@ -5077,6 +5077,9 @@ public class UserReelsActivity extends AppCompatActivity
                     // never the uid.
                     if (username != null && !username.isEmpty()) {
                         targetUsername = username;
+                        // Seed the shared cache with the read we just did so
+                        // PostsFeedActivity / Home headers need no extra read.
+                        com.callx.app.cache.UsernameCache.getInstance().put(targetUid, username);
                     } else if (targetName != null && !targetName.isEmpty()) {
                         targetUsername = targetName;
                     } else {

@@ -25,17 +25,16 @@
         <!-- Brand-color ring (unseen) / gray ring (seen) — default status -->
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_story_avatar"
-            android:layout_width="78dp"
-            android:layout_height="78dp"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
             android:layout_gravity="center"
             android:src="@drawable/ic_person"
-            app:civ_border_width="3dp"
-            app:civ_border_color="@android:color/white"/>
+            app:civ_border_width="0dp"/>
 
         <ImageView
             android:id="@+id/iv_story_seen_ring"
-            android:layout_width="84dp"
-            android:layout_height="84dp"
+            android:layout_width="86dp"
+            android:layout_height="86dp"
             android:layout_gravity="center"
             android:src="@drawable/circle_status_seen"
             android:visibility="gone"/>
@@ -49,6 +48,7 @@
         android:text="User"
         android:textColor="@color/text_primary"
         android:textSize="11sp"
+        android:fontFamily="sans-serif-medium"
         android:gravity="center"
         android:singleLine="true"
         android:ellipsize="end"/>

@@ -897,6 +897,9 @@ public class HomeFragment extends Fragment
     // Story data model for proper sorting
     private static class StoryEntry {
         String uid, name, photo;
+        /** users/{uid}/username — read from the SAME snapshot as name/photo (no extra call).
+         *  Shown under the story tile; falls back to name when empty. */
+        String username;
         boolean hasUnseen;
         /** True when contact has at least one reel_story type — shows gradient ring */
         boolean hasReelStory;
@@ -3379,6 +3382,7 @@ public class HomeFragment extends Fragment
             final int slot = idx;
             final String uid = uids.get(idx);
             final String[] nameHolder  = new String[1];
+            final String[] usernameHolder = new String[1];
             final String[] photoHolder = new String[1];
             final long[] avatarVersionHolder = { 0L };
             final DataSnapshot[] statusHolder = new DataSnapshot[1];
@@ -3403,7 +3407,9 @@ public class HomeFragment extends Fragment
                 if (hasActive) {
                     // ★ INSTAGRAM FIX: gradient ring is driven purely by
                     // "has this been seen" (see original note this replaces).
-                    slots[slot] = new StoryEntry(uid, nameHolder[0], photoHolder[0], !allSeen, false, avatarVersionHolder[0]);
+                    StoryEntry se = new StoryEntry(uid, nameHolder[0], photoHolder[0], !allSeen, false, avatarVersionHolder[0]);
+                    se.username = usernameHolder[0];
+                    slots[slot] = se;
                 }
                 contactsRemaining[0]--;
                 if (contactsRemaining[0] == 0) {
@@ -3433,6 +3439,7 @@ public class HomeFragment extends Fragment
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
                     nameHolder[0] = snap.child("name").getValue(String.class);
+                    usernameHolder[0] = snap.child("username").getValue(String.class);
                     String _photo = snap.child("photoUrl").getValue(String.class);
                     String _thumb = snap.child("thumbUrl").getValue(String.class);
                     photoHolder[0] = (_thumb != null && !_thumb.isEmpty()) ? _thumb : _photo;
@@ -3507,7 +3514,7 @@ public class HomeFragment extends Fragment
             v.setOnClickListener(vw -> {
                 StoryEntry entry = holder.entry;
                 if (entry == null) return;
-                openStatusViewer(entry.uid, entry.name);
+                openStatusViewer(entry.uid, storyOwnerName(entry));
             });
             return holder;
         }
@@ -3567,16 +3574,26 @@ public class HomeFragment extends Fragment
      *  instead of a single long-lived ImageView. */
     private void bindAddStoryHolder(AddStoryViewHolder holder) {
         if (!isAdded() || getContext() == null) return;
-        if (myAvatarLoaded) {
-            // FIX (deep avatar pipeline): always inside the tray's initial
-            // viewport (it's the very first row) — real IMMEDIATE bind via
-            // HomeStoryAvatarBinder, same tier/L2/L3/blur-up as every other
-            // Stories-tray row instead of the old flat override(96,96).
-            HomeStoryAvatarBinder.bind(requireContext(), holder.avatar, myAvatarPhotoUrl,
-                    myAvatarVersion, R.drawable.ic_person);
-        } else {
-            holder.avatar.setImageResource(R.drawable.ic_person);
-        }
+        // "Your story" tile: user's own avatar is NOT shown here anymore.
+        // Reuses the exact placeholder UserReelsActivity shows for a profile
+        // avatar (R.drawable.ic_person) — no photo load, no binder call.
+        holder.avatar.setImageResource(R.drawable.ic_person);
+    }
+
+    /** Text under a story tile: username first (same source UserReelsActivity's
+     *  header uses), then name, then "User". Pure field read — no network. */
+    private static String storyLabel(StoryEntry e) {
+        if (e.username != null && !e.username.trim().isEmpty()) return e.username;
+        if (e.name != null && !e.name.trim().isEmpty()) return e.name;
+        return "User";
+    }
+
+    /** ownerName handed to StatusViewerActivity: username first, then name
+     *  (null if both empty — same as before). Pure field read, no network. */
+    @Nullable
+    private static String storyOwnerName(StoryEntry e) {
+        if (e.username != null && !e.username.trim().isEmpty()) return e.username;
+        return e.name;
     }
 
     private void bindStoryHolder(StoryViewHolder holder, StoryEntry entry) {
@@ -3597,7 +3614,7 @@ public class HomeFragment extends Fragment
                                      ImageView ivSeenRing, ImageView ivGradientRing,
                                      StoryEntry entry) {
         if (!isAdded() || getContext() == null) return;
-        tvName.setText(entry.name != null ? entry.name : "User");
+        tvName.setText(storyLabel(entry));
 
         // ★ Instagram-style: gradient ring for ALL stories that have unseen content
         // FIX v39: story_ring_insta_gradient.xml had a visible seam (XML sweep
@@ -3617,8 +3634,7 @@ public class HomeFragment extends Fragment
         if (entry.hasUnseen) {
             // Gradient pink/orange ring — same as Instagram, for any unseen story
             if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
-            avatar.setBorderColor(0xFFFFFFFF);
-            avatar.setBorderWidth(dpToPx(3));
+            avatar.setBorderWidth(0); // no white border on unseen story avatar
             if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
         } else {
             // Gray ring for all-seen stories
@@ -3996,6 +4012,7 @@ public class HomeFragment extends Fragment
             if (persistToLocalCache && feedPaintedFromCache
                     && isSameTopOfFeedOrder(currentFeedPosts, posts)) {
                 feedPaintedFromCache = false; // now confirmed live, not just disk
+                warmOwnerUsernames(posts);
                 currentFeedPosts = posts;     // adopt live objects (fresh counts etc.)
                 startRealtimeNewPostsListener();
                 persistFeedPageToLocalCache(posts);
@@ -4019,6 +4036,7 @@ public class HomeFragment extends Fragment
             // screen — see the isSameTopOfFeedOrder() branch above), so this
             // genuinely is a new scroll session for the 4 ex-footer rows too.
             resetInlineFooterDripFeedState();
+            warmOwnerUsernames(posts);
             currentFeedPosts = posts;
             currentPlayingIndex = -1;
             // v243: with real RecyclerView recycling, building a page's worth
@@ -4490,11 +4508,22 @@ public class HomeFragment extends Fragment
      * renderFeedPostsWithState's comment; appending row descriptors for a
      * page (~8-25 items) is cheap bookkeeping, not real view work.
      */
+    /** Warms UsernameCache for every owner on a feed page (dedup'd, one read per unknown uid). */
+    private void warmOwnerUsernames(@Nullable List<ReelModel> posts) {
+        if (posts == null || posts.isEmpty()) return;
+        List<String> uids = new ArrayList<>(posts.size());
+        for (ReelModel r : posts) {
+            if (r != null && r.uid != null && !r.uid.isEmpty()) uids.add(r.uid);
+        }
+        com.callx.app.cache.UsernameCache.getInstance().resolveBatch(uids);
+    }
+
     private void appendFeedPage(List<ReelModel> newPosts) {
         if (!isAdded() || feedAdapter == null) return;
         int baseIndex = currentFeedPosts.size();
         List<ReelModel> merged = new ArrayList<>(currentFeedPosts);
         merged.addAll(newPosts);
+        warmOwnerUsernames(newPosts);
         currentFeedPosts = merged;
         ensureFeedCardsCapacity(currentFeedPosts.size());
         for (int i = 0; i < newPosts.size(); i++) {
@@ -4720,6 +4749,7 @@ public class HomeFragment extends Fragment
         List<ReelModel> merged = new ArrayList<>(shift + oldPosts.size());
         merged.addAll(newerPosts);
         merged.addAll(oldPosts);
+        warmOwnerUsernames(newerPosts);
         currentFeedPosts = merged;
 
         List<HomeFeedCard> shiftedCards = new ArrayList<>(currentFeedPosts.size());
@@ -6153,7 +6183,7 @@ public class HomeFragment extends Fragment
             v.setOnClickListener(vw -> {
                 StoryEntry entry = holder.entry;
                 if (entry == null) return;
-                openStatusViewer(entry.uid, entry.name);
+                openStatusViewer(entry.uid, storyOwnerName(entry));
             });
             return holder;
         }
@@ -6165,7 +6195,7 @@ public class HomeFragment extends Fragment
 
             // Cheap, instant part: name text + ring visuals (shared cached
             // Drawable instances — see bindStoryTileViews/StoryRingGradientDrawable).
-            holder.tvName.setText(entry.name != null ? entry.name : "User");
+            holder.tvName.setText(storyLabel(entry));
             if (entry.hasUnseen) {
                 if (holder.ivGradientRing != null) {
                     holder.ivGradientRing.setImageDrawable(
@@ -6173,8 +6203,7 @@ public class HomeFragment extends Fragment
                                     getResources().getDisplayMetrics().density));
                     holder.ivGradientRing.setVisibility(View.VISIBLE);
                 }
-                holder.avatar.setBorderColor(0xFFFFFFFF);
-                holder.avatar.setBorderWidth(dpToPx(3));
+                holder.avatar.setBorderWidth(0); // no white border on unseen story avatar
                 if (holder.ivSeenRing != null) holder.ivSeenRing.setVisibility(View.GONE);
             } else {
                 if (holder.ivGradientRing != null) holder.ivGradientRing.setVisibility(View.GONE);
@@ -7883,12 +7912,32 @@ public class HomeFragment extends Fragment
             // same holder (e.g. a like-tap's notifyItemChanged). Now cached
             // per-holder and only recomputed when the owner name actually
             // changes.
-            String ownerNameSrc = reel.ownerName;
+            // Header shows the @username (Instagram-style) instead of the
+            // denormalized display name. Username comes from UsernameCache
+            // (one read per unique owner per session, warmed per feed page);
+            // until it resolves — or if the owner has none — the name shows.
+            final com.callx.app.cache.UsernameCache unCache = com.callx.app.cache.UsernameCache.getInstance();
+            final String cachedUn = unCache.getCached(reel.uid);
+            String ownerNameSrc = (cachedUn != null && !cachedUn.isEmpty()) ? cachedUn : reel.ownerName;
             if (!java.util.Objects.equals(ownerNameSrc, holder.lastOwnerNameSrc)) {
                 holder.lastOwnerNameSrc = ownerNameSrc;
-                holder.lastOwnerLabel = ownerNameSrc != null ? "@" + ownerNameSrc : "@user";
+                holder.lastOwnerLabel = (ownerNameSrc != null && !ownerNameSrc.isEmpty()) ? ownerNameSrc : "user";
             }
             tvOwner.setText(holder.lastOwnerLabel);
+            if (cachedUn == null && reel.uid != null && !reel.uid.isEmpty()) {
+                final String bindUid = reel.uid;
+                unCache.resolve(bindUid, un -> {
+                    if (un.isEmpty()) return; // no username set → keep the name
+                    ReelModel br = holder.boundReel;
+                    if (br == null || !bindUid.equals(br.uid)) return; // holder recycled to another post
+                    // Only swap if the header still shows the solo label we set
+                    // (a collab label bound later must not be overwritten).
+                    if (!java.util.Objects.equals(String.valueOf(tvOwner.getText()), holder.lastOwnerLabel)) return;
+                    holder.lastOwnerNameSrc = un;
+                    holder.lastOwnerLabel = un;
+                    tvOwner.setText(un);
+                });
+            }
             // Listener registered once, outside this branch — see the
             // unified tvOwner click handler below.
             com.callx.app.utils.VerifiedBadgeUtils.bindForUid(holder.ivPostVerified, reel.uid);

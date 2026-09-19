@@ -21,8 +21,8 @@
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_my_story_avatar"
-            android:layout_width="78dp"
-            android:layout_height="78dp"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
             android:layout_gravity="center"
             android:src="@drawable/ic_person"
             app:civ_border_width="1dp"
@@ -46,5 +46,6 @@
         android:text="Your story"
         android:textColor="@color/text_primary"
         android:textSize="11sp"
+        android:fontFamily="sans-serif-medium"
         android:gravity="center"/>
 </LinearLayout>

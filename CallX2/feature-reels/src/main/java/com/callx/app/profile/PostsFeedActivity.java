@@ -1435,7 +1435,25 @@ public class PostsFeedActivity extends AppCompatActivity {
                 if (h.tvCarouselIndex != null) h.tvCarouselIndex.setVisibility(View.GONE);
             }
 
-            h.tvOwner.setText(r.ownerName != null ? r.ownerName : "");
+            // Header shows the @username (Instagram-style). The profile owner's
+            // username is already seeded by UserReelsActivity (no read); any other
+            // owner (e.g. collab posts) resolves once via UsernameCache. Falls
+            // back to the name until/unless a username exists.
+            final com.callx.app.cache.UsernameCache unCache = com.callx.app.cache.UsernameCache.getInstance();
+            final String cachedUn = unCache.getCached(r.uid);
+            final String ownerLabel = (cachedUn != null && !cachedUn.isEmpty()) ? cachedUn
+                    : (r.ownerName != null ? r.ownerName : "");
+            h.tvOwner.setText(ownerLabel);
+            if (cachedUn == null && r.uid != null && !r.uid.isEmpty()) {
+                final String bindUid = r.uid;
+                unCache.resolve(bindUid, un -> {
+                    if (un.isEmpty()) return;
+                    ReelModel br = h.boundReel;
+                    if (br == null || !bindUid.equals(br.uid)) return; // holder recycled
+                    if (!java.util.Objects.equals(String.valueOf(h.tvOwner.getText()), ownerLabel)) return; // collab label bound since
+                    h.tvOwner.setText(un);
+                });
+            }
             com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, r.uid);
             // PERF (URL-skip): skip the Glide chain entirely when this
             // holder is already showing the same avatar URL (e.g. a
