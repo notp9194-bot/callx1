@@ -390,8 +390,8 @@
                 android:foreground="?attr/selectableItemBackground"
                 android:visibility="gone"/>
 
-            <!-- Mutual followers row — Instagram-style: bigger avatars w/ crisp
-                 border, bold names in text, better spacing -->
+            <!-- Mutual followers row — Instagram-style: overlapping avatars
+                 (no border), bold names in text, better spacing -->
             <LinearLayout android:id="@+id/layout_mutual_followers"
                 android:layout_width="match_parent" android:layout_height="36dp"
                 android:orientation="horizontal" android:gravity="center_vertical"
@@ -415,32 +415,26 @@
                          elevation needed. -->
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_mutual_3"
-                        android:layout_width="28dp" android:layout_height="28dp"
+                        android:layout_width="24dp" android:layout_height="24dp"
                         android:layout_gravity="center_vertical"
-                        android:layout_marginStart="20dp"
+                        android:layout_marginStart="28dp"
                         android:src="@drawable/ic_person"
-                        android:visibility="gone"
-                        app:civ_border_width="2dp"
-                        app:civ_border_color="?attr/colorSurface"/>
+                        android:visibility="gone"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_mutual_2"
-                        android:layout_width="28dp" android:layout_height="28dp"
+                        android:layout_width="24dp" android:layout_height="24dp"
                         android:layout_gravity="center_vertical"
-                        android:layout_marginStart="10dp"
+                        android:layout_marginStart="14dp"
                         android:src="@drawable/ic_person"
-                        android:visibility="gone"
-                        app:civ_border_width="2dp"
-                        app:civ_border_color="?attr/colorSurface"/>
+                        android:visibility="gone"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_mutual_1"
-                        android:layout_width="28dp" android:layout_height="28dp"
+                        android:layout_width="24dp" android:layout_height="24dp"
                         android:layout_gravity="center_vertical"
                         android:src="@drawable/ic_person"
-                        android:visibility="gone"
-                        app:civ_border_width="2dp"
-                        app:civ_border_color="?attr/colorSurface"/>
+                        android:visibility="gone"/>
                 </FrameLayout>
 
                 <TextView android:id="@+id/tv_mutual_followers"
