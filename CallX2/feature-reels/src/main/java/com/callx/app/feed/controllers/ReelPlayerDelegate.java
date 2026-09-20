@@ -173,4 +173,8 @@ public interface ReelPlayerDelegate {
     boolean isPlaybackActive();
     /** Resumes playback after an Instagram-style long-press pause. */
     void resumePlayback();
+    /** Long-press sheet: View fullscreen / Speed / Auto scroll / Closed Captions. */
+    void showPlaybackOptionsSheet();
+    /** Auto scroll: swipes to the next reel. @return false if there is none (reel keeps looping). */
+    boolean autoScrollToNext();
 }

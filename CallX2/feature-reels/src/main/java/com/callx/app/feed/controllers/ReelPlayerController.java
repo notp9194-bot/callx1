@@ -24,10 +24,14 @@ import androidx.annotation.OptIn;
 import androidx.dynamicanimation.animation.DynamicAnimation;
 import androidx.dynamicanimation.animation.SpringAnimation;
 import androidx.dynamicanimation.animation.SpringForce;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.TrackSelectionParameters;
+import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -671,6 +675,11 @@ public class ReelPlayerController {
             }
 
             @Override
+            public void onTracksChanged(@NonNull Tracks tracks) {
+                if (delegate.isAdded()) applyCaptionsPreference();
+            }
+
+            @Override
             public void onPlaybackStateChanged(int state) {
                 if (!delegate.isAdded() || delegate.getContext() == null) return;
                 if (state == Player.STATE_BUFFERING) {
@@ -849,6 +858,7 @@ public class ReelPlayerController {
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
         player.setVolume(0f);
         player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
+        applyCaptionsPreference();
         player.setPlayWhenReady(false);
         player.prepare();
 
@@ -866,6 +876,7 @@ public class ReelPlayerController {
         // PERF (advance #7 — frame-perfect seek reset): pre-empt the
         // REPEAT_MODE_ONE auto-restart hitch with our own earlier exact seek.
         loopSeekHelper = new ReelLoopSeekHelper(player);
+        loopSeekHelper.setLoopInterceptor(this::onLoopPointReached);
         loopSeekHelper.attach();
 
         // Sync preloader with initial cap
@@ -1096,6 +1107,75 @@ public class ReelPlayerController {
                 if (player != null)
                     player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
             }).create());
+    }
+
+    /** Long-press sheet: pick a speed step directly (index into SPEED_STEPS). */
+    public void setSpeedIndex(int index) {
+        if (index < 0 || index >= SPEED_STEPS.length) return;
+        speedIndex = index;
+        if (player != null) player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
+        if (btnSpeed != null) btnSpeed.setText(SPEED_LABELS[speedIndex]);
+    }
+
+    // ── Closed Captions (long-press sheet) ───────────────────────────────────
+
+    private static Tracks.Group firstTextGroup(Tracks tracks) {
+        for (Tracks.Group g : tracks.getGroups()) {
+            if (g.getType() == C.TRACK_TYPE_TEXT && g.isSupported()) return g;
+        }
+        return null;
+    }
+
+    /** True if the current stream carries at least one selectable caption/subtitle track. */
+    public boolean hasCaptionTracks() {
+        return player != null && firstTextGroup(player.getCurrentTracks()) != null;
+    }
+
+    /**
+     * Applies the saved Closed-Captions preference to the current player: OFF disables
+     * the text track type, ON selects the stream's first caption track (if any).
+     * Only touches track-selection parameters when something actually needs to change,
+     * so calling it from onTracksChanged() can't loop.
+     *
+     * @return true if a caption track is now active.
+     */
+    public boolean applyCaptionsPreference() {
+        if (player == null || delegate.getContext() == null) return false;
+        boolean want = com.callx.app.utils.ReelPlaybackPrefs.isCaptionsEnabled(delegate.getContext());
+        TrackSelectionParameters cur = player.getTrackSelectionParameters();
+        boolean disabled = cur.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT);
+        Tracks.Group text = firstTextGroup(player.getCurrentTracks());
+        if (!want) {
+            if (!disabled) {
+                player.setTrackSelectionParameters(
+                    cur.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());
+            }
+            return false;
+        }
+        if (text == null) {
+            if (disabled) {
+                player.setTrackSelectionParameters(
+                    cur.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build());
+            }
+            return false;
+        }
+        if (disabled || !text.isSelected()) {
+            player.setTrackSelectionParameters(cur.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setOverrideForType(new TrackSelectionOverride(text.getMediaTrackGroup(), 0))
+                .build());
+        }
+        return true;
+    }
+
+    // ── Auto scroll (long-press sheet) ───────────────────────────────────────
+
+    /** Called by ReelLoopSeekHelper when this reel reaches its end. true = advanced to the next reel. */
+    private boolean onLoopPointReached() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return false;
+        if (!com.callx.app.utils.ReelPlaybackPrefs.isAutoScrollEnabled(delegate.getContext())) return false;
+        if (!delegate.isCurrentlyVisible() || delegate.isDocked() || delegate.isPhotoMode()) return false;
+        return delegate.autoScrollToNext();
     }
 
     // ── ✅ FIX: Photo-slideshow background audio helpers ──────────────────────
@@ -1799,6 +1879,7 @@ public class ReelPlayerController {
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
         player.setVolume((isMuted || forceMuted) ? 0f : 1f);
         player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
+        applyCaptionsPreference();
         player.seekTo(resumePos);
         player.setPlayWhenReady(wasPlay);
         player.prepare();
@@ -1806,6 +1887,7 @@ public class ReelPlayerController {
         // PERF (advance #7): re-attach for the rebuilt player — the old
         // helper was detached above along with the old `player` instance.
         loopSeekHelper = new ReelLoopSeekHelper(player);
+        loopSeekHelper.setLoopInterceptor(this::onLoopPointReached);
         loopSeekHelper.attach();
 
         // Re-register network listener for the new player

@@ -1172,10 +1172,8 @@ public class ReelUiController {
         //
         //  • Single tap confirmed (300ms delay) → play / pause
         //  • Double tap (immediate)             → like animation
-        //  • Long press (hold)                  → pause playback while held,
-        //    resume on ACTION_UP / ACTION_CANCEL (only if this gesture is what
-        //    paused it). Hiding the overlay UI is now a 3-dot menu action
-        //    (Cinema Mode) instead — see toggleCinemaMode().
+        //  • Long press (hold)                  → playback options sheet
+        //    (View fullscreen = Cinema Mode, Speed, Auto scroll, Closed Captions).
         //
         // The touch listener returns false for MOVE/CANCEL so ViewPager2's
         // RecyclerView can still intercept scroll gestures normally.
@@ -1218,16 +1216,14 @@ public class ReelUiController {
 
                 @Override
                 public void onLongPress(android.view.MotionEvent e) {
-                    // Instagram-style: hold to pause. Photo-mode reels have
+                    // Long-press opens the playback options sheet (View fullscreen /
+                    // Speed / Auto scroll / Closed Captions). Photo-mode reels keep
                     // their own hold-to-pause gesture on the photo ViewPager
-                    // (ReelPhotoSlideshowController) so this is video-only.
-                    // Skip if already paused (manually or by an earlier hold)
-                    // so we don't mark ourselves as the one who paused it.
-                    if (delegate.isAdded() && !delegate.isDocked()
-                            && !delegate.isPhotoMode() && !pausedByLongPress
-                            && delegate.isPlaybackActive()) {
-                        delegate.pausePlayback();
-                        pausedByLongPress = true;
+                    // (ReelPhotoSlideshowController), so this is video-only.
+                    // Playback keeps running behind the sheet so speed changes are visible.
+                    if (delegate.isAdded() && !delegate.isDocked() && !delegate.isPhotoMode()) {
+                        root.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        delegate.showPlaybackOptionsSheet();
                     }
                 }
             });

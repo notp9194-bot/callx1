@@ -11,6 +11,8 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.SeekParameters;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * ReelLoopSeekHelper — frame-perfect seek reset for looping reels
  * (PERF advance #7 — "frame-perfect seek reset").
@@ -59,8 +61,19 @@ public final class ReelLoopSeekHelper {
     private final Runnable  pollRunnable = this::poll;
     private boolean         attached = false;
 
+    /** Optional hook (Auto scroll): called once when playback reaches the loop point.
+     *  Return true if it took over (e.g. advanced to the next reel) — the helper
+     *  then rewinds + pauses this player instead of looping it. */
+    private BooleanSupplier loopInterceptor;
+    /** Set once the interceptor consumed this loop point; cleared when position is back near the start. */
+    private boolean         interceptedThisLoop = false;
+
     public ReelLoopSeekHelper(ExoPlayer player) {
         this.player = player;
+    }
+
+    public void setLoopInterceptor(BooleanSupplier interceptor) {
+        this.loopInterceptor = interceptor;
     }
 
     /** Starts the pre-emptive loop-seek polling for this player. */
@@ -95,7 +108,17 @@ public final class ReelLoopSeekHelper {
                 if (duration != C.TIME_UNSET && duration > 0) {
                     long remaining = duration - position;
                     if (isNearLoopPoint(remaining)) {
-                        player.seekTo(0);
+                        if (interceptedThisLoop) {
+                            // already handed off — wait for the rewind below
+                        } else if (loopInterceptor != null && loopInterceptor.getAsBoolean()) {
+                            interceptedThisLoop = true;
+                            player.seekTo(0);
+                            player.pause();
+                        } else {
+                            player.seekTo(0);
+                        }
+                    } else if (remaining > PREEMPT_MS * 4) {
+                        interceptedThisLoop = false;
                     }
                 }
             }

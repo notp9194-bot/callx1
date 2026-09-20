@@ -60,6 +60,7 @@ public class ReelPlayerFragment extends Fragment
                     com.callx.app.music.ReelSoundQuickActionSheet.OnActionListener,
                     com.callx.app.social.ReelRemixSequencePickerSheet.OnModeSelectedListener,
                     com.callx.app.social.ReelDisplayModeBottomSheet.OnModeSelectedListener,
+                    ReelPlaybackOptionsSheet.Listener,
                     ReelCommentSheetFragment.Host {
 
     private static final float[] SPEED_STEPS  = {0.5f, 1.0f, 1.5f, 2.0f};
@@ -965,11 +966,55 @@ public class ReelPlayerFragment extends Fragment
                 android.widget.Toast.LENGTH_SHORT).show();
     }
 
-    // ── Cinema Mode toggle — moved here from long-press (v20) ──────────────
-    // Long-press on the player is now Instagram-style hold-to-pause instead;
-    // hiding the overlay UI is an explicit 3-dot menu action.
+    // ── Cinema Mode toggle — 3-dot menu action, also reachable from the
+    // long-press sheet's "View fullscreen" row.
     @Override public void toggleCinemaMode() { uiController.toggleCinemaMode(); }
     @Override public boolean isCinemaModeOn() { return uiController.isCinemaModeOn(); }
+
+    // ── Long-press playback options sheet ─────────────────────────────────
+
+    @Override
+    public void showPlaybackOptionsSheet() {
+        if (!isAdded() || getContext() == null) return;
+        androidx.fragment.app.FragmentManager fm = getChildFragmentManager();
+        if (fm.isStateSaved() || fm.findFragmentByTag(ReelPlaybackOptionsSheet.TAG) != null) return;
+        ReelPlaybackOptionsSheet sheet = ReelPlaybackOptionsSheet.newInstance(
+            playerController.getSpeedIndex(),
+            com.callx.app.utils.ReelPlaybackPrefs.isAutoScrollEnabled(getContext()),
+            com.callx.app.utils.ReelPlaybackPrefs.isCaptionsEnabled(getContext()),
+            uiController.isCinemaModeOn());
+        try { sheet.show(fm, ReelPlaybackOptionsSheet.TAG); } catch (IllegalStateException ignored) {}
+    }
+
+    @Override
+    public boolean autoScrollToNext() {
+        if (!isAdded()) return false;
+        Fragment parent = getParentFragment();
+        return parent instanceof ReelsFragment && ((ReelsFragment) parent).advanceToNext();
+    }
+
+    /** ReelPlaybackOptionsSheet.Listener — "View fullscreen" = the 3-dot menu's Cinema Mode. */
+    @Override public void onViewFullscreenToggle() { uiController.toggleCinemaMode(); }
+
+    @Override public void onSpeedSelected(int speedIndex) { playerController.setSpeedIndex(speedIndex); }
+
+    @Override
+    public void onAutoScrollChanged(boolean enabled) {
+        com.callx.app.utils.ReelPlaybackPrefs.setAutoScrollEnabled(getContext(), enabled);
+    }
+
+    @Override
+    public boolean onCaptionsToggled() {
+        if (getContext() == null) return false;
+        boolean now = !com.callx.app.utils.ReelPlaybackPrefs.isCaptionsEnabled(getContext());
+        com.callx.app.utils.ReelPlaybackPrefs.setCaptionsEnabled(getContext(), now);
+        boolean active = playerController.applyCaptionsPreference();
+        if (now && !active && !playerController.hasCaptionTracks()) {
+            android.widget.Toast.makeText(getContext(),
+                "Captions on — this reel has no captions", android.widget.Toast.LENGTH_SHORT).show();
+        }
+        return now;
+    }
 
     /** ReelDisplayModeBottomSheet.OnModeSelectedListener — user picked a mode. */
     @Override

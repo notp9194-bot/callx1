@@ -28,6 +28,13 @@ import org.junit.runner.RunWith
  *  which on a cold start is exactly the slow path this file exists to
  *  avoid. Re-run on a connected device/emulator before the next release.
  *
+ *  v431: RE-RUN STILL RECOMMENDED (needs a device) — but app/src/main/
+ *  baseline-prof.txt now carries source-verified exact rules for the whole
+ *  chat hot path (incl. v427-v430 methods), so a stale generated profile no
+ *  longer leaves them JIT-only. Root cause found: adapters were profiled via
+ *  the erased bridge signature (RecyclerView$ViewHolder) instead of their
+ *  real $VH signature — see the header of baseline-prof.txt.
+ *
  *  v311: +1 journey — Sound Detail had NO baseline-profile coverage at
  *  all despite being a common tap target off every reel (tv_music_name /
  *  ivMusicDisc → SoundDetailActivity, see ReelUiController). Without an

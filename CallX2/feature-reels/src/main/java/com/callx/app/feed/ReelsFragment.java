@@ -1495,10 +1495,15 @@ public class ReelsFragment extends Fragment {
                      @androidx.annotation.Nullable String thumbUrl);
     }
 
-    public void advanceToNext() {
-        if (vpReels == null) return;
+    /** @return true if a next reel exists and the pager was moved to it. */
+    public boolean advanceToNext() {
+        if (vpReels == null || adapter == null) return false;
         int next = vpReels.getCurrentItem() + 1;
-        if (next < adapter.getItemCount()) vpReels.setCurrentItem(next, true);
+        if (next < adapter.getItemCount()) {
+            vpReels.setCurrentItem(next, true);
+            return true;
+        }
+        return false;
     }
 
     /** Called by ReelPlayerFragment after user blocks a reel owner — remove their reels from feed */
