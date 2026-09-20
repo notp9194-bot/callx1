@@ -204,29 +204,45 @@ public class MessagePagingAdapter
     private void wireCaptionReadMore(VH h,
             com.callx.app.conversation.canvas.MessageBubbleCanvasView cv, String msgId) {
         cv.setTextExpanded(expandedMessageIds.contains(msgId));
-        cv.setReadMoreListener(nowExpanded -> {
-            if (nowExpanded) expandedMessageIds.add(msgId);
-            else             expandedMessageIds.remove(msgId);
+        // v425 PERF: this used to allocate a brand-new capturing lambda on
+        // EVERY image/caption/album bind (every visible row on chat open and
+        // on every scroll rebind). The listener is now built ONCE per VH and
+        // reads the message id + owning adapter at CLICK time (taps are rare,
+        // binds are per-frame) — same pattern as the per-VH voice-badge
+        // listener in onCreateViewHolder. It deliberately does not capture
+        // `this`: the adapter is read from h.canvasListenerOwner so a pooled
+        // holder reused by a different chat's adapter (shared RecycledViewPool)
+        // never fires the previous chat's callback.
+        h.readMoreMsgId = msgId;
+        if (h.readMoreListenerCached == null) {
+            h.readMoreListenerCached = nowExpanded -> {
+                final MessagePagingAdapter ad = h.canvasListenerOwner;
+                if (ad == null) return;
+                final String id = h.readMoreMsgId;
+                if (nowExpanded) ad.expandedMessageIds.add(id);
+                else             ad.expandedMessageIds.remove(id);
 
-            int pos = h.getBindingAdapterPosition();
-            if (pos == RecyclerView.NO_POSITION) return;
+                int pos = h.getBindingAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION) return;
 
-            final RecyclerView rv = (h.itemView.getParent() instanceof RecyclerView)
-                    ? (RecyclerView) h.itemView.getParent() : null;
-            final int savedTop = (rv != null) ? h.itemView.getTop() : 0;
+                final RecyclerView rv = (h.itemView.getParent() instanceof RecyclerView)
+                        ? (RecyclerView) h.itemView.getParent() : null;
+                final int savedTop = (rv != null) ? h.itemView.getTop() : 0;
 
-            notifyItemChanged(pos);
+                ad.notifyItemChanged(pos);
 
-            if (rv != null) {
-                rv.post(() -> {
-                    RecyclerView.LayoutManager lm = rv.getLayoutManager();
-                    if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
-                        ((androidx.recyclerview.widget.LinearLayoutManager) lm)
-                                .scrollToPositionWithOffset(pos, savedTop);
-                    }
-                });
-            }
-        });
+                if (rv != null) {
+                    rv.post(() -> {
+                        RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+                            ((androidx.recyclerview.widget.LinearLayoutManager) lm)
+                                    .scrollToPositionWithOffset(pos, savedTop);
+                        }
+                    });
+                }
+            };
+        }
+        cv.setReadMoreListener(h.readMoreListenerCached);
     }
 
 
@@ -1506,6 +1522,28 @@ public class MessagePagingAdapter
     private static final android.util.LongSparseArray<String> voiceDurationTextCache =
             new android.util.LongSparseArray<>(128);
 
+    // v425 PERF: message-id -> blurHash carried inside the Media-E2E key
+    // envelope. The envelope is immutable per message, but it used to be
+    // decrypted + JSON-parsed again on every bind. ""-> envelope had no hash.
+    // Failures (env == null: key not ready yet) are deliberately NOT cached.
+    private static final android.util.LruCache<String, String> ENVELOPE_BLURHASH_CACHE =
+            new android.util.LruCache<>(256);
+
+    @Nullable
+    private static String resolveEnvelopeBlurHash(@NonNull Context ctx, @NonNull Message m) {
+        final String mid = m.messageId != null ? m.messageId : m.id;
+        if (mid != null) {
+            String hit = ENVELOPE_BLURHASH_CACHE.get(mid);
+            if (hit != null) return hit.isEmpty() ? null : hit;
+        }
+        com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
+                        m.senderId, mid);
+        if (env == null) return null;
+        if (mid != null) ENVELOPE_BLURHASH_CACHE.put(mid, env.blurHash != null ? env.blurHash : "");
+        return env.blurHash;
+    }
+
     private static String formatVoiceDuration(long voiceMs) {
         long voiceSecs = voiceMs / 1000;
         String s = voiceDurationTextCache.get(voiceSecs);
@@ -2496,14 +2534,9 @@ public class MessagePagingAdapter
         // binds are per-frame) — same allocation-avoidance win, and a
         // correctness bonus: the position is never stale after a list
         // reorder, unlike the old captured-at-bind-time int.
-        if (vh.flVoiceOnImage != null) {
-            vh.flVoiceOnImage.setOnClickListener(badgeView -> {
-                Message cm = vh.boundMessage;
-                if (cm == null || cm.voiceUrl == null || cm.voiceUrl.isEmpty()) return;
-                int pos = vh.getBindingAdapterPosition();
-                if (pos != RecyclerView.NO_POSITION) toggleAudio(vh, cm.voiceUrl, pos);
-            });
-        }
+        // v425 PERF: the voice-on-image badge click listener is no longer
+        // wired here — flVoiceOnImage lives behind a ViewStub now and its
+        // listener is attached when ensureLegacyVoiceOverlay() inflates it.
         return vh;
     }
 
@@ -4614,10 +4647,10 @@ public class MessagePagingAdapter
                 // key envelope, so decrypt it here rather than reading m.blurHash.
                 String blurHash = m.blurHash;
                 if (!sent && m.mediaKeyEnc != null) {
-                    com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
-                            com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
-                                    m.senderId, (m.messageId != null ? m.messageId : m.id));
-                    blurHash = (env != null) ? env.blurHash : null;
+                    // v425 PERF: was decrypt + JSON-parse of the key envelope on
+                    // the MAIN thread on every bind of every not-yet-downloaded
+                    // received photo — see resolveEnvelopeBlurHash().
+                    blurHash = resolveEnvelopeBlurHash(ctx, m);
                 }
                 if (blurHash != null && !blurHash.isEmpty()) {
                     // Migrated from BlurHash → ThumbHash; ThumbHashPlaceholder
@@ -7754,8 +7787,12 @@ public class MessagePagingAdapter
      * same as a standalone voice message.
      */
     private void bindVoiceOnImage(@NonNull VH h, @NonNull Message m, int position) {
-        if (h.flVoiceOnImage == null) return;
         boolean hasVoice = m.voiceUrl != null && !m.voiceUrl.isEmpty();
+        if (h.flVoiceOnImage == null) {
+            // v425: overlay lives behind a ViewStub — only pay for it if this
+            // bind actually has a voice caption to show.
+            if (!hasVoice || !ensureLegacyVoiceOverlay(h)) return;
+        }
         if (!hasVoice) {
             h.flVoiceOnImage.setVisibility(View.GONE);
             return;
@@ -7765,9 +7802,8 @@ public class MessagePagingAdapter
         // Duration pill text — mirrors the audio bubble's mm:ss formatting.
         if (h.tvVoiceDurationOnImage != null) {
             long ms = m.voiceDuration != null ? m.voiceDuration : 0L;
-            long secs = ms / 1000;
-            h.tvVoiceDurationOnImage.setText(
-                    String.format(java.util.Locale.US, "%d:%02d", secs / 60, secs % 60));
+            // v425 PERF: was String.format() per bind — shared cached formatter.
+            h.tvVoiceDurationOnImage.setText(formatVoiceDuration(ms));
         }
 
         // Icon reflects whether THIS message's voice note is the one
@@ -7778,9 +7814,45 @@ public class MessagePagingAdapter
             h.ivVoicePlayOnImage.setImageResource(isThisPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
         }
 
-        // Click listener is now set ONCE in onCreateViewHolder (see the
-        // "PERF: build the voice-on-image play-badge listener ONCE per VH"
-        // comment there) — no per-bind allocation here anymore.
+        // Click listener is set ONCE, when ensureLegacyVoiceOverlay() inflates
+        // the overlay (v425) — no per-bind allocation here.
+    }
+
+    /**
+     * v425 PERF: inflates the legacy voice-badge + caption-strip overlay
+     * (layout_msg_voice_on_image.xml) the first time a legacy holder truly
+     * needs it, wires the tap listener that used to be set eagerly in
+     * onCreateViewHolder, and caches the child view refs on the VH.
+     * @return true if the overlay views are now available.
+     */
+    private boolean ensureLegacyVoiceOverlay(@NonNull VH h) {
+        if (h.flVoiceOnImage != null) return true;
+        final android.view.ViewStub stub = h.stubVoiceOnImage;
+        if (stub == null) return false;
+        h.stubVoiceOnImage = null; // ViewStub.inflate() is one-shot
+        final View root;
+        try {
+            root = stub.inflate();
+        } catch (RuntimeException e) {
+            return false;
+        }
+        h.flVoiceOnImage         = root.findViewById(R.id.fl_voice_on_image);
+        h.ivVoicePlayOnImage     = root.findViewById(R.id.iv_voice_play_on_image);
+        h.tvVoiceDurationOnImage = root.findViewById(R.id.tv_voice_duration_on_image);
+        h.viewImageCaptionScrim  = root.findViewById(R.id.view_image_caption_scrim);
+        h.tvImageCaption         = root.findViewById(R.id.tv_image_caption);
+        if (h.flVoiceOnImage != null) {
+            // Same listener onCreateViewHolder used to build eagerly: reads
+            // h.boundMessage + the live adapter position at CLICK time.
+            h.flVoiceOnImage.setOnClickListener(badgeView -> {
+                Message cm = h.boundMessage;
+                if (cm == null || cm.voiceUrl == null || cm.voiceUrl.isEmpty()) return;
+                int pos = h.getBindingAdapterPosition();
+                MessagePagingAdapter ad = h.canvasListenerOwner != null ? h.canvasListenerOwner : this;
+                if (pos != RecyclerView.NO_POSITION) ad.toggleAudio(h, cm.voiceUrl, pos);
+            });
+        }
+        return h.flVoiceOnImage != null;
     }
 
     /**
@@ -7798,8 +7870,12 @@ public class MessagePagingAdapter
      * flips below.
      */
     private void bindImageCaptionOnLegacyBubble(@NonNull VH h, @NonNull Message m) {
-        if (h.tvImageCaption == null || h.viewImageCaptionScrim == null) return;
         boolean hasCaption = m.caption != null && !m.caption.isEmpty();
+        if (h.tvImageCaption == null || h.viewImageCaptionScrim == null) {
+            // v425: overlay lives behind a ViewStub — only inflate it when
+            // there is actually a caption to show.
+            if (!hasCaption || !ensureLegacyVoiceOverlay(h)) return;
+        }
         if (!hasCaption) {
             h.tvImageCaption.setVisibility(View.GONE);
             h.viewImageCaptionScrim.setVisibility(View.GONE);
@@ -9071,6 +9147,14 @@ public class MessagePagingAdapter
         // onBindViewHolder for why this can legitimately differ from the
         // currently-binding adapter.
         MessagePagingAdapter canvasListenerOwner;
+        // v425 PERF: per-VH caption read-more listener (built once) + the id
+        // of the message it is currently bound to. See wireCaptionReadMore().
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.ReadMoreListener readMoreListenerCached;
+        String readMoreMsgId;
+        // v425 PERF: lazily-inflated legacy voice/caption overlay — see
+        // ensureLegacyVoiceOverlay(). Null once inflated (or if the layout
+        // has no such stub, e.g. Canvas holders).
+        android.view.ViewStub stubVoiceOnImage;
         // Bumped on every bindCanvasMessage() call and checked before an
         // async Glide result (image bitmap / reply thumb) is applied — a
         // slow load that resolves after this holder has been recycled and
@@ -9324,11 +9408,14 @@ public class MessagePagingAdapter
             tvDateHeader   = null; // removed from item layouts — date chip is now a separate ViewHolder type
             ivImage        = v.findViewById(R.id.iv_image);
             // Feature: Voice Caption on Photo — overlay views on top of ivImage
-            flVoiceOnImage        = v.findViewById(R.id.fl_voice_on_image);
-            ivVoicePlayOnImage    = v.findViewById(R.id.iv_voice_play_on_image);
-            tvVoiceDurationOnImage = v.findViewById(R.id.tv_voice_duration_on_image);
-            viewImageCaptionScrim = v.findViewById(R.id.view_image_caption_scrim);
-            tvImageCaption        = v.findViewById(R.id.tv_image_caption);
+            // v425 PERF: these five are now behind a ViewStub (null until
+            // ensureLegacyVoiceOverlay() inflates it) — see layout_msg_voice_on_image.xml.
+            stubVoiceOnImage      = v.findViewById(R.id.stub_voice_on_image);
+            flVoiceOnImage        = null;
+            ivVoicePlayOnImage    = null;
+            tvVoiceDurationOnImage = null;
+            viewImageCaptionScrim = null;
+            tvImageCaption        = null;
             fl_download_overlay = v.findViewById(R.id.fl_download_overlay);
             ll_download_pill    = v.findViewById(R.id.ll_download_pill);
             iv_download_icon    = v.findViewById(R.id.iv_download_icon);

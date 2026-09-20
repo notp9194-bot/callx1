@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  layout_msg_voice_on_image.xml (v425) — lazily inflated legacy overlay for
+  "image + voice caption" on the View-based bubble (item_message_sent/received).
+  Root is a match_parent FrameLayout so the children keep the exact same
+  bottom|start / bottom gravity geometry they had as direct children of
+  content_frame. Non-clickable root => touches fall through to the photo.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!--
+        Feature: Voice Caption on Photo — play badge + duration pill
+        overlaid on iv_image's bottom-start corner, shown only when
+        m.voiceUrl is set (see MessagePagingAdapter's "image" bind
+        case). wrap_content + bottom|start gravity so it never
+        blocks the rest of the photo from being tapped to open the
+        full-screen viewer — only this small pill is clickable.
+    -->
+    <FrameLayout
+        android:id="@+id/fl_voice_on_image"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="8dp"
+        android:background="@drawable/bg_voice_duration_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <ImageView
+                android:id="@+id/iv_voice_play_on_image"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:padding="4dp"
+                android:background="@drawable/bg_voice_play_badge"
+                android:src="@drawable/ic_play"
+                android:tint="#FFFFFFFF"/>
+
+            <TextView
+                android:id="@+id/tv_voice_duration_on_image"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="0:00"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold"/>
+
+        </LinearLayout>
+    </FrameLayout>
+
+    <!--
+        Feature: Voice Caption on Photo — WhatsApp-style caption strip
+        for the legacy image bubble (used whenever m.voiceUrl is set,
+        see MessagePagingAdapter's "image" bind case / isCanvasEligible).
+        Mirrors MediaGroupLayoutHelper's group-caption pattern: a
+        bottom-pinned gradient scrim + white text, OVERLAPPING the
+        photo rather than a separate row below it. Both gone by
+        default; bindImageCaptionOnLegacyBubble() shows them only
+        when m.caption is non-empty, and nudges fl_voice_on_image up
+        so the two never overlap.
+    -->
+    <View
+        android:id="@+id/view_image_caption_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_image_caption_scrim"
+        android:visibility="gone"/>
+
+    <TextView
+        android:id="@+id/tv_image_caption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="6dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:visibility="gone"/>
+
+</FrameLayout>

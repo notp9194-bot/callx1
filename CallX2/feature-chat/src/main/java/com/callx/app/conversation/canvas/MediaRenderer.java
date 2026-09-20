@@ -25,11 +25,10 @@ final class MediaRenderer {
     MediaRenderer(MessageBubbleCanvasView host) {
         this.host = host;
         gifBadgeBgPaint.setColor(0xCC000000);
-        voiceBadgeBgPaint.setColor(0xCC000000);
-        voiceBadgeIconPaint.setColor(0xFFFFFFFF);
-        voiceBadgeIconPaint.setStyle(Paint.Style.FILL);
-        voiceBadgeDurPaint.setColor(0xFFFFFFFF);
-        voiceBadgeDurPaint.setTextSize(host.spToPx(11f));
+        // v425 PERF: voice-badge Paints/Paths are NOT built here anymore —
+        // see ensureVoiceRes(). The overwhelming majority of bubbles never
+        // carry a voice caption, so paying 3 Paints + 2 Paths + 1 RectF per
+        // MessageBubbleCanvasView up front was pure waste.
     }
 
     // ── PERF: BitmapShader cache ─────────────────────────────────────────
@@ -78,15 +77,36 @@ final class MediaRenderer {
     // (host.voiceUrl). Same dark-pill visual language as gifBadgeBgPaint/
     // the group duration badge, just its own paints since the pill's
     // white icon+text combo doesn't match either of those exactly.
-    private final Paint voiceBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint voiceBadgeIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final android.text.TextPaint voiceBadgeDurPaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF voiceBadgePillRectF = new RectF();
-    private final android.graphics.Path voiceBadgeGlyphPath = new android.graphics.Path();
+    // v425 PERF: all voice-badge draw resources are lazily created on the
+    // first voice-caption draw (ensureVoiceRes()) instead of eagerly per view.
+    private Paint voiceBadgeBgPaint;
+    private Paint voiceBadgeIconPaint;
+    private android.text.TextPaint voiceBadgeDurPaint;
+    private RectF voiceBadgePillRectF;
+    private android.graphics.Path voiceBadgeGlyphPath;
     // Feature: Save-audio button glyph (down-arrow-into-tray, reused for
     // both the arrow-head and the tray strokes within one drawVoiceBadge()
     // call — same reuse-not-realloc precedent as voiceBadgeGlyphPath above).
-    private final android.graphics.Path voiceBadgeDownloadArrowPath = new android.graphics.Path();
+    private android.graphics.Path voiceBadgeDownloadArrowPath;
+
+    /** Builds the voice-badge Paints/Paths/RectF once, on first use. */
+    private void ensureVoiceRes() {
+        if (voiceBadgeBgPaint != null) return;
+        Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bg.setColor(0xCC000000);
+        Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
+        icon.setColor(0xFFFFFFFF);
+        icon.setStyle(Paint.Style.FILL);
+        android.text.TextPaint dur = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+        dur.setColor(0xFFFFFFFF);
+        dur.setTextSize(host.spToPx(11f));
+        voiceBadgePillRectF = new RectF();
+        voiceBadgeGlyphPath = new android.graphics.Path();
+        voiceBadgeDownloadArrowPath = new android.graphics.Path();
+        voiceBadgeIconPaint = icon;
+        voiceBadgeDurPaint = dur;
+        voiceBadgeBgPaint = bg; // assigned last — doubles as the "ready" flag
+    }
 
     void draw(Canvas canvas, int hPad, int vPad) {
         draw(canvas, hPad, vPad, false);
@@ -394,6 +414,7 @@ final class MediaRenderer {
     private String cachedVoiceCombinedDur;
 
     private void ensureVoiceBadgeGeometry(String durText, String speedLabel, boolean downloading, float density) {
+        ensureVoiceRes();
         // Cache hit — nothing that affects geometry changed since last draw.
         if (durText.equals(cachedVoiceDurText) && speedLabel.equals(cachedVoiceSpeedLabel)
                 && downloading == cachedVoiceDownloading) {
@@ -456,6 +477,7 @@ final class MediaRenderer {
      * against host.voiceSpeedRect independently of the play/pause segment.
      */
     private void drawVoiceBadge(Canvas canvas, float x, float y) {
+        ensureVoiceRes();
         float density = host.density;
         float iconD = 22f * density;
         float padH = 8f * density;

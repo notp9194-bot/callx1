@@ -208,6 +208,40 @@ public class MessageBubbleCanvasView extends View {
         return text;
     }
 
+    // v425 PERF: Markdown->Spannable + EmojiCompat.process() used to re-run on
+    // EVERY bind of every text / image-caption / album-caption bubble — i.e.
+    // for every visible row on each chat open, and again on every scroll
+    // rebind. The result is a pure function of the raw string, and consumers
+    // (StaticLayout.Builder) only read it, so a small LRU is safe. Only cached
+    // once EmojiCompat has actually finished loading — a pre-ready fallback
+    // (plain text) must never get frozen into the cache.
+    private static final android.util.LruCache<String, CharSequence> BODY_SPAN_CACHE =
+            new android.util.LruCache<>(256);
+    private static final int BODY_SPAN_CACHE_MAX_LEN = 2000;
+
+    static CharSequence formatBody(String raw) {
+        if (raw == null || raw.isEmpty()) return raw == null ? "" : raw;
+        final boolean cacheable = raw.length() <= BODY_SPAN_CACHE_MAX_LEN;
+        if (cacheable) {
+            CharSequence hit = BODY_SPAN_CACHE.get(raw);
+            if (hit != null) return hit;
+        }
+        CharSequence md = MarkdownFormatter.format(raw);
+        CharSequence out = md;
+        boolean emojiReady = false;
+        try {
+            androidx.emoji2.text.EmojiCompat ec = androidx.emoji2.text.EmojiCompat.get();
+            if (ec.getLoadState() == androidx.emoji2.text.EmojiCompat.LOAD_STATE_SUCCEEDED) {
+                out = ec.process(md);
+                emojiReady = true;
+            }
+        } catch (IllegalStateException notReadyYet) {
+            // EmojiCompat not configured yet — plain text this bind, uncached.
+        }
+        if (cacheable && emojiReady && out != null) BODY_SPAN_CACHE.put(raw, out);
+        return out;
+    }
+
     static final float CORNER_RADIUS_DP = 18f;
     static final float TAIL_RADIUS_DP    = 4f;
     static final float H_PADDING_DP      = 12f;
@@ -1721,6 +1755,12 @@ public class MessageBubbleCanvasView extends View {
     // no new plumbing.
     @Nullable String voiceUrl;
     @Nullable String voiceDuration;
+    // v425 PERF: bindMedia() wipes voiceUrl/voiceDuration on every bind, so
+    // setVoiceCaption()'s "same state as last time -> skip" guard could never
+    // fire (it always saw null). bindMedia() now parks the values it is about
+    // to wipe here, and setVoiceCaption() compares against them instead.
+    @Nullable private String prevVoiceUrl;
+    @Nullable private String prevVoiceDuration;
     boolean isVoicePlaying = false;
     /** Live "m:ss" elapsed position while a voice caption is playing — null/
      *  empty means "not currently playing" (badge shows just the total
@@ -2962,7 +3002,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaBitmap = null;
         this.mediaBitmapIsPlaceholder = false;
         this.messageText = text != null ? text : "";
-        this.messageTextSpanned = applyEmojiCompat(MarkdownFormatter.format(this.messageText));
+        this.messageTextSpanned = formatBody(this.messageText);
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;
@@ -3044,6 +3084,8 @@ public class MessageBubbleCanvasView extends View {
         // from whatever message it drew before this bind — the caller
         // re-arms it with setVoiceCaption() right after this call if the
         // new image actually has an attached voice note.
+        this.prevVoiceUrl = this.voiceUrl;           // v425: see prevVoiceUrl doc
+        this.prevVoiceDuration = this.voiceDuration;
         this.voiceUrl = null;
         this.voiceDuration = null;
         this.isVoicePlaying = false;
@@ -3092,7 +3134,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
         this.messageText = caption != null ? caption : "";
-        this.messageTextSpanned = applyEmojiCompat(MarkdownFormatter.format(this.messageText));
+        this.messageTextSpanned = formatBody(this.messageText);
         this.mediaHasCaption = !this.messageText.isEmpty();
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
@@ -3166,9 +3208,27 @@ public class MessageBubbleCanvasView extends View {
             if (voiceUrl.equals(this.voiceUrl) && java.util.Objects.equals(durationText, this.voiceDuration)) {
                 return;
             }
+            // v425 PERF: bindMedia() (which always runs right before this)
+            // just nulled this.voiceUrl, so the check above never matched
+            // and every single bind paid an extra invalidate(). Compare with
+            // what bindMedia() parked instead: if it is the same clip, just
+            // re-arm url/duration — bindMedia() already dirtied the view, so
+            // no second invalidate() is needed.
+            if (this.voiceUrl == null && voiceUrl.equals(prevVoiceUrl)
+                    && java.util.Objects.equals(durationText, prevVoiceDuration)) {
+                this.voiceUrl = voiceUrl;
+                this.voiceDuration = durationText;
+                prevVoiceUrl = null;
+                prevVoiceDuration = null;
+                return;
+            }
         } else if (this.voiceUrl == null) {
+            prevVoiceUrl = null;
+            prevVoiceDuration = null;
             return; // already cleared — nothing to do
         }
+        prevVoiceUrl = null;
+        prevVoiceDuration = null;
         this.voiceUrl = has ? voiceUrl : null;
         this.voiceDuration = has ? durationText : null;
         if (!has) {
@@ -3846,7 +3906,7 @@ public class MessageBubbleCanvasView extends View {
         java.util.Arrays.fill(this.groupCellProgress, -1);
         this.groupHasCaption = caption != null && !caption.isEmpty();
         this.messageText = groupHasCaption ? caption : "";
-        this.messageTextSpanned = applyEmojiCompat(MarkdownFormatter.format(this.messageText));
+        this.messageTextSpanned = formatBody(this.messageText);
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = isSent;
         this.read = isRead;
