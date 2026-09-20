@@ -401,7 +401,7 @@
     "users": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).val() === true || (auth.uid === $uid && newData.child('isVerified').val() === data.child('isVerified').val() && newData.child('verified').val() === data.child('verified').val() && newData.child('blueBadge').val() === data.child('blueBadge').val() && newData.child('verificationPlan').val() === data.child('verificationPlan').val() && newData.child('verificationApprovedAt').val() === data.child('verificationApprovedAt').val() && newData.child('badgeTier').val() === data.child('badgeTier').val() && newData.child('badgePeriod').val() === data.child('badgePeriod').val() && newData.child('talentPlan').val() === data.child('talentPlan').val() && newData.child('talentTier').val() === data.child('talentTier').val() && newData.child('talentStatus').val() === data.child('talentStatus').val() && newData.child('talentApprovedAt').val() === data.child('talentApprovedAt').val()))",
         ".validate": "newData.hasChild('uid') && newData.child('uid').val() === $uid",
         "fcmToken": {
           ".write": "auth != null && auth.uid === $uid",
@@ -434,6 +434,38 @@
         "isVerified": {
           ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
         },
+        "verified": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
+        "blueBadge": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
+        "verificationPlan": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
+        "verificationApprovedAt": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
+        "badgeTier": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+          ".validate": "!newData.exists() || newData.val() === 'star' || newData.val() === 'gold' || newData.val() === 'platinum'"
+        },
+        "badgePeriod": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+          ".validate": "!newData.exists() || newData.val() === 'monthly' || newData.val() === 'quarterly' || newData.val() === 'half_year' || newData.val() === 'yearly'"
+        },
+        "talentPlan": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
+        "talentTier": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
+        "talentStatus": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
+        "talentApprovedAt": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        },
         "linkedDevices": {
           ".read": "auth != null && auth.uid === $uid",
           ".write": "auth != null && auth.uid === $uid",
@@ -456,10 +488,7 @@
       ],
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
-        ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
-        "status": {
-          ".validate": "root.child('admins').child(auth.uid).val() === true || (auth.uid === $uid && (!data.exists() || data.val() === 'pending' || data.val() === 'rejected'))"
-        }
+        ".write": false
       }
     },
     "verificationBadgeRequests": {
@@ -1927,8 +1956,26 @@
     "sounds": {
       "$key": {
         ".read": "auth != null",
-        ".write": "auth != null"
+        "reel_count": {
+          ".write": "auth != null && !data.exists() && newData.val() === 0",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "user_count": {
+          ".write": false,
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "is_trending": {
+          ".write": false,
+          ".validate": "newData.isBoolean()"
+        },
+        "$other": {
+          ".write": "auth != null"
+        }
       }
+    },
+    "soundUsers": {
+      ".read": false,
+      ".write": false
     },
     "musicLibrary": {
       "$key": {

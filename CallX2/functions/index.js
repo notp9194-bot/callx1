@@ -531,57 +531,121 @@ const DEFAULT_MILESTONE_EARNINGS = {
   ],
 };
 
-// These catalog entries are returned by callable functions so the client and
-// admin app always review the same plan keys, prices, and benefits.
-const VERIFIED_BADGE_PLANS = [
-  { key: "monthly", name: "Verified Badge", priceRupees: 49, period: "Monthly",
-    benefits: ["Verified badge on your profile", "Enhanced discovery in feed & explore",
-      "Access to exclusive creator benefits"] },
-  { key: "quarterly", name: "Verified Badge Plus", priceRupees: 99, period: "3 Months",
-    benefits: ["Everything in Verified Badge", "Priority eligibility in reels",
-      "Go Live and Watch Live included"] },
-  { key: "half_year", name: "Verified Badge Premium", priceRupees: 199, period: "6 Months",
-    benefits: ["Long-term creator advantages", "6 months of Go Live access",
-      "6 months of Watch Live access"] },
-  { key: "yearly", name: "Verified Badge Super Plus", priceRupees: 349, period: "Yearly",
-    benefits: ["Verified badge for a full year", "50 free boost credits every month",
-      "Priority creator support"] },
+// One source of truth for the merged verification + talent product. Prices are
+// deliberately stored in rupees and are returned to both Android clients and
+// the admin app. The admin can override them under
+// appConfig/verificationBadgeCatalog without an app release.
+const DEFAULT_VERIFICATION_BADGE_PLANS = [
+  { key: "star_monthly", tierKey: "star", tierName: "Star", periodKey: "monthly",
+    name: "Star Verification", priceRupees: 195, period: "Monthly",
+    benefits: ["Star badge on your profile", "Verified checkmark", "Priority creator support"] },
+  { key: "star_quarterly", tierKey: "star", tierName: "Star", periodKey: "quarterly",
+    name: "Star Verification", priceRupees: 395, period: "3 Months",
+    benefits: ["Star badge on your profile", "Verified checkmark", "Priority creator support"] },
+  { key: "star_half_year", tierKey: "star", tierName: "Star", periodKey: "half_year",
+    name: "Star Verification", priceRupees: 795, period: "6 Months",
+    benefits: ["Star badge on your profile", "Verified checkmark", "Priority creator support"] },
+  { key: "star_yearly", tierKey: "star", tierName: "Star", periodKey: "yearly",
+    name: "Star Verification", priceRupees: 1395, period: "Yearly",
+    benefits: ["Star badge on your profile", "Verified checkmark", "Priority creator support"] },
+  { key: "gold_monthly", tierKey: "gold", tierName: "Gold", periodKey: "monthly",
+    name: "Gold Verification", priceRupees: 299, period: "Monthly",
+    benefits: ["Gold badge on your profile", "Verified checkmark", "Enhanced creator discovery"] },
+  { key: "gold_quarterly", tierKey: "gold", tierName: "Gold", periodKey: "quarterly",
+    name: "Gold Verification", priceRupees: 599, period: "3 Months",
+    benefits: ["Gold badge on your profile", "Verified checkmark", "Enhanced creator discovery"] },
+  { key: "gold_half_year", tierKey: "gold", tierName: "Gold", periodKey: "half_year",
+    name: "Gold Verification", priceRupees: 1199, period: "6 Months",
+    benefits: ["Gold badge on your profile", "Verified checkmark", "Enhanced creator discovery"] },
+  { key: "gold_yearly", tierKey: "gold", tierName: "Gold", periodKey: "yearly",
+    name: "Gold Verification", priceRupees: 2099, period: "Yearly",
+    benefits: ["Gold badge on your profile", "Verified checkmark", "Enhanced creator discovery"] },
+  { key: "platinum_monthly", tierKey: "platinum", tierName: "Platinum", periodKey: "monthly",
+    name: "Platinum Verification", priceRupees: 499, period: "Monthly",
+    benefits: ["Platinum badge on your profile", "Verified checkmark", "Featured creator placement"] },
+  { key: "platinum_quarterly", tierKey: "platinum", tierName: "Platinum", periodKey: "quarterly",
+    name: "Platinum Verification", priceRupees: 999, period: "3 Months",
+    benefits: ["Platinum badge on your profile", "Verified checkmark", "Featured creator placement"] },
+  { key: "platinum_half_year", tierKey: "platinum", tierName: "Platinum", periodKey: "half_year",
+    name: "Platinum Verification", priceRupees: 1999, period: "6 Months",
+    benefits: ["Platinum badge on your profile", "Verified checkmark", "Featured creator placement"] },
+  { key: "platinum_yearly", tierKey: "platinum", tierName: "Platinum", periodKey: "yearly",
+    name: "Platinum Verification", priceRupees: 3499, period: "Yearly",
+    benefits: ["Platinum badge on your profile", "Verified checkmark", "Featured creator placement"] },
 ];
 
-const STAR_TALENT_TIERS = [
-  { key: "star", name: "Become a Star Talent", priceRupees: 195,
-    benefits: ["Star Talent badge on your profile", "Listed in the Star Talent directory",
-      "Priority creator support"] },
-  { key: "gold", name: "Become a Gold Talent", priceRupees: 299,
-    benefits: ["Gold Talent badge on your profile", "Listed in the Gold Talent showcase",
-      "Everything in Star Talent included"] },
-  { key: "platinum", name: "Become a Platinum Talent", priceRupees: 499,
-    benefits: ["Platinum Talent badge — our highest tier",
-      "Featured placement in the Platinum Talent directory",
-      "Everything in Gold Talent included"] },
+const VERIFICATION_TIERS = [
+  { key: "star", name: "Star", icon: "★" },
+  { key: "gold", name: "Gold", icon: "★" },
+  { key: "platinum", name: "Platinum", icon: "♛" },
 ];
+
+const VERIFICATION_PERIODS = [
+  { key: "monthly", name: "Monthly", months: 1 },
+  { key: "quarterly", name: "3 Months", months: 3 },
+  { key: "half_year", name: "6 Months", months: 6 },
+  { key: "yearly", name: "Yearly", months: 12 },
+];
+
+// Kept as a compatibility alias for old admin builds and the old route.
+const STAR_TALENT_TIERS = DEFAULT_VERIFICATION_BADGE_PLANS
+  .filter((plan) => plan.periodKey === "monthly")
+  .map((plan) => ({ key: plan.tierKey, name: `Become a ${plan.tierName} Talent`,
+    priceRupees: plan.priceRupees, benefits: plan.benefits }));
+
+async function verificationCatalog(db) {
+  const snap = await db.ref("appConfig/verificationBadgeCatalog").once("value");
+  const configured = asObject(snap.val());
+  const prices = asObject(configured.prices || configured);
+  return DEFAULT_VERIFICATION_BADGE_PLANS.map((plan) => {
+    const configuredPrice = Number(prices[plan.key]);
+    return { ...plan, priceRupees: Number.isFinite(configuredPrice) && configuredPrice > 0
+      ? Math.round(configuredPrice) : plan.priceRupees };
+  });
+}
+
+function findVerificationPlan(catalog, tierKey, periodKey, planKey) {
+  if (planKey) {
+    const exact = catalog.find((plan) => plan.key === String(planKey));
+    if (exact) return exact;
+  }
+  const tier = String(tierKey || "").toLowerCase();
+  const period = String(periodKey || "monthly").toLowerCase();
+  return catalog.find((plan) => plan.tierKey === tier && plan.periodKey === period) || null;
+}
+
+function legacyTier(value) {
+  const tier = String(value || "").toLowerCase();
+  return ["star", "gold", "platinum"].includes(tier) ? tier : "";
+}
 
 function catalogItem(catalog, key) {
   return catalog.find((item) => item.key === String(key || "")) || null;
 }
 
 async function verificationBadgeView(uid, db) {
-  const [userSnap, requestSnap] = await Promise.all([
+  const [userSnap, requestSnap, catalog] = await Promise.all([
     db.ref(`users/${uid}`).once("value"),
     db.ref(`verification_requests/${uid}`).once("value"),
+    verificationCatalog(db),
   ]);
   const user = asObject(userSnap.val());
   const request = asObject(requestSnap.val());
+  const badgeTier = legacyTier(user.badgeTier || user.talentPlan || user.talentTier || user.talent);
   return {
-    plans: VERIFIED_BADGE_PLANS,
+    plans: catalog,
+    tiers: VERIFICATION_TIERS,
+    periods: VERIFICATION_PERIODS,
     isVerified: user.isVerified === true || user.verified === true || user.blueBadge === true,
+    badgeTier,
+    badgePeriod: user.badgePeriod || "",
     currentPlan: user.verificationPlan || "",
     status: request.status || "",
     request: requestSnap.exists() ? request : null,
   };
 }
 
-exports.verificationBadgeAction = functions.https.onCall(async (data, context) => {
+async function handleVerificationBadgeAction(data, context) {
   if (!context.auth || !context.auth.uid) {
     throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
   }
@@ -590,11 +654,17 @@ exports.verificationBadgeAction = functions.https.onCall(async (data, context) =
   const action = String(data && data.action || "get");
   const payload = asObject(data && data.payload);
   if (action === "get") return verificationBadgeView(uid, db);
-  if (action !== "purchase") {
+  if (!["purchase", "request", "apply"].includes(action)) {
     throw new functions.https.HttpsError("invalid-argument", "Unknown verification action.");
   }
-  const plan = catalogItem(VERIFIED_BADGE_PLANS, payload.planKey);
-  if (!plan) throw new functions.https.HttpsError("invalid-argument", "Choose a valid badge plan.");
+  const catalog = await verificationCatalog(db);
+  const plan = findVerificationPlan(catalog, payload.tierKey || payload.tier,
+    payload.periodKey || payload.period, payload.planKey);
+  const reason = String(payload.reason || "").trim().slice(0, 1000);
+  const isManualRequest = !plan && !payload.tierKey && !payload.tier && !payload.planKey;
+  if (!plan && !isManualRequest) {
+    throw new functions.https.HttpsError("invalid-argument", "Choose a valid badge tier and period.");
+  }
   const view = await verificationBadgeView(uid, db);
   if (view.isVerified) {
     throw new functions.https.HttpsError("failed-precondition", "This profile is already verified.");
@@ -606,9 +676,17 @@ exports.verificationBadgeAction = functions.https.onCall(async (data, context) =
   const user = asObject(userSnap.val());
   const request = {
     uid, name: user.name || user.displayName || "CallX creator",
-    photoUrl: user.photoUrl || user.photo || "", reason: "Paid verified badge plan",
-    source: "verified_badge_plan", planKey: plan.key, planName: plan.name,
-    priceRupees: plan.priceRupees, amountPaise: plan.priceRupees * 100,
+    photoUrl: user.photoUrl || user.photo || "", reason: reason || (plan
+      ? "Paid verified badge plan" : "Manual verification request"),
+    source: plan ? "verified_badge_plan" : "manual_verification",
+    planKey: plan ? plan.key : "manual",
+    planName: plan ? plan.name : "Manual Verification",
+    tierKey: plan ? plan.tierKey : "",
+    tierName: plan ? plan.tierName : "",
+    periodKey: plan ? plan.periodKey : "",
+    period: plan ? plan.period : "",
+    priceRupees: plan ? plan.priceRupees : 0,
+    amountPaise: plan ? plan.priceRupees * 100 : 0,
     status: "pending", submittedAt: ServerValue.TIMESTAMP,
   };
   await Promise.all([
@@ -616,56 +694,22 @@ exports.verificationBadgeAction = functions.https.onCall(async (data, context) =
     db.ref(`verificationBadgeRequests/${uid}`).set(request),
   ]);
   return { ...(await verificationBadgeView(uid, db)), submitted: true };
-});
-
-async function starTalentView(uid, db) {
-  const [userSnap, applicationSnap] = await Promise.all([
-    db.ref(`users/${uid}`).once("value"),
-    db.ref(`starTalentApplications/${uid}`).once("value"),
-  ]);
-  const user = asObject(userSnap.val());
-  const application = asObject(applicationSnap.val());
-  return {
-    tiers: STAR_TALENT_TIERS,
-    currentTier: user.talentPlan || user.talentTier || user.talent || "normal",
-    status: application.status || "",
-    application: applicationSnap.exists() ? application : null,
-  };
 }
 
+exports.verificationBadgeAction = functions.https.onCall(handleVerificationBadgeAction);
+
 exports.starTalentAction = functions.https.onCall(async (data, context) => {
-  if (!context.auth || !context.auth.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
-  }
-  const uid = context.auth.uid;
-  const db = getDatabase();
   const action = String(data && data.action || "get");
   const payload = asObject(data && data.payload);
-  if (action === "get") return starTalentView(uid, db);
-  if (action !== "apply") {
-    throw new functions.https.HttpsError("invalid-argument", "Unknown talent action.");
+  if (action === "get") {
+    const result = await handleVerificationBadgeAction({ action: "get", payload: {} }, context);
+    return { ...result, tiers: STAR_TALENT_TIERS };
   }
-  const tier = catalogItem(STAR_TALENT_TIERS, payload.tierKey);
-  const category = String(payload.category || "").trim().slice(0, 80);
-  const reason = String(payload.reason || "").trim().slice(0, 1000);
-  if (!tier || !category || reason.length < 20) {
-    throw new functions.https.HttpsError("invalid-argument",
-      "Choose a tier and provide a category plus at least 20 characters about your work.");
-  }
-  const view = await starTalentView(uid, db);
-  if (["pending", "approved", "active"].includes(view.status)) {
-    throw new functions.https.HttpsError("already-exists", "A talent application is already active.");
-  }
-  const userSnap = await db.ref(`users/${uid}`).once("value");
-  const user = asObject(userSnap.val());
-  const application = {
-    uid, name: user.name || user.displayName || "CallX creator",
-    photoUrl: user.photoUrl || user.photo || "", tierKey: tier.key,
-    tierName: tier.name, priceRupees: tier.priceRupees, category, reason,
-    status: "pending", submittedAt: ServerValue.TIMESTAMP,
-  };
-  await db.ref(`starTalentApplications/${uid}`).set(application);
-  return { ...(await starTalentView(uid, db)), submitted: true };
+  return handleVerificationBadgeAction({
+    action: "purchase",
+    payload: { tierKey: payload.tierKey, periodKey: payload.periodKey || "monthly",
+      reason: payload.reason || payload.category || "" },
+  }, context);
 });
 
 function normalizeMilestoneConfig(value) {
@@ -1221,7 +1265,16 @@ async function resolveSearchToUid(rawQuery) {
     } catch (e) { /* no match */ }
   }
 
-  // 4) CallX ID — exact match, same field the in-app SearchActivity uses.
+  // 4) @username — direct O(1) lookup on the usernames/{username} reservation
+  //    node (same node ProfileSetupActivity writes to). Accepts a leading
+  //    '@' since that's how moderators will naturally type a handle.
+  const asUsername = (query.startsWith("@") ? query.slice(1) : query).toLowerCase();
+  if (/^[a-z0-9_]{3,30}$/.test(asUsername)) {
+    const byUsername = await db.ref("usernames").child(asUsername).once("value");
+    if (byUsername.exists()) return byUsername.val();
+  }
+
+  // 5) CallX ID — exact match, same field the in-app SearchActivity uses.
   const byCallxId = await db.ref("users").orderByChild("callxId")
     .equalTo(query).limitToFirst(1).once("value");
   if (byCallxId.exists()) {
@@ -1277,6 +1330,40 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     } };
   }
 
+  if (action === "getVerificationCatalog") {
+    const [catalog, configSnap] = await Promise.all([
+      verificationCatalog(db),
+      db.ref("appConfig/verificationBadgeCatalog").once("value"),
+    ]);
+    return { tiers: VERIFICATION_TIERS, periods: VERIFICATION_PERIODS,
+      plans: catalog, config: configSnap.val() || {} };
+  }
+
+  if (action === "updateVerificationCatalog") {
+    const incoming = asObject(payload.prices);
+    const validKeys = new Set(DEFAULT_VERIFICATION_BADGE_PLANS.map((plan) => plan.key));
+    const prices = {};
+    for (const [key, value] of Object.entries(incoming)) {
+      if (!validKeys.has(key)) continue;
+      const price = Math.round(Number(value));
+      if (!Number.isFinite(price) || price < 1 || price > 100000) {
+        throw new functions.https.HttpsError("invalid-argument",
+          `Invalid price for ${key}. Use a whole rupee amount between 1 and 100000.`);
+      }
+      prices[key] = price;
+    }
+    if (Object.keys(prices).length !== DEFAULT_VERIFICATION_BADGE_PLANS.length) {
+      throw new functions.https.HttpsError("invalid-argument",
+        "All 12 tier-period prices are required.");
+    }
+    await db.ref("appConfig/verificationBadgeCatalog").set({
+      prices, updatedBy: context.auth.uid, updatedAt: ServerValue.TIMESTAMP,
+    });
+    await audit(context.auth.uid, "update_verification_catalog", "app_config",
+      "verificationBadgeCatalog", { prices });
+    return { ok: true, plans: await verificationCatalog(db) };
+  }
+
   if (action === "lookupUser") {
     if (!payload.uid || typeof payload.uid !== "string") {
       throw new functions.https.HttpsError("invalid-argument", "uid is required.");
@@ -1286,6 +1373,21 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
       return { user: null };
     }
     return { user: await authProfile(resolvedUid) };
+  }
+
+  if (action === "getUsernameHistory") {
+    const uid = payload.uid;
+    if (!uid || typeof uid !== "string") {
+      throw new functions.https.HttpsError("invalid-argument", "uid is required.");
+    }
+    const snap = await db.ref(`reelUsernameHistory/${uid}`).once("value");
+    const items = [];
+    snap.forEach((child) => {
+      const value = asObject(child.val());
+      items.push({ username: value.username || child.key, changedAt: value.changedAt || null });
+    });
+    items.sort((a, b) => Number(b.changedAt || 0) - Number(a.changedAt || 0));
+    return { items };
   }
 
   if (action === "setUserStatus") {
@@ -1319,7 +1421,20 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     if (!payload.uid || payload.uid === context.auth.uid) {
       throw new functions.https.HttpsError("invalid-argument", "A different uid is required.");
     }
+    // Read the handle before removing the profile so it can be released —
+    // otherwise usernames/{username} stays pointed at a uid that no longer
+    // exists and nobody can ever claim that handle again (client-side
+    // self-delete in AccountMenuActivity already does this; admin-initiated
+    // delete did not).
+    const profileSnap = await db.ref(`users/${payload.uid}`).once("value");
+    const username = asObject(profileSnap.val()).username;
     await db.ref(`users/${payload.uid}`).remove();
+    if (username) {
+      const reservation = await db.ref(`usernames/${username}`).once("value");
+      if (reservation.val() === payload.uid) {
+        await db.ref(`usernames/${username}`).remove();
+      }
+    }
     try { await getAuth().deleteUser(payload.uid); } catch (e) {
       if (e.code !== "auth/user-not-found") throw e;
     }
@@ -1493,8 +1608,13 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     if (decision === "approve") {
       updates[`users/${uid}/isVerified`] = true;
       updates[`users/${uid}/verificationPlan`] = request.planKey || "manual";
+      updates[`users/${uid}/badgeTier`] = legacyTier(request.tierKey)
+        || legacyTier(request.badgeTier) || null;
+      updates[`users/${uid}/badgePeriod`] = request.periodKey || request.badgePeriod || null;
       updates[`users/${uid}/verificationApprovedAt`] = ServerValue.TIMESTAMP;
     }
+    updates[`verificationBadgeRequests/${uid}/tierKey`] = request.tierKey || "";
+    updates[`verificationBadgeRequests/${uid}/periodKey`] = request.periodKey || "";
     await db.ref().update(updates);
     await audit(context.auth.uid, `verification_${decision}`, "verification", uid,
       { planKey: request.planKey || "manual", ...requestUpdate });
@@ -1508,6 +1628,34 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     snap.forEach((child) => items.push({ id: child.key, ...asObject(child.val()) }));
     items.sort((a, b) => Number(b.submittedAt || 0) - Number(a.submittedAt || 0));
     return { tiers: STAR_TALENT_TIERS, items: items.slice(0, 500) };
+  }
+
+  if (action === "listVerificationRequests") {
+    const snap = await db.ref("verification_requests")
+      .orderByChild("status").equalTo("pending").once("value");
+    const items = [];
+    snap.forEach((child) => items.push({ id: child.key, ...asObject(child.val()) }));
+    items.sort((a, b) => Number(b.submittedAt || 0) - Number(a.submittedAt || 0));
+    return { plans: await verificationCatalog(db), items: items.slice(0, 500) };
+  }
+
+  if (action === "backfillVerificationBadges") {
+    const snap = await db.ref("users").once("value");
+    const updates = {};
+    let usersUpdated = 0;
+    snap.forEach((child) => {
+      const user = asObject(child.val());
+      const tier = legacyTier(user.badgeTier || user.talentPlan || user.talentTier || user.talent);
+      if (tier && !user.badgeTier) {
+        usersUpdated += 1;
+        updates[`users/${child.key}/badgeTier`] = tier;
+        if (!user.badgePeriod) updates[`users/${child.key}/badgePeriod`] = "monthly";
+      }
+    });
+    if (Object.keys(updates).length) await db.ref().update(updates);
+    await audit(context.auth.uid, "backfill_verification_badges", "users", "legacy",
+      { count: usersUpdated });
+    return { ok: true, updatedFields: Object.keys(updates).length };
   }
 
   if (action === "reviewStarTalentApplication") {
@@ -1537,6 +1685,11 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
       updates[`users/${uid}/talentTier`] = application.tierKey || "star";
       updates[`users/${uid}/talentStatus`] = "active";
       updates[`users/${uid}/talentApprovedAt`] = ServerValue.TIMESTAMP;
+      updates[`users/${uid}/isVerified`] = true;
+      updates[`users/${uid}/badgeTier`] = legacyTier(application.tierKey) || "star";
+      updates[`users/${uid}/badgePeriod`] = application.periodKey || "monthly";
+      updates[`users/${uid}/verificationPlan`] = "legacy_star_talent";
+      updates[`users/${uid}/verificationApprovedAt`] = ServerValue.TIMESTAMP;
     }
     await db.ref().update(updates);
     await audit(context.auth.uid, `star_talent_${decision}`, "star_talent", uid,
@@ -1801,3 +1954,128 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
 
   throw new functions.https.HttpsError("invalid-argument", `Unknown admin action: ${action}`);
 });
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOUND USAGE COUNTERS — reel_count / user_count / is_trending
+// ═══════════════════════════════════════════════════════════════════════════
+// WHY THIS LIVES ON THE SERVER
+//   Before, reel_count was bumped by a CLIENT transaction at upload time
+//   (ReelUploadActivity#registerOrLinkSound, CollabRepostAcceptActivity) and
+//   never decremented when a reel was deleted, so it drifted; and there was
+//   no count of DISTINCT users at all, so the Sound Detail "Used by A, B and
+//   N others" row could only estimate N from the reels loaded so far.
+//   Any signed-in user could also write any sound's counters
+//   (sounds/$key had ".write": "auth != null").
+//
+//   Now a single trigger — the only writer — keeps:
+//     sounds/{soundId}/reel_count   — number of reels using the sound
+//     sounds/{soundId}/user_count   — number of DISTINCT owners of those reels
+//     sounds/{soundId}/is_trending  — set true once reel_count >= 5
+//   plus a server-only index:
+//     soundUsers/{soundId}/{ownerUid}/{reelId} = true
+//   (kept OUT of sounds/{id} on purpose: SoundDetailCache / search / trending
+//    read whole sounds/{id} nodes, and this index can be large.)
+//
+// HOW IT STAYS CORRECT
+//   * Triggered on the .../reels/{reelId}/ownerUid LEAF, not the reel entry:
+//     the entry is also created/updated by view-count transactions
+//     (viewsCount) from viewers, which must NOT count as "a user used this
+//     sound". ownerUid is written once, by the uploader, when the entry is
+//     really created — and removing the entry (or the whole sound) removes
+//     the leaf, which fires this trigger with the old owner.
+//   * IDEMPOTENT against at-least-once delivery: membership is decided by a
+//     transaction on soundUsers/{soundId}/{ownerUid} (a set of reelIds). A
+//     duplicate event finds the reelId already there / already gone,
+//     `committed` is false, and the counters are NOT touched again.
+//   * user_count only moves on a 0<->1 transition of that owner's set, so
+//     two reels by the same person count as ONE user.
+//   * Decrements never create a missing counter (a deleted sound doesn't
+//     get resurrected as an empty {reel_count:0,user_count:0} stub) and
+//     never go below 0.
+//   If a run dies between the membership write and the counter write the
+//   counters can be off by one; POST /admin/backfill-sound-counts on the
+//   Render server rebuilds soundUsers + user_count (+ reel_count with
+//   fix_reel_count=1) from the real reels entries, so it doubles as repair.
+
+const SOUND_TRENDING_REEL_THRESHOLD = 5;
+
+/** ownerUid comes from DATA (not the path) and is used as a DB key — validate it. */
+function isSafeSoundOwnerKey(v) {
+  return typeof v === "string" && v.length > 0 && v.length <= 128 && !/[.#$\[\]\/]/.test(v);
+}
+
+/**
+ * Atomic +/-1 on sounds/{soundId}/{field}. Returns the resulting value.
+ * Increment creates the field; decrement never creates it and floors at 0.
+ */
+async function bumpSoundCounter(db, soundId, field, delta) {
+  const res = await db.ref(`sounds/${soundId}/${field}`).transaction((cur) => {
+    if (delta > 0) return (typeof cur === "number" ? cur : 0) + delta;
+    if (typeof cur !== "number") return cur; // null stays null (no stub), odd types untouched
+    return Math.max(0, cur + delta);
+  });
+  return res.snapshot.val();
+}
+
+async function addSoundReelUsage(db, soundId, reelId, ownerUid) {
+  let wasEmpty = false;
+  const res = await db.ref(`soundUsers/${soundId}/${ownerUid}`).transaction((cur) => {
+    wasEmpty = false;                                // the LAST run is the one that commits
+    const map = cur && typeof cur === "object" ? { ...cur } : {};
+    if (map[reelId]) return undefined;               // already counted → abort (duplicate delivery)
+    wasEmpty = Object.keys(map).length === 0;
+    map[reelId] = true;
+    return map;
+  });
+  if (!res.committed) return;                        // duplicate — counters already reflect this reel
+
+  const reelCount = await bumpSoundCounter(db, soundId, "reel_count", +1);
+  if (wasEmpty) await bumpSoundCounter(db, soundId, "user_count", +1);
+  if (typeof reelCount === "number" && reelCount >= SOUND_TRENDING_REEL_THRESHOLD) {
+    await db.ref(`sounds/${soundId}/is_trending`).set(true);
+  }
+}
+
+async function removeSoundReelUsage(db, soundId, reelId, ownerUid) {
+  let removed = false;
+  let nowEmpty = false;
+  const res = await db.ref(`soundUsers/${soundId}/${ownerUid}`).transaction((cur) => {
+    removed = false; nowEmpty = false;               // the LAST run is the one that commits
+    // First local run has no cached data (null): returning null (not
+    // undefined) forces the server hash check so we retry with real data
+    // instead of aborting on a guess.
+    if (cur === null || cur === undefined) return null;
+    if (typeof cur !== "object" || !cur[reelId]) return undefined; // not in the set → abort
+    const map = { ...cur };
+    delete map[reelId];
+    removed = true;
+    nowEmpty = Object.keys(map).length === 0;
+    return nowEmpty ? null : map;                    // null deletes the owner node
+  });
+  if (!res.committed || !removed) return;            // duplicate / nothing to remove — counters untouched
+
+  await bumpSoundCounter(db, soundId, "reel_count", -1);
+  if (nowEmpty) await bumpSoundCounter(db, soundId, "user_count", -1);
+}
+
+exports.onSoundReelOwnerWrite = functions.database
+  .ref("/sounds/{soundId}/reels/{reelId}/ownerUid")
+  .onWrite(async (change, context) => {
+    const { soundId, reelId } = context.params;
+    const before = change.before.exists() ? change.before.val() : null;
+    const after = change.after.exists() ? change.after.val() : null;
+    const oldOwner = isSafeSoundOwnerKey(before) ? before : null;
+    const newOwner = isSafeSoundOwnerKey(after) ? after : null;
+    if (oldOwner === newOwner) return null;
+
+    const db = getDatabase();
+    try {
+      if (oldOwner) await removeSoundReelUsage(db, soundId, reelId, oldOwner);
+      if (newOwner) await addSoundReelUsage(db, soundId, reelId, newOwner);
+    } catch (err) {
+      console.error(`[soundCounters] ${soundId}/${reelId} failed:`, err);
+      throw err;
+    }
+    return null;
+  });

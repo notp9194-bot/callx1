@@ -667,21 +667,16 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
         // SoundDetailActivity's "Reels with this sound" grid + reel_count
         // include this collab repost instead of silently missing it.
         if (!musicId.isEmpty()) {
-            DatabaseReference soundRef = root.child("sounds").child(musicId);
             Map<String, Object> soundReelEntry = new HashMap<>();
             soundReelEntry.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
             soundReelEntry.put("videoUrl",     videoUrl != null ? videoUrl : "");
             soundReelEntry.put("ownerUid",     initiatorUid != null ? initiatorUid : "");
             soundReelEntry.put("viewsCount",   0);
             updates.put("sounds/" + musicId + "/reels/" + newReelId, soundReelEntry);
-            soundRef.child("reel_count").runTransaction(new Transaction.Handler() {
-                @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
-                    Long cur = d.getValue(Long.class);
-                    d.setValue((cur != null ? cur : 0) + 1);
-                    return Transaction.success(d);
-                }
-                @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
-            });
+            // reel_count / user_count / is_trending for this sound are
+            // maintained SERVER-SIDE (Cloud Function onSoundReelOwnerWrite,
+            // triggered by the ownerUid leaf written in this same update) —
+            // no client counter transaction, and the rules lock those fields.
         }
 
         root.updateChildren(updates)

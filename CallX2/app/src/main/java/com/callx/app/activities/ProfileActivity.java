@@ -148,6 +148,10 @@ public class ProfileActivity extends AppCompatActivity {
                     // Step 3 (display swap): @username replaces the phone-derived
                     // @callxId here — phone itself never reaches this screen's UI.
                     binding.tvUsername.setText(username.isEmpty() ? "" : "@" + username);
+                     String badgeTier = orEmpty(s.child("badgeTier").getValue(String.class));
+                     if (badgeTier.isEmpty()) badgeTier = orEmpty(s.child("talentPlan").getValue(String.class));
+                     binding.profileTierBadge.setTier(badgeTier);
+                     binding.profileAvatarTierBadge.setTier(badgeTier);
                     if (isOwnProfile) binding.tvEmail.setText(email);
                     currentPhoto = photo;
                     currentThumbUrl = thumb;
@@ -410,13 +414,16 @@ public class ProfileActivity extends AppCompatActivity {
         binding.btnRequestVerification.setEnabled(false);
         binding.btnRequestVerification.setText("Checking status…");
 
-        FirebaseUtils.getIsVerifiedRef(currentUid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot verifiedSnap) {
+        FirebaseUtils.getUserRef(currentUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot userSnap) {
                 if (isFinishing() || isDestroyed()) return;
-                boolean isVerified = Boolean.TRUE.equals(verifiedSnap.getValue(Boolean.class));
+                boolean isVerified = Boolean.TRUE.equals(userSnap.child("isVerified").getValue(Boolean.class))
+                    || Boolean.TRUE.equals(userSnap.child("verified").getValue(Boolean.class))
+                    || Boolean.TRUE.equals(userSnap.child("blueBadge").getValue(Boolean.class));
                 if (isVerified) {
                     binding.btnRequestVerification.setText("Verified ✓");
-                    binding.btnRequestVerification.setEnabled(false);
+                    binding.btnRequestVerification.setEnabled(true);
+                    binding.btnRequestVerification.setOnClickListener(v -> openVerificationScreen());
                     return;
                 }
                 FirebaseUtils.getVerificationRequestRef(currentUid).child("status")
@@ -424,51 +431,29 @@ public class ProfileActivity extends AppCompatActivity {
                         @Override public void onDataChange(DataSnapshot statusSnap) {
                             if (isFinishing() || isDestroyed()) return;
                             String status = statusSnap.getValue(String.class);
-                            if (FirebaseUtils.STATUS_PENDING.equals(status)) {
-                                binding.btnRequestVerification.setText("Verification Pending");
-                                binding.btnRequestVerification.setEnabled(false);
-                            } else {
-                                // null (never requested) or "rejected" — either way, allow (re-)requesting.
-                                binding.btnRequestVerification.setText("Request Verification");
-                                binding.btnRequestVerification.setEnabled(true);
-                                binding.btnRequestVerification.setOnClickListener(v -> showRequestVerificationDialog());
-                            }
+                            binding.btnRequestVerification.setText(
+                                FirebaseUtils.STATUS_PENDING.equals(status)
+                                    ? "Verification Pending" : "Request Verification");
+                            binding.btnRequestVerification.setEnabled(true);
+                            binding.btnRequestVerification.setOnClickListener(v -> openVerificationScreen());
                         }
-                        @Override public void onCancelled(DatabaseError error) { }
+                        @Override public void onCancelled(DatabaseError error) {
+                            binding.btnRequestVerification.setText("Request Verification");
+                            binding.btnRequestVerification.setEnabled(true);
+                            binding.btnRequestVerification.setOnClickListener(v -> openVerificationScreen());
+                        }
                     });
             }
-            @Override public void onCancelled(DatabaseError error) { }
+            @Override public void onCancelled(DatabaseError error) {
+                binding.btnRequestVerification.setText("Request Verification");
+                binding.btnRequestVerification.setEnabled(true);
+                binding.btnRequestVerification.setOnClickListener(v -> openVerificationScreen());
+            }
         });
     }
 
-    private void showRequestVerificationDialog() {
-        android.widget.EditText etReason = new android.widget.EditText(this);
-        etReason.setHint("Why should this account be verified?");
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        etReason.setPadding(pad, pad, pad, pad);
-
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Request Verification")
-            .setView(etReason)
-            .setPositiveButton("Submit", (d, w) -> {
-                String reason = etReason.getText().toString().trim();
-                java.util.Map<String, Object> req = new HashMap<>();
-                req.put("uid", currentUid);
-                req.put("name", binding.etName.getText().toString().trim());
-                req.put("photoUrl", currentPhoto);
-                req.put("reason", reason);
-                req.put("status", FirebaseUtils.STATUS_PENDING);
-                req.put("submittedAt", ServerValue.TIMESTAMP);
-                FirebaseUtils.getVerificationRequestRef(currentUid).setValue(req)
-                    .addOnSuccessListener(unused -> {
-                        Toast.makeText(this, "Request submitted", Toast.LENGTH_SHORT).show();
-                        binding.btnRequestVerification.setText("Verification Pending");
-                        binding.btnRequestVerification.setEnabled(false);
-                    })
-                    .addOnFailureListener(e -> Toast.makeText(this, "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+    private void openVerificationScreen() {
+        startActivity(new android.content.Intent(this, com.callx.app.creator.VerifiedBadgeActivity.class));
     }
 
     private void showCreateCommunityDialog() {

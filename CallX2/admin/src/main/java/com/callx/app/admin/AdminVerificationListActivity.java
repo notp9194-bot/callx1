@@ -2,8 +2,11 @@ package com.callx.app.admin;
 
 import android.os.Bundle;
 import android.view.View;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -45,6 +48,8 @@ public class AdminVerificationListActivity extends AppCompatActivity {
         });
         binding.rvVerificationRequests.setLayoutManager(new LinearLayoutManager(this));
         binding.rvVerificationRequests.setAdapter(adapter);
+        binding.btnManagePrices.setOnClickListener(v -> showPriceEditor());
+        binding.btnBackfillBadges.setOnClickListener(v -> backfillLegacyBadges());
 
         listenForPendingRequests();
     }
@@ -87,6 +92,94 @@ public class AdminVerificationListActivity extends AppCompatActivity {
                     "Failed: " + message, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    @SuppressWarnings("unchecked")
+    private void showPriceEditor() {
+        AdminApi.call("getVerificationCatalog", new AdminApi.Callback() {
+            @Override public void onSuccess(Object raw) {
+                java.util.Map<String, Object> data = AdminApi.map(raw);
+                Object value = data.get("plans");
+                if (!(value instanceof java.util.List)) {
+                    Toast.makeText(AdminVerificationListActivity.this,
+                        "Catalog not available", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                LinearLayout form = new LinearLayout(AdminVerificationListActivity.this);
+                form.setOrientation(LinearLayout.VERTICAL);
+                int pad = (int) (20 * getResources().getDisplayMetrics().density);
+                form.setPadding(pad, 0, pad, 0);
+                java.util.Map<String, EditText> inputs = new java.util.LinkedHashMap<>();
+                for (Object item : (java.util.List<?>) value) {
+                    java.util.Map<String, Object> plan = AdminApi.map(item);
+                    String key = AdminApi.text(plan.get("key"), "");
+                    String label = AdminApi.text(plan.get("tierName"), "")
+                        + " · " + AdminApi.text(plan.get("period"), "");
+                    EditText input = new EditText(AdminVerificationListActivity.this);
+                    input.setHint(label + " (₹)");
+                    input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+                    input.setText(AdminApi.text(plan.get("priceRupees"), ""));
+                    form.addView(input, new LinearLayout.LayoutParams(-1, dp(54)));
+                    inputs.put(key, input);
+                }
+                new AlertDialog.Builder(AdminVerificationListActivity.this)
+                    .setTitle("Verification prices (INR)")
+                    .setView(form)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Save", (dialog, which) -> {
+                        java.util.Map<String, Object> prices = new java.util.HashMap<>();
+                        try {
+                            for (java.util.Map.Entry<String, EditText> entry : inputs.entrySet()) {
+                                int price = Integer.parseInt(entry.getValue().getText().toString().trim());
+                                if (price < 1 || price > 100000) throw new NumberFormatException();
+                                prices.put(entry.getKey(), price);
+                            }
+                        } catch (NumberFormatException e) {
+                            Toast.makeText(AdminVerificationListActivity.this,
+                                "Use whole rupee prices from ₹1 to ₹100000", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        java.util.Map<String, Object> payload = new java.util.HashMap<>();
+                        payload.put("prices", prices);
+                        AdminApi.call("updateVerificationCatalog", payload, new AdminApi.Callback() {
+                            @Override public void onSuccess(Object data) {
+                                Toast.makeText(AdminVerificationListActivity.this,
+                                    "Prices updated", Toast.LENGTH_SHORT).show();
+                            }
+                            @Override public void onError(String message) {
+                                Toast.makeText(AdminVerificationListActivity.this,
+                                    "Failed: " + message, Toast.LENGTH_LONG).show();
+                            }
+                        });
+                    }).show();
+            }
+            @Override public void onError(String message) {
+                Toast.makeText(AdminVerificationListActivity.this,
+                    "Failed: " + message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void backfillLegacyBadges() {
+        new AlertDialog.Builder(this)
+            .setTitle("Backfill legacy talent badges?")
+            .setMessage("This copies existing approved Star/Gold/Platinum talent fields into the new badge fields. Existing users are not downgraded.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Backfill", (dialog, which) ->
+                AdminApi.call("backfillVerificationBadges", new AdminApi.Callback() {
+                    @Override public void onSuccess(Object data) {
+                        Toast.makeText(AdminVerificationListActivity.this,
+                            "Legacy badge fields backfilled", Toast.LENGTH_LONG).show();
+                    }
+                    @Override public void onError(String message) {
+                        Toast.makeText(AdminVerificationListActivity.this,
+                            "Failed: " + message, Toast.LENGTH_LONG).show();
+                    }
+                })).show();
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     @Override

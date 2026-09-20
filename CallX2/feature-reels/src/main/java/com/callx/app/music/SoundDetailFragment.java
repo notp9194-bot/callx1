@@ -318,9 +318,28 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // guards against redoing the (cheap, in-memory) derivation on every
     // subsequent page/live-listener append.
     private boolean soundUsersComputed = false;
-    // Bumped on every derive so a slow "my network" callback from an older
-    // derive can never overwrite the ordering computed by a newer one.
-    private int soundUsersGen = 0;
+    // ── "Used by" ULTRA PERF state ────────────────────────────────────────
+    // uid -> "is in my network (follower ∪ following)". Every uid is checked
+    // at most once per screen visit, no matter how many pages load.
+    private final java.util.HashMap<String, Boolean> soundNetworkMemo = new java.util.HashMap<>();
+    // uids whose point-reads are still in flight (never re-issued).
+    private final HashSet<String> soundNetworkPending = new HashSet<>();
+    // Top-3 uids + total + hasMore of the last render — an identical
+    // signature means nothing visible would change, so the whole
+    // profile-lookup / avatar-bind / text pass is skipped.
+    private String lastSoundUsersSig = null;
+    // sounds/{id}/user_count — server-maintained DISTINCT-user total for this
+    // sound (exact, covers reels not loaded yet). <= 0 means unknown / not
+    // backfilled yet, in which case the row falls back to the loaded-so-far estimate.
+    private long soundUserTotal = -1;
+    // Bumped per profile fetch so a slow older fetch can never paint stale
+    // avatars/text over a newer one.
+    private int soundUsersFetchGen = 0;
+    // True while a "rank anyway after timeout" runnable is armed.
+    private boolean soundUsersFallbackPosted = false;
+    // Upper bound the row waits for network-membership lookups before it
+    // shows the default order (it re-ranks silently if the answers land later).
+    private static final long SOUND_USERS_RANK_TIMEOUT_MS = 900L;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
     private SoundDetailActivity.RelatedAdapter relatedAdapter;
@@ -613,6 +632,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 loadCoverImage(coverUrl);
             }
             if (tvReelCount  != null) tvReelCount.setText(formatCount(vm.reelCount) + " Reels");
+            soundUserTotal = vm.soundUserCount;
             if (tvSavesCount != null) {
                 tvSavesCount.setText("•  " + formatCount(vm.totalSaves) + " Saves");
                 tvSavesCount.setVisibility(View.VISIBLE);
@@ -1291,6 +1311,14 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         }
 
         if (tvReelCount  != null) tvReelCount.setText(formatCount(snap.reelCount  != null ? snap.reelCount  : 0) + " Reels");
+        // Exact distinct-user total for the "Used by A, B and N others" row.
+        soundUserTotal = snap.userCount != null ? snap.userCount : -1;
+        if (soundUsersComputed) {
+            // Row may already be painted from the loaded reels — repaint the
+            // text now that the exact total is known (profiles are cache hits).
+            lastSoundUsersSig = null;
+            fetchSoundUserProfiles();
+        }
         if (tvSavesCount != null) { tvSavesCount.setText("•  " + formatCount(snap.totalSaves != null ? snap.totalSaves : 0) + " Saves"); tvSavesCount.setVisibility(View.VISIBLE); }
 
         if (tvTrendingRank != null) {
@@ -1317,6 +1345,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             vm.coverUrl           = snap.coverUrl;
             vm.durationMs         = durationMs;
             vm.reelCount          = snap.reelCount  != null ? snap.reelCount  : 0;
+            vm.soundUserCount     = soundUserTotal;
             vm.totalSaves         = snap.totalSaves != null ? snap.totalSaves : 0;
             vm.trendingRank       = snap.trendingRank;
             vm.isTrending         = Boolean.TRUE.equals(snap.isTrending);
@@ -1606,48 +1635,106 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private void deriveSoundUsersFromReelItems() {
         if (isGone()) return;
 
-        // Unique owners in reelItems order (original creator first, then by
-        // views — see finishAppendingPage()). In-memory only, no Firebase.
         List<String> fresh = new ArrayList<>();
         HashSet<String> freshSeen = new HashSet<>();
-        for (SoundDetailActivity.ReelThumbItem item : reelItems) {
-            if (item.uid != null && !item.uid.isEmpty() && freshSeen.add(item.uid)) {
-                fresh.add(item.uid);
-            }
-        }
+        collectSoundUserUids(fresh, freshSeen);
         // Later pages / live adds re-enter here: only redo the work when the
         // set of unique users actually changed since the last derive.
         if (soundUsersComputed && fresh.size() == soundUserUidsList.size()) return;
         soundUsersComputed = true;
 
-        final int gen = ++soundUsersGen;
         String myUid = null;
         try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) { }
-
         if (myUid == null || myUid.isEmpty() || fresh.isEmpty()) {
             applySoundUserOrder(fresh, freshSeen);
             return;
         }
 
-        // FIX: the avatars used to be simply the first 3 owners of the first
-        // page of reels, whether or not they had anything to do with the
-        // viewer. Now people in the viewer's own network (followers ∪
-        // following — same "my network" definition MutualFollowersCache
-        // already uses for mutual rows) are ranked first, so "Used by"
-        // shows familiar faces before strangers. Cached (3-min TTL) and
-        // in-flight de-duplicated, so usually zero extra Firebase reads.
-        final String me = myUid;
-        MutualFollowersCache.getInstance().getMyNetwork(me, network -> {
-            if (isGone() || gen != soundUsersGen) return; // superseded by a newer derive
-            List<String> ranked = new ArrayList<>(fresh.size());
-            List<String> others = new ArrayList<>();
-            for (String uid : fresh) {
-                if (!uid.equals(me) && network.contains(uid)) ranked.add(uid);
-                else others.add(uid);
+        // FAST PATH — the shared "my network" set is already cached (very
+        // common: the reel player's mutual row fills it): membership is a
+        // synchronous in-memory lookup, zero Firebase reads, the row is
+        // ranked and painted in this same frame.
+        java.util.Set<String> cached = MutualFollowersCache.getInstance().peekMyNetwork(myUid);
+        if (cached != null) {
+            for (String uid : fresh) soundNetworkMemo.put(uid, cached.contains(uid));
+            rankAndApplySoundUsers(myUid);
+            return;
+        }
+
+        // COLD PATH — instead of downloading the viewer's ENTIRE followers +
+        // following nodes (can be tens of thousands of entries) just to test
+        // ~12 candidates, ask Firebase about only those candidates: two
+        // tiny point-reads per NEW uid, all in parallel, each uid at most
+        // once per visit (memo + pending guard).
+        for (String uid : fresh) {
+            if (uid.equals(myUid) || soundNetworkMemo.containsKey(uid)
+                    || soundNetworkPending.contains(uid)) continue;
+            resolveNetworkMembership(myUid, uid);
+        }
+        if (soundNetworkPending.isEmpty()) {
+            rankAndApplySoundUsers(myUid);      // everything already memoized
+        } else {
+            scheduleSoundUsersRankFallback(myUid);
+        }
+    }
+
+    /** Unique reel owners in reelItems order (original creator first, then by views). In-memory only. */
+    private void collectSoundUserUids(List<String> out, HashSet<String> seen) {
+        for (SoundDetailActivity.ReelThumbItem item : reelItems) {
+            if (item.uid != null && !item.uid.isEmpty() && seen.add(item.uid)) {
+                out.add(item.uid);
             }
-            ranked.addAll(others); // stable: original order kept inside each group
-            applySoundUserOrder(ranked, freshSeen);
-        });
+        }
+    }
+
+    /** Two point-reads (I follow them / they follow me); memoizes the answer for this uid. */
+    private void resolveNetworkMembership(String myUid, String uid) {
+        soundNetworkPending.add(uid);
+        final boolean[] hit = {false};
+        final int[] remaining = {2};
+        ValueEventListener l = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (snap.exists()) hit[0] = true;
+                finishOne();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { finishOne(); }
+            private void finishOne() {
+                if (--remaining[0] > 0) return;
+                soundNetworkPending.remove(uid);
+                soundNetworkMemo.put(uid, hit[0]);
+                if (isGone()) return;
+                if (soundNetworkPending.isEmpty()) rankAndApplySoundUsers(myUid);
+            }
+        };
+        FirebaseUtils.getReelFollowsRef(myUid).child(uid).addListenerForSingleValueEvent(l);
+        FirebaseUtils.getReelFollowersRef(myUid).child(uid).addListenerForSingleValueEvent(l);
+    }
+
+    /** Never let a slow/offline lookup hold the row hostage: after the timeout rank with what's known so far. */
+    private void scheduleSoundUsersRankFallback(String myUid) {
+        if (soundUsersFallbackPosted || layoutSoundUsers == null) return;
+        soundUsersFallbackPosted = true;
+        layoutSoundUsers.postDelayed(() -> {
+            if (isGone() || !soundUsersFallbackPosted) return; // real ranking already applied
+            rankAndApplySoundUsers(myUid);
+        }, SOUND_USERS_RANK_TIMEOUT_MS);
+    }
+
+    /** Stable partition: network members first, everyone else after — original order kept inside each group. */
+    private void rankAndApplySoundUsers(String myUid) {
+        if (isGone()) return;
+        soundUsersFallbackPosted = false;
+        List<String> fresh = new ArrayList<>();
+        HashSet<String> freshSeen = new HashSet<>();
+        collectSoundUserUids(fresh, freshSeen);
+        List<String> ranked = new ArrayList<>(fresh.size());
+        List<String> others = new ArrayList<>();
+        for (String uid : fresh) {
+            if (!uid.equals(myUid) && Boolean.TRUE.equals(soundNetworkMemo.get(uid))) ranked.add(uid);
+            else others.add(uid);
+        }
+        ranked.addAll(others);
+        applySoundUserOrder(ranked, freshSeen);
     }
 
     private void applySoundUserOrder(List<String> ordered, HashSet<String> seen) {
@@ -1660,11 +1747,23 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     /** Fetches name+photo for the first 3 sound-user UIDs, then shows the row. */
     private void fetchSoundUserProfiles() {
-        if (soundUserUidsList.isEmpty()) {
+        final int count = soundUserUidsList.size();
+        final int fetchCount = Math.min(3, count);
+
+        // Skip the entire profile-lookup / avatar-bind / text pass when the
+        // visible result would be identical to what is already on screen.
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < fetchCount; i++) sb.append(soundUserUidsList.get(i)).append(',');
+        sb.append('|').append(count).append('|').append(hasMoreReels).append('|').append(soundUserTotal);
+        String sig = sb.toString();
+        if (sig.equals(lastSoundUsersSig)) return;
+        lastSoundUsersSig = sig;
+
+        if (count == 0) {
             showSoundUsers(new ArrayList<>(), new ArrayList<>());
             return;
         }
-        int fetchCount = Math.min(3, soundUserUidsList.size());
+        final int fetchGen = ++soundUsersFetchGen;
         List<String> names  = new ArrayList<>(java.util.Collections.nCopies(fetchCount, (String) null));
         List<String> photos = new ArrayList<>(java.util.Collections.nCopies(fetchCount, (String) null));
         final int[] done = {0};
@@ -1677,7 +1776,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             // followers row, a follow list, etc.), this is a zero-Firebase-
             // read hit instead of a fresh getUserRef() lookup.
             profileCache.getProfile(uid, (name, photo) -> {
-                if (isGone()) return;
+                if (isGone() || fetchGen != soundUsersFetchGen) return; // superseded by a newer render
                 names.set(index, name);
                 photos.set(index, photo);
                 done[0]++;
@@ -1712,18 +1811,30 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             }
         }
 
+        // Total DISTINCT users: the server-maintained sounds/{id}/user_count
+        // when it is known (exact — includes users on pages not loaded yet),
+        // otherwise only the users seen in the reels loaded so far, in which
+        // case "N others" is a lower bound while more pages remain ("N+").
+        // Never report fewer than the users we have actually seen.
+        final boolean totalKnown = soundUserTotal > 0;
+        final long total = totalKnown ? Math.max(soundUserTotal, count) : count;
+        final boolean exact = totalKnown || !hasMoreReels;
+        final int shownNames = Math.min(2, names.size());
+
         String text;
-        if (count == 1) {
-            text = "Used by " + names.get(0);
-        } else if (count == 2) {
-            text = "Used by " + names.get(0) + " and " + names.get(1);
+        if (shownNames <= 0) {
+            layoutSoundUsers.setVisibility(View.GONE);
+            return;
+        } else if (total <= shownNames) {
+            text = shownNames == 1
+                ? "Used by " + names.get(0)
+                : "Used by " + names.get(0) + " and " + names.get(1);
         } else {
-            int others = count - 2;
-            // Only the pages loaded so far are known — while more reels
-            // remain unloaded this is a lower bound, so mark it "N+".
-            String othersStr = hasMoreReels ? (others + "+") : String.valueOf(others);
-            text = "Used by " + names.get(0) + ", " + names.get(1)
-                + " and " + othersStr + ((others == 1 && !hasMoreReels) ? " other" : " others");
+            long others = total - shownNames;
+            String othersStr = exact ? formatCount(others) : (others + "+");
+            String lead = shownNames == 1 ? names.get(0) : (names.get(0) + ", " + names.get(1));
+            text = "Used by " + lead + " and " + othersStr
+                + ((exact && others == 1) ? " other" : " others");
         }
 
         if (tvSoundUsers != null) tvSoundUsers.setText(text);
@@ -1747,6 +1858,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_START_TAB,
                 com.callx.app.followers.FollowConnectionsActivity.TAB_MUTUAL);
         i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_MUTUAL_TAB_LABEL, "Used by");
+        // Keep the network-first ranking (no alphabetical re-sort) and load
+        // the list progressively — see FollowConnectionsActivity.EXTRA_PRESERVE_ORDER.
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_PRESERVE_ORDER, true);
         i.putStringArrayListExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_MUTUAL_UIDS,
                 new ArrayList<>(soundUserUidsList));
         startActivity(i);

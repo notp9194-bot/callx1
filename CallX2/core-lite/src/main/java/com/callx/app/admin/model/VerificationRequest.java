@@ -12,6 +12,10 @@ public class VerificationRequest {
     public String source;
     public String planKey;
     public String planName;
+    public String tierKey;
+    public String tierName;
+    public String periodKey;
+    public String period;
     public Long priceRupees;
     public String status;
     public Long submittedAt;

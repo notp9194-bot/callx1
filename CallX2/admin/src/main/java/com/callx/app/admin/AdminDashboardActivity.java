@@ -58,10 +58,8 @@ public class AdminDashboardActivity extends AppCompatActivity {
             () -> open(AdminConfigActivity.class));
         addModule("Admin-of-admins", "Manage roles and permissions without editing the database by hand.",
             () -> open(AdminAdminsActivity.class));
-        addModule("Verification approvals", "Existing verification badge queue.",
+        addModule("Verification & creator tiers", "Review the merged Star, Gold, Platinum queue and control all tier prices.",
             () -> open(AdminVerificationListActivity.class));
-        addModule("Star Talent applications", "Review creator tier applications and activate approved talent badges.",
-            () -> open(AdminStarTalentActivity.class));
 
         content.addView(AdminUi.button(this, "Sign out", v -> {
             com.google.firebase.auth.FirebaseAuth.getInstance().signOut();

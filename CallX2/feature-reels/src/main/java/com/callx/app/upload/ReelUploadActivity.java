@@ -153,8 +153,6 @@ public class ReelUploadActivity extends AppCompatActivity {
     /** NEW: open ReelAudioMixerActivity right after the trim screen (video/photo both) */
     private static final int REQ_AUDIO_MIXER_AFTER_TRIM = 910;
     private static final int MAX_PHOTOS              = 10;
-    /** Minimum reels-using-this-sound count before it's flagged "🔥 Trending". */
-    private static final long TRENDING_REEL_THRESHOLD = 5L;
 
     private PlayerView        playerPreview;
     private ImageView         ivThumbPreview;
@@ -3419,32 +3417,14 @@ public class ReelUploadActivity extends AppCompatActivity {
         reelEntry.put("viewsCount",   0);
         soundRef.child("reels").child(reelId).setValue(reelEntry);
 
-        // Bump reel_count via transaction (works whether the sound node
-        // already existed or is being created for the first time).
-        soundRef.child("reel_count").runTransaction(new Transaction.Handler() {
-            @NonNull @Override
-            public Transaction.Result doTransaction(@NonNull MutableData d) {
-                Long cur = d.getValue(Long.class);
-                d.setValue((cur != null ? cur : 0) + 1);
-                return Transaction.success(d);
-            }
-            @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {
-                // ✅ Trending badge: trending_rank was always being written as 0
-                // and nothing ever updated it, so the "🔥 Trending" badge could
-                // never actually show. Instead of a precise global leaderboard
-                // rank (which needs a real backend job to compute safely across
-                // many concurrent writers), use a simple, race-safe threshold:
-                // once a sound crosses TRENDING_REEL_THRESHOLD uses, flip a
-                // boolean flag. SoundDetailActivity shows the badge off this
-                // flag directly — no separate ranking computation needed.
-                if (e == null && committed && s != null) {
-                    Long count = s.getValue(Long.class);
-                    if (count != null && count >= TRENDING_REEL_THRESHOLD) {
-                        soundRef.child("is_trending").setValue(true);
-                    }
-                }
-            }
-        });
+        // sounds/{id}/reel_count, sounds/{id}/user_count (distinct users) and
+        // the is_trending flag are maintained SERVER-SIDE by the Cloud
+        // Function trigger onSoundReelOwnerWrite (functions/index.js), which
+        // fires off the reels/{reelId}/ownerUid leaf written just above.
+        // They used to be bumped here by a client transaction, which (a)
+        // never decremented on delete, (b) had no notion of distinct users,
+        // and (c) let any signed-in user write any sound's counters —
+        // firebase rules now lock those fields to the server.
 
         if (usingExistingSound) {
             // ✅ FIX (gap #1 — existing/trending sound never fingerprinted):

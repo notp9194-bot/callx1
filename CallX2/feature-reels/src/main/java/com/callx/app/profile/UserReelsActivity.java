@@ -46,6 +46,7 @@ import com.callx.app.models.ReelModel;
   import com.callx.app.models.DuetSeriesModel;
   import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.ui.TierBadgeView;
 import com.google.firebase.database.*;
 import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.Tasks;
@@ -139,6 +140,8 @@ public class UserReelsActivity extends AppCompatActivity
     // Views
     private CircleImageView ivAvatar;
     private ImageView       ivVerified;
+    private TierBadgeView   tvTierBadge;
+    private TierBadgeView   tvAvatarTierBadge;
     private View            viewStoryRing;
     // Story-ring reveal animation state (fixes v42-era infinite blink; see
     // handleStoryRingVisibility()/playStoryRingReveal()).
@@ -548,6 +551,8 @@ public class UserReelsActivity extends AppCompatActivity
     private void bindViews() {
         ivAvatar             = findViewById(R.id.iv_avatar);
         ivVerified           = findViewById(R.id.iv_verified);
+        tvTierBadge          = findViewById(R.id.tv_tier_badge);
+        tvAvatarTierBadge    = findViewById(R.id.tv_avatar_tier_badge);
         viewStoryRing        = findViewById(R.id.view_story_ring);
         // Ring stays hidden until checkActiveStory() resolves whether this
         // user has an active story and whether it's seen/unseen — avoids a
@@ -2594,6 +2599,8 @@ public class UserReelsActivity extends AppCompatActivity
         // status twice on screen at once and has been removed (XML +
         // ivDisplayNameVerified field also removed).
         com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivVerified, targetUid);
+        com.callx.app.utils.VerifiedBadgeUtils.bindTierForUid(tvTierBadge, targetUid);
+        com.callx.app.utils.VerifiedBadgeUtils.bindTierForUid(tvAvatarTierBadge, targetUid);
     }
 
     // ── Mutual Followers (Feature 10) ─────────────────────────────────────

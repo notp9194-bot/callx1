@@ -3,6 +3,7 @@ package com.callx.app.cache;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.DataSnapshot;
@@ -132,6 +133,19 @@ public final class MutualFollowersCache {
     }
 
     // ── My network (followers ∪ following) ──────────────────────────────────
+
+    /**
+     * Non-blocking peek: returns the cached "my network" set when it is
+     * still fresh, otherwise null. Never touches Firebase and never starts
+     * a fetch — lets callers that only need a quick membership test take a
+     * fully synchronous fast path and fall back to something cheaper than
+     * downloading the whole network when the cache is cold.
+     */
+    @Nullable
+    public Set<String> peekMyNetwork(@NonNull String myUid) {
+        NetworkEntry cached = myNetworkCache.get(myUid);
+        return (cached != null && cached.isFresh()) ? cached.network : null;
+    }
 
     public void getMyNetwork(@NonNull String myUid, @NonNull MyNetworkCallback callback) {
         NetworkEntry cached = myNetworkCache.get(myUid);

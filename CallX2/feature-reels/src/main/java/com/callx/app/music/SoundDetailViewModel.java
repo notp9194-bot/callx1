@@ -55,6 +55,8 @@ public class SoundDetailViewModel extends ViewModel {
     // total_saves nodes) — an int here was the "possible lossy conversion
     // from long to int" build break.
     public long    reelCount, totalSaves;
+    // sounds/{id}/user_count (server-maintained distinct-user total); -1 = unknown.
+    public long    soundUserCount = -1;
     public Long    trendingRank;
     public boolean isTrending, isOriginal, isVerified;
 

@@ -96,6 +96,8 @@ public final class SoundDetailCache {
         public boolean found;              // true if resolved from either sounds/ or musicLibrary/
         public boolean fromMusicLibrary;    // true if resolved via the musicLibrary/ fallback path
         public Long reelCount, trendingRank, totalSaves;
+        /** sounds/{id}/user_count — DISTINCT users with a reel on this sound; maintained server-side (Cloud Function onSoundReelOwnerWrite). Null until the sound is counted/backfilled. */
+        public Long userCount;
         public Boolean isOriginal, isVerified, isTrending;
         public String creatorUid, creatorName, creatorPhoto;
         public String audioUrl, previewAudioUrl, coverUrl;
@@ -154,6 +156,7 @@ public final class SoundDetailCache {
         SoundNodeEntry e = new SoundNodeEntry();
         e.found = true;
         e.reelCount    = snap.child("reel_count").getValue(Long.class);
+        e.userCount    = snap.child("user_count").getValue(Long.class);
         e.trendingRank = snap.child("trending_rank").getValue(Long.class);
         e.totalSaves   = snap.child("total_saves").getValue(Long.class);
         e.isOriginal   = snap.child("is_original").getValue(Boolean.class);

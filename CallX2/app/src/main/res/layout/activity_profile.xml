@@ -46,6 +46,15 @@
                     android:src="@drawable/ic_camera"
                     android:background="@drawable/circle_primary"/>
 
+                <com.callx.app.ui.TierBadgeView
+                    android:id="@+id/profile_avatar_tier_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="20dp"
+                    android:layout_gravity="bottom|end"
+                    android:layout_marginEnd="4dp"
+                    android:layout_marginBottom="32dp"
+                    android:visibility="gone"/>
+
                 <ProgressBar
                     android:id="@+id/avatar_progress"
                     android:layout_width="36dp"
@@ -53,6 +62,13 @@
                     android:layout_gravity="center"
                     android:visibility="gone"/>
             </FrameLayout>
+
+             <com.callx.app.ui.TierBadgeView
+                 android:id="@+id/profile_tier_badge"
+                 android:layout_width="wrap_content"
+                 android:layout_height="24dp"
+                 android:layout_marginTop="8dp"
+                 android:visibility="gone"/>
 
             <!-- ── Section: Basic Info ── -->
             <TextView

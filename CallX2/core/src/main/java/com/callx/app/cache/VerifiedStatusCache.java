@@ -85,20 +85,27 @@ public final class VerifiedStatusCache {
 
     private static final class Entry {
         final boolean verified;
+        final String tier;
         final long resolvedAt;
-        Entry(boolean verified, long resolvedAt) { this.verified = verified; this.resolvedAt = resolvedAt; }
+        Entry(boolean verified, String tier, long resolvedAt) {
+            this.verified = verified; this.tier = tier == null ? "" : tier; this.resolvedAt = resolvedAt;
+        }
         boolean isExpired() { return System.currentTimeMillis() - resolvedAt > TTL_MS; }
     }
 
     private final Map<String, Entry> cache = new HashMap<>();
     // uid -> queued callbacks waiting on the one in-flight Firebase read for that uid.
-    private final Map<String, List<Callback>> pending = new HashMap<>();
+    private final Map<String, List<TierCallback>> tierPending = new HashMap<>();
     private SharedPreferences prefs; // null until init(Context) is called — persistence degrades gracefully
     private com.google.firebase.database.ValueEventListener selfListener;
     private String selfListenerUid;
 
     public interface Callback {
         void onResult(boolean isVerified);
+    }
+
+    public interface TierCallback {
+        void onResult(boolean isVerified, String tier);
     }
 
     private VerifiedStatusCache() {}
@@ -124,12 +131,14 @@ public final class VerifiedStatusCache {
             if (key.endsWith(TS_SUFFIX)) continue; // timestamp entries are read alongside their value below
             if (e.getValue() instanceof Boolean) {
                 long ts = inst.prefs.getLong(key + TS_SUFFIX, 0L); // 0 = legacy entry from before TTL, treated as already-expired
-                inst.cache.put(key, new Entry((Boolean) e.getValue(), ts));
+                inst.cache.put(key, new Entry((Boolean) e.getValue(),
+                    inst.prefs.getString(key + TIER_SUFFIX, ""), ts));
             }
         }
     }
 
     private static final String TS_SUFFIX = "_ts";
+    private static final String TIER_SUFFIX = "_tier";
 
     /**
      * Attaches a live listener on the SIGNED-IN user's own verified status so
@@ -140,16 +149,21 @@ public final class VerifiedStatusCache {
     public synchronized void listenSelf(String myUid) {
         if (myUid == null || myUid.isEmpty() || myUid.equals(selfListenerUid)) return;
         if (selfListener != null && selfListenerUid != null) {
-            FirebaseUtils.getIsVerifiedRef(selfListenerUid).removeEventListener(selfListener);
+            FirebaseUtils.getUserRef(selfListenerUid).removeEventListener(selfListener);
         }
         selfListenerUid = myUid;
         selfListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
-                deliver(myUid, Boolean.TRUE.equals(snapshot.getValue(Boolean.class)));
+                boolean verified = Boolean.TRUE.equals(snapshot.child("isVerified").getValue(Boolean.class))
+                    || Boolean.TRUE.equals(snapshot.child("verified").getValue(Boolean.class))
+                    || Boolean.TRUE.equals(snapshot.child("blueBadge").getValue(Boolean.class));
+                String tier = snapshot.child("badgeTier").getValue(String.class);
+                if (tier == null || tier.isEmpty()) tier = snapshot.child("talentPlan").getValue(String.class);
+                deliverTier(myUid, verified, tier);
             }
             @Override public void onCancelled(@NonNull DatabaseError error) { /* keep last known value */ }
         };
-        FirebaseUtils.getIsVerifiedRef(myUid).addValueEventListener(selfListener);
+        FirebaseUtils.getUserRef(myUid).addValueEventListener(selfListener);
     }
 
     /** Returns the cached value if known and not expired, else null (caller should also call resolve()). */
@@ -160,51 +174,73 @@ public final class VerifiedStatusCache {
         return e.verified;
     }
 
+    /** Returns the cached approved tier (star/gold/platinum), or null when unknown. */
+    public String getCachedTier(String uid) {
+        if (uid == null) return null;
+        Entry e = cache.get(uid);
+        if (e == null || e.isExpired() || !e.verified || e.tier.isEmpty()) return null;
+        return e.tier;
+    }
+
     /** Resolves isVerified for uid (from cache if present & fresh, else Firebase), then calls back on the main thread. */
     public void resolve(@NonNull String uid, @NonNull Callback callback) {
+        resolveTier(uid, (verified, tier) -> callback.onResult(verified));
+    }
+
+    /** Resolves verification and its approved tier in one cacheable read. */
+    public void resolveTier(@NonNull String uid, @NonNull TierCallback callback) {
         Entry cached = cache.get(uid);
         if (cached != null && !cached.isExpired()) {
-            callback.onResult(cached.verified);
+            callback.onResult(cached.verified, cached.tier);
             return;
         }
-        synchronized (pending) {
-            List<Callback> waiters = pending.get(uid);
+        synchronized (tierPending) {
+            List<TierCallback> waiters = tierPending.get(uid);
             if (waiters != null) {
                 // Someone already has a listener in flight for this uid —
                 // queue behind it instead of firing a second Firebase read.
                 waiters.add(callback);
                 return;
             }
-            List<Callback> fresh = new ArrayList<>();
+            List<TierCallback> fresh = new ArrayList<>();
             fresh.add(callback);
-            pending.put(uid, fresh);
+            tierPending.put(uid, fresh);
         }
-        FirebaseUtils.getIsVerifiedRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
-                boolean verified = Boolean.TRUE.equals(snapshot.getValue(Boolean.class));
-                deliver(uid, verified);
+                boolean verified = Boolean.TRUE.equals(snapshot.child("isVerified").getValue(Boolean.class))
+                    || Boolean.TRUE.equals(snapshot.child("verified").getValue(Boolean.class))
+                    || Boolean.TRUE.equals(snapshot.child("blueBadge").getValue(Boolean.class));
+                String tier = snapshot.child("badgeTier").getValue(String.class);
+                if (tier == null || tier.isEmpty()) tier = snapshot.child("talentPlan").getValue(String.class);
+                deliverTier(uid, verified, tier);
             }
             @Override public void onCancelled(@NonNull DatabaseError error) {
-                deliver(uid, false);
+                deliverTier(uid, false, "");
             }
         });
     }
 
     private void deliver(String uid, boolean verified) {
+        deliverTier(uid, verified, "");
+    }
+
+    private void deliverTier(String uid, boolean verified, String tier) {
         long now = System.currentTimeMillis();
-        cache.put(uid, new Entry(verified, now));
+        cache.put(uid, new Entry(verified, tier, now));
         if (prefs != null) {
             prefs.edit()
                     .putBoolean(uid, verified)
+                    .putString(uid + TIER_SUFFIX, tier == null ? "" : tier)
                     .putLong(uid + TS_SUFFIX, now)
                     .apply();
         }
-        List<Callback> waiters;
-        synchronized (pending) {
-            waiters = pending.remove(uid);
+        List<TierCallback> waiters;
+        synchronized (tierPending) {
+            waiters = tierPending.remove(uid);
         }
         if (waiters != null) {
-            for (Callback cb : waiters) cb.onResult(verified);
+            for (TierCallback cb : waiters) cb.onResult(verified, tier == null ? "" : tier);
         }
     }
 
@@ -222,8 +258,8 @@ public final class VerifiedStatusCache {
             if (uid == null || uid.isEmpty()) continue;
             Entry e = cache.get(uid);
             if (e != null && !e.isExpired()) continue;
-            synchronized (pending) {
-                if (pending.containsKey(uid)) continue;
+            synchronized (tierPending) {
+                if (tierPending.containsKey(uid)) continue;
             }
             resolve(uid, isVerified -> { /* just warming the cache */ });
         }

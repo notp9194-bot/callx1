@@ -54,6 +54,12 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     // showing "Mutual" — everything else (search, list, follow button) is
     // reused as-is.
     public static final String EXTRA_MUTUAL_TAB_LABEL = "mutual_tab_label";
+    // ✅ PERF/UX: set by callers that pass an already-RANKED uid list (e.g.
+    // Sound Detail's "Used by": people in the viewer's network first). Keeps
+    // that order (no alphabetical re-sort), loads the list in priority
+    // windows so the first rows paint immediately, and defers the other
+    // tabs' loads (creator's followers/following/suggested) until opened.
+    public static final String EXTRA_PRESERVE_ORDER = "preserve_order";
 
     public static final int TAB_FOLLOWERS = 0;
     public static final int TAB_FOLLOWING = 1;
@@ -76,6 +82,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     // ✅ NEW: defaults to "Mutual"; overridden when this screen is reused for
     // a different precomputed-UID-list use case (see EXTRA_MUTUAL_TAB_LABEL).
     private String mutualTabLabel = "Mutual";
+    // True when the mutual tab shows a pre-ranked uid list (see EXTRA_PRESERVE_ORDER).
+    private boolean orderedListMode = false;
+    // Lazy-load bookkeeping for the non-mutual tabs while orderedListMode is on.
+    private final boolean[] tabLoadStarted = new boolean[4];
 
     // ── Per-tab data ──────────────────────────────────────────────────────
     private static final int TAB_COUNT = 4;
@@ -108,6 +118,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         startTab   = getIntent().getIntExtra(EXTRA_START_TAB, TAB_FOLLOWERS);
         ArrayList<String> mu = getIntent().getStringArrayListExtra(EXTRA_MUTUAL_UIDS);
         if (mu != null) mutualUidsArg.addAll(mu);
+        orderedListMode = getIntent().getBooleanExtra(EXTRA_PRESERVE_ORDER, false)
+                && !mutualUidsArg.isEmpty();
         String labelOverride = getIntent().getStringExtra(EXTRA_MUTUAL_TAB_LABEL);
         if (labelOverride != null && !labelOverride.isEmpty()) mutualTabLabel = labelOverride;
 
@@ -180,6 +192,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         // Re-filter when tab changes
         viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int pos) {
+                if (orderedListMode) ensureTabLoaded(pos);
                 String q = etSearch != null ? etSearch.getText().toString().trim() : "";
                 filterTab(pos, q);
             }
@@ -187,10 +200,30 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
         // Load data
         loadMyFollowing();
-        loadFollowers();
-        loadFollowing();
         loadMutual();
-        loadSuggested();
+        if (orderedListMode) {
+            // PERF: this screen is anchored on the sound's creator only to
+            // satisfy the target-uid guard — eagerly loading THEIR whole
+            // followers / following / suggested lists (one users/{uid} read
+            // per entry) is pure waste for a popular creator. Load each of
+            // those tabs only if the user actually opens it.
+            ensureTabLoaded(startTab);
+        } else {
+            loadFollowers();
+            loadFollowing();
+            loadSuggested();
+        }
+    }
+
+    /** Starts a tab's loader at most once (used only in orderedListMode; mutual loads eagerly). */
+    private void ensureTabLoaded(int tab) {
+        if (tab < 0 || tab >= tabLoadStarted.length || tab == TAB_MUTUAL || tabLoadStarted[tab]) return;
+        tabLoadStarted[tab] = true;
+        switch (tab) {
+            case TAB_FOLLOWERS: loadFollowers(); break;
+            case TAB_FOLLOWING: loadFollowing(); break;
+            case TAB_SUGGESTED: loadSuggested(); break;
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -424,7 +457,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     private void loadMutual() {
         showProgress(TAB_MUTUAL, true);
         if (!mutualUidsArg.isEmpty()) {
-            fetchUsersForMutual(mutualUidsArg);
+            if (orderedListMode) fetchUsersOrdered(mutualUidsArg);
+            else                 fetchUsersForMutual(mutualUidsArg);
             return;
         }
         // Compute mutual: intersection of my followers & target's followers
@@ -449,6 +483,54 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) { showProgress(TAB_MUTUAL, false); }
             });
+    }
+
+    // ── Ordered, windowed loader (orderedListMode) ────────────────────────
+    // First window is small so the first rows paint after ONE round-trip;
+    // later windows are bigger and chained, which also bounds how many
+    // users/{uid} reads are in flight at once for a very popular sound.
+    private static final int ORDERED_FIRST_WINDOW = 24;
+    private static final int ORDERED_NEXT_WINDOW  = 60;
+
+    private void fetchUsersOrdered(List<String> uids) {
+        final int n = uids.size();
+        allItems[TAB_MUTUAL].clear();
+        counts[TAB_MUTUAL] = n;
+        updateTabLabel(TAB_MUTUAL);
+        if (n == 0) { showProgress(TAB_MUTUAL, false); showEmpty(TAB_MUTUAL, true); return; }
+        loadOrderedWindow(uids, new UserItem[n], 0);
+    }
+
+    private void loadOrderedWindow(List<String> uids, UserItem[] slots, int start) {
+        if (isFinishing() || isDestroyed()) return;
+        final int end = Math.min(start + (start == 0 ? ORDERED_FIRST_WINDOW : ORDERED_NEXT_WINDOW), uids.size());
+        final int[] remaining = {end - start};
+        for (int i = start; i < end; i++) {
+            final int idx = i;
+            final String uid = uids.get(i);
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot us) {
+                    slots[idx] = parseUser(uid, us);
+                    windowItemDone();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { windowItemDone(); }
+                private void windowItemDone() {
+                    if (--remaining[0] > 0) return;
+                    publishOrdered(slots, end);                       // paint everything resolved so far, in rank order
+                    if (end < uids.size()) loadOrderedWindow(uids, slots, end);
+                }
+            });
+        }
+    }
+
+    private void publishOrdered(UserItem[] slots, int upTo) {
+        if (isFinishing() || isDestroyed()) return;
+        List<UserItem> list = allItems[TAB_MUTUAL];
+        list.clear();
+        for (int i = 0; i < upTo; i++) if (slots[i] != null) list.add(slots[i]);
+        showProgress(TAB_MUTUAL, false);
+        String q = etSearch != null ? etSearch.getText().toString().trim() : "";
+        filterTab(TAB_MUTUAL, q);
     }
 
     private void fetchUsersForMutual(List<String> uids) {

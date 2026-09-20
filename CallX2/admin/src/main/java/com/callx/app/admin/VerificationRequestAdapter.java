@@ -54,7 +54,9 @@ public class VerificationRequestAdapter extends RecyclerView.Adapter<Verificatio
         holder.uid.setText(req.uid);
         String reason = req.reason == null || req.reason.isEmpty() ? "(no reason given)" : req.reason;
         if (req.planName != null && !req.planName.isEmpty()) {
-            reason = req.planName + " • INR " + (req.priceRupees == null ? "—" : req.priceRupees)
+            String tier = req.tierName == null || req.tierName.isEmpty() ? "" : req.tierName + " • ";
+            String period = req.period == null || req.period.isEmpty() ? "" : req.period + " • ";
+            reason = tier + period + req.planName + " • INR " + (req.priceRupees == null ? "—" : req.priceRupees)
                 + "\n" + reason;
         }
         holder.reason.setText(reason);

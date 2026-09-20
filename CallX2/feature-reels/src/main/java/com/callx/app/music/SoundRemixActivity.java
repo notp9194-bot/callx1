@@ -521,7 +521,6 @@ public class SoundRemixActivity extends AppCompatActivity {
                     snd.put("audioUrl",         audioUrl);
                     snd.put("coverUrl",         soundACover);
                     snd.put("creatorUid",       myUid);
-                    snd.put("reel_count",       0);
                     snd.put("total_saves",      0);
                     snd.put("is_remix",         true);
                     snd.put("remix_source_a",   soundAId != null ? soundAId : "");

@@ -4,6 +4,7 @@ import android.view.View;
 import android.widget.ImageView;
 
 import com.callx.app.cache.VerifiedStatusCache;
+import com.callx.app.ui.TierBadgeView;
 
 /**
  * Central place to show/hide the verified badge (@drawable/ic_verified_pink).
@@ -64,6 +65,23 @@ public class VerifiedBadgeUtils {
             }
         });
         badgeView.setTag(TAG_KEY, uid);
+    }
+
+    /** Binds the approved Star/Gold/Platinum pill next to a profile name. */
+    public static void bindTierForUid(TierBadgeView tierView, String uid) {
+        if (tierView == null) return;
+        tierView.setVisibility(View.GONE);
+        if (uid == null || uid.isEmpty()) return;
+        String cached = VerifiedStatusCache.getInstance().getCachedTier(uid);
+        if (cached != null) {
+            tierView.setTier(cached);
+            return;
+        }
+        tierView.setTag(TAG_KEY, uid);
+        VerifiedStatusCache.getInstance().resolveTier(uid, (verified, tier) -> {
+            if (uid.equals(tierView.getTag(TAG_KEY)) && verified) tierView.setTier(tier);
+            else if (uid.equals(tierView.getTag(TAG_KEY))) tierView.setVisibility(View.GONE);
+        });
     }
 
     /** For custom canvas-drawn rows (e.g. ChatRowContentView.setVerified) that can't use a plain ImageView. */
