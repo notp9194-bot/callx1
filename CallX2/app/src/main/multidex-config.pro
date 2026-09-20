@@ -77,6 +77,8 @@
 -keep class com.callx.app.db.AppDatabase { *; }
 -keep class com.callx.app.utils.SecurityManager { *; }
 -keep class com.callx.app.utils.ChatThemeManager { *; }
+-keep class com.callx.app.utils.ChatUiEventBatcher { *; }
+-keep class com.callx.app.utils.MediaCache { *; }
 
 # ── SQLCipher (encryption hot path — called on every DB open) ─────────
 -keep class net.sqlcipher.database.SQLiteDatabase { *; }

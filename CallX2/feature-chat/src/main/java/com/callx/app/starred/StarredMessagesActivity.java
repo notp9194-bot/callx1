@@ -106,12 +106,11 @@ public class StarredMessagesActivity extends AppCompatActivity
     private void loadFromRoom() {
         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
         AppBgExecutor.execute(() -> {
-            List<MessageEntity> all = db.messageDao().getStarredMessagesSync();
+            List<MessageEntity> all = db.messageDao().getStarredMessagesSync(chatId);
             if (all == null || all.isEmpty()) return;
 
             List<Message> roomStarred = new ArrayList<>();
             for (MessageEntity e : all) {
-                if (!chatId.equals(e.chatId)) continue;
                 if (!Boolean.TRUE.equals(e.starred))    continue;
                 Message m = new Message();
                 m.id         = e.id;

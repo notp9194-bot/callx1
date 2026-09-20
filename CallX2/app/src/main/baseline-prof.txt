@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-#  Baseline Profile — CallX2  (v4 — chat hot-path refresh, v431)
+#  Baseline Profile — CallX2  (v9 — measured chat hot-path refresh)
 #  ─────────────────────────────────────────────────────────────────────
 #  REGENERATE (measured, needs a device): ./gradlew :macrobenchmark:generateBaselineProfile
 #  This file is the hand-maintained/static profile; the plugin's measured
@@ -2547,3 +2547,43 @@ HSPLcom/callx/app/db/AppDatabase;->markDbWarmupComplete()V
 HSPLcom/callx/app/db/AppDatabase;->getInstance(Landroid/content/Context;)Lcom/callx/app/db/AppDatabase;
 HSPLcom/callx/app/db/AppDatabase;->wipeForAccountSwitch(Landroid/content/Context;)V
 HSPLcom/callx/app/db/AppDatabase;-><clinit>()V
+
+# ══════════════════════════════════════════════════════════════════════
+# v8 — measured-profile refresh targets for chat hot paths
+# ══════════════════════════════════════════════════════════════════════
+# These exact rules cover methods added/changed after the previous device
+# profile. The macrobenchmark module should still regenerate the measured
+# profile on the target low/mid-range device; these rules prevent the new
+# paths from remaining cold while that device trace is being collected.
+
+# ── Message-keyed frame coalescer ─────────────────────────────────────
+HPLcom/callx/app/utils/ChatUiEventBatcher;-><init>()V
+HPLcom/callx/app/utils/ChatUiEventBatcher;->post(Ljava/lang/Runnable;)V
+HPLcom/callx/app/utils/ChatUiEventBatcher;->postForMessage(Ljava/lang/String;Ljava/lang/Runnable;)V
+HPLcom/callx/app/utils/ChatUiEventBatcher;->enqueue(Lcom/callx/app/utils/ChatUiEventBatcher$PendingTask;)V
+HPLcom/callx/app/utils/ChatUiEventBatcher;->scheduleNextFrame()V
+HPLcom/callx/app/utils/ChatUiEventBatcher;->drain()V
+HPLcom/callx/app/utils/ChatUiEventBatcher;->cancel()V
+HPLcom/callx/app/utils/ChatUiEventBatcher$PendingTask;-><init>(Ljava/lang/String;Ljava/lang/Runnable;)V
+
+# ── Realtime row patch path ──────────────────────────────────────────
+HPLcom/callx/app/conversation/MessagePagingAdapter;->applyRealtimeUpdate(Lcom/callx/app/models/Message;)Z
+HPLcom/callx/app/db/dao/MessageDao;->getMessagesByIds(Ljava/util/List;)Ljava/util/List;
+HPLcom/callx/app/db/dao/MessageDao;->mergeIncomingMessages(Ljava/util/List;)V
+HPLcom/callx/app/db/dao/MessageDao;->applyBufferedChanges(Ljava/util/List;Ljava/util/List;Ljava/util/List;)V
+HPLcom/callx/app/repository/ChatRepository;->syncMessagesDelta(Ljava/lang/String;)V
+HPLcom/callx/app/repository/ChatRepository;->fetchInitialMessagesFromFirebase(Ljava/lang/String;I)Lio/reactivex/rxjava3/core/Single;
+HPLcom/callx/app/repository/ChatRepository;->fetchOlderMessagesFromFirebase(Ljava/lang/String;Lcom/callx/app/db/paging/MessageCursor;I)Lio/reactivex/rxjava3/core/Single;
+
+# ── Media single-flight/cache miss path ──────────────────────────────
+HPLcom/callx/app/utils/MediaCache;->downloadIdentity(Ljava/lang/String;[B[B)Ljava/lang/String;
+HPLcom/callx/app/utils/MediaCache;->dispatchDownloadProgress(Ljava/lang/String;I)V
+HPLcom/callx/app/utils/MediaCache;->dispatchDownloadPartial(Ljava/lang/String;Landroid/graphics/Bitmap;)V
+HPLcom/callx/app/utils/MediaCache;->hasProgressWaiter(Ljava/lang/String;)Z
+HPLcom/callx/app/utils/MediaCache;->enqueueDownload(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;[B[BLcom/callx/app/utils/MediaCache$DownloadWaiter;)V
+HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->wantsProgress()Z
+HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->onProgress(I)V
+HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->onPartial(Landroid/graphics/Bitmap;)V
+HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->onReady(Ljava/io/File;)V
+HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->onError(Ljava/lang/String;)V
+HPLcom/callx/app/utils/MediaCache$ProgressTick;->wantsPartial()Z

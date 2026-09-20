@@ -101,8 +101,9 @@ public class AllMediaLinksDocsActivity extends AppCompatActivity {
     // ─── Load from Room DB ───────────────────────────────────────
     private void loadData() {
         Executors.newSingleThreadExecutor().execute(() -> {
-            // Fetch all messages for this chatId from Room
-            List<MessageEntity> all = db.messageDao().getMessagesPaged(chatId, 5000, 0);
+            // Let SQLite discard unrelated text/deleted rows before the
+            // relatively expensive URL regex and Java list partitioning.
+            List<MessageEntity> all = db.messageDao().getMediaLinksDocs(chatId);
 
             mediaList.clear();
             linksList.clear();

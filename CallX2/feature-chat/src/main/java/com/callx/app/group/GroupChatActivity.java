@@ -88,8 +88,9 @@ import com.callx.app.payments.ui.ChatPaymentBottomSheet;
  *     a) OOM crash on low-RAM devices
  *     b) Firebase reads charging for all historical data on every open
  *     c) UI freeze while binding all items at once
- *   Fix: Same architecture as ChatActivity — Room native PagingSource
- *   + Firebase ChildEventListener inserts into Room → auto-invalidates pager.
+ *   Fix: Same architecture as ChatActivity — Room-backed compound-keyset
+ *   PagingSource + Firebase ChildEventListener inserts into Room →
+ *   auto-invalidates the pager without an OFFSET walk.
  *
  * All original features preserved:
  *   - Feature 2:  Reply to message
@@ -152,6 +153,9 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Firebase refs ──────────────────────────────────────────────────────
     private DatabaseReference  groupMessagesRef;
+    // PERF ADV (#1): keep active Firebase disk sync bounded to the latest
+    // message window instead of maintaining the entire group history.
+    private Query              messagesSyncQuery;
     private Query              messageQuery;
     private ChildEventListener messageListener;
     // GAP FIX (stale edit/delete on old messages): messageQuery is
@@ -178,9 +182,12 @@ public class GroupChatActivity extends AppCompatActivity
     private static final long WRITE_FLUSH_DEBOUNCE_MS = 80;
     private final Map<String, Message> pendingUpserts = new LinkedHashMap<>();
     private final LinkedHashSet<String> pendingRemovals = new LinkedHashSet<>();
+    private boolean pendingStructuralPagingRefresh = false;
     private final android.os.Handler writeFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean writeFlushScheduled = false;
     private final Runnable writeFlushRunnable = this::flushPendingRoomWrites;
+    private final com.callx.app.utils.ChatUiEventBatcher chatUiEventBatcher =
+            new com.callx.app.utils.ChatUiEventBatcher();
 
     // ── PERF FIX: don't fight stackFromEnd on the very first render ────────
     // See the matching field/comment in ChatActivity for the full reasoning.
@@ -442,12 +449,11 @@ public class GroupChatActivity extends AppCompatActivity
         currentUid  = FirebaseUtils.getCurrentUid();
         currentName = FirebaseUtils.getCurrentName();
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
-        // PERF FIX: same fix as ChatActivity's 1:1 messagesRef — keeps this
-        // group's path actively synced to disk while the chat is open, so
-        // reopen resolves from disk with no network round-trip on top of
-        // CallxApp's setPersistenceEnabled(true). Turned off in onDestroy()
-        // below so we don't keep every group ever opened permanently synced.
-        try { groupMessagesRef.keepSynced(true); } catch (Exception ignored) {}
+        // PERF ADV (#1): sync only the latest small window. Keeping the bare
+        // group reference synced maintains the complete group history in the
+        // background, including old media-heavy message metadata.
+        messagesSyncQuery = groupMessagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
+        try { messagesSyncQuery.keepSynced(true); } catch (Exception ignored) {}
         // Restore the last known group window synchronously after process
         // death. Room/Firebase still reconcile it silently in the background.
         LastMessagesDiskCache.loadIntoMemory(this, currentUid, groupId);
@@ -789,10 +795,11 @@ public class GroupChatActivity extends AppCompatActivity
 
     @Override
     protected void onDestroy() {
+        chatUiEventBatcher.cancel();
         flushGroupDraftSave();
-        // Pair with the keepSynced(true) set on groupMessagesRef above.
-        if (groupMessagesRef != null) {
-            try { groupMessagesRef.keepSynced(false); } catch (Exception ignored) {}
+        // Pair with the bounded keepSynced(true) Query set on group open.
+        if (messagesSyncQuery != null) {
+            try { messagesSyncQuery.keepSynced(false); } catch (Exception ignored) {}
         }
         // FIX (avatar pipeline parity): stop the toolbar group-icon request
         // from GroupAvatarBinder.bind() if it's still in flight.
@@ -821,6 +828,10 @@ public class GroupChatActivity extends AppCompatActivity
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
         writeFlushHandler.removeCallbacks(writeFlushRunnable);
+        if (pendingPagingRefreshRunnable != null && binding != null) {
+            binding.rvMessages.removeCallbacks(pendingPagingRefreshRunnable);
+            pendingPagingRefreshRunnable = null;
+        }
         flushPendingRoomWrites();
         if (typingRef  != null && typingListener  != null)
             typingRef.removeEventListener(typingListener);
@@ -1321,6 +1332,9 @@ public class GroupChatActivity extends AppCompatActivity
                 int total   = pagingAdapter.getItemCount();
                 boolean atBottom = (lastVis >= total - 3);
                 isUserAtBottom = atBottom;
+                if (currentKeysetSource != null) {
+                    currentKeysetSource.setRefreshAtLatest(atBottom);
+                }
                 if (atBottom) {
                     pendingNewMsgCount = 0;
                     hideNewMessagesIndicator();
@@ -1511,8 +1525,12 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
                     @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
                     @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
-                    @Override public boolean severPagingIfAtBottom() { return false; }
-                    @Override public void reanchorPagingToBottom() { /* group: no-op */ }
+                    @Override public boolean severPagingIfAtBottom() {
+                        return GroupChatActivity.this.severPagingIfAtBottom();
+                    }
+                    @Override public void reanchorPagingToBottom() {
+                        GroupChatActivity.this.reanchorPagingToBottom();
+                    }
                     @Override public void queueMarkRead(String messageId) { /* group: handled by GroupChatActivity */ }
                     // ── Remaining ChatActivityDelegate stubs (unused by MessageEditHistoryController) ──
                     @Override public String getPartnerName() { return ""; }
@@ -1591,16 +1609,19 @@ public class GroupChatActivity extends AppCompatActivity
 
     private MediatorLiveData<PagingData<Message>> pagingMediator;
     private LiveData<PagingData<Message>> currentPagingLiveSource;
+    // Compound (timestamp,id) keyset source currently owned by the live Pager.
+    // Room invalidates it after a transaction; keeping the reference also
+    // lets an explicit message jump carry its viewport anchor forward.
+    private volatile com.callx.app.db.paging.MessageKeysetPagingSource currentKeysetSource;
+    private Runnable pendingPagingRefreshRunnable;
+    private static final long PAGING_REFRESH_DEBOUNCE_MS = 180L;
 
     private void observePagedMessages() {
-        // ROOT-CAUSE FIX (same bug/fix as ChatActivity — see its
-        // observePagedMessages() comment for full explanation): without an
-        // initialKey, Paging 3 always loads its first page from offset 0 of
-        // the ASC-ordered query (oldest group messages), not the latest.
-        // Look up the row count and pass (count - 1) as initialKey so the
-        // first page is anchored at the END of the table (true latest
-        // message) — and use a swappable MediatorLiveData so later writes
-        // (send/receive) can re-anchor on demand, see flushPendingRoomWrites().
+        // The old group path counted rows and passed (count - 1) into Room's
+        // Integer/OFFSET PagingSource. On a large group that made SQLite walk
+        // past the whole history just to open at the latest messages.
+        // MessageKeysetPagingSource's null refresh key already means "latest
+        // page", so no count query or pager re-attachment is needed.
         pagingMediator = new MediatorLiveData<>();
         pagingMediator.observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
         attachFreshBottomAnchoredPager();
@@ -1621,27 +1642,30 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void attachFreshBottomAnchoredPager() {
-        ioExecutor.execute(() -> {
-            int count = db.messageDao().getMessageCount(groupId);
-            Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-            runOnUiThread(() -> attachPagerWithKey(initialKey));
-        });
+        attachPagerWithKey(null);
     }
 
-    /**
-     * Replaces whatever Pager currently feeds the adapter with a brand new
-     * one anchored at initialKey. Removing the old LiveData source first
-     * means its own Room-invalidation-triggered auto-refresh (whose
-     * refresh-key centering was causing the jump-to-top bug on every
-     * send/receive) can never push another update into the adapter.
-     */
-    private void attachPagerWithKey(Integer initialKey) {
+    /** Creates a keyset Pager, optionally centered on an exact message cursor. */
+    private void attachPagerWithKey(@Nullable MessageCursor initialKey) {
         if (isFinishing() || isDestroyed() || binding == null || pagingMediator == null) return;
         if (currentPagingLiveSource != null) pagingMediator.removeSource(currentPagingLiveSource);
-        Pager<Integer, MessageEntity> pager = new Pager<>(
+        Pager<MessageCursor, MessageEntity> pager = new Pager<>(
                 new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
                 initialKey,
-                () -> db.messageDao().getMessagesPagingSource(groupId)
+                () -> {
+                    com.callx.app.db.paging.MessageKeysetPagingSource source =
+                            new com.callx.app.db.paging.MessageKeysetPagingSource(
+                                    db.messageDao(), groupId, PAGE_SIZE);
+                    com.callx.app.db.paging.MessageKeysetPagingSource previous =
+                            currentKeysetSource;
+                    if (previous != null) {
+                        source.seedLastKnownAnchor(previous.getLastKnownAnchor());
+                        source.seedLastKnownBeforeCount(previous.getLastKnownBeforeCount());
+                    }
+                    source.setRefreshAtLatest(isUserAtBottom);
+                    currentKeysetSource = source;
+                    return source;
+                }
         );
         currentPagingLiveSource = androidx.lifecycle.Transformations.map(
                 PagingLiveData.getLiveData(pager),
@@ -1649,6 +1673,38 @@ public class GroupChatActivity extends AppCompatActivity
                         pagingData, ioExecutor, GroupChatActivity::entityToModel)
         );
         pagingMediator.addSource(currentPagingLiveSource, pagingMediator::setValue);
+    }
+
+    private boolean severPagingIfAtBottom() {
+        return currentKeysetSource != null;
+    }
+
+    /**
+     * Refresh only after a structural Room write (new/deleted row). Status,
+     * reaction, edit and receipt callbacks patch the loaded row directly in
+     * MessagePagingAdapter and never invalidate the whole keyset window.
+     */
+    private void reanchorPagingToBottom() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(this::reanchorPagingToBottom);
+            return;
+        }
+        if (binding == null || isFinishing() || isDestroyed()) return;
+        if (pendingPagingRefreshRunnable == null) {
+            pendingPagingRefreshRunnable = () -> {
+                pendingPagingRefreshRunnable = null;
+                if (isFinishing() || isDestroyed()) return;
+                com.callx.app.db.paging.MessageKeysetPagingSource source =
+                        currentKeysetSource;
+                if (source != null) {
+                    source.setRefreshAtLatest(isUserAtBottom);
+                    source.invalidate();
+                }
+            };
+        }
+        binding.rvMessages.removeCallbacks(pendingPagingRefreshRunnable);
+        binding.rvMessages.postDelayed(
+                pendingPagingRefreshRunnable, PAGING_REFRESH_DEBOUNCE_MS);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1699,8 +1755,13 @@ public class GroupChatActivity extends AppCompatActivity
                 com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
                     decryptIncomingGroupTextIfNeeded(m);
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> {
-                        saveToRoom(m);
+                    // New rows must keep their structural-refresh semantics;
+                    // only subsequent updates for the same ID are keyed.
+                    chatUiEventBatcher.post(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        boolean visible = pagingAdapter != null
+                                && pagingAdapter.applyRealtimeUpdate(m);
+                        queueRoomWrite(m, !visible);
                         markRead(m);
                     });
                 });
@@ -1713,7 +1774,11 @@ public class GroupChatActivity extends AppCompatActivity
                 com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
                     decryptIncomingGroupTextIfNeeded(m);
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> saveToRoom(m));
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        pagingAdapterApplyRealtime(m);
+                        queueRoomWrite(m, false);
+                    });
                 });
             }
             @Override public void onChildRemoved(DataSnapshot s) {
@@ -1723,6 +1788,7 @@ public class GroupChatActivity extends AppCompatActivity
                 // of the burst into one Room transaction.
                 pendingUpserts.remove(key);
                 pendingRemovals.add(key);
+                pendingStructuralPagingRefresh = true;
                 scheduleWriteFlush();
             }
             @Override public void onChildMoved(DataSnapshot s, String p) {}
@@ -1759,7 +1825,11 @@ public class GroupChatActivity extends AppCompatActivity
                 com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
                     decryptIncomingGroupTextIfNeeded(m);
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> saveToRoom(m));
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        pagingAdapterApplyRealtime(m);
+                        queueRoomWrite(m, false);
+                    });
                 });
             }
             @Override public void onChildRemoved(DataSnapshot s) {
@@ -1767,6 +1837,7 @@ public class GroupChatActivity extends AppCompatActivity
                 if (key == null) return;
                 pendingUpserts.remove(key);
                 pendingRemovals.add(key);
+                pendingStructuralPagingRefresh = true;
                 scheduleWriteFlush();
             }
             @Override public void onChildMoved(DataSnapshot s, String p) {}
@@ -1811,10 +1882,19 @@ public class GroupChatActivity extends AppCompatActivity
      * at a time with a visible jump.
      */
     private void saveToRoom(Message m) {
+        queueRoomWrite(m, true);
+    }
+
+    private void queueRoomWrite(Message m, boolean structuralRefresh) {
         if (m == null || m.id == null) return;
         pendingUpserts.put(m.id, m);
         pendingRemovals.remove(m.id); // a fresh upsert always wins over a stale pending removal
+        pendingStructuralPagingRefresh |= structuralRefresh;
         scheduleWriteFlush();
+    }
+
+    private void pagingAdapterApplyRealtime(Message m) {
+        if (pagingAdapter != null) pagingAdapter.applyRealtimeUpdate(m);
     }
 
     /**
@@ -1830,9 +1910,9 @@ public class GroupChatActivity extends AppCompatActivity
     private void redecryptStuckGroupMessagesFrom(String fromUid) {
         if (db == null || fromUid == null || groupId == null) return;
         ioExecutor.execute(() -> {
-            java.util.List<MessageEntity> stuck;
+            java.util.List<String> stuck;
             try {
-                stuck = db.messageDao().getStuckMessagesFrom(
+                stuck = db.messageDao().getStuckMessageIdsFrom(
                         groupId, fromUid, com.callx.app.utils.GroupE2EManager.WAITING_FOR_KEY_MARKER);
             } catch (Exception e) {
                 android.util.Log.w(TAG, "redecryptStuckGroupMessagesFrom: query failed", e);
@@ -1840,8 +1920,8 @@ public class GroupChatActivity extends AppCompatActivity
             }
             if (stuck.isEmpty()) return;
 
-            for (MessageEntity stale : stuck) {
-                final String messageId = stale.id;
+            for (String staleId : stuck) {
+                final String messageId = staleId;
                 if (messageId == null) continue;
                 FirebaseUtils.getGroupMessagesRef(groupId).child(messageId)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1902,15 +1982,8 @@ public class GroupChatActivity extends AppCompatActivity
         LastMessagesDiskCache.saveAsync(
                 this, currentUid, groupId, LastMessagesCache.getInstance().get(groupId));
 
-        // BUG FIX (v2): sever the OLD Pager's source BEFORE the write — see
-        // ChatActivity.flushPendingRoomWrites() for full reasoning. Removing
-        // it after the write loses the race against Room's invalidation
-        // tracker, which is why the top-jump persisted with the earlier fix.
-        boolean willReanchor = isUserAtBottom;
-        if (willReanchor && currentPagingLiveSource != null && pagingMediator != null) {
-            pagingMediator.removeSource(currentPagingLiveSource);
-            currentPagingLiveSource = null;
-        }
+        boolean willRefresh = pendingStructuralPagingRefresh && severPagingIfAtBottom();
+        pendingStructuralPagingRefresh = false;
 
         ioExecutor.execute(() -> {
             List<MessageEntity> entities = new ArrayList<>(upsertsSnapshot.size());
@@ -1922,12 +1995,7 @@ public class GroupChatActivity extends AppCompatActivity
                             .advanceSyncCursor(groupId, m.timestamp, m.id, m.seq);
                 }
             }
-
-            if (willReanchor) {
-                int count = db.messageDao().getMessageCount(groupId);
-                Integer initialKey = (count > 0) ? Integer.valueOf(count - 1) : null;
-                runOnUiThread(() -> attachPagerWithKey(initialKey));
-            }
+            if (willRefresh) reanchorPagingToBottom();
         });
     }
 
@@ -3795,22 +3863,10 @@ public class GroupChatActivity extends AppCompatActivity
                     200L * (attempt + 1));
             return;
         }
-        // BUG FIX (same root cause as ChatActivity's 1:1 equivalent — see its
-        // jumpToMessageViaAnchor() doc for the full story): the old fallback
-        // approximated the target's adapter position from
-        // (pagingAdapter.getItemCount() - posFromBottom - 1), comparing an
-        // accurate DB count against however many rows Paging3 had actually
-        // loaded so far — wrong for an old reply in a big group, since the
-        // live adapter window is nowhere near the true total.
-        //
-        // Fix: this Pager IS Room's generated Integer/OFFSET PagingSource
-        // (unlike the 1:1 chat's timestamp-keyset one), so an exact row
-        // index is a perfectly valid initialKey — getRankAsc() gives that
-        // index directly off the same (chatId,timestamp) index, no OFFSET
-        // scan. Rebuild the Pager anchored there so the target is
-        // guaranteed to land inside the very first page, then locate its
-        // exact position by id once that page is actually applied
-        // (addOnPagesUpdatedListener) and scroll+flash it.
+        // Keyset jump: use the target's compound cursor directly. This
+        // avoids both the old rank lookup and the OFFSET scan that followed
+        // it, while MessageKeysetPagingSource centers the first page around
+        // the exact message (including same-timestamp siblings).
         final String gId = groupId;
         ioExecutor.execute(() -> {
             if (db == null || gId == null) {
@@ -3819,19 +3875,19 @@ public class GroupChatActivity extends AppCompatActivity
                 return;
             }
             MessageEntity target = db.messageDao().getMessageById(messageId);
-            if (target == null || target.timestamp == null) {
+            if (target == null || target.timestamp == null || target.id == null) {
                 runOnUiThread(() -> android.widget.Toast.makeText(GroupChatActivity.this,
                         "Original message not found", android.widget.Toast.LENGTH_SHORT).show());
                 return;
             }
-            int rank = db.messageDao().getRankAsc(gId, target.timestamp); // 1-based
-            final int exactIndex = Math.max(0, rank - 1);
+            final MessageCursor targetCursor = new MessageCursor(
+                    target.timestamp, target.id);
             runOnUiThread(() -> {
                 if (binding.fabBackToLatest != null) {
                     binding.fabBackToLatest.setVisibility(View.VISIBLE);
                     binding.fabBackToLatest.setAlpha(1f);
                 }
-                attachPagerWithKey(exactIndex);
+                attachPagerWithKey(targetCursor);
                 final kotlin.jvm.functions.Function0<kotlin.Unit>[] listenerHolder =
                         new kotlin.jvm.functions.Function0[1];
                 listenerHolder[0] = () -> {

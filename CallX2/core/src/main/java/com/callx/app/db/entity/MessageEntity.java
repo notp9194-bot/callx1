@@ -15,6 +15,10 @@ import androidx.annotation.NonNull;
     tableName = "messages",
     indices = {
         @Index(value = {"chatId", "timestamp"}),
+        // Keyset chat paging orders by the complete (timestamp, id) cursor.
+        // Including the primary-key tie breaker keeps SQLite from sorting
+        // same-millisecond rows outside the index.
+        @Index(value = {"chatId", "timestamp", "id"}),
         @Index(value = {"chatId", "starred"}),
         @Index(value = {"syncedAt"}),
         // PERF FIX: Speeds up getPendingMessages() and getAllPendingMessages()
@@ -23,6 +27,11 @@ import androidx.annotation.NonNull;
         @Index(value = {"chatId", "status"}),
         @Index(value = {"status"}),
         @Index(value = {"chatId", "topicId", "timestamp"}),
+        // Covers pending outgoing tick lookups and unread-receipt scans:
+        // both filter by chat/sender/status and then order by timestamp.
+        @Index(value = {"chatId", "senderId", "status", "timestamp"}),
+        // Media/links/docs gallery filters by message type inside one chat.
+        @Index(value = {"chatId", "type", "timestamp"}),
         // BUG FIX: MIGRATION_54_55 creates index_messages_chatId_seq in the
         // actual DB (for seq-anchored delta-sync cursor lookups) but this
         // @Index was never declared here, so Room's expected-schema check

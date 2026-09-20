@@ -263,6 +263,11 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE starred = 1 ORDER BY timestamp ASC")
     List<MessageEntity> getStarredMessagesSync();
 
+    /** Chat-scoped variant used by StarredMessagesActivity. */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND starred = 1 ORDER BY timestamp ASC")
+    List<MessageEntity> getStarredMessagesSync(String chatId);
+
     // ─────────────────────────────────────────────────────────────
     // WRITE OPERATIONS
     // ─────────────────────────────────────────────────────────────
@@ -281,6 +286,15 @@ public interface MessageDao {
     @WorkerThread
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
     MessageEntity getMessageById(String messageId);
+
+    /**
+     * Bulk counterpart used by the realtime/delta merge path. Keeping this
+     * lookup set-based avoids one Room query per incoming message when
+     * Firebase replays a burst.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE id IN (:messageIds)")
+    List<MessageEntity> getMessagesByIds(List<String> messageIds);
 
     /**
      * POLISH: Reply scroll — count messages newer than a given timestamp in this chat.
@@ -323,8 +337,8 @@ public interface MessageDao {
      * left/right through every photo/video in the chat): lean projection
      * — only the columns {@link com.callx.app.db.ChatMediaRow} actually
      * needs, not the full MessageEntity/decrypt/mapper pipeline — ordered
-     * chronologically. Rides the existing (chatId, timestamp) index (same
-     * one getMessagesPagingSource() uses), so this stays a fast indexed
+     * chronologically. Rides the chat/type/timestamp index, so this stays a
+     * fast indexed
      * range scan even on a chat with thousands of messages; no new index
      * needed. Called from a background thread right when the viewer is
      * about to open — see ChatMediaGalleryBuilder — never on the chat
@@ -338,6 +352,19 @@ public interface MessageDao {
            "AND (type = 'image' OR type = 'video' OR type = 'multi_media') " +
            "ORDER BY timestamp ASC")
     List<com.callx.app.db.ChatMediaRow> getChatMediaRows(String chatId);
+
+    /**
+     * Media/links/docs screen: restrict the full-row fetch in SQLite before
+     * the UI's URL regex runs. The previous caller loaded every message in the
+     * chat (including text-only rows with no URL) and filtered in Java.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId " +
+           "AND (deleted IS NULL OR deleted != 1) AND " +
+           "(type IN ('image', 'video', 'file', 'audio') " +
+           "OR (type = 'text' AND text LIKE '%http%')) " +
+           "ORDER BY timestamp ASC")
+    List<MessageEntity> getMediaLinksDocs(String chatId);
 
     /**
      * Cheap freshness probe for the gallery LruCache (see
@@ -395,9 +422,25 @@ public interface MessageDao {
     default void mergeIncomingMessages(List<MessageEntity> messages) {
         if (messages == null) return;
         java.util.ArrayList<MessageEntity> resolved = new java.util.ArrayList<>(messages.size());
+        java.util.HashSet<String> incomingIds = new java.util.HashSet<>(messages.size());
+        for (MessageEntity incoming : messages) {
+            if (incoming != null && incoming.id != null) {
+                incomingIds.add(incoming.id);
+            }
+        }
+        java.util.HashMap<String, MessageEntity> localById =
+                new java.util.HashMap<>(Math.max(4, incomingIds.size() * 2));
+        if (!incomingIds.isEmpty()) {
+            for (MessageEntity local : getMessagesByIds(
+                    new java.util.ArrayList<>(incomingIds))) {
+                if (local != null && local.id != null) {
+                    localById.put(local.id, local);
+                }
+            }
+        }
         for (MessageEntity incoming : messages) {
             if (incoming == null || incoming.id == null) continue;
-            MessageEntity local = getMessageById(incoming.id);
+            MessageEntity local = localById.get(incoming.id);
             if (local != null) {
                 // Local delete-for-me is a durable tombstone. A later cached
                 // snapshot must never make that message visible again.
@@ -543,8 +586,8 @@ public interface MessageDao {
      * instead of the marker staying stuck on them forever.
      */
     @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :senderId AND text = :marker ORDER BY timestamp ASC")
-    List<MessageEntity> getStuckMessagesFrom(String chatId, String senderId, String marker);
+    @Query("SELECT id FROM messages WHERE chatId = :chatId AND senderId = :senderId AND text = :marker ORDER BY timestamp ASC")
+    List<String> getStuckMessageIdsFrom(String chatId, String senderId, String marker);
 
     /**
      * Same as {@link #updateText} but does NOT touch edited/editedAt — used

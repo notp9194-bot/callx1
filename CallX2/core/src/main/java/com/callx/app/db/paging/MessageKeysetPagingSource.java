@@ -324,11 +324,13 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // what every anchor-REFRESH actually fetches, so a repro'd
                 // log can show definitively whether this layer is still
                 // discarding/reshaping the window on a plain at-bottom send.
-                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
-                        "loadSingle REFRESH(anchored): refreshAtLatest=" + refreshAtLatest
-                        + " lastKnownBeforeCount=" + lastKnownBeforeCount
-                        + " beforeLimit=" + beforeLimit + " afterLimit(requested)=" + afterLimit
-                        + " anchor.ts=" + anchor.timestamp + " anchor.id=" + anchor.id);
+                if (com.callx.app.core.BuildConfig.DEBUG) {
+                    com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                            "loadSingle REFRESH(anchored): refreshAtLatest=" + refreshAtLatest
+                             + " lastKnownBeforeCount=" + lastKnownBeforeCount
+                             + " beforeLimit=" + beforeLimit + " afterLimit(requested)=" + afterLimit
+                             + " anchor.ts=" + anchor.timestamp + " anchor.id=" + anchor.id);
+                }
                 // Inclusive of the anchor itself, so the target message
                 // (whose (timestamp, id) == anchor) is guaranteed to be part
                 // of this page even if other messages share its timestamp.
@@ -340,10 +342,12 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 if (before.size() < beforeLimit) prevKey = null; // reached true start of history
                 nextKey = page.isEmpty() ? null : cursorOf(page.get(page.size() - 1));
                 if (fromAnchor.size() < afterLimit) nextKey = null; // reached true end of history
-                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
-                        "loadSingle REFRESH(anchored) RESULT: before.size=" + before.size()
-                        + " fromAnchor.size=" + fromAnchor.size() + " totalPage=" + page.size()
-                        + " prevKey=" + (prevKey != null) + " nextKey=" + (nextKey != null));
+                if (com.callx.app.core.BuildConfig.DEBUG) {
+                    com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                            "loadSingle REFRESH(anchored) RESULT: before.size=" + before.size()
+                             + " fromAnchor.size=" + fromAnchor.size() + " totalPage=" + page.size()
+                             + " prevKey=" + (prevKey != null) + " nextKey=" + (nextKey != null));
+                }
                 // Keep this generation's own bookkeeping in sync with what
                 // was ACTUALLY just loaded, so a second send/receive shortly
                 // after (before the user does anything else) anchors on the
@@ -414,20 +418,24 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
         if (forcedAnchor != null) {
             explicitRefreshAnchor = null;
             lastKnownAnchor = forcedAnchor;
-            com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
-                    "getRefreshKey: using explicit history viewport anchor="
-                            + forcedAnchor.timestamp + "/" + forcedAnchor.id);
+            if (com.callx.app.core.BuildConfig.DEBUG) {
+                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                        "getRefreshKey: using explicit history viewport anchor="
+                                + forcedAnchor.timestamp + "/" + forcedAnchor.id);
+            }
             return forcedAnchor;
         }
 
         Integer anchorPosition = state.getAnchorPosition();
         MessageEntity anchor = (anchorPosition != null) ? state.closestItemToPosition(anchorPosition) : null;
-        com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
-                "getRefreshKey: anchorPosition=" + anchorPosition
-                + " anchorFound=" + (anchor != null)
-                + " lastKnownAnchor=" + (lastKnownAnchor != null)
-                + " lastKnownBeforeCount(before-update)=" + lastKnownBeforeCount
-                + " refreshAtLatest=" + refreshAtLatest);
+        if (com.callx.app.core.BuildConfig.DEBUG) {
+            com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                    "getRefreshKey: anchorPosition=" + anchorPosition
+                     + " anchorFound=" + (anchor != null)
+                     + " lastKnownAnchor=" + (lastKnownAnchor != null)
+                     + " lastKnownBeforeCount(before-update)=" + lastKnownBeforeCount
+                     + " refreshAtLatest=" + refreshAtLatest);
+        }
         // ROOT-CAUSE FIX #3 (still-flickering after fixes #1/#2 — confirmed
         // by on-device log): state.getAnchorPosition()/closestItemToPosition
         // reflect wherever Paging3's OWN internal scroll tracker last landed

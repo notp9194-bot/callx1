@@ -333,6 +333,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // app session ran. Fix: keep the actual Query instances these listeners
     // were attached to, and remove from THOSE in onDestroy.
     private Query               messageQuery;
+    // PERF ADV (#1): keep active Firebase disk sync bounded to the latest
+    // message window instead of maintaining the entire conversation path.
+    private Query               messagesSyncQuery;
     // GAP FIX (stale edit/delete): messageQuery above is cursor-bound —
     // orderByChild("timestamp").startAt(cursor.timestamp) — by construction
     // it can NEVER report onChildChanged/onChildRemoved for a message whose
@@ -388,9 +391,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private final java.util.Map<String, Message> pendingUpserts = new java.util.LinkedHashMap<>();
     private final java.util.LinkedHashSet<String> pendingRemovals = new java.util.LinkedHashSet<>();
     private final java.util.LinkedHashSet<String> pendingReadIds = new java.util.LinkedHashSet<>();
+    private boolean pendingStructuralPagingRefresh = false;
     private final android.os.Handler writeFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean writeFlushScheduled = false;
     private final Runnable writeFlushRunnable = this::flushPendingRoomWrites;
+    private final com.callx.app.utils.ChatUiEventBatcher chatUiEventBatcher =
+            new com.callx.app.utils.ChatUiEventBatcher();
 
     // ── PERF FIX: don't fight stackFromEnd on the very first render ────────
     // The LinearLayoutManager's stackFromEnd(true) already anchors the
@@ -1610,6 +1616,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     protected void onDestroy() {
+        chatUiEventBatcher.cancel();
         super.onDestroy();
         flushDraftSave();
         // PERF ADV: this chat's Canvas ViewHolders may still be parked in
@@ -1618,13 +1625,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Trim them out now instead of leaving this Activity reachable
         // until some future chat happens to reuse those exact pool slots.
         com.callx.app.conversation.MessagePagingAdapter.trimSharedCanvasPool();
-        // Pair with the keepSynced(true) set when messagesRef was created
-        // above — stop actively syncing this chat's path once it's closed,
-        // so we don't accumulate a permanently-synced path per chat ever
-        // opened. setPersistenceEnabled(true)'s normal on-disk cache still
-        // applies regardless, this only turns off the ACTIVE background sync.
-        if (messagesRef != null) {
-            try { messagesRef.keepSynced(false); } catch (Exception ignored) {}
+        // Pair with the bounded keepSynced(true) Query set when the Firebase
+        // reference was created above. Persistence remains enabled for rows
+        // touched by listeners; only active background syncing is stopped.
+        if (messagesSyncQuery != null) {
+            try { messagesSyncQuery.keepSynced(false); } catch (Exception ignored) {}
         }
         shimmerHandler.removeCallbacks(shimmerShowRunnable);
 
@@ -2191,24 +2196,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         com.google.firebase.auth.FirebaseUser fu = FirebaseAuth.getInstance().getCurrentUser();
         currentUid = fu != null ? fu.getUid() : "";
         chatId     = buildChatId(currentUid, partnerUid);
-        // #3 Precompute on chat open (silent warm-up) — builds the
-        // chat-wide media gallery cache in the background the moment the
-        // chat is known, well before the user ever taps a photo/video, so
-        // that tap opens the swipeable gallery with zero extra latency.
-        // Fire-and-forget: runs on its own background executor, entirely
-        // decoupled from this method's own critical-path work below.
-        MessagePagingAdapter.warmUpChatMediaGallery(this, chatId);
+        // PERF ADV (#1/#2): keep the active sync bounded and defer gallery warm-up.
         messagesRef= FirebaseUtils.getMessagesRef(chatId);
-        // PERF FIX: keepSynced(true) tells the Firebase SDK to actively
-        // maintain this path's local disk cache in the background (not
-        // just lazily cache whatever a listener happens to touch) — so
-        // the very first ChildEventListener attach on reopen can resolve
-        // straight from disk with zero network round-trip, on top of the
-        // setPersistenceEnabled(true) already set in CallxApp. Only kept
-        // on while THIS chat is open (turned off in onDestroy() below) —
-        // leaving it on for every chat ever visited would keep all of them
-        // permanently synced in the background, wasting bandwidth/battery.
-        try { messagesRef.keepSynced(true); } catch (Exception ignored) {}
+        // PERF ADV (#1): actively sync only the latest small window, not the
+        // whole messages node. Firebase persistence still serves rows touched
+        // by the live/history listeners; old media-heavy messages stay off
+        // the active open path.
+        messagesSyncQuery = messagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
+        try { messagesSyncQuery.keepSynced(true); } catch (Exception ignored) {}
+
+        // PERF ADV (#2): gallery indexing is useful after the first frame.
+        // Starting the full chat-media scan here competes with Room, Firebase
+        // and Paging during open; defer it until the screen has rendered.
+        deferredTasks.schedule(900L, () ->
+                MessagePagingAdapter.warmUpChatMediaGallery(
+                        getApplicationContext(), chatId));
 
         // Forward payload handling
         String fwdText  = i.getStringExtra("forwardText");
@@ -3078,10 +3080,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // user has scrolled up to read history; that insert happens
                 // at positionStart 0 and must NOT move the viewport).
                 boolean isTailInsert = (positionStart + itemCount) >= total;
-                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
-                        "onItemRangeInserted: positionStart=" + positionStart + " itemCount=" + itemCount
-                        + " total=" + total + " isTailInsert=" + isTailInsert
-                        + " isUserAtBottom(before)=" + isUserAtBottom);
+                if (com.callx.app.core.BuildConfig.DEBUG) {
+                    com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                            "onItemRangeInserted: positionStart=" + positionStart + " itemCount=" + itemCount
+                             + " total=" + total + " isTailInsert=" + isTailInsert
+                             + " isUserAtBottom(before)=" + isUserAtBottom);
+                }
                 // TELEGRAM-LEVEL: a message WE just sent always wins the
                 // auto-scroll, even if isUserAtBottom somehow hasn't been
                 // flipped yet by pushMessage()'s eager set (belt-and-braces
@@ -3495,9 +3499,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pendingPagingRefreshRunnable = null;
                 if (isFinishing() || isDestroyed()) return;
                 com.callx.app.db.paging.MessageKeysetPagingSource src = currentKeysetSource;
-                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
-                        "reanchorPagingToBottom FIRING: isUserAtBottom=" + isUserAtBottom
-                        + " srcNonNull=" + (src != null));
+                if (com.callx.app.core.BuildConfig.DEBUG) {
+                    com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                            "reanchorPagingToBottom FIRING: isUserAtBottom=" + isUserAtBottom
+                             + " srcNonNull=" + (src != null));
+                }
                 if (src != null) {
                     // NOTE: this setRefreshAtLatest() call only affects the
                     // CURRENT (about-to-be-invalidated) instance — harmless to
@@ -3609,8 +3615,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // background thread already paying for decrypt, so the chat
                     // UI thread never has to run link-regex on this message.
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> {
-                        saveToRoom(m, false);
+                    // New rows must keep their structural-refresh semantics;
+                    // only subsequent updates for the same ID are keyed.
+                    chatUiEventBatcher.post(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        boolean visible = pagingAdapter != null
+                                && pagingAdapter.applyRealtimeUpdate(m);
+                        queueRoomWrite(m, !visible);
                         // TICK FIX v2: this is where our own just-sent message
                         // (or one that arrived via delta sync on chat reopen)
                         // first becomes known to this Activity with its real
@@ -3653,8 +3664,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // background thread already paying for decrypt, so the chat
                     // UI thread never has to run link-regex on this message.
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> {
-                        saveToRoom(m, true);
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        // A changed row is not a structural insert. If it is
+                        // outside the loaded window, Room keeps it ready for
+                        // the next history load without rebuilding the pager.
+                        pagingAdapterApplyRealtime(m);
+                        queueRoomWrite(m, false);
                         if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
                             attachPendingStatusListener(m.id);
                         } else if ("read".equals(m.status)) {
@@ -3671,6 +3687,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // Room transaction instead of firing its own invalidation.
                 pendingUpserts.remove(key);
                 pendingRemovals.add(key);
+                pendingStructuralPagingRefresh = true;
                 scheduleWriteFlush();
                 detachPendingStatusListener(key);
             }
@@ -3749,8 +3766,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // background thread already paying for decrypt, so the chat
                     // UI thread never has to run link-regex on this message.
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> {
-                        queueRoomWrite(m);
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        pagingAdapterApplyRealtime(m);
+                        queueRoomWrite(m, false);
                         if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
                             attachPendingStatusListener(m.id);
                         } else if ("read".equals(m.status)) {
@@ -3766,6 +3785,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // thread) — same as the primary listener's onChildRemoved.
                 pendingUpserts.remove(key);
                 pendingRemovals.add(key);
+                pendingStructuralPagingRefresh = true;
                 scheduleWriteFlush();
                 detachPendingStatusListener(key);
             }
@@ -3963,8 +3983,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // background thread already paying for decrypt, so the chat
                     // UI thread never has to run link-regex on this message.
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> {
-                        saveToRoom(m, true);
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        pagingAdapterApplyRealtime(m);
+                        queueRoomWrite(m, false);
                         // Only messages still not 'read' after this batch
                         // resolve get a persistent listener — this is where
                         // the real listener-count savings come from.
@@ -4025,8 +4047,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // background thread already paying for decrypt, so the chat
                     // UI thread never has to run link-regex on this message.
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
-                    runOnUiThread(() -> {
-                        saveToRoom(m, true);
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        pagingAdapterApplyRealtime(m);
+                        queueRoomWrite(m, false);
                         if ("read".equals(m.status)) {
                             scheduleStatusListenerDetach(messageId);
                         } else {
@@ -4126,9 +4150,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void redecryptStuckMessagesFrom(String senderUid) {
         if (db == null || senderUid == null || chatId == null) return;
         ioExecutor.execute(() -> {
-            java.util.List<MessageEntity> stuck;
+            java.util.List<String> stuck;
             try {
-                stuck = db.messageDao().getStuckMessagesFrom(
+                stuck = db.messageDao().getStuckMessageIdsFrom(
                         chatId, senderUid, com.callx.app.utils.E2EEncryptionManager.DECRYPT_FAILED_MARKER);
             } catch (Exception e) {
                 android.util.Log.w(TAG, "redecryptStuckMessagesFrom: query failed", e);
@@ -4136,8 +4160,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
             if (stuck.isEmpty()) return;
 
-            for (MessageEntity stale : stuck) {
-                final String messageId = stale.id;
+            for (String staleId : stuck) {
+                final String messageId = staleId;
                 if (messageId == null) continue;
                 FirebaseUtils.getMessagesRef(chatId).child(messageId)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -4174,10 +4198,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * and MessageDao#applyBufferedChanges() for the full explanation.
      */
     private void queueRoomWrite(Message m) {
+        queueRoomWrite(m, true);
+    }
+
+    private void queueRoomWrite(Message m, boolean structuralRefresh) {
         if (m == null || m.id == null) return;
         pendingUpserts.put(m.id, m);
         pendingRemovals.remove(m.id); // a fresh upsert always wins over a stale pending removal
+        pendingStructuralPagingRefresh |= structuralRefresh;
         scheduleWriteFlush();
+    }
+
+    private void pagingAdapterApplyRealtime(Message m) {
+        if (pagingAdapter != null) pagingAdapter.applyRealtimeUpdate(m);
     }
 
     @Override
@@ -4236,7 +4269,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Keep the current source alive until the transaction has committed.
         // The refresh is coalesced after the write, so the list never observes
         // a half-written message and never performs two refreshes for one send.
-        boolean willRefresh = severPagingIfAtBottom();
+        boolean willRefresh = pendingStructuralPagingRefresh && severPagingIfAtBottom();
+        pendingStructuralPagingRefresh = false;
 
         safeIoExecute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());

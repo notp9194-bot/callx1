@@ -83,7 +83,7 @@ import com.callx.app.db.entity.*;
         // ThumbHashCacheEntity's class doc.
         ThumbHashCacheEntity.class
     },
-    version = 71,
+    version = 72,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -1087,6 +1087,28 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v72: chat query/index cleanup.
+     *
+     * The keyset pager compares and orders by (chatId, timestamp, id), while
+     * receipt/tick and media-gallery queries add sender/status or type to the
+     * chat filter. The old single (chatId, timestamp) index handled the broad
+     * range but left SQLite to sort timestamp ties and scan extra rows for
+     * those secondary filters. These covering prefixes keep the hot chat
+     * reads indexed without changing stored message data.
+     */
+    static final Migration MIGRATION_71_72 = new Migration(71, 72) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_chatId_timestamp_id " +
+                    "ON messages (chatId, timestamp, id)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_chatId_senderId_status_timestamp " +
+                    "ON messages (chatId, senderId, status, timestamp)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_chatId_type_timestamp " +
+                    "ON messages (chatId, type, timestamp)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1155,7 +1177,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_64_65, MIGRATION_65_66,
                                     MIGRATION_66_67, MIGRATION_67_68,
                                     MIGRATION_68_69, MIGRATION_69_70,
-                                    MIGRATION_70_71)
+                                    MIGRATION_70_71, MIGRATION_71_72)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

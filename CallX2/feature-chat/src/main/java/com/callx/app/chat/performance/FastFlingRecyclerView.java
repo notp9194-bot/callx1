@@ -156,7 +156,7 @@ public class FastFlingRecyclerView extends RecyclerView {
         // v4: best-effort — see class javadoc for why this is reflection
         // and why every failure mode is swallowed rather than surfaced.
         reducedFrictionActive = tryApplyReducedFriction();
-        if (!reducedFrictionActive) {
+        if (!reducedFrictionActive && com.callx.app.core.BuildConfig.DEBUG) {
             com.callx.app.debug.DebugLogBuffer.d("FastFlingRecyclerView",
                     "reduced-friction reflection unavailable on this AndroidX/OEM build — "
                             + "falling back to velocity-boost-only long glide");

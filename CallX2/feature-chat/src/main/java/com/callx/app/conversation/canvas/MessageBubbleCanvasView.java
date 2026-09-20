@@ -2056,7 +2056,6 @@ public class MessageBubbleCanvasView extends View {
      *  broadcasts can arrive rapidly (typing/viewing pings), so this is a
      *  real hot path once wired up, same league as the audio-tick fix. */
     private void invalidatePresenceRegion() {
-        fullBubbleDirty = true;
         if (bubbleRect.isEmpty()) {
             invalidate();
             return;
@@ -2516,17 +2515,19 @@ public class MessageBubbleCanvasView extends View {
     // outer cache does.
     private android.graphics.RenderNode cachedMediaRenderNode;
 
-    // ── PERF #5: Full-bubble Picture cache ────────────────────────────────
-    // Extends the narrow cachedMediaPicture above to cover the ENTIRE bubble
-    // draw (background drawable, group sender, reply preview, text, media,
-    // footer, reactions badge).  Saves the cost of all those draw calls on
-    // every RecyclerView scroll frame.
+    // ── PERF #5/#3: Static-bubble Picture cache ───────────────────────────
+    // Covers the stable bubble draw (background drawable, group sender, reply
+    // preview, text, media, footer). The small live overlays — reactions and
+    // viewing/listening presence — are drawn as a second layer after this
+    // cache. That keeps a reaction/presence update from re-recording the
+    // entire bubble.
     //
     // Design:
     //   • fullBubbleDirty starts true and is reset to true by the overridden
     //     invalidate() / postInvalidateOnAnimation() below, so any content
-    //     change from ANY setter or bind*() automatically invalidates the
-    //     cache without per-method dirty flags.
+    //     change from ANY static-content setter or bind*() automatically
+    //     invalidates the cache without per-method dirty flags. Dynamic
+    //     overlay setters use dirty-region invalidation instead.
     //   • The cache is BYPASSED (draw directly) for two animation cases:
     //       – indeterminate download/upload spinner (already handled by the
     //         narrower cachedMediaPicture inside drawMediaWithOptionalCache)
@@ -5108,21 +5109,24 @@ public class MessageBubbleCanvasView extends View {
         }
         this.hasReactions = newHas;
         this.reactionsText = newText;
-        requestLayoutIfSizeChanged();
-        invalidate();
+        if (requestLayoutIfSizeChanged()) {
+            // The badge contributes to measured height, so a size change
+            // requires the cached static layer to be recorded at new bounds.
+            invalidate();
+        } else {
+            invalidateReactionsRegion();
+        }
     }
 
     /**
      * Dirty-region invalidate for a reactions-badge content-only update
      * (same pattern as invalidateAudioRow()/invalidateExpiryRegion() above).
      * Recomputes just the badge's rect (right/bottom edges pinned to the
-     * bubble corner; only the left edge moves with text width) and marks
-     * the outer full-bubble RenderNode/Picture cache dirty so it re-records
-     * on the next draw — otherwise a same-size cache hit next frame would
-     * replay the stale pre-change badge text.
+     * bubble corner; only the left edge moves with text width). Reactions are
+     * intentionally outside the static RenderNode/Picture, so this does not
+     * force the whole bubble to be re-recorded.
      */
     private void invalidateReactionsRegion() {
-        fullBubbleDirty = true;
         if (reactionsRect.isEmpty() || bubbleRect.isEmpty()) {
             invalidate(); // not laid out yet — fall back to a full pass
             return;
@@ -5148,10 +5152,14 @@ public class MessageBubbleCanvasView extends View {
 
     /** Call when a message has no reactions — clears any previous badge state so a recycled view doesn't show a stale reaction. */
     public void clearReactions() {
+        if (!this.hasReactions && this.reactionsText.isEmpty()) return;
         this.hasReactions = false;
         this.reactionsText = "";
-        requestLayoutIfSizeChanged();
-        invalidate();
+        if (requestLayoutIfSizeChanged()) {
+            invalidate();
+        } else {
+            invalidateReactionsRegion();
+        }
     }
 
     /**
@@ -6758,9 +6766,10 @@ public class MessageBubbleCanvasView extends View {
         return w;
     }
 
-    // ── PERF #5: Intercept ALL invalidation paths so the full-bubble cache
-    // is marked stale automatically by any content-changing setter or bind.
-    // No per-method dirty flags needed — everything routes through here.
+    // ── PERF #5: Intercept broad invalidation paths so the static-bubble
+    // cache is marked stale automatically by content-changing setters/binds.
+    // Reaction and presence setters deliberately use invalidate(Rect)
+    // directly because those visuals live in the dynamic overlay layer.
     @Override
     public void invalidate() {
         fullBubbleDirty = true;
@@ -6802,7 +6811,8 @@ public class MessageBubbleCanvasView extends View {
             if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
         }
 
-        // PERF #5: Full-bubble Picture cache.
+        // PERF #5/#3: Static-bubble Picture cache plus a dynamic overlay
+        // layer for reaction and presence indicators.
         // Bypass for animation/ticking cases that redraw on every progress
         // event, not just every frame:
         //   • ANY active download/upload — single media, media group, or
@@ -6852,6 +6862,7 @@ public class MessageBubbleCanvasView extends View {
                     // Cache hit: replay the GPU-side display list — no CPU
                     // draw-op walk at all, cheaper than canvas.drawPicture().
                     canvas.drawRenderNode(fullBubbleRenderNode);
+                    drawDynamicOverlayLayer(canvas);
                     return;
                 }
                 fullBubbleRenderNode.setPosition(0, 0, w, h);
@@ -6862,12 +6873,14 @@ public class MessageBubbleCanvasView extends View {
                 fullBubblePictureW = w;
                 fullBubblePictureH = h;
                 canvas.drawRenderNode(fullBubbleRenderNode);
+                drawDynamicOverlayLayer(canvas);
                 return;
             }
             if (!fullBubbleDirty && fullBubblePicture != null
                     && w == fullBubblePictureW && h == fullBubblePictureH) {
                 // Cache hit: replay the recorded Picture — ~0 CPU cost
                 canvas.drawPicture(fullBubblePicture);
+                drawDynamicOverlayLayer(canvas);
                 return;
             }
             // Cache miss or stale: record fresh
@@ -6879,10 +6892,12 @@ public class MessageBubbleCanvasView extends View {
             fullBubblePictureW = w;
             fullBubblePictureH = h;
             canvas.drawPicture(fullBubblePicture);
+            drawDynamicOverlayLayer(canvas);
             return;
         }
         // Animated path — draw directly, no caching
         drawBubbleContent(canvas);
+        drawDynamicOverlayLayer(canvas);
     }
 
     /** All bubble drawing logic, called from onDraw. Extracted so we can draw
@@ -6986,10 +7001,18 @@ public class MessageBubbleCanvasView extends View {
             }
         }
 
+    }
+
+    /**
+     * Draws the small stateful overlay layer on top of the cached static
+     * bubble. These indicators can change independently of message geometry
+     * while the row remains bound, so they must not be baked into the static
+     * Picture/RenderNode.
+     */
+    private void drawDynamicOverlayLayer(Canvas canvas) {
         if (hasReactions) {
             drawReactionsBadge(canvas);
         }
-
         if (isBeingViewed) {
             drawViewingDot(canvas);
         }

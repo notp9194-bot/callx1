@@ -36,6 +36,127 @@ public class MediaCache {
     private static final Handler sMain =
             new Handler(Looper.getMainLooper());
 
+    // v7 PERF: one physical download per cache identity. Viewer, bubble,
+    // preload and manual-download paths can all request the same URL in the
+    // same frame; they now join one operation instead of competing for the
+    // three shared pool threads and writing the same .tmp file.
+    private interface DownloadWaiter {
+        boolean wantsProgress();
+        void onProgress(int percent);
+        void onPartial(android.graphics.Bitmap partial);
+        void onReady(File file);
+        void onError(String reason);
+    }
+
+    private static final Object sDownloadLock = new Object();
+    private static final java.util.HashMap<String, java.util.ArrayList<DownloadWaiter>>
+            sDownloadPending = new java.util.HashMap<>();
+
+    /**
+     * The cache URL is the stable identity even when callers use different
+     * delivery-transform URLs. Decryption material is part of the identity so
+     * a plaintext/recipient-specific request can never join the wrong flight.
+     */
+    private static String downloadIdentity(String cacheKeyUrl, byte[] decryptKey,
+                                           byte[] expectedDigest) {
+        return cacheKeyUrl + '\u0000'
+                + java.util.Arrays.toString(decryptKey) + '\u0000'
+                + java.util.Arrays.toString(expectedDigest);
+    }
+
+    private static void dispatchDownloadProgress(String identity, int percent) {
+        java.util.ArrayList<DownloadWaiter> waiters;
+        synchronized (sDownloadLock) {
+            java.util.ArrayList<DownloadWaiter> current = sDownloadPending.get(identity);
+            waiters = current == null
+                    ? null : new java.util.ArrayList<>(current);
+        }
+        if (waiters != null) {
+            for (DownloadWaiter waiter : waiters) {
+                waiter.onProgress(percent);
+            }
+        }
+    }
+
+    private static void dispatchDownloadPartial(String identity,
+                                                 android.graphics.Bitmap partial) {
+        java.util.ArrayList<DownloadWaiter> waiters;
+        synchronized (sDownloadLock) {
+            java.util.ArrayList<DownloadWaiter> current = sDownloadPending.get(identity);
+            waiters = current == null
+                    ? null : new java.util.ArrayList<>(current);
+        }
+        if (waiters != null) {
+            for (DownloadWaiter waiter : waiters) {
+                waiter.onPartial(partial);
+            }
+        }
+    }
+
+    private static boolean hasProgressWaiter(String identity) {
+        synchronized (sDownloadLock) {
+            java.util.ArrayList<DownloadWaiter> waiters = sDownloadPending.get(identity);
+            if (waiters != null) {
+                for (DownloadWaiter waiter : waiters) {
+                    if (waiter.wantsProgress()) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void enqueueDownload(Context ctx, String cacheKeyUrl, String fetchUrl,
+                                        byte[] decryptKey, byte[] expectedDigest,
+                                        DownloadWaiter waiter) {
+        final String identity = downloadIdentity(cacheKeyUrl, decryptKey, expectedDigest);
+        boolean start = false;
+        synchronized (sDownloadLock) {
+            java.util.ArrayList<DownloadWaiter> waiters = sDownloadPending.get(identity);
+            if (waiters == null) {
+                waiters = new java.util.ArrayList<>(2);
+                sDownloadPending.put(identity, waiters);
+                start = true;
+            }
+            if (waiter != null) waiters.add(waiter);
+        }
+        if (!start) return;
+
+        sPool.execute(() -> {
+            File result = null;
+            try {
+                result = downloadWithProgress(ctx, cacheKeyUrl, fetchUrl, decryptKey,
+                        expectedDigest, new ProgressTick() {
+                            @Override public void onTick(int percent) {
+                                dispatchDownloadProgress(identity, percent);
+                            }
+                            @Override public void onPartial(android.graphics.Bitmap partial) {
+                                dispatchDownloadPartial(identity, partial);
+                            }
+                            @Override public boolean wantsPartial() {
+                                return hasProgressWaiter(identity);
+                            }
+                        });
+            } catch (Exception e) {
+                Log.e(TAG, "Shared download error: " + e.getMessage());
+            }
+
+            java.util.ArrayList<DownloadWaiter> waiters;
+            synchronized (sDownloadLock) {
+                waiters = sDownloadPending.remove(identity);
+            }
+            if (waiters == null) return;
+            if (result != null && result.exists()) {
+                for (DownloadWaiter pending : waiters) {
+                    pending.onReady(result);
+                }
+            } else {
+                for (DownloadWaiter pending : waiters) {
+                    pending.onError("Download failed or storage issue");
+                }
+            }
+        });
+    }
+
     public interface Callback {
         void onReady(File file);
         void onError(String reason);
@@ -289,20 +410,20 @@ public class MediaCache {
             return;
         }
         String actualFetchUrl = (fetchUrl == null || fetchUrl.isEmpty()) ? cacheKeyUrl : fetchUrl;
-        sPool.execute(() -> {
-            File result = downloadWithProgress(ctx, cacheKeyUrl, actualFetchUrl, decryptKey, expectedDigest,
-                    new ProgressTick() {
-                @Override public void onTick(int percent) {
-                    if (cb != null) sMain.post(() -> cb.onProgress(percent));
-                }
-                @Override public void onPartial(android.graphics.Bitmap partial) {
-                    if (cb != null) sMain.post(() -> cb.onPartialBitmap(partial));
-                }
-            });
-            if (result != null && result.exists()) {
+        enqueueDownload(ctx, cacheKeyUrl, actualFetchUrl, decryptKey, expectedDigest,
+                new DownloadWaiter() {
+            @Override public boolean wantsProgress() { return true; }
+            @Override public void onProgress(int percent) {
+                if (cb != null) sMain.post(() -> cb.onProgress(percent));
+            }
+            @Override public void onPartial(android.graphics.Bitmap partial) {
+                if (cb != null) sMain.post(() -> cb.onPartialBitmap(partial));
+            }
+            @Override public void onReady(File result) {
                 sMain.post(() -> { if (cb != null) cb.onReady(result); });
-            } else {
-                sMain.post(() -> { if (cb != null) cb.onError("Download failed or storage issue"); });
+            }
+            @Override public void onError(String reason) {
+                sMain.post(() -> { if (cb != null) cb.onError(reason); });
             }
         });
     }
@@ -312,6 +433,8 @@ public class MediaCache {
         /** Default no-op — only the plaintext image path (see
          *  {@link #downloadWithProgress}) ever calls this. */
         default void onPartial(android.graphics.Bitmap partial) {}
+        /** Avoids partial bitmap decodes when only non-progress callers joined. */
+        default boolean wantsPartial() { return false; }
     }
 
     // PERF: ~30fps ceiling on progress ticks. The percent-changed dedupe
@@ -371,17 +494,20 @@ public class MediaCache {
         }
 
         Log.d(TAG, "Cache MISS — downloading: " + url);
-        sPool.execute(() -> {
-            File result = download(ctx, url, decryptKey, expectedDigest);
-            if (result != null && result.exists()) {
+        enqueueDownload(ctx, url, url, decryptKey, expectedDigest, new DownloadWaiter() {
+            @Override public boolean wantsProgress() { return false; }
+            @Override public void onProgress(int percent) {}
+            @Override public void onPartial(android.graphics.Bitmap partial) {}
+            @Override public void onReady(File result) {
                 Log.d(TAG, "Download succeeded, file: " + result.getAbsolutePath());
                 sMain.post(() -> {
                     if (cb != null) cb.onReady(result);
                 });
-            } else {
-                Log.e(TAG, "Download failed or file not created");
+            }
+            @Override public void onError(String reason) {
+                Log.e(TAG, reason);
                 sMain.post(() -> {
-                    if (cb != null) cb.onError("Download failed or storage issue");
+                    if (cb != null) cb.onError(reason);
                 });
             }
         });
@@ -732,7 +858,8 @@ public class MediaCache {
                                     tick.onTick(percent);
                                 }
                                 if (nextPartialIdx < partialMilestones.length
-                                        && percent >= partialMilestones[nextPartialIdx]) {
+                                        && percent >= partialMilestones[nextPartialIdx]
+                                        && tick.wantsPartial()) {
                                     nextPartialIdx++;
                                     try {
                                         fos.flush();

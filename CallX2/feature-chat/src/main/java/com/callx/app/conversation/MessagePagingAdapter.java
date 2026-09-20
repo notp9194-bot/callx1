@@ -281,16 +281,16 @@ public class MessagePagingAdapter
                 // DEBUG (temporary): if this is STILL flagging unchanged
                 // messages as "different" on a plain send, this log proves
                 // it directly — with exactly which field tripped it.
-                if (!same) {
+                if (!same && com.callx.app.core.BuildConfig.DEBUG) {
                     com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug", "areContentsTheSame=FALSE id=" + a.messageId
-                        + " text=" + safeEquals(a.text, b.text)
-                        + " type=" + safeEquals(a.type, b.type)
-                        + " status=" + safeEquals(a.status, b.status)
-                        + " ts=" + longEquals(a.timestamp, b.timestamp)
-                        + " edited=" + boolEquals(a.edited, b.edited)
-                        + " reactions=" + reactionsEqual(a.reactions, b.reactions)
-                        + " pollVotes=" + pollVotesEqual(a.pollVotes, b.pollVotes)
-                        + " pollClosed=" + safeEquals(asStr(a.pollClosed), asStr(b.pollClosed)));
+                            + " text=" + safeEquals(a.text, b.text)
+                            + " type=" + safeEquals(a.type, b.type)
+                            + " status=" + safeEquals(a.status, b.status)
+                            + " ts=" + longEquals(a.timestamp, b.timestamp)
+                            + " edited=" + boolEquals(a.edited, b.edited)
+                            + " reactions=" + reactionsEqual(a.reactions, b.reactions)
+                            + " pollVotes=" + pollVotesEqual(a.pollVotes, b.pollVotes)
+                            + " pollClosed=" + safeEquals(asStr(a.pollClosed), asStr(b.pollClosed)));
                 }
                 return same;
             }
@@ -2578,11 +2578,20 @@ public class MessagePagingAdapter
     @Override
     public void onBindViewHolder(@NonNull VH h, int position,
                                  @NonNull java.util.List<Object> payloads) {
-        if (!payloads.isEmpty() && PAYLOAD_READ_BY.equals(payloads.get(0))) {
-            // Only update the "Seen by X" strip; skip full rebind
+        boolean hasReadByPayload = false;
+        for (Object payload : payloads) {
+            if (PAYLOAD_READ_BY.equals(payload)) {
+                hasReadByPayload = true;
+                break;
+            }
+        }
+        if (hasReadByPayload) {
+            // The same Firebase snapshot can change a receipt map and a
+            // delivery tick. Handle both payloads when RecyclerView merges
+            // them instead of letting the first one hide the second.
             Message m = getItem(position);
             if (m != null) bindSeenByStrip(h, m);
-            return;
+            if (payloads.size() == 1) return;
         }
         // PERF: combined bit-flag payload from DIFF.getChangePayload() —
         // status/reactions/poll/edited may all be set together in one
@@ -2700,6 +2709,70 @@ public class MessagePagingAdapter
         if (status.equals(message.status)) return true;
         message.status = status;
         notifyItemChanged(position, PAYLOAD_STATUS);
+        return true;
+    }
+
+    /**
+     * Applies a realtime update to an already loaded row without invalidating
+     * the whole keyset PagingSource. Firebase sends the complete message node
+     * for status/reaction/read-receipt changes, but those changes do not need a
+     * new page or a full bubble bind. New/unknown ids return false so the
+     * caller can request one structural Paging refresh.
+     */
+    public boolean applyRealtimeUpdate(@Nullable Message incoming) {
+        if (incoming == null) return false;
+        String incomingId = incoming.messageId != null
+                ? incoming.messageId : incoming.id;
+        if (incomingId == null || incomingId.isEmpty()) return false;
+        int position = findMessagePositionById(incomingId);
+        if (position == RecyclerView.NO_POSITION) return false;
+        Message current = getItem(position);
+        if (current == null || !messageHasId(current, incomingId)) return false;
+
+        boolean contentChanged =
+                !java.util.Objects.equals(current.text, incoming.text)
+                || !java.util.Objects.equals(current.type, incoming.type)
+                || !java.util.Objects.equals(current.mediaUrl, incoming.mediaUrl)
+                || !java.util.Objects.equals(current.thumbnailUrl, incoming.thumbnailUrl)
+                || !java.util.Objects.equals(current.caption, incoming.caption)
+                || !java.util.Objects.equals(current.deleted, incoming.deleted)
+                || !java.util.Objects.equals(current.edited, incoming.edited)
+                || !java.util.Objects.equals(current.editedAt, incoming.editedAt);
+        boolean statusChanged =
+                !java.util.Objects.equals(current.status, incoming.status)
+                || !java.util.Objects.equals(current.deliveredAt, incoming.deliveredAt)
+                || !java.util.Objects.equals(current.readAt, incoming.readAt);
+        boolean reactionsChanged = !java.util.Objects.equals(current.reactions, incoming.reactions);
+        boolean readByChanged = !java.util.Objects.equals(current.readBy, incoming.readBy)
+                || !java.util.Objects.equals(current.deliveredBy, incoming.deliveredBy);
+
+        // Mutate the object PagingData already exposes. PagingDataAdapter's
+        // differ cannot be replaced from here, but a targeted notify is safe
+        // and avoids creating a second full Message model for every tick.
+        current.text = incoming.text;
+        current.type = incoming.type;
+        current.mediaUrl = incoming.mediaUrl;
+        current.thumbnailUrl = incoming.thumbnailUrl;
+        current.caption = incoming.caption;
+        current.deleted = incoming.deleted;
+        current.edited = incoming.edited;
+        current.editedAt = incoming.editedAt;
+        current.status = incoming.status;
+        current.deliveredAt = incoming.deliveredAt;
+        current.readAt = incoming.readAt;
+        current.reactions = incoming.reactions;
+        current.readBy = incoming.readBy;
+        current.deliveredBy = incoming.deliveredBy;
+
+        if (contentChanged) {
+            notifyItemChanged(position);
+        } else {
+            int flags = 0;
+            if (statusChanged) flags |= FLAG_STATUS;
+            if (reactionsChanged) flags |= FLAG_REACTIONS;
+            if (readByChanged) notifyItemChanged(position, PAYLOAD_READ_BY);
+            if (flags != 0) notifyItemChanged(position, flags);
+        }
         return true;
     }
 
