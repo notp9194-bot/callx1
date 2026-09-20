@@ -3782,6 +3782,20 @@ public class MessagePagingAdapter
             }
 
             @Override
+            public void onVoiceCaptionDownloadClick() {
+                // Feature: Save-audio button — saves ONLY the attached
+                // voice clip to the device (MediaStore, "Music/CallX2"),
+                // independent of the photo (which already has its own Save
+                // via MediaViewerActivity's "more options" menu). Mirrors
+                // that same Save-to-gallery pattern, just for audio and
+                // callable straight from the chat bubble instead of the
+                // fullscreen viewer.
+                Message m = h.boundMessage;
+                if (m == null || m.voiceUrl == null || m.voiceUrl.isEmpty()) return;
+                saveVoiceCaptionToDevice(h.itemView.getContext(), m);
+            }
+
+            @Override
             public void onAudioSeek(float fraction) {
                 Message m = h.boundMessage;
                 if (m == null) return;
@@ -7383,6 +7397,72 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // Audio playback toggle
     // ──────────────────────────────────────────────────────────────
+    /**
+     * Feature: Save-audio button (voice-caption-on-photo). Downloads +
+     * decrypts (if E2E'd) `m.voiceUrl` — completely independently of
+     * whatever's happening with the photo's own mediaUrl/mediaKeyEnc — and
+     * writes the plaintext clip into the device's public Music/CallX2
+     * folder via MediaStore, exactly the same insert-then-stream-copy
+     * pattern MediaViewerActivity#saveCurrentToGallery() already uses for
+     * Save-to-gallery on the image/video. Runs entirely off the main
+     * thread; only the two Toasts hop back to it.
+     */
+    private void saveVoiceCaptionToDevice(@NonNull Context ctx, @NonNull Message m) {
+        final String url = m.voiceUrl;
+        if (url == null || url.isEmpty()) return;
+        boolean sent = currentUid != null && currentUid.equals(m.senderId);
+        final String messageId = m.messageId != null ? m.messageId : m.id;
+        // Own outgoing clip: MediaCache was already seeded with the
+        // plaintext at send time (see ChatMediaController
+        // #uploadVoiceCaptionThenFinalize's MediaCache.put call) — no key
+        // needed, same "sender renders locally" precedent used everywhere
+        // else in this file for own-sent media.
+        final byte[] voiceKey = (!sent && m.voiceKeyEnc != null)
+                ? com.callx.app.utils.MediaE2ECrypto.decryptVoiceCaptionKeyOnly(ctx, m.voiceKeyEnc, m.senderId, messageId)
+                : null;
+        android.widget.Toast.makeText(ctx, "Saving audio…", android.widget.Toast.LENGTH_SHORT).show();
+        com.callx.app.utils.MediaCache.Callback cb = new com.callx.app.utils.MediaCache.Callback() {
+            @Override public void onReady(java.io.File source) {
+                new Thread(() -> {
+                    try {
+                        String ext = ".m4a";
+                        String lowerUrl = url.toLowerCase(java.util.Locale.ROOT);
+                        if (lowerUrl.contains(".mp3")) ext = ".mp3";
+                        else if (lowerUrl.contains(".ogg")) ext = ".ogg";
+                        else if (lowerUrl.contains(".wav")) ext = ".wav";
+                        String displayName = "CallX2_voice_" + System.currentTimeMillis() + ext;
+                        android.content.ContentValues values = new android.content.ContentValues();
+                        values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, displayName);
+                        values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "audio/*");
+                        values.put(android.provider.MediaStore.Audio.Media.RELATIVE_PATH, "Music/CallX2");
+                        android.net.Uri dest = ctx.getContentResolver()
+                                .insert(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
+                        if (dest == null) throw new java.io.IOException("MediaStore insert failed");
+                        try (java.io.InputStream in = new java.io.FileInputStream(source);
+                             java.io.OutputStream out = ctx.getContentResolver().openOutputStream(dest)) {
+                            byte[] buf = new byte[8192];
+                            int n;
+                            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                        }
+                        new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                                android.widget.Toast.makeText(ctx, "Audio saved to Music/CallX2", android.widget.Toast.LENGTH_SHORT).show());
+                    } catch (Exception e) {
+                        new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                                android.widget.Toast.makeText(ctx, "Couldn't save audio", android.widget.Toast.LENGTH_SHORT).show());
+                    }
+                }).start();
+            }
+            @Override public void onError(String reason) {
+                android.widget.Toast.makeText(ctx, "Couldn't download audio: " + reason, android.widget.Toast.LENGTH_SHORT).show();
+            }
+        };
+        if (voiceKey != null) {
+            com.callx.app.utils.MediaCache.get(ctx, url, voiceKey, cb);
+        } else {
+            com.callx.app.utils.MediaCache.get(ctx, url, cb);
+        }
+    }
+
     private void toggleAudio(@NonNull VH h, String url, int position) {
         if (playingPos == position && player != null && isPlayerPlaying) {
             player.pause();
@@ -7441,7 +7521,11 @@ public class MessagePagingAdapter
             audioKey = com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(h.itemView.getContext(),
                     audioMsg.mediaKeyEnc, audioMsg.senderId, audioMsgId);
         } else if (isVoiceCaptionClip && !currentUid.equals(audioMsg.senderId) && audioMsg.voiceKeyEnc != null) {
-            audioKey = com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(h.itemView.getContext(),
+            // BUG FIX: was decryptKeyOnly() (same cache slot as the photo's
+            // mediaKeyEnc, keyed off the same messageId) — see
+            // MediaE2ECrypto#decryptVoiceCaptionKeyOnly's javadoc for why
+            // that silently broke playback with the photo's key instead.
+            audioKey = com.callx.app.utils.MediaE2ECrypto.decryptVoiceCaptionKeyOnly(h.itemView.getContext(),
                     audioMsg.voiceKeyEnc, audioMsg.senderId, audioMsgId);
         } else {
             audioKey = null;
@@ -8216,8 +8300,11 @@ public class MessagePagingAdapter
         if (hasVoiceCaption) {
             voiceUrlForViewer = m.voiceUrl;
             voiceDurationTextForViewer = formatVoiceDuration(m.voiceDuration != null ? m.voiceDuration : 0L);
+            // BUG FIX: same collision as toggleAudio() above — must use the
+            // voice-specific cache-key variant, not the plain decryptKeyOnly
+            // that the photo's own mediaKeyEnc (sheetMediaKey, above) uses.
             byte[] sheetVoiceKey = (!isOwnMsg && m.voiceKeyEnc != null)
-                    ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.voiceKeyEnc,
+                    ? com.callx.app.utils.MediaE2ECrypto.decryptVoiceCaptionKeyOnly(ctx, m.voiceKeyEnc,
                             m.senderId, sheetMessageId)
                     : null;
             voiceKeyB64ForViewer = (sheetVoiceKey != null)

@@ -27,6 +27,7 @@ import com.callx.app.docked.DockedOverlayRegistry;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
+import com.callx.app.cache.StoryRingRegistry;
 import com.callx.app.repository.ChatRepository;
 import com.callx.app.utils.ChatListPreviewUtil;
 import com.callx.app.utils.FirebaseUtils;
@@ -780,14 +781,24 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         updateReadStatusTicks(h, u, isSelecting, isSpecial);
 
         if (h.storyRingView != null && u.uid != null) {
-            StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
-            if (!isSelecting && scm.hasUnseen(u.uid)) {
-                h.storyRingView.setState(ChatListStoryRingView.STATE_UNSEEN);
-            } else if (!isSelecting && scm.hasStatus(u.uid)) {
-                h.storyRingView.setState(ChatListStoryRingView.STATE_SEEN);
-            } else {
-                h.storyRingView.setState(ChatListStoryRingView.STATE_NONE);
-            }
+            final String ringUid = u.uid;
+            final boolean ringSelecting = isSelecting;
+            // Instagram-style instant propagation: this Runnable is the
+            // row's own "repaint my ring" logic. It runs now (initial bind)
+            // AND again, automatically, whenever ANY screen in the app
+            // marks ringUid's story seen — see StoryRingRegistry.
+            Runnable refreshRing = () -> {
+                StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+                if (!ringSelecting && scm.hasUnseen(ringUid)) {
+                    h.storyRingView.setState(ChatListStoryRingView.STATE_UNSEEN);
+                } else if (!ringSelecting && scm.hasStatus(ringUid)) {
+                    h.storyRingView.setState(ChatListStoryRingView.STATE_SEEN);
+                } else {
+                    h.storyRingView.setState(ChatListStoryRingView.STATE_NONE);
+                }
+            };
+            refreshRing.run();
+            StoryRingRegistry.register(ctx, h.storyRingView, refreshRing);
         }
 
         h.itemView.setBackgroundColor(

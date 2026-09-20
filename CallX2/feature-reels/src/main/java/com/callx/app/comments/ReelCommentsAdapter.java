@@ -328,33 +328,50 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         bindAvatar(ctx, h.ivAvatar, c.uid, c.ownerPhoto, c.avatarVersion);
 
         // ── Story ring (unseen status indicator) ─────────────────────
-        StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
-        // PERF: was calling hasUnseen()/hasStatus() up to 3x per bind (once
-        // for hasStory, then again inside the if/else below) — compute each
-        // exactly once and reuse.
-        boolean hasUnseenStory = c.uid != null && scm.hasUnseen(c.uid);
-        boolean hasAnyStatus   = c.uid != null && scm.hasStatus(c.uid);
-        boolean hasStory = hasUnseenStory || hasAnyStatus;
-        h.hasStory = hasStory; // read by the constructor-level click listener
+        // Instagram-style instant propagation: this whole block re-runs
+        // automatically whenever ANY screen marks c.uid's story seen — see
+        // StoryRingRegistry. h.hasStory (read by the constructor-level
+        // click listener) is recomputed on every re-run too, so the click
+        // behavior stays correct after a registry-triggered repaint, not
+        // just after a fresh bind().
+        if (c.uid != null) {
+            final String ringUid = c.uid;
+            Runnable refreshRing = () -> {
+                StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+                // PERF: was calling hasUnseen()/hasStatus() up to 3x per bind
+                // (once for hasStory, then again inside the if/else below) —
+                // compute each exactly once and reuse.
+                boolean hasUnseenStory = scm.hasUnseen(ringUid);
+                boolean hasAnyStatus   = scm.hasStatus(ringUid);
+                h.hasStory = hasUnseenStory || hasAnyStatus;
 
-        if (h.ivStoryRing != null && c.uid != null) {
-            // Instagram-style: gradient only while unseen; flat gray once
-            // the whole story is seen; hidden with no active status.
-            // BUG FIX: previously showed gradient whenever hasAnyStatus was
-            // true, even after the story was fully seen — ring never
-            // reflected the seen state coming back from the new story viewer.
-            if (hasUnseenStory) {
-                h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
-                        .withStrokeDp(2f, ctx.getResources().getDisplayMetrics().density));
-                h.ivStoryRing.setImageDrawable(null);
-                h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
-            } else if (hasAnyStatus) {
-                h.ivStoryRing.setBackground(null);
-                h.ivStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
-                h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
-            } else {
-                h.ivStoryRing.setVisibility(android.view.View.GONE);
+                if (h.ivStoryRing != null) {
+                    // Instagram-style: gradient only while unseen; flat gray
+                    // once the whole story is seen; hidden with no active
+                    // status. BUG FIX: previously showed gradient whenever
+                    // hasAnyStatus was true, even after the story was fully
+                    // seen — ring never reflected the seen state coming back
+                    // from the new story viewer.
+                    if (hasUnseenStory) {
+                        h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
+                                .withStrokeDp(2f, ctx.getResources().getDisplayMetrics().density));
+                        h.ivStoryRing.setImageDrawable(null);
+                        h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
+                    } else if (hasAnyStatus) {
+                        h.ivStoryRing.setBackground(null);
+                        h.ivStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+                        h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
+                    } else {
+                        h.ivStoryRing.setVisibility(android.view.View.GONE);
+                    }
+                }
+            };
+            refreshRing.run();
+            if (h.ivStoryRing != null) {
+                com.callx.app.cache.StoryRingRegistry.register(ctx, h.ivStoryRing, refreshRing);
             }
+        } else {
+            h.hasStory = false;
         }
 
         // ── Name ────────────────────────────────────────────────────────

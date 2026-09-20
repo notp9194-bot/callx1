@@ -6,6 +6,7 @@ import android.view.View;
 import android.widget.ImageView;
 
 import com.callx.app.cache.StatusCacheManager;
+import com.callx.app.cache.StoryRingRegistry;
 
 /**
  * StoryRingApplier — the SAME 3-state avatar ring (gradient = unseen story,
@@ -40,6 +41,20 @@ public final class StoryRingApplier {
             ringView.setVisibility(View.GONE);
             return;
         }
+        paint(ctx, ringView, uid);
+        // Instagram-style instant propagation: keep this ring registered so
+        // that if the user marks uid's story seen from ANY screen, this
+        // ring (wherever it lives — followers list, discover, notifications,
+        // comments, etc) repaints itself immediately too, without needing
+        // this screen to be recreated. See StoryRingRegistry for why this
+        // one line replaces per-screen addObserver()/notifyDataSetChanged()
+        // wiring at all ~34 call sites of this method.
+        StoryRingRegistry.register(ctx, ringView, () -> paint(ctx, ringView, uid));
+    }
+
+    /** Actual paint logic, split out so both the initial bind and later
+     *  registry-triggered refreshes share the exact same code path. */
+    private static void paint(Context ctx, ImageView ringView, String uid) {
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasUnseen = scm.hasUnseen(uid);
         boolean hasAny    = scm.hasStatus(uid);

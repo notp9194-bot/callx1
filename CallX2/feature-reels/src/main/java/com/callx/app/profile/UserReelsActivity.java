@@ -2116,6 +2116,12 @@ public class UserReelsActivity extends AppCompatActivity
                             com.callx.app.core.R.drawable.circle_status_seen));
         }
         viewStoryRing.setVisibility(View.VISIBLE);
+        // Instagram-style instant propagation: if targetUid's story is
+        // marked seen from some OTHER screen while this profile is still
+        // open underneath it (e.g. back-stack resume), this ring repaints
+        // itself immediately too instead of waiting on this method to be
+        // called again on its own. See StoryRingRegistry.
+        com.callx.app.cache.StoryRingRegistry.register(this, viewStoryRing, this::showStoryRingStatic);
     }
 
     private void cancelStoryRingReveal() {

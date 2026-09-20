@@ -1748,6 +1748,18 @@ public class MessageBubbleCanvasView extends View {
     // playing yet, so the badge shows a neutral "fetching" state instead
     // of a misleading pause glyph. See setVoiceDownloading().
     boolean voiceDownloading = false;
+    // Feature: separate "Save audio" button on the voice-caption badge —
+    // lets the RECEIVER save just the voice clip to the device (Music/
+    // CallX2, via MediaStore) independently of saving the photo itself
+    // (MediaViewerActivity's existing Save-to-gallery only ever writes the
+    // image/video). Appended as a 3rd segment on the pill, right of the
+    // speed chip, reusing the same down-arrow-into-tray glyph as
+    // ic_download_reel.xml (hand-drawn here via Path — same convention as
+    // every other glyph on this badge, see drawVoiceBadge). Hit-tested
+    // separately from voiceBadgeRect/voiceSpeedRect so a tap on any one of
+    // the three segments does only that segment's thing. See
+    // MediaRenderer#drawVoiceBadge / OnBubbleClickListener#onVoiceCaptionDownloadClick.
+    final RectF voiceDownloadRect = new RectF();
     // Single "video" message reuses the whole isMedia/mediaRect/mediaBitmap
     // infrastructure (same fixed 180dp square, same footer pill) — this
     // flag just adds the play-glyph + duration-badge overlay on top,
@@ -3039,6 +3051,7 @@ public class MessageBubbleCanvasView extends View {
         this.voiceBadgeRect.setEmpty();
         this.voiceSpeedLabel = "1×";
         this.voiceSpeedRect.setEmpty();
+        this.voiceDownloadRect.setEmpty();
         this.voiceDownloading = false;
         this.mediaBitmap = bitmap;
         this.mediaBitmapIsPlaceholder = false; // caller always passes null/a real bitmap here, never the placeholder
@@ -3164,6 +3177,7 @@ public class MessageBubbleCanvasView extends View {
             this.voiceBadgeRect.setEmpty();
             this.voiceSpeedLabel = "1×";
             this.voiceSpeedRect.setEmpty();
+            this.voiceDownloadRect.setEmpty();
             this.voiceDownloading = false;
         }
         invalidate();
@@ -7344,6 +7358,18 @@ public class MessageBubbleCanvasView extends View {
                 && mediaRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onGifClick();
+            return true;
+        }
+        // ── Voice-caption-on-photo save-audio button tap ────────────────────
+        // Checked before the speed chip and play/pause badge below since
+        // this is the rightmost (3rd) segment appended to the same pill —
+        // same "carve out the more specific sub-region first" ordering
+        // those two already use relative to the wider mediaRect tap.
+        if (isMedia && voiceUrl != null && !voiceUrl.isEmpty() && !mediaGated && !voiceDownloading
+                && event.getActionMasked() == MotionEvent.ACTION_UP
+                && voiceDownloadRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
+            if (clickListener != null) clickListener.onVoiceCaptionDownloadClick();
             return true;
         }
         // ── Voice-caption-on-photo speed-chip tap ───────────────────────────

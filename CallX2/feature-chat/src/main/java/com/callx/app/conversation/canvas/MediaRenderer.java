@@ -83,6 +83,10 @@ final class MediaRenderer {
     private final android.text.TextPaint voiceBadgeDurPaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final RectF voiceBadgePillRectF = new RectF();
     private final android.graphics.Path voiceBadgeGlyphPath = new android.graphics.Path();
+    // Feature: Save-audio button glyph (down-arrow-into-tray, reused for
+    // both the arrow-head and the tray strokes within one drawVoiceBadge()
+    // call — same reuse-not-realloc precedent as voiceBadgeGlyphPath above).
+    private final android.graphics.Path voiceBadgeDownloadArrowPath = new android.graphics.Path();
 
     void draw(Canvas canvas, int hPad, int vPad) {
         draw(canvas, hPad, vPad, false);
@@ -219,9 +223,11 @@ final class MediaRenderer {
             } else {
                 host.voiceBadgeRect.setEmpty();
                 host.voiceSpeedRect.setEmpty();
+                host.voiceDownloadRect.setEmpty();
             }
         } else {
             host.voiceBadgeRect.setEmpty();
+            host.voiceDownloadRect.setEmpty();
         }
 
         if (host.mediaGated) {
@@ -369,6 +375,12 @@ final class MediaRenderer {
      *  split host.voiceBadgeRect / host.voiceSpeedRect without recomputing
      *  layout math twice. */
     private float cachedVoiceBadgeSegmentW;
+    /** Where the speed segment ends and the download-button segment
+     *  begins, relative to the pill's left edge — mirrors
+     *  cachedVoiceBadgeSegmentW's role one segment further right. Only
+     *  meaningful while !downloading (no download button shown yet for a
+     *  clip that hasn't finished fetching for playback). */
+    private float cachedVoiceSpeedSegmentEndW;
     // PERF ULTRA: "elapsed / total" concat cache. While a voice caption is
     // playing, drawVoiceBadge() runs on every playback tick (several times
     // a second) — without this, `host.voiceElapsedText + " / " + totalText`
@@ -401,14 +413,24 @@ final class MediaRenderer {
         // Play/pause segment: icon + gap + duration text, padded both ends.
         cachedVoiceBadgeSegmentW = padH + iconD + gap + cachedVoiceDurTextWidth + padH;
         if (downloading) {
-            // No speed chip while still fetching — nothing to cycle yet.
+            // No speed chip (or download button — nothing decrypted/fetched
+            // yet to save) while still fetching for playback.
             cachedVoiceSpeedTextWidth = 0f;
             cachedVoicePillW = cachedVoiceBadgeSegmentW;
+            cachedVoiceSpeedSegmentEndW = cachedVoiceBadgeSegmentW;
         } else {
             cachedVoiceSpeedTextWidth = voiceBadgeDurPaint.measureText(speedLabel);
             // Separator (thin divider) + speed text + trailing pad.
             float sepGap = 8f * density;
-            cachedVoicePillW = cachedVoiceBadgeSegmentW + sepGap + cachedVoiceSpeedTextWidth + padH;
+            cachedVoiceSpeedSegmentEndW = cachedVoiceBadgeSegmentW + sepGap + cachedVoiceSpeedTextWidth + padH;
+            // Feature: Save-audio button — a 3rd segment appended after the
+            // speed chip: another thin divider + a small download glyph,
+            // same icon language as ic_download_reel.xml (down-arrow into a
+            // tray), sized like a compact square button rather than a
+            // text+icon segment (nothing to measureText here).
+            float downloadIconD = 16f * density;
+            float downloadPadH = 8f * density;
+            cachedVoicePillW = cachedVoiceSpeedSegmentEndW + sepGap + downloadIconD + downloadPadH;
         }
     }
 
@@ -516,6 +538,7 @@ final class MediaRenderer {
 
         if (downloading) {
             host.voiceSpeedRect.setEmpty();
+            host.voiceDownloadRect.setEmpty();
             return;
         }
 
@@ -529,8 +552,53 @@ final class MediaRenderer {
         float textBaseline = voiceBadgePillRectF.centerY()
                 - (voiceBadgeDurPaint.ascent() + voiceBadgeDurPaint.descent()) / 2f;
         canvas.drawText(speedLabel, speedTextX, textBaseline, voiceBadgeDurPaint);
+        float speedSegRight = voiceBadgePillRectF.left + cachedVoiceSpeedSegmentEndW;
         host.voiceSpeedRect.set(dividerX, voiceBadgePillRectF.top,
+                speedSegRight, voiceBadgePillRectF.bottom);
+
+        // ── Feature: Save-audio button — 3rd segment ─────────────────────
+        // Own thin divider (same treatment as the speed chip's), then a
+        // compact down-arrow-into-tray glyph (ic_download_reel.xml's shape,
+        // hand-drawn since this whole badge is Canvas-drawn, no Drawable
+        // inflation anywhere else in it) centered in the remaining pill
+        // width out to its right edge.
+        float downloadDividerX = speedSegRight + (4f * density);
+        canvas.drawLine(downloadDividerX, voiceBadgePillRectF.top + dividerPad,
+                downloadDividerX, voiceBadgePillRectF.bottom - dividerPad, voiceBadgeIconPaint);
+        host.voiceDownloadRect.set(downloadDividerX, voiceBadgePillRectF.top,
                 voiceBadgePillRectF.right, voiceBadgePillRectF.bottom);
+        float dlIconD = 16f * density;
+        float dlCx = (downloadDividerX + voiceBadgePillRectF.right) / 2f;
+        float dlCy = voiceBadgePillRectF.centerY();
+        float strokeW = 1.6f * density;
+        Paint.Style prevStyle = voiceBadgeIconPaint.getStyle();
+        float prevStrokeW = voiceBadgeIconPaint.getStrokeWidth();
+        voiceBadgeIconPaint.setStyle(Paint.Style.STROKE);
+        voiceBadgeIconPaint.setStrokeWidth(strokeW);
+        voiceBadgeIconPaint.setStrokeCap(Paint.Cap.ROUND);
+        voiceBadgeIconPaint.setStrokeJoin(Paint.Join.ROUND);
+        // Down arrow (shaft + chevron head), mirrors the vector's first path.
+        float shaftTop = dlCy - dlIconD * 0.42f;
+        float shaftBottom = dlCy + dlIconD * 0.12f;
+        canvas.drawLine(dlCx, shaftTop, dlCx, shaftBottom, voiceBadgeIconPaint);
+        voiceBadgeDownloadArrowPath.reset();
+        voiceBadgeDownloadArrowPath.moveTo(dlCx - dlIconD * 0.28f, dlCy - dlIconD * 0.14f);
+        voiceBadgeDownloadArrowPath.lineTo(dlCx, dlCy + dlIconD * 0.12f);
+        voiceBadgeDownloadArrowPath.lineTo(dlCx + dlIconD * 0.28f, dlCy - dlIconD * 0.14f);
+        canvas.drawPath(voiceBadgeDownloadArrowPath, voiceBadgeIconPaint);
+        // Tray (open-top rounded rect), mirrors the vector's second path.
+        float trayY = dlCy + dlIconD * 0.30f;
+        float trayHalfW = dlIconD * 0.38f;
+        voiceBadgeDownloadArrowPath.reset();
+        voiceBadgeDownloadArrowPath.moveTo(dlCx - trayHalfW, trayY);
+        voiceBadgeDownloadArrowPath.lineTo(dlCx - trayHalfW, trayY + dlIconD * 0.22f);
+        voiceBadgeDownloadArrowPath.lineTo(dlCx + trayHalfW, trayY + dlIconD * 0.22f);
+        voiceBadgeDownloadArrowPath.lineTo(dlCx + trayHalfW, trayY);
+        canvas.drawPath(voiceBadgeDownloadArrowPath, voiceBadgeIconPaint);
+        // Restore the shared icon paint to its normal filled style — every
+        // other glyph on this badge (play triangle, pause bars) draws FILL.
+        voiceBadgeIconPaint.setStyle(prevStyle);
+        voiceBadgeIconPaint.setStrokeWidth(prevStrokeW);
     }
 
     /**

@@ -1491,23 +1491,32 @@ public class PostsFeedActivity extends AppCompatActivity {
             // gradient ring while the owner has an unseen status, flat gray
             // ring once seen, hidden entirely with no active status.
             if (h.ivStoryRing != null && r.uid != null) {
-                com.callx.app.cache.StatusCacheManager scm =
-                        com.callx.app.cache.StatusCacheManager.getInstance(h.ivStoryRing.getContext());
-                boolean hasUnseen = scm.hasUnseen(r.uid);
-                boolean hasAny    = scm.hasStatus(r.uid);
-                if (hasUnseen) {
-                    h.ivStoryRing.setImageDrawable(null);
-                    h.ivStoryRing.setBackground(
-                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.8f,
-                                    h.ivStoryRing.getResources().getDisplayMetrics().density));
-                    h.ivStoryRing.setVisibility(View.VISIBLE);
-                } else if (hasAny) {
-                    h.ivStoryRing.setBackground(null);
-                    h.ivStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
-                    h.ivStoryRing.setVisibility(View.VISIBLE);
-                } else {
-                    h.ivStoryRing.setVisibility(View.GONE);
-                }
+                final String ringUid = r.uid;
+                // Instagram-style instant propagation: this refresh logic
+                // re-runs automatically whenever ANY screen marks ringUid's
+                // story seen — see StoryRingRegistry.
+                Runnable refreshRing = () -> {
+                    com.callx.app.cache.StatusCacheManager scm =
+                            com.callx.app.cache.StatusCacheManager.getInstance(h.ivStoryRing.getContext());
+                    boolean hasUnseen = scm.hasUnseen(ringUid);
+                    boolean hasAny    = scm.hasStatus(ringUid);
+                    if (hasUnseen) {
+                        h.ivStoryRing.setImageDrawable(null);
+                        h.ivStoryRing.setBackground(
+                                com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.8f,
+                                        h.ivStoryRing.getResources().getDisplayMetrics().density));
+                        h.ivStoryRing.setVisibility(View.VISIBLE);
+                    } else if (hasAny) {
+                        h.ivStoryRing.setBackground(null);
+                        h.ivStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+                        h.ivStoryRing.setVisibility(View.VISIBLE);
+                    } else {
+                        h.ivStoryRing.setVisibility(View.GONE);
+                    }
+                };
+                refreshRing.run();
+                com.callx.app.cache.StoryRingRegistry.register(
+                        h.ivStoryRing.getContext(), h.ivStoryRing, refreshRing);
             }
 
             // ── Collab / multi-collaborator header — REUSED from the Reels

@@ -41,6 +41,10 @@ public interface OnBubbleClickListener {
      *  with voiceUrl set only) — caller should cycle playback speed the
      *  same way the standalone audio bubble's btnAudioSpeed chip does. */
     default void onVoiceCaptionSpeedClick() {}
+    /** Feature: Save-audio button on a voice-caption-on-photo badge (setVoiceCaption with voiceUrl set only) —
+     *  caller should download/decrypt just the attached voice clip and save it to the device (independently
+     *  of saving the photo itself), same pattern as MediaViewerActivity's Save-to-gallery for the image/video. */
+    default void onVoiceCaptionDownloadClick() {}
     /** Dragged/tapped the waveform on an audio bubble (bindAudio only) — fraction is 0..1 of the track; caller should seek MediaPlayer to it. The view already updated its own progress bar optimistically. */
     default void onAudioSeek(float fraction) {}
     /** Tapped the "View Contact" row on a contact card (bindContact only) — caller should open the system Contacts app / dialer for this contact's phone number, same as the legacy btnViewContact click listener. */

@@ -455,6 +455,29 @@ public final class MediaE2ECrypto {
         return env != null ? env.fullKey() : null;
     }
 
+    /** BUG FIX: Voice Caption on Photo — a voice-caption-on-photo message
+     *  carries TWO independent E2E envelopes under the SAME messageId: the
+     *  photo's {@code mediaKeyEnc} and the clip's OWN {@code voiceKeyEnc}
+     *  (see Message#voiceKeyEnc's javadoc). {@link #decryptEnvelopeForMessage}
+     *  caches its result under {@code messageId + ":mk"} — calling
+     *  {@link #decryptKeyOnly} directly for BOTH envelopes with the bare
+     *  same messageId collided on that exact cache slot: whichever envelope
+     *  decrypted first (always the photo, decrypted eagerly at bind time to
+     *  render the image) got cached there, and the voice clip's later
+     *  decrypt (triggered lazily on play tap) then just read back that
+     *  SAME cached (wrong) plaintext instead of ever touching its own
+     *  ciphertext — so the badge always tried to open the audio file with
+     *  the photo's key, failed decryption silently, and playback never
+     *  started. Every call site decrypting {@code voiceKeyEnc} must go
+     *  through THIS method (not the raw {@link #decryptKeyOnly}) so the
+     *  cache key is suffixed distinctly from the photo's own. */
+    public static byte[] decryptVoiceCaptionKeyOnly(android.content.Context ctx, String voiceKeyEnc,
+                                                      String partnerUid, String messageId) {
+        String voiceCacheId = messageId != null ? (messageId + ":voice") : null;
+        KeyEnvelope env = decryptEnvelopeForMessage(ctx, voiceKeyEnc, partnerUid, voiceCacheId);
+        return env != null ? env.fullKey() : null;
+    }
+
     /** Thumbnail counterpart of {@link #decryptKeyOnly} — use this at any
      *  call site that's downloading/decrypting a THUMBNAIL ciphertext
      *  (e.g. the video-thumb-only E2E path), not the full-res file. */

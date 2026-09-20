@@ -18,6 +18,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
+import com.callx.app.cache.StoryRingRegistry;
 // PERF (deep avatar pipeline parity — see CallAvatarBinder): tiered/
 // versioned URL + L2/L3 reuse + lifecycle-aware cancel + velocity prefetch,
 // same shape as ChatAvatarBinder/FollowAvatarBinder elsewhere in the app.
@@ -170,15 +171,25 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         boolean hasStory = l.partnerUid != null && (scm.hasUnseen(l.partnerUid) || scm.hasStatus(l.partnerUid));
 
         if (h.ivStoryRing != null && l.partnerUid != null) {
-            if (scm.hasUnseen(l.partnerUid)) {
-                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
-                h.ivStoryRing.setVisibility(View.VISIBLE);
-            } else if (scm.hasStatus(l.partnerUid)) {
-                h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
-                h.ivStoryRing.setVisibility(View.VISIBLE);
-            } else {
-                h.ivStoryRing.setVisibility(View.GONE);
-            }
+            final String ringUid = l.partnerUid;
+            // Instagram-style instant propagation: repaint logic registered
+            // once per bind, then re-run automatically by StoryRingRegistry
+            // whenever ANY screen marks ringUid's story seen — no need for
+            // this call history row to be recreated to pick it up.
+            Runnable refreshRing = () -> {
+                StatusCacheManager scm2 = StatusCacheManager.getInstance(ctx);
+                if (scm2.hasUnseen(ringUid)) {
+                    h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_unseen);
+                    h.ivStoryRing.setVisibility(View.VISIBLE);
+                } else if (scm2.hasStatus(ringUid)) {
+                    h.ivStoryRing.setBackgroundResource(R.drawable.circle_status_seen);
+                    h.ivStoryRing.setVisibility(View.VISIBLE);
+                } else {
+                    h.ivStoryRing.setVisibility(View.GONE);
+                }
+            };
+            refreshRing.run();
+            StoryRingRegistry.register(ctx, h.ivStoryRing, refreshRing);
             h.ivStoryRing.setOnClickListener(v -> {
                 if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
                 openStatusOrChat(ctx, l);
