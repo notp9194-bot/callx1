@@ -557,8 +557,18 @@ public class MessagePagingAdapter
     private static final android.util.LruCache<String, java.io.File> CACHED_FILE_CHECK =
             new android.util.LruCache<>(300);
 
+    // v426: MediaCache bumps generation() whenever it deletes cache files
+    // (invalidate / clearAll / LRU eviction). Dropping the positive memo then
+    // is what makes it safe to use this on every bind, not just GIF/sticker.
+    private static volatile int cachedFileGenSeen = -1;
+
     private static java.io.File getCachedFileFast(android.content.Context ctx, String url) {
         if (url == null || url.isEmpty()) return null;
+        final int gen = com.callx.app.utils.MediaCache.generation();
+        if (gen != cachedFileGenSeen) {
+            CACHED_FILE_CHECK.evictAll();
+            cachedFileGenSeen = gen;
+        }
         java.io.File hit = CACHED_FILE_CHECK.get(url);
         if (hit != null) return hit; // trust — no repeat disk stat
         java.io.File f = com.callx.app.utils.MediaCache.getCached(ctx, url);
@@ -1008,7 +1018,7 @@ public class MessagePagingAdapter
      *  the callback is dropped (never touches `h`/`cv`) if the holder was
      *  recycled or rebound to a different message before the decrypt lands. */
     private void resolveFullMediaKeyAsync(Context ctx, Message m, boolean sent, VH h, int token,
-            FullKeyEnvelopeCallback cb) {
+            FullKeyEnvelopeCallback cb, @Nullable Runnable onStale) {
         if (sent || m.mediaKeyEnc == null) { cb.onResolved(null, null); return; }
         final String encKey = m.mediaKeyEnc;
         final String senderId = m.senderId;
@@ -1019,7 +1029,15 @@ public class MessagePagingAdapter
             byte[] key = env != null ? env.fullKey() : null;
             byte[] digest = env != null ? env.fullDigest : null;
             MEDIA_KEY_MAIN_HANDLER.post(() -> {
-                if (h.canvasBindToken != token) return; // recycled/rebound meanwhile
+                if (h.canvasBindToken != token) { // recycled/rebound meanwhile
+                    // v426 FIX: the caller marked this url as "downloading"
+                    // BEFORE this async hop. Dropping the callback silently
+                    // left it in downloadingMediaUrls forever, so the next
+                    // bind of that message showed a spinner with no download
+                    // behind it. Let the caller undo its marker.
+                    if (onStale != null) onStale.run();
+                    return;
+                }
                 cb.onResolved(key, digest);
             });
         });
@@ -1522,26 +1540,43 @@ public class MessagePagingAdapter
     private static final android.util.LongSparseArray<String> voiceDurationTextCache =
             new android.util.LongSparseArray<>(128);
 
-    // v425 PERF: message-id -> blurHash carried inside the Media-E2E key
+    // v425/v426 PERF: message-id -> blurHash carried inside the Media-E2E key
     // envelope. The envelope is immutable per message, but it used to be
-    // decrypted + JSON-parsed again on every bind. ""-> envelope had no hash.
-    // Failures (env == null: key not ready yet) are deliberately NOT cached.
+    // decrypted + JSON-parsed again on every bind — and on the MAIN thread,
+    // which breaks the v375 "never decrypt envelopes on the main thread" rule
+    // (and the per-partner FIFO ratchet ordering it protects). Now:
+    //   • peekEnvelopeBlurHash()       — LRU hit, zero work, used at bind time
+    //   • resolveImageBlurHashAsync()  — miss: decrypt on the partner's
+    //                                    E2eeDecryptExecutor bucket, fill the LRU
+    // "" in the LRU = envelope had no hash. Failures (env == null: key not
+    // ready yet) are deliberately NOT cached.
     private static final android.util.LruCache<String, String> ENVELOPE_BLURHASH_CACHE =
             new android.util.LruCache<>(256);
 
+    /** @return null = not cached yet; "" = cached, no hash; else the hash. */
     @Nullable
-    private static String resolveEnvelopeBlurHash(@NonNull Context ctx, @NonNull Message m) {
+    private static String peekEnvelopeBlurHash(@NonNull Message m) {
         final String mid = m.messageId != null ? m.messageId : m.id;
-        if (mid != null) {
-            String hit = ENVELOPE_BLURHASH_CACHE.get(mid);
-            if (hit != null) return hit.isEmpty() ? null : hit;
-        }
-        com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
-                com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
-                        m.senderId, mid);
-        if (env == null) return null;
-        if (mid != null) ENVELOPE_BLURHASH_CACHE.put(mid, env.blurHash != null ? env.blurHash : "");
-        return env.blurHash;
+        return mid != null ? ENVELOPE_BLURHASH_CACHE.get(mid) : null;
+    }
+
+    private void resolveImageBlurHashAsync(Context ctx, Message m, VH h, int token,
+            java.util.function.Consumer<String> cb) {
+        final String encKey = m.mediaKeyEnc;
+        final String senderId = m.senderId;
+        final String msgId = m.messageId != null ? m.messageId : m.id;
+        com.callx.app.utils.E2eeDecryptExecutor.execute(senderId, () -> {
+            com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                    com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, encKey, senderId, msgId);
+            final String hash = env != null ? env.blurHash : null;
+            if (env != null && msgId != null) {
+                ENVELOPE_BLURHASH_CACHE.put(msgId, hash != null ? hash : "");
+            }
+            MEDIA_KEY_MAIN_HANDLER.post(() -> {
+                if (h.canvasBindToken != token) return; // recycled/rebound meanwhile
+                cb.accept(hash);
+            });
+        });
     }
 
     private static String formatVoiceDuration(long voiceMs) {
@@ -3421,7 +3456,7 @@ public class MessagePagingAdapter
                             && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx,
                                     m.mediaLocalPath, m.messageId != null ? m.messageId : m.id));
                     java.io.File vCachedFile = vHasLocal ? null
-                            : com.callx.app.utils.MediaCache.getCached(ctx, vUrl2);
+                            : getCachedFileFast(ctx, vUrl2);
 
                     if (sent || vHasLocal || vCachedFile != null) {
                         // Already on device — same advanced-action sheet a
@@ -4569,7 +4604,7 @@ public class MessagePagingAdapter
             // pill, or a live spinner/percentage if a download from an
             // earlier bind is still in flight) until the person taps it.
             java.io.File cachedFile = (!sent && fullUrl != null && !fullUrl.isEmpty())
-                    ? com.callx.app.utils.MediaCache.getCached(ctx, fullUrl) : null;
+                    ? getCachedFileFast(ctx, fullUrl) : null;
 
             // WhatsApp-style local-first render: a SENT image whose original
             // local file is still on the phone renders straight from it —
@@ -4646,13 +4681,25 @@ public class MessagePagingAdapter
                 // — the placeholder string instead travels inside the encrypted
                 // key envelope, so decrypt it here rather than reading m.blurHash.
                 String blurHash = m.blurHash;
+                boolean blurHashPending = false;
                 if (!sent && m.mediaKeyEnc != null) {
-                    // v425 PERF: was decrypt + JSON-parse of the key envelope on
-                    // the MAIN thread on every bind of every not-yet-downloaded
-                    // received photo — see resolveEnvelopeBlurHash().
-                    blurHash = resolveEnvelopeBlurHash(ctx, m);
+                    // v426 PERF: cache hit = free; miss = off-main-thread
+                    // decrypt on the partner's FIFO bucket (see
+                    // resolveImageBlurHashAsync). Never decrypt on the main thread.
+                    String peek = peekEnvelopeBlurHash(m);
+                    if (peek == null) blurHashPending = true;
+                    else blurHash = peek.isEmpty() ? null : peek;
                 }
-                if (blurHash != null && !blurHash.isEmpty()) {
+                if (blurHashPending) {
+                    resolveImageBlurHashAsync(ctx, m, h, myToken, hash -> {
+                        if (hash == null || hash.isEmpty()) return;
+                        // isLowResPlaceholder=true — see the sync path below.
+                        ThumbHashPlaceholder.getAsync(hash, 32, 32, placeholder -> {
+                            if (h.canvasBindToken != myToken) return;
+                            if (placeholder != null) cv.setMediaBitmap(placeholder, true);
+                        });
+                    });
+                } else if (blurHash != null && !blurHash.isEmpty()) {
                     // Migrated from BlurHash → ThumbHash; ThumbHashPlaceholder
                     // returns null (falls through, no crash) for any leftover
                     // BlurHash-format strings on old in-flight/history messages.
@@ -4689,6 +4736,7 @@ public class MessagePagingAdapter
                     // we cap at 3 concurrent downloads even when many images are
                     // visible at once.
                     downloadingMediaUrls.add(fullUrl);
+                    h.autoDlUrl = fullUrl; // v426: lets onViewRecycled() drop this download if it never started
                     cv.setMediaDownloadGate(true, 0, null);
                     final String capturedUrl = fullUrl;
                     // Media E2E v2 (v375: moved OFF the main thread — see
@@ -4770,7 +4818,7 @@ public class MessagePagingAdapter
                             }
                         });
                     });
-                    }); // end resolveFullMediaKeyAsync
+                    }, () -> downloadingMediaUrls.remove(capturedUrl)); // end resolveFullMediaKeyAsync
                 } else {
                     // Manual download: show size label on the idle pill —
                     // PERF: use the size already captured at send time
@@ -5135,7 +5183,7 @@ public class MessagePagingAdapter
                         && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx, m.mediaLocalPath,
                                 m.messageId != null ? m.messageId : m.id));
                 java.io.File vCached = vLocalAvail ? null
-                        : com.callx.app.utils.MediaCache.getCached(ctx, vUrl);
+                        : getCachedFileFast(ctx, vUrl);
                 if (vLocalAvail || vCached != null) {
                     // Already on device — no gate needed.
                     cv.clearMediaDownloadGate();
@@ -5259,7 +5307,7 @@ public class MessagePagingAdapter
             final String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
             cv.bindAudio(aUrl, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false);
-            java.io.File cachedAudio = MediaCache.getCached(ctx, aUrl);
+            java.io.File cachedAudio = getCachedFileFast(ctx, aUrl);
             if (cachedAudio == null && aUrl != null && !aUrl.isEmpty()) {
                 // Media E2E (audio): MediaStreamCache doesn't know how to
                 // decrypt, so an E2E voice note skips the "stream first
@@ -5422,7 +5470,7 @@ public class MessagePagingAdapter
             final String sizeStr  = sizeRaw > 0
                     ? android.text.format.Formatter.formatShortFileSize(ctx, sizeRaw) : "";
 
-            boolean fileCached = !fileUrl.isEmpty() && MediaCache.getCached(ctx, fileUrl) != null;
+            boolean fileCached = !fileUrl.isEmpty() && getCachedFileFast(ctx, fileUrl) != null;
             cv.bindFile(fileName, mime, sizeStr, fileCached, sent, isRead, isDelivered);
             cv.setDeletedStyle(false);
             // NOTE: the download button (onFileDownloadClick) and open
@@ -8773,6 +8821,18 @@ public class MessagePagingAdapter
         // CustomTarget calls — invalidate any in-flight canvas image/reply-
         // thumb load the instant this holder is recycled.
         holder.canvasBindToken++;
+        // v426 PERF: this row was scrolled away — if its auto-download is
+        // still WAITING in the queue (not started), drop it so a fast fling
+        // through 100 photos doesn't queue 100 downloads for rows nobody is
+        // looking at. Neither onReady nor onError fires for a dropped job, so
+        // clear the "downloading" marker here or a later rebind would show a
+        // spinner with nothing behind it. A download that already started
+        // keeps running (its result still warms the cache).
+        if (holder.autoDlUrl != null) {
+            final String dropUrl = holder.autoDlUrl;
+            holder.autoDlUrl = null;
+            if (MediaDownloadQueue.cancelPending(dropUrl)) downloadingMediaUrls.remove(dropUrl);
+        }
         // v59: reset GIF and file bubble state so a recycled holder can't
         // bleed stale badge/icon/progress into the next item it's bound to.
         if (holder.canvasView != null) {
@@ -8936,6 +8996,26 @@ public class MessagePagingAdapter
      *  inside bindMessage() exactly — keep both in sync if either changes. */
     private void bindPresenceOnly(@NonNull VH h, @NonNull Message m) {
         String mid = m.messageId != null ? m.messageId : m.id;
+
+        if (h.canvasView != null) {
+            // FEATURE PARITY: canvas-rendered bubbles previously had no
+            // equivalent of the legacy h.viewSeenDot/h.tvListeningBadge
+            // views below, so a viewing/playing presence broadcast just
+            // silently did nothing for them. Wire the same two states onto
+            // MessageBubbleCanvasView's own dirty-rect setters (see their
+            // doc — presence updates never trigger a relayout).
+            boolean viewing = mid != null && currentlyViewedMessageIds.contains(mid);
+            h.canvasView.setViewingDot(viewing);
+
+            boolean playing = mid != null && currentlyPlayingMessageIds.contains(mid);
+            String badgeLabel = null;
+            if (playing) {
+                boolean isVideoMsg = "video".equals(m.type);
+                badgeLabel = isVideoMsg ? "▶ watching…" : "🎧 listening…";
+            }
+            h.canvasView.setPlayingBadge(playing, badgeLabel);
+            return;
+        }
 
         if (h.viewSeenDot != null) {
             boolean viewing = mid != null && currentlyViewedMessageIds.contains(mid);
@@ -9151,6 +9231,9 @@ public class MessagePagingAdapter
         // of the message it is currently bound to. See wireCaptionReadMore().
         com.callx.app.conversation.canvas.MessageBubbleCanvasView.ReadMoreListener readMoreListenerCached;
         String readMoreMsgId;
+        // v426 PERF: url of the auto-download this holder queued (if any) —
+        // see onViewRecycled().
+        String autoDlUrl;
         // v425 PERF: lazily-inflated legacy voice/caption overlay — see
         // ensureLegacyVoiceOverlay(). Null once inflated (or if the layout
         // has no such stub, e.g. Canvas holders).

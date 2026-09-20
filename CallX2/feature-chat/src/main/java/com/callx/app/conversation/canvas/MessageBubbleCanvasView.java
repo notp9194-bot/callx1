@@ -1969,6 +1969,13 @@ public class MessageBubbleCanvasView extends View {
     // per tick would be its own per-frame allocation.
     private final Rect audioDirtyRect = new Rect();
     private final Rect expiryDirtyRect = new Rect();
+    // Reused int Rect for invalidateReactionsRegion() below — same
+    // no-per-tick-allocation pattern as audioDirtyRect/expiryDirtyRect.
+    private final Rect reactionsDirtyRect = new Rect();
+    // Reused int Rect for invalidatePollRegion() below — same pattern.
+    private final Rect pollDirtyRect = new Rect();
+    // Reused int Rect for invalidateBigReactionBadgeRegion() below.
+    private final Rect bigReactionDirtyRect = new Rect();
 
     // ── Single-media manual download gate state — see setMediaDownloadGate(). ──
     boolean mediaGated = false;
@@ -1980,6 +1987,126 @@ public class MessageBubbleCanvasView extends View {
     final TextPaint mediaGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Paint mediaGatePillIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final RectF mediaGatePillRect = new RectF();
+
+    // ── Live presence — "someone's viewing this message" dot + "listening/
+    // watching" badge. Mirrors view_seen_dot/tv_listening_badge in
+    // item_message_sent/received.xml — this is a FEATURE-PARITY add, not a
+    // perf fix: canvas bubbles previously just silently dropped these two
+    // live indicators since bindPresenceOnly() only ever wired the legacy
+    // View fields (h.viewSeenDot/h.tvListeningBadge), which don't exist on
+    // a canvas-rendered holder. Position mirrors the XML exactly: dot sits
+    // on the bubble's own-side top corner (start for received, end for
+    // sent), badge on the opposite top corner. ──
+    boolean isBeingViewed = false;
+    boolean isBeingPlayed = false;
+    String playingBadgeText = "";
+    private Paint viewingDotFillPaint;
+    private Paint viewingDotStrokePaint;
+    private Paint playingBadgeBgPaint;
+    private TextPaint playingBadgeTextPaint;
+    private Paint.FontMetrics playingBadgeFmScratch;
+    private final RectF playingBadgeRect = new RectF();
+    private final Rect presenceDirtyRect = new Rect();
+
+    private void ensurePresencePaints() {
+        if (viewingDotFillPaint != null) return;
+        viewingDotFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        viewingDotFillPaint.setColor(0xFF22C55E); // matches dot_watching_msg.xml
+        viewingDotStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        viewingDotStrokePaint.setColor(0xFFFFFFFF);
+        viewingDotStrokePaint.setStyle(Paint.Style.STROKE);
+        viewingDotStrokePaint.setStrokeWidth(1.5f * density);
+        playingBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        playingBadgeBgPaint.setColor(0xFF8B5CF6); // matches bg_listening_badge.xml
+        playingBadgeTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        playingBadgeTextPaint.setColor(0xFFFFFFFF);
+        playingBadgeTextPaint.setFakeBoldText(true);
+        playingBadgeTextPaint.setTextSize(spToPx(10f));
+        playingBadgeFmScratch = new Paint.FontMetrics();
+    }
+
+    /** Show/hide the "someone's viewing this exact message" dot. Mirrors
+     *  bindPresenceOnly()'s h.viewSeenDot visibility toggle for the legacy
+     *  path — this is the canvas-bubble equivalent, called every time a
+     *  viewing-presence broadcast comes in for this message. */
+    public void setViewingDot(boolean viewing) {
+        if (this.isBeingViewed == viewing) return;
+        this.isBeingViewed = viewing;
+        if (viewing) ensurePresencePaints();
+        invalidatePresenceRegion();
+    }
+
+    /** Show/hide the "listening…"/"watching…" live-playback badge. Mirrors
+     *  bindPresenceOnly()'s h.tvListeningBadge text+visibility for the
+     *  legacy path. Pass playing=false to hide regardless of label. */
+    public void setPlayingBadge(boolean playing, @Nullable String label) {
+        String text = playing && label != null ? label : "";
+        if (this.isBeingPlayed == playing && this.playingBadgeText.equals(text)) return;
+        this.isBeingPlayed = playing;
+        this.playingBadgeText = text;
+        if (playing) ensurePresencePaints();
+        invalidatePresenceRegion();
+    }
+
+    /** Dirty-region invalidate covering both the viewing-dot corner and the
+     *  playing-badge corner (same pattern as invalidateReactionsRegion()/
+     *  invalidatePollRegion() above). Neither indicator affects bubble
+     *  size, so this never needs requestLayoutIfSizeChanged() — just redraw
+     *  the two small top corners instead of the whole bubble. Presence
+     *  broadcasts can arrive rapidly (typing/viewing pings), so this is a
+     *  real hot path once wired up, same league as the audio-tick fix. */
+    private void invalidatePresenceRegion() {
+        fullBubbleDirty = true;
+        if (bubbleRect.isEmpty()) {
+            invalidate();
+            return;
+        }
+        float dotR = 4.5f * density + 2f * density; // 9dp dot + stroke/AA slop
+        float overlap = 3f * density;
+        float dotCx = sent ? bubbleRect.right + overlap : bubbleRect.left - overlap;
+        float dotTop = bubbleRect.top - overlap - dotR;
+        float dotBottom = bubbleRect.top - overlap + dotR;
+        float badgeMaxW = 140f * density; // generous fixed upper bound — text-dependent width
+        float badgeTop = bubbleRect.top;
+        float badgeBottom = bubbleRect.top + 4f * density + spToPx(10f) + 4f * density + 4f * density;
+        float badgeLeft = sent ? bubbleRect.left : bubbleRect.right - badgeMaxW;
+        float badgeRight = sent ? bubbleRect.left + badgeMaxW : bubbleRect.right;
+        float left = Math.min(dotCx - dotR, badgeLeft);
+        float right = Math.max(dotCx + dotR, badgeRight);
+        float top = Math.min(dotTop, badgeTop);
+        float bottom = Math.max(dotBottom, badgeBottom);
+        presenceDirtyRect.set((int) left, (int) top, (int) right, (int) bottom);
+        invalidate(presenceDirtyRect);
+    }
+
+    private void drawViewingDot(Canvas canvas) {
+        float r = 4.5f * density; // 9dp diameter, matches dot_watching_msg.xml
+        float overlap = 3f * density; // matches the -3dp corner overlap in XML
+        float cx = sent ? bubbleRect.right + overlap - r : bubbleRect.left - overlap + r;
+        float cy = bubbleRect.top - overlap + r;
+        canvas.drawCircle(cx, cy, r, viewingDotFillPaint);
+        canvas.drawCircle(cx, cy, r - viewingDotStrokePaint.getStrokeWidth() / 2f, viewingDotStrokePaint);
+    }
+
+    private void drawPlayingBadge(Canvas canvas) {
+        if (playingBadgeText.isEmpty()) return;
+        playingBadgeTextPaint.getFontMetrics(playingBadgeFmScratch);
+        Paint.FontMetrics fm = playingBadgeFmScratch;
+        float padH = 8f * density, padTop = 2f * density, padBottom = 2f * density;
+        float textW = playingBadgeTextPaint.measureText(playingBadgeText);
+        float textH = fm.descent - fm.ascent;
+        float badgeW = textW + padH * 2;
+        float badgeH = textH + padTop + padBottom;
+        float marginTop = 4f * density;
+        float marginSide = 6f * density;
+        float top = bubbleRect.top + marginTop;
+        float left = sent ? bubbleRect.left + marginSide : bubbleRect.right - marginSide - badgeW;
+        playingBadgeRect.set(left, top, left + badgeW, top + badgeH);
+        float corner = 10f * density;
+        canvas.drawRoundRect(playingBadgeRect, corner, corner, playingBadgeBgPaint);
+        float baseline = top + padTop - fm.ascent;
+        canvas.drawText(playingBadgeText, left + padH, baseline, playingBadgeTextPaint);
+    }
 
     // ── Reaction badge state — independent of text/media/group mode; any
     // of the three can have reactions overlaid. ──
@@ -2954,8 +3081,40 @@ public class MessageBubbleCanvasView extends View {
      *  footerTimeText should already contain the "  ✏️ edited" suffix;
      *  this just tells onTouchEvent whether the footer's hit-rect
      *  (computed in drawFooter()) should respond to taps. */
+    // Exact suffix bindCanvasMessage()/bindMessage() bake into timeText for
+    // an edited message (kept identical so a toggle here round-trips
+    // cleanly with what a full bind would have produced). Single source
+    // of truth for setEdited()'s in-place toggle below.
+    private static final String EDITED_SUFFIX = "  \u270F\uFE0F edited";
+
     public void setEdited(boolean edited) {
+        // BUGFIX: the PAYLOAD_EDITED-only fast path (bindEditedOnly() in
+        // the adapter) calls this alone, with no following bind*() call —
+        // this used to only flip isEdited (for the footer's tap target,
+        // see class doc below) and never touch the actual "✏️ edited" text
+        // or repaint, so an edit made after the initial bind silently
+        // never showed until the next full rebind. A normal full
+        // bindCanvasMessage() also calls this (right before its real
+        // bind*() call, purely to prime the tap-target flag) — the suffix
+        // toggle below is harmless there since footerTimeText gets fully
+        // overwritten by that following bind*() call regardless.
+        if (this.isEdited == edited) return; // no-op — nothing actually changed
+        boolean hasSuffix = this.footerTimeText.endsWith(EDITED_SUFFIX);
+        if (edited && !hasSuffix) {
+            this.footerTimeText = this.footerTimeText + EDITED_SUFFIX;
+        } else if (!edited && hasSuffix) {
+            this.footerTimeText = this.footerTimeText.substring(
+                    0, this.footerTimeText.length() - EDITED_SUFFIX.length());
+        }
         this.isEdited = edited;
+        // Footer text width is part of the size signature (see
+        // computeSizeSignature()'s footerReserve), so this correctly
+        // triggers a relayout only when the suffix genuinely changes the
+        // reserved width — same rare/correctness-over-microopt treatment
+        // as setPinned() above (an edit toggle is a one-off event, not a
+        // live tick, so a dirty-rect shortcut isn't worth the complexity).
+        requestLayoutIfSizeChanged();
+        invalidate();
     }
 
     /**
@@ -4583,7 +4742,8 @@ public class MessageBubbleCanvasView extends View {
         bubbleDrawable = sharedBubbleDrawable(ctx, sent, false, density);
         resolveReplyColors(ctx);
 
-        if (requestLayoutIfSizeChanged()) {
+        boolean sizeChanged = requestLayoutIfSizeChanged();
+        if (sizeChanged) {
             // Question/options text (or something else size-relevant)
             // changed — onMeasure() is about to rebuild both from scratch.
             pollQuestionLayout = null;
@@ -4595,7 +4755,64 @@ public class MessageBubbleCanvasView extends View {
             pollOptionLayouts = new StaticLayout[n];
             requestLayout();
         }
-        invalidate();
+        // ULTRA PERF: a live vote tick (bindPollOnly() — fires once per
+        // incoming vote on an open poll) never changes the size signature:
+        // question/option text is untouched, only counts/myVote/leader
+        // flags move. Row geometry (each option's top/height) depends only
+        // on question/subtitle/text heights, which onMeasure() already
+        // fixed the last time layout actually ran, so a vote never needs a
+        // relayout OR a full-bubble redraw — just the option rows + the
+        // "N votes" footer band right below them. Poll cards can be tall
+        // (header/question/subtitle sit above the rows), so skipping their
+        // repaint on every single incoming vote is a real win on an active
+        // poll. Falls back to a full invalidate() below when the size did
+        // change, or when invalidatePollRegion() finds no valid prior
+        // geometry to reuse (first bind).
+        if (!sizeChanged) {
+            invalidatePollRegion();
+        } else {
+            invalidate();
+        }
+    }
+
+    /**
+     * Dirty-region invalidate for a poll vote-only update (same pattern as
+     * invalidateAudioRow()/invalidateExpiryRegion()/invalidateReactionsRegion()
+     * above). Unions the current option-row rects (valid from the last real
+     * draw — vote counts don't move row geometry, see bindPoll()'s caller
+     * comment) and extends downward to cover the "N votes" footer text
+     * drawn just below the last row, then marks the outer full-bubble
+     * RenderNode/Picture cache dirty so it re-records on the next draw.
+     */
+    private void invalidatePollRegion() {
+        fullBubbleDirty = true;
+        int n = pollOptionRects.size();
+        if (n == 0 || bubbleRect.isEmpty()) {
+            invalidate(); // no prior geometry yet — fall back to a full pass
+            return;
+        }
+        float left = Float.MAX_VALUE, top = Float.MAX_VALUE;
+        float right = -Float.MAX_VALUE, bottom = -Float.MAX_VALUE;
+        for (int i = 0; i < n; i++) {
+            RectF r = pollOptionRects.get(i);
+            if (r.isEmpty()) {
+                invalidate(); // stale/uninitialized row rect — play it safe
+                return;
+            }
+            left = Math.min(left, r.left);
+            top = Math.min(top, r.top);
+            right = Math.max(right, r.right);
+            bottom = Math.max(bottom, r.bottom);
+        }
+        float pad = 4f * density;
+        // Extend the bottom edge to cover the votes-count footer text
+        // (drawn just below the last option row — see PollRenderer's
+        // votes-footer block) whose digit(s) also change on every vote.
+        float footerBand = (pollFooterFmScratch.descent - pollFooterFmScratch.ascent)
+                + POLL_FOOTER_GAP_DP * density;
+        pollDirtyRect.set((int) (left - pad), (int) (top - pad),
+                (int) (right + pad), (int) (bottom + footerBand + pad));
+        invalidate(pollDirtyRect);
     }
 
     /** Swap in a decoded Google Static Maps Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
@@ -4823,7 +5040,33 @@ public class MessageBubbleCanvasView extends View {
             bigReactionEmojiPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             bigReactionEmojiPaint.setTextAlign(Paint.Align.CENTER);
         }
-        invalidate();
+        invalidateBigReactionBadgeRegion();
+    }
+
+    /**
+     * Dirty-region invalidate for the big story-reaction emoji badge (same
+     * pattern as invalidateReactionsRegion()/invalidatePollRegion() above).
+     * This never changes bubble size (drawn inside the already-computed
+     * replyThumbDstRect — see drawBigReactionBadge()), so it never needed
+     * requestLayoutIfSizeChanged() to begin with; the only thing worth
+     * trimming is the redraw area itself. replyThumbDstRect is only valid
+     * once a draw pass has actually positioned the reply thumbnail, so this
+     * falls back to a full invalidate() before that's happened.
+     */
+    private void invalidateBigReactionBadgeRegion() {
+        fullBubbleDirty = true;
+        if (replyThumbDstRect.isEmpty()) {
+            invalidate();
+            return;
+        }
+        float badgeR = replyThumbDstRect.width() * 0.68f;
+        float cx = replyThumbDstRect.left;
+        float cy = replyThumbDstRect.bottom;
+        float pad = 4f * density;
+        bigReactionDirtyRect.set(
+                (int) (cx - badgeR - pad), (int) (cy - badgeR - pad),
+                (int) (cx + badgeR + pad), (int) (cy + badgeR + pad));
+        invalidate(bigReactionDirtyRect);
     }
 
     /**
@@ -4842,10 +5085,65 @@ public class MessageBubbleCanvasView extends View {
      *             is treated the same as clearReactions().
      */
     public void setReactions(@Nullable String text) {
-        this.hasReactions = text != null && !text.isEmpty();
-        this.reactionsText = text != null ? text : "";
+        boolean newHas = text != null && !text.isEmpty();
+        String newText = text != null ? text : "";
+        // ULTRA PERF: badge visibility unchanged (still showing, just the
+        // count/emoji content changed — e.g. someone else reacted while
+        // this bubble was already showing a reaction). computeSizeSignature()
+        // only keys on hasReactions now (see its own comment) since the
+        // badge's right/bottom edges are pinned to the bubble corner and
+        // never move — only its left edge shifts with text width, which
+        // doesn't affect measured width (fixed to parentWidth) or height
+        // (fixed by the overlap constant). So a content-only change never
+        // needs requestLayout() or a full-bubble redraw; just remeasure the
+        // small badge rect and dirty-invalidate that region. This is the hot
+        // path in any active group chat where reactions land constantly.
+        if (this.hasReactions && newHas && this.reactionsText.equals(newText) == false) {
+            this.reactionsText = newText;
+            invalidateReactionsRegion();
+            return;
+        }
+        if (this.hasReactions == newHas && this.reactionsText.equals(newText)) {
+            return; // no-op rebind with identical reactions — skip entirely
+        }
+        this.hasReactions = newHas;
+        this.reactionsText = newText;
         requestLayoutIfSizeChanged();
         invalidate();
+    }
+
+    /**
+     * Dirty-region invalidate for a reactions-badge content-only update
+     * (same pattern as invalidateAudioRow()/invalidateExpiryRegion() above).
+     * Recomputes just the badge's rect (right/bottom edges pinned to the
+     * bubble corner; only the left edge moves with text width) and marks
+     * the outer full-bubble RenderNode/Picture cache dirty so it re-records
+     * on the next draw — otherwise a same-size cache hit next frame would
+     * replay the stale pre-change badge text.
+     */
+    private void invalidateReactionsRegion() {
+        fullBubbleDirty = true;
+        if (reactionsRect.isEmpty() || bubbleRect.isEmpty()) {
+            invalidate(); // not laid out yet — fall back to a full pass
+            return;
+        }
+        if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
+        float marginEnd = REACTIONS_MARGIN_END_DP * density;
+        float overlap = REACTIONS_OVERLAP_DP * density;
+        float badgeW = reactionsTextPaint.measureText(reactionsText);
+        float badgeH = reactionsTextFM.descent - reactionsTextFM.ascent;
+        float right = bubbleRect.right - marginEnd;
+        float bottom = bubbleRect.bottom + overlap;
+        float newLeft = right - badgeW;
+        float top = bottom - badgeH;
+        float pad = 8f * density; // covers text AA bleed + old-vs-new left-edge shift
+        // Union with the OLD rect too, so the previous (now-stale) badge
+        // text is fully erased even when the new text is shorter.
+        float left = Math.min(newLeft, reactionsRect.left) - pad;
+        reactionsRect.set(newLeft, top, right, bottom);
+        reactionsDirtyRect.set((int) left, (int) (top - pad),
+                (int) (right + pad), (int) (bottom + pad));
+        invalidate(reactionsDirtyRect);
     }
 
     /** Call when a message has no reactions — clears any previous badge state so a recycled view doesn't show a stale reaction. */
@@ -4863,6 +5161,20 @@ public class MessageBubbleCanvasView extends View {
      * since a recycled view holds whatever the previous message left in it.
      */
     public void setPinned(boolean pinned) {
+        // PERF: this is called on EVERY full bind for EVERY message
+        // (comment above says so explicitly) — but 📌-pin state changes
+        // extremely rarely, so the overwhelming majority of those calls
+        // are a same-state no-op. Skipping requestLayoutIfSizeChanged()'s
+        // signature recompute + invalidate() here (bind()/bindMedia()/etc.
+        // still invalidate() once at the end of the real bind regardless)
+        // avoids a redundant second invalidate()/dirty-flag flip on every
+        // single scroll rebind of every canvas bubble, pinned or not.
+        // Genuine pin/unpin toggles are rare and correctly still fall
+        // through to the full relayout path below, since pinning DOES
+        // change bubble height (see onMeasure's row1Height calc) — unlike
+        // the other setters above, there's no safe dirty-rect shortcut
+        // here, the size really does change.
+        if (this.isPinned == pinned) return;
         this.isPinned = pinned;
         requestLayoutIfSizeChanged();
         invalidate();
@@ -6677,6 +6989,13 @@ public class MessageBubbleCanvasView extends View {
         if (hasReactions) {
             drawReactionsBadge(canvas);
         }
+
+        if (isBeingViewed) {
+            drawViewingDot(canvas);
+        }
+        if (isBeingPlayed) {
+            drawPlayingBadge(canvas);
+        }
     }
 
     private void drawReactionsBadge(Canvas canvas) {
@@ -6850,9 +7169,14 @@ public class MessageBubbleCanvasView extends View {
         sb.append("|fr").append(Math.round(footerReserve));
         // Reaction badge floats past the bubble's bottom edge and grows
         // the view's total measured height to fit it (see the
-        // "totalHeight"/setMeasuredDimension tail of onMeasure()) — not
-        // just a draw-time overlay, so it must be part of the key.
-        if (hasReactions) sb.append("|X").append(reactionsText);
+        // "totalHeight"/setMeasuredDimension tail of onMeasure()) — but
+        // only whether a badge exists affects that height; its right/bottom
+        // edges are pinned to the bubble corner and never move, so the
+        // badge's *text* changing (count/emoji ticking up or down) never
+        // changes measured width (fixed to parentWidth) or height. Key on
+        // presence only — ULTRA PERF: see setReactions()'s content-only
+        // fast path, which relies on this NOT re-triggering a relayout.
+        sb.append(hasReactions ? "|X1" : "|X0");
 
         if (isMedia) {
             // mediaAspectRatio must be part of the key: it starts at 0f

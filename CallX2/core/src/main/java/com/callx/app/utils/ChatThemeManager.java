@@ -118,10 +118,30 @@ public class ChatThemeManager {
      * resolves the actual theme-aware color resource (light mode → black,
      * dark mode → white, via values-night).
      */
+    // v426 PERF: getTextColor() runs on EVERY bubble bind (text, image,
+    // caption, album, ...) and used to do a full Resources.getColor() theme
+    // resolve each time. Both colors are resolved once and memoized in an
+    // immutable holder keyed by uiMode (so a dark/light switch or any other
+    // configuration change transparently re-resolves). Immutable + volatile =
+    // safe for the background text-precompute threads that also call this.
+    private static final class TextColors {
+        final int uiMode, sent, received;
+        TextColors(int uiMode, int sent, int received) {
+            this.uiMode = uiMode; this.sent = sent; this.received = received;
+        }
+    }
+    private volatile TextColors textColors;
+
     public int getTextColor(Context ctx, boolean sent) {
-        return resolveColor(ctx, sent
-                ? com.callx.app.core.R.color.bubble_sent_text
-                : com.callx.app.core.R.color.bubble_received_text);
+        final int ui = ctx.getResources().getConfiguration().uiMode;
+        TextColors tc = textColors;
+        if (tc == null || tc.uiMode != ui) {
+            tc = new TextColors(ui,
+                    resolveColor(ctx, com.callx.app.core.R.color.bubble_sent_text),
+                    resolveColor(ctx, com.callx.app.core.R.color.bubble_received_text));
+            textColors = tc;
+        }
+        return sent ? tc.sent : tc.received;
     }
 
     public int getPrimaryColor() {

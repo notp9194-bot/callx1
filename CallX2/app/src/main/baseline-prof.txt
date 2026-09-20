@@ -266,3 +266,22 @@ PLcom/callx/app/utils/ExpiryTickManager;->*(**)V
 PLcom/callx/app/utils/LinkPreviewFetcher;->*(**)V
 PLcom/callx/app/compose/HashtagSuggestAdapter;->onCreateViewHolder(**)Landroidx/recyclerview/widget/RecyclerView$ViewHolder;
 PLcom/callx/app/compose/HashtagSuggestAdapter;->onBindViewHolder(**)V
+
+# v426: image + voice-caption / caption hot paths added in v425/v426
+HSPLcom/callx/app/conversation/canvas/MediaRenderer;->draw(Landroid/graphics/Canvas;II)V
+HSPLcom/callx/app/conversation/canvas/MediaRenderer;->draw(Landroid/graphics/Canvas;IIZ)V
+HSPLcom/callx/app/conversation/canvas/MediaRenderer;->drawVoiceBadge(Landroid/graphics/Canvas;FF)V
+HSPLcom/callx/app/conversation/canvas/MediaRenderer;->ensureVoiceRes()V
+HSPLcom/callx/app/conversation/canvas/MediaRenderer;->ensureVoiceBadgeGeometry(Ljava/lang/String;Ljava/lang/String;ZF)V
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->formatBody(Ljava/lang/String;)Ljava/lang/CharSequence;
+HSPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->setVoiceCaption(Ljava/lang/String;Ljava/lang/String;)V
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->wireCaptionReadMore(**)V
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->getCachedFileFast(Landroid/content/Context;Ljava/lang/String;)Ljava/io/File;
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->formatVoiceDuration(J)Ljava/lang/String;
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->peekEnvelopeBlurHash(**)Ljava/lang/String;
+HSPLcom/callx/app/conversation/MessagePagingAdapter;->onViewRecycled(**)V
+HSPLcom/callx/app/conversation/controllers/MediaDownloadQueue;->enqueue(**)V
+HSPLcom/callx/app/conversation/controllers/MediaDownloadQueue;->pump()V
+HSPLcom/callx/app/conversation/controllers/MediaDownloadQueue;->cancelPending(**)Z
+HSPLcom/callx/app/utils/MediaCache;->generation()I
+HSPLcom/callx/app/utils/ChatThemeManager;->getTextColor(Landroid/content/Context;Z)I

@@ -7,11 +7,12 @@ import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.util.Log;
 
+import java.util.ArrayDeque;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -20,7 +21,15 @@ import java.util.concurrent.TimeUnit;
  * Mirrors the upload queue exactly:
  *   • Max 3 concurrent downloads (configurable).
  *   • Network-aware: pauses when offline, auto-resumes on reconnect.
- *   • Fair semaphore so FIFO ordering is preserved.
+ *   • FIFO ordering is preserved.
+ *
+ * v426 PERF: the queue used to park ONE THREAD PER WAITING TASK (a cached
+ * thread pool whose workers blocked on a fair Semaphore / the offline
+ * pauseLock) — opening a chat with 30 undownloaded photos meant ~27 idle
+ * blocked threads. It is now a plain pending deque + a small dispatcher:
+ * only running downloads (max 3) hold a thread, and pending ones can be
+ * dropped for free via {@link #cancelPending(String)} when their row is
+ * scrolled away/recycled before it ever started.
  *
  * Usage:
  *   MediaDownloadQueue.getInstance(ctx).enqueue(url, cancelledUrls, task);
@@ -55,9 +64,22 @@ public class MediaDownloadQueue {
     }
 
     // ── State ─────────────────────────────────────────────────────────────
-    private final Semaphore semaphore;
+    private static final class Job {
+        final String url;
+        final java.util.Set<String> cancelledUrls;
+        final Runnable task;
+        Job(String url, java.util.Set<String> cancelledUrls, Runnable task) {
+            this.url = url;
+            this.cancelledUrls = cancelledUrls;
+            this.task = task;
+        }
+    }
+
+    private final int maxConcurrent;
     private volatile boolean paused = false;
-    private final Object pauseLock = new Object();
+    private final Object lock = new Object();          // guards pending + running
+    private final ArrayDeque<Job> pending = new ArrayDeque<>();
+    private int running = 0;
     private final ExecutorService pool = Executors.newCachedThreadPool();
     private final ConcurrentHashMap<String, CountDownLatch> inFlight = new ConcurrentHashMap<>();
     private final ConnectivityManager.NetworkCallback networkCallback;
@@ -68,17 +90,15 @@ public class MediaDownloadQueue {
     }
 
     private MediaDownloadQueue(Context ctx, int maxConcurrent) {
-        this.semaphore = new Semaphore(maxConcurrent, true /* fair */);
+        this.maxConcurrent = maxConcurrent;
         cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
 
         networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network network) {
                 Log.d(TAG, "Network available — resuming download queue");
-                synchronized (pauseLock) {
-                    paused = false;
-                    pauseLock.notifyAll();
-                }
+                paused = false;
+                pump();
             }
 
             @Override
@@ -86,9 +106,7 @@ public class MediaDownloadQueue {
                 Network active = cm.getActiveNetwork();
                 if (active == null) {
                     Log.d(TAG, "Network lost — pausing download queue");
-                    synchronized (pauseLock) {
-                        paused = true;
-                    }
+                    paused = true;
                 }
             }
         };
@@ -117,51 +135,74 @@ public class MediaDownloadQueue {
      *                      once).
      */
     public void enqueue(String url, java.util.Set<String> cancelledUrls, Runnable downloadTask) {
-        pool.execute(() -> {
-            // ── 1. Wait while offline ──────────────────────────────────────
-            synchronized (pauseLock) {
-                while (paused) {
-                    if (cancelledUrls != null && cancelledUrls.contains(url)) return;
-                    try {
-                        pauseLock.wait(5_000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
+        synchronized (lock) {
+            pending.addLast(new Job(url, cancelledUrls, downloadTask));
+        }
+        pump();
+    }
+
+    /** Starts as many pending jobs as there are free slots (no-op while offline). */
+    private void pump() {
+        while (true) {
+            final Job job;
+            synchronized (lock) {
+                if (paused || running >= maxConcurrent) return;
+                job = pending.pollFirst();
+                if (job == null) return;
+                // Cancelled while still waiting? Drop it without ever taking a slot.
+                if (job.cancelledUrls != null && job.cancelledUrls.contains(job.url)) continue;
+                running++;
+            }
+            pool.execute(() -> runJob(job));
+        }
+    }
+
+    private void runJob(Job job) {
+        final CountDownLatch latch = new CountDownLatch(1);
+        inFlight.put(job.url, latch);
+        try {
+            // Final cancel check, then run + hold the slot until the caller
+            // signals REAL completion (not just "task started").
+            if (job.cancelledUrls == null || !job.cancelledUrls.contains(job.url)) {
+                job.task.run();
+                boolean signalled = latch.await(COMPLETION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                if (!signalled) {
+                    Log.w(TAG, "markComplete() never received for " + job.url
+                            + " within " + COMPLETION_TIMEOUT_MS + "ms — releasing slot anyway");
                 }
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            inFlight.remove(job.url);
+            synchronized (lock) { running--; }
+            pump();
+        }
+    }
 
-            // ── 2. Cancelled before starting? ──────────────────────────────
-            if (cancelledUrls != null && cancelledUrls.contains(url)) return;
-
-            // ── 3. Acquire concurrency slot ────────────────────────────────
-            try {
-                semaphore.acquire();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+    /**
+     * Drops every job for {@code url} that has NOT started yet (a running
+     * download is left alone).
+     *
+     * @return true if at least one pending job was removed — the caller
+     *         should then clear its own "download in progress" marker for
+     *         this url, since neither onReady nor onError will ever fire.
+     */
+    public boolean cancelPendingUrl(String url) {
+        if (url == null) return false;
+        boolean removed = false;
+        synchronized (lock) {
+            for (Iterator<Job> it = pending.iterator(); it.hasNext(); ) {
+                if (url.equals(it.next().url)) { it.remove(); removed = true; }
             }
+        }
+        return removed;
+    }
 
-            // ── 4. Final cancel check, then run + hold the slot until the
-            //      caller signals REAL completion (not just "task started") ──
-            CountDownLatch latch = new CountDownLatch(1);
-            inFlight.put(url, latch);
-            try {
-                if (cancelledUrls == null || !cancelledUrls.contains(url)) {
-                    downloadTask.run();
-                    boolean signalled = latch.await(COMPLETION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                    if (!signalled) {
-                        Log.w(TAG, "markComplete() never received for " + url
-                                + " within " + COMPLETION_TIMEOUT_MS + "ms — releasing slot anyway");
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } finally {
-                inFlight.remove(url);
-                semaphore.release();
-            }
-        });
+    /** Static convenience — never instantiates the singleton just to cancel. */
+    public static boolean cancelPending(String url) {
+        MediaDownloadQueue q = sInstance;
+        return q != null && q.cancelPendingUrl(url);
     }
 
     /** Signals url's download has truly finished — success or failure — so
@@ -175,12 +216,13 @@ public class MediaDownloadQueue {
 
     /** Force-pause (e.g. called manually when going offline). */
     public void pause() {
-        synchronized (pauseLock) { paused = true; }
+        paused = true;
     }
 
     /** Resume a manually-paused queue. */
     public void resume() {
-        synchronized (pauseLock) { paused = false; pauseLock.notifyAll(); }
+        paused = false;
+        pump();
     }
 
     /**
@@ -189,6 +231,7 @@ public class MediaDownloadQueue {
      */
     public void destroy() {
         try { cm.unregisterNetworkCallback(networkCallback); } catch (Exception ignored) {}
+        synchronized (lock) { pending.clear(); }
         pool.shutdownNow();
         sInstance = null;
     }

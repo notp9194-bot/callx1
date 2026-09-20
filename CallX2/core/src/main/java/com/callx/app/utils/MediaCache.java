@@ -148,6 +148,24 @@ public class MediaCache {
     private static final java.util.concurrent.ConcurrentHashMap<String, Long> sRemoteSizeCache =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    // v426 PERF: in-flight HEAD dedupe. Several rows (or the same row bound
+    // twice before the first HEAD returns) asking for the same URL used to
+    // each fire their own HEAD request. Now the first one goes out and every
+    // other caller just joins its waiter list. Guarded by its own monitor.
+    private static final java.util.HashMap<String, java.util.ArrayList<SizeCallback>> sSizePending =
+            new java.util.HashMap<>();
+
+    // v426 PERF: bumped whenever this class deletes cache files (invalidate,
+    // clearAll, LRU eviction). Lets callers keep an in-memory "this URL is
+    // already on disk" positive cache (see MessagePagingAdapter#getCachedFileFast)
+    // and drop it the moment any file may have disappeared, instead of
+    // re-stat()ing the disk on every bind "just in case".
+    private static final java.util.concurrent.atomic.AtomicInteger sGeneration =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /** Changes every time cache files may have been deleted. */
+    public static int generation() { return sGeneration.get(); }
+
     /**
      * Fetches the remote file size (Content-Length) for the "139 kB"-style
      * label shown on the un-downloaded media pill, without downloading the
@@ -170,8 +188,20 @@ public class MediaCache {
             if (cb != null) cb.onSize(len);
             return;
         }
+        synchronized (sSizePending) {
+            java.util.ArrayList<SizeCallback> waiters = sSizePending.get(url);
+            if (waiters != null) {           // same URL already in flight — just join it
+                if (cb != null) waiters.add(cb);
+                return;
+            }
+            waiters = new java.util.ArrayList<>(2);
+            if (cb != null) waiters.add(cb);
+            sSizePending.put(url, waiters);
+        }
         sPool.execute(() -> {
             HttpURLConnection conn = null;
+            long len = -1L;
+            String err = null;
             try {
                 conn = (HttpURLConnection) new URL(url).openConnection();
                 conn.setRequestMethod("HEAD");
@@ -179,19 +209,25 @@ public class MediaCache {
                 conn.setReadTimeout(10_000);
                 conn.setInstanceFollowRedirects(true);
                 conn.connect();
-                long len = conn.getContentLengthLong();
+                len = conn.getContentLengthLong();
                 if (len > 0) sRemoteSizeCache.put(url, len);
-                final long finalLen = len;
-                sMain.post(() -> {
-                    if (cb == null) return;
-                    if (finalLen > 0) cb.onSize(finalLen);
-                    else cb.onError("Unknown size");
-                });
             } catch (Exception e) {
-                sMain.post(() -> { if (cb != null) cb.onError(e.getMessage()); });
+                err = e.getMessage();
             } finally {
                 if (conn != null) conn.disconnect();
             }
+            final long finalLen = len;
+            final String finalErr = err;
+            final java.util.ArrayList<SizeCallback> waiters;
+            synchronized (sSizePending) { waiters = sSizePending.remove(url); }
+            if (waiters == null || waiters.isEmpty()) return;
+            sMain.post(() -> {
+                for (SizeCallback w : waiters) {
+                    if (finalErr != null) w.onError(finalErr);
+                    else if (finalLen > 0) w.onSize(finalLen);
+                    else w.onError("Unknown size");
+                }
+            });
         });
     }
 
@@ -378,6 +414,7 @@ public class MediaCache {
         File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
         if (tmp.exists()) tmp.delete();
         sRemoteSizeCache.remove(url);
+        sGeneration.incrementAndGet(); // v426: any positive "is cached" memo is now stale
         Log.w(TAG, "invalidate(): dropped undecodable cache entry " + f.getName() + " deleted=" + deleted);
         return deleted;
     }
@@ -455,6 +492,7 @@ public class MediaCache {
             if (dir == null) return;
             File[] files = dir.listFiles();
             if (files != null) for (File f : files) f.delete();
+            sGeneration.incrementAndGet(); // v426: see generation()
             Log.d(TAG, "Media cache cleared");
         });
     }
@@ -818,6 +856,7 @@ public class MediaCache {
             f.delete();
             if (freed >= target) break;
         }
+        sGeneration.incrementAndGet(); // v426: see generation()
         Log.d(TAG, "Evicted " + freed / 1024 + " KB from media cache");
     }
 }
