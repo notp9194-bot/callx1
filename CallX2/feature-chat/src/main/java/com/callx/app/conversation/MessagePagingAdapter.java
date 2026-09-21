@@ -454,6 +454,16 @@ public class MessagePagingAdapter
     // is just cv.setSearchHighlight() + invalidate(), no rebind at all.
     static final String PAYLOAD_SEARCH     = "search";
 
+    // PERF (group avatar rebind churn): a group member's profile photo URL
+    // just landed / changed in the live groupMemberPhotos map (see
+    // onMemberPhotosChanged()). The Message rows themselves did NOT
+    // change, so DIFF above can't see it (memberPhotos is not a Message
+    // field) — this targeted payload is the equivalent fast path: only
+    // the 20dp sender-avatar bitmap is swapped via
+    // bindGroupSenderAvatarOnly(); no re-measure, no text/media/reply
+    // rebind, no Glide reload of the bubble's other content.
+    static final String PAYLOAD_MEMBER_AVATAR = "member_avatar";
+
     // PERF: RGB_565 for thumbnail-sized images — half the memory of ARGB_8888.
     // Thumbnails (avatars, video covers, reply previews, status/reel chips) have
     // no alpha channel, so the extra byte per pixel in ARGB_8888 is pure waste.
@@ -1433,6 +1443,26 @@ public class MessagePagingAdapter
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
     private final boolean isGroup;
+    /**
+     * uid -> photoUrl for the group's current members — the SAME
+     * java.util.Map instance GroupChatActivity's memberPresence/members
+     * Firebase listeners already keep up to date (memberPhotos field, fed
+     * by setupGroupMembersAndPresence()). Passed once via
+     * setGroupMemberPhotos(); since it's the live map being mutated
+     * in-place by those listeners (not a fresh map per update), reads here
+     * automatically see fresh values without any extra network/DB call or
+     * repeated wiring. Empty map for 1:1 chat (isGroup=false) or before
+     * the activity wires it up.
+     */
+    private java.util.Map<String, String> groupMemberPhotos = java.util.Collections.emptyMap();
+
+    /** Wire the group's live uid->photoUrl map (see field doc above) — call
+     *  once from GroupChatActivity right after the members/presence
+     *  listeners are set up. No-op for 1:1 chat. */
+    public void setGroupMemberPhotos(java.util.Map<String, String> photos) {
+        this.groupMemberPhotos = photos != null ? photos : java.util.Collections.emptyMap();
+    }
+
     /** Set by the Activity right after construction (setChatId). Threaded
      *  through to MediaViewerActivity (video) so it can publish playback
      *  presence on chatPlayback/{chatId}/{uid} — audio playback presence
@@ -1947,6 +1977,177 @@ public class MessagePagingAdapter
         notifyVisibleRangeChanged(PAYLOAD_THEME);
     }
 
+    /** Rows kept warm either side of the viewport — matches the largest
+     *  itemViewCacheSize() AdaptiveChatScrollPolicy hands out (16), so a
+     *  cached-but-offscreen holder can't come back with a stale placeholder. */
+    private static final int MEMBER_AVATAR_NOTIFY_BUFFER_ROWS = 16;
+
+    /**
+     * PERF (group avatar rebind churn): call when one or more members'
+     * profile-photo URL actually changed in the live groupMemberPhotos map
+     * (first arrival OR a replaced photo — callers must diff before calling,
+     * see GroupChatActivity#putMemberPhoto). Previously nothing at all
+     * happened here (setMemberPhotos() is a stored-only no-op), so a photo
+     * that resolved AFTER a row was bound left that row on the placeholder
+     * circle until the user scrolled it out and back in.
+     *
+     * The old-school fix would be notifyItemChanged(pos) / notifyDataSetChanged()
+     * — a full bind: re-measure, Linkify, media/reply/Glide rebinds, all to
+     * swap one 20dp bitmap. Instead this scans ONLY the on-screen rows (+
+     * MEMBER_AVATAR_NOTIFY_BUFFER_ROWS either side for cached holders) and
+     * fires notifyItemChanged(pos, PAYLOAD_MEMBER_AVATAR) for just the rows
+     * whose sender is in {@code changedUids}. onBindViewHolder(payloads)
+     * routes that to bindGroupSenderAvatarOnly() → setGroupSenderAvatarBitmap()
+     * → invalidate() — the bubble is NOT re-measured.
+     *
+     * Rows outside the scanned window aren't touched: they haven't been
+     * bound yet, so their first bind reads the already-updated map.
+     * Uses peek() (not getItem()) so this scan never triggers Paging
+     * page-load hints. Main thread only (same as every notify*()).
+     */
+    public void onMemberPhotosChanged(@Nullable java.util.Collection<String> changedUids) {
+        if (!isGroup || changedUids == null || changedUids.isEmpty()) return;
+        // Batch-warm the visible members' avatars (coalesced — a burst of
+        // per-member photo arrivals becomes one preload batch).
+        prefetchSenderAvatars();
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return; // not attached yet — first bind reads the fresh map
+        int count = getItemCount();
+        if (count == 0) return;
+
+        int start = 0;
+        int end = count - 1;
+        RecyclerView.LayoutManager lm = rv.getLayoutManager();
+        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+            androidx.recyclerview.widget.LinearLayoutManager llm =
+                    (androidx.recyclerview.widget.LinearLayoutManager) lm;
+            int first = llm.findFirstVisibleItemPosition();
+            int last = llm.findLastVisibleItemPosition();
+            if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) {
+                return; // nothing laid out yet — first bind reads the fresh map
+            }
+            start = Math.max(0, first - MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+            end = Math.min(count - 1, last + MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+        }
+        // else: unexpected LayoutManager — scan the whole (already-loaded) list.
+
+        for (int i = start; i <= end; i++) {
+            Message m = peek(i);
+            if (m == null || m.senderId == null) continue;
+            // Only run-tail rows draw an avatar — skip the rest (no payload bind).
+            if (changedUids.contains(m.senderId) && isGroupAvatarRunTail(i, m)) {
+                notifyItemChanged(i, PAYLOAD_MEMBER_AVATAR);
+            }
+        }
+    }
+
+    // ── Batch prefetch of group sender avatars ───────────────────────────
+    private static final int SENDER_AVATAR_PREFETCH_MAX = 24;       // distinct photos per run
+    private static final int SENDER_AVATAR_PREFETCH_TAIL_ROWS = 40; // newest rows scanned when nothing's laid out yet
+    private static final long SENDER_AVATAR_PREFETCH_COALESCE_MS = 100L;
+    /** Photo URLs already handed to prefetchBatch() this session — keeps
+     *  repeated triggers (every photo arrival, first pages update) idempotent. */
+    private final java.util.HashSet<String> prefetchedSenderPhotoUrls = new java.util.HashSet<>();
+    private boolean senderAvatarPrefetchQueued;
+    private final Runnable senderAvatarPrefetchRunnable = () -> {
+        senderAvatarPrefetchQueued = false;
+        runSenderAvatarPrefetch();
+    };
+
+    /**
+     * PERF: warm every avatar the group screen is about to need in ONE batch
+     * instead of letting each row discover its own on bind. Call when the
+     * first pages land and whenever member photos arrive (onMemberPhotosChanged
+     * does this itself). Coalesced: any number of calls inside
+     * SENDER_AVATAR_PREFETCH_COALESCE_MS produce a single batch, so
+     * per-member profile reads trickling in still batch up. Idempotent.
+     * No-op for 1:1 chats or before the RecyclerView is attached.
+     */
+    public void prefetchSenderAvatars() {
+        if (!isGroup || senderAvatarPrefetchQueued) return;
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return;
+        senderAvatarPrefetchQueued = true;
+        rv.postDelayed(senderAvatarPrefetchRunnable, SENDER_AVATAR_PREFETCH_COALESCE_MS);
+    }
+
+    private void runSenderAvatarPrefetch() {
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null || !isGroup || groupMemberPhotos.isEmpty()) return;
+        int count = getItemCount();
+        if (count == 0) return;
+
+        // Which rows count as "visible members": the laid-out viewport (±cache
+        // buffer) when there is one; otherwise the newest rows (the list is
+        // stackFromEnd, so right after open that's what's about to show).
+        int start = Math.max(0, count - SENDER_AVATAR_PREFETCH_TAIL_ROWS);
+        int end = count - 1;
+        RecyclerView.LayoutManager lm = rv.getLayoutManager();
+        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+            androidx.recyclerview.widget.LinearLayoutManager llm =
+                    (androidx.recyclerview.widget.LinearLayoutManager) lm;
+            int first = llm.findFirstVisibleItemPosition();
+            int last = llm.findLastVisibleItemPosition();
+            if (first != RecyclerView.NO_POSITION && last != RecyclerView.NO_POSITION) {
+                start = Math.max(0, first - MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+                end = Math.min(count - 1, last + MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+            }
+        }
+
+        java.util.LinkedHashSet<String> photos = new java.util.LinkedHashSet<>();
+        for (int i = end; i >= start && photos.size() < SENDER_AVATAR_PREFETCH_MAX; i--) { // newest first
+            Message m = peek(i);
+            if (m == null || m.senderId == null || m.senderId.equals(currentUid)) continue;
+            String photo = groupMemberPhotos.get(m.senderId);
+            if (photo == null || photo.isEmpty()) continue;
+            if (prefetchedSenderPhotoUrls.add(photo)) photos.add(photo);
+        }
+        if (!photos.isEmpty()) {
+            com.callx.app.cache.ChatAvatarBinder.prefetchBatch(rv.getContext(), photos);
+        }
+    }
+
+    /** Single-uid convenience for {@link #onMemberPhotosChanged(java.util.Collection)}. */
+    public void onMemberPhotoChanged(@Nullable String uid) {
+        if (uid == null) return;
+        onMemberPhotosChanged(java.util.Collections.singleton(uid));
+    }
+
+    /**
+     * PAYLOAD_MEMBER_AVATAR fast path: re-resolve this row's sender photo
+     * from groupMemberPhotos and swap ONLY the 20dp avatar bitmap. Runs the
+     * exact same ChatAvatarBinder.bindBitmap() (L2 memory hit = same frame,
+     * else async Glide) the full bind uses, so it shares the same cache
+     * entries. Deliberately does NOT bump h.canvasBindToken — that would
+     * cancel every other in-flight callback for this row (image/reply/
+     * reel thumbs); it just snapshots the current token so a recycle/rebind
+     * that happens before the async load finishes still drops the result.
+     */
+    private void bindGroupSenderAvatarOnly(@NonNull VH h, int position, @NonNull Message m) {
+        final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+        // Not a canvas row / not a received-group row with the avatar column
+        // reserved (sent, 1:1, broadcast pseudo-label) — nothing to swap.
+        if (cv == null || !cv.isGroupSenderAvatarVisible()) return;
+
+        // This payload is also what the run-tail observer fires when a
+        // neighbor was inserted/removed, so re-evaluate whether THIS row is
+        // still the tail of its sender run before touching the bitmap.
+        final boolean tail = isGroupAvatarRunTail(position, m);
+        cv.setGroupSenderAvatarShown(tail);
+        if (!tail) return; // avatar now belongs to a later bubble — nothing to load
+
+        final String url = groupMemberPhotos.get(m.senderId);
+        if (url == null || url.isEmpty()) {
+            cv.setGroupSenderAvatarBitmap(null); // photo removed → placeholder
+            return;
+        }
+        final int token = h.canvasBindToken;
+        com.callx.app.cache.ChatAvatarBinder.bindBitmap(h.itemView.getContext(), url, 0L, resource -> {
+            if (h.canvasBindToken != token) return; // recycled/rebound meanwhile
+            cv.setGroupSenderAvatarBitmap(resource);
+        });
+    }
+
     public boolean isInMultiSelectMode() { return multiSelectMode; }
 
     public java.util.List<Message> getSelectedMessages() {
@@ -2012,6 +2213,31 @@ public class MessagePagingAdapter
         // isn't possible and isn't needed: DiffUtil already gives correct
         // identity tracking across submitData() calls, including the
         // warm-cache-list → real-Paging-list transition.
+
+        if (isGroup) {
+            // Run-tail avatar staleness fix: whether a row shows the group
+            // avatar depends on the NEXT row (see isGroupAvatarRunTail), but
+            // DiffUtil only rebinds a row whose OWN content changed. A new
+            // message from the same sender appended after row N therefore
+            // leaves row N drawing an avatar it should now hide (two
+            // avatars in one run). Re-evaluate the row just above every
+            // insert/remove point via the cheap payload path.
+            registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+                @Override public void onItemRangeInserted(int positionStart, int itemCount) {
+                    refreshGroupAvatarRunTail(positionStart - 1);
+                }
+                @Override public void onItemRangeRemoved(int positionStart, int itemCount) {
+                    refreshGroupAvatarRunTail(positionStart - 1);
+                }
+                @Override public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
+                    int lo = Math.min(fromPosition, toPosition) - 1;
+                    int hi = Math.max(fromPosition, toPosition) + itemCount;
+                    for (int p = Math.max(0, lo); p <= hi && p - lo < 30; p++) {
+                        refreshGroupAvatarRunTail(p);
+                    }
+                }
+            });
+        }
     }
 
     // PERF: one cached RequestManager for the RecyclerView's whole attached
@@ -2125,6 +2351,8 @@ public class MessagePagingAdapter
     public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onDetachedFromRecyclerView(recyclerView);
         glideRequestManager = null;
+        recyclerView.removeCallbacks(senderAvatarPrefetchRunnable);
+        senderAvatarPrefetchQueued = false;
         attachedRecyclerView = null;
         GlobalVoicePlaybackManager.getInstance().removeListener(globalPlaybackListener);
 
@@ -2200,7 +2428,13 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     @Override
     public int getItemViewType(int position) {
-        Message m = getItem(position);
+        return viewTypeOf(getItem(position));
+    }
+
+    /** Body of getItemViewType(), split out so neighbor-aware logic (see
+     *  isGroupAvatarRunTail) can ask "what view type would THAT message get"
+     *  from a peek()ed Message without a position-based getItem() call. */
+    private int viewTypeOf(@Nullable Message m) {
         if (m == null) return TYPE_RECEIVED;
         // "security_event" (E2EE security-code-change notice) reuses the
         // same standalone pill-chip rendering as date separators — see
@@ -2478,8 +2712,23 @@ public class MessagePagingAdapter
         for (int i = haveSent; i < countPerType; i++) {
             pool.putRecycledView(onCreateViewHolder(parent, TYPE_CANVAS_SENT));
         }
+        // Group chats: the received holders are the ones that draw the 20dp
+        // sender avatar, and until a photo resolves that's the flat-gray
+        // placeholder bitmap. Build the shared placeholder bitmap here, on
+        // the pre-warm frame — even when the (shared) pool was already full
+        // and no holder gets created below — and pre-set it on every
+        // received holder we DO create, so the first unresolved avatar of the
+        // first scroll draws with no build/lookup cost. 1:1 chat skips this.
+        if (isGroup) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .prewarmGroupAvatarPlaceholder(parent.getContext());
+        }
         for (int i = haveReceived; i < countPerType; i++) {
-            pool.putRecycledView(onCreateViewHolder(parent, TYPE_CANVAS_RECEIVED));
+            VH vh = onCreateViewHolder(parent, TYPE_CANVAS_RECEIVED);
+            if (isGroup && vh.canvasView != null) {
+                vh.canvasView.presetGroupSenderAvatarPlaceholder();
+            }
+            pool.putRecycledView(vh);
         }
     }
 
@@ -2579,19 +2828,33 @@ public class MessagePagingAdapter
     public void onBindViewHolder(@NonNull VH h, int position,
                                  @NonNull java.util.List<Object> payloads) {
         boolean hasReadByPayload = false;
+        boolean hasMemberAvatarPayload = false;
+        int handledPayloadCount = 0;
         for (Object payload : payloads) {
             if (PAYLOAD_READ_BY.equals(payload)) {
                 hasReadByPayload = true;
-                break;
+                handledPayloadCount++;
+            } else if (PAYLOAD_MEMBER_AVATAR.equals(payload)) {
+                hasMemberAvatarPayload = true;
+                handledPayloadCount++;
             }
         }
-        if (hasReadByPayload) {
+        if (hasReadByPayload || hasMemberAvatarPayload) {
             // The same Firebase snapshot can change a receipt map and a
             // delivery tick. Handle both payloads when RecyclerView merges
             // them instead of letting the first one hide the second.
             Message m = getItem(position);
-            if (m != null) bindSeenByStrip(h, m);
-            if (payloads.size() == 1) return;
+            if (m != null) {
+                if (hasReadByPayload) bindSeenByStrip(h, m);
+                // Member-photo payload: swap ONLY the 20dp sender-avatar
+                // bitmap (invalidate, no re-measure) — see
+                // bindGroupSenderAvatarOnly().
+                if (hasMemberAvatarPayload) bindGroupSenderAvatarOnly(h, position, m);
+            }
+            // Every merged payload was one of the two handled above
+            // (duplicates of the same payload included) — nothing left
+            // to route, skip the full-bind fallthrough.
+            if (handledPayloadCount == payloads.size()) return;
         }
         // PERF: combined bit-flag payload from DIFF.getChangePayload() —
         // status/reactions/poll/edited may all be set together in one
@@ -2859,7 +3122,7 @@ public class MessagePagingAdapter
         // takes effect for them (status_seen/reel_seen/view_once included).
         if (h.canvasView != null) {
             applyGroupedSpacing(h, position, m);
-            bindCanvasMessage(h, m);
+            bindCanvasMessage(h, m, position);
             return;
         }
         // ── STATUS SEEN BUBBLE — special system event row (legacy fallback,
@@ -3358,6 +3621,56 @@ public class MessagePagingAdapter
         return "date_separator".equals(type) || "security_event".equals(type)
                 || "status_seen".equals(type) || "reel_seen".equals(type)
                 || "view_once".equals(type);
+    }
+
+    /**
+     * WhatsApp-style "same-uid consecutive skip": in a run of consecutive
+     * messages from one sender, the 20dp avatar belongs on the LAST bubble
+     * of the run only. True when the row at {@code position} is that tail —
+     * i.e. it's the newest row, or the next row is a different sender / a
+     * system row / a row that will not draw a group avatar itself (a legacy
+     * non-canvas bubble has no avatar, so the canvas row before it must
+     * keep the run's avatar or the run would end up with none).
+     *
+     * Uses peek() (never getItem()) so asking about position+1 can't trigger
+     * Paging load hints. An unloaded neighbor (null) counts as "tail" —
+     * showing an avatar too often is harmless, dropping it isn't.
+     *
+     * NOTE this depends on the NEXT row, which DiffUtil never rebinds when
+     * only its neighbor changed — see the AdapterDataObserver in the
+     * constructor (refreshGroupAvatarRunTail), which re-evaluates the row
+     * before every insert/remove via PAYLOAD_MEMBER_AVATAR.
+     */
+    private boolean isGroupAvatarRunTail(int position, @NonNull Message m) {
+        int next = position + 1;
+        if (next >= getItemCount()) return true;
+        Message nm = peek(next);
+        if (nm == null || nm.senderId == null || m.senderId == null) return true;
+        if (!nm.senderId.equals(m.senderId)) return true;
+        if (isNonGroupingRow(nm.type)) return true;
+        return !willShowGroupSenderAvatar(nm);
+    }
+
+    /** Mirrors bindCanvasMessage()'s avatar gate (received + group + a
+     *  sender name) AND that the row actually renders on the canvas path. */
+    private boolean willShowGroupSenderAvatar(@NonNull Message nm) {
+        if (!isGroup) return false;
+        if (currentUid != null && currentUid.equals(nm.senderId)) return false;
+        if (nm.senderName == null || nm.senderName.isEmpty()) return false;
+        return viewTypeOf(nm) == TYPE_CANVAS_RECEIVED;
+    }
+
+    /** Re-evaluate one row's avatar run-tail state (payload path, no full bind). */
+    private void refreshGroupAvatarRunTail(int pos) {
+        if (pos < 0) return;
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return; // nothing bound yet — first bind computes it fresh
+        if (rv.isComputingLayout()) {
+            rv.post(() -> refreshGroupAvatarRunTail(pos));
+            return;
+        }
+        if (pos >= getItemCount()) return;
+        notifyItemChanged(pos, PAYLOAD_MEMBER_AVATAR);
     }
 
     // WhatsApp-level fix: this OnBubbleClickListener used to be a brand-new
@@ -4213,7 +4526,7 @@ public class MessagePagingAdapter
     }
 
 
-    private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
+    private void bindCanvasMessage(@NonNull VH h, @NonNull Message m, int position) {
         final Context ctx = h.itemView.getContext();
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
         final int myToken = ++h.canvasBindToken;
@@ -5793,10 +6106,45 @@ public class MessagePagingAdapter
         boolean isBroadcastMsg = Boolean.TRUE.equals(m.broadcast);
         if (!sent && isGroup && m.senderName != null && !m.senderName.isEmpty()) {
             cv.setGroupSender(isBroadcastMsg ? "\uD83D\uDCE2 " + m.senderName : m.senderName);
+
+            // ── Group-sender avatar (WhatsApp-style, 20dp) — column
+            // reserved synchronously regardless of whether the photo has
+            // resolved yet (see setGroupSenderAvatarVisible()'s doc), so
+            // the bubble's width is correct on the very first frame. photo
+            // URL comes straight from groupMemberPhotos — the group's
+            // already-loaded member/presence map (see field doc) — no
+            // extra Firebase/Room read per message. Bind goes through
+            // ChatAvatarBinder.bindBitmap() at its default TIER_INLINE
+            // (24dp) so this shares L2/L3 cache entries with every other
+            // canvas avatar at that tier (reel-share header, contact-share
+            // avatar) for the same photo, same core pipeline the rest of
+            // chat's avatars already use. ──
+            cv.setGroupSenderAvatarVisible(true);
+            // Same-uid consecutive skip (WhatsApp): the column above stays
+            // reserved for EVERY bubble in a run (so the whole run stays
+            // aligned — setGroupSenderAvatarVisible(false) here would shift
+            // the bubble left and misalign it), but only the LAST bubble of
+            // the run draws + binds the avatar. Earlier bubbles skip
+            // bindBitmap() entirely and hold no bitmap.
+            final boolean avatarShown = isGroupAvatarRunTail(position, m);
+            cv.setGroupSenderAvatarShown(avatarShown);
+            if (avatarShown) {
+                String avatarPhotoUrl = groupMemberPhotos.get(m.senderId);
+                if (avatarPhotoUrl != null && !avatarPhotoUrl.isEmpty()) {
+                    com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, avatarPhotoUrl, 0L, resource -> {
+                        if (h.canvasBindToken != myToken) return; // recycled/rebound meanwhile
+                        cv.setGroupSenderAvatarBitmap(resource);
+                    });
+                } else {
+                    cv.setGroupSenderAvatarBitmap(null);
+                }
+            }
         } else if (!sent && isBroadcastMsg) {
             cv.setGroupSender("\uD83D\uDCE2 Broadcast");
+            cv.clearGroupSenderAvatar();
         } else {
             cv.clearGroupSender();
+            cv.clearGroupSenderAvatar();
         }
 
         // ── Forwarded label ──
@@ -9837,6 +10185,10 @@ public class MessagePagingAdapter
      * should call notifyItemChanged(pos, PAYLOAD) targeted at just the
      * affected sent-message rows once it reads memberPhotos in bind, not
      * reintroduce a blanket notifyDataSetChanged() here.
+     *
+     * NOTE: the 20dp group SENDER avatar on received rows does NOT go
+     * through this setter — it reads groupMemberPhotos (setGroupMemberPhotos())
+     * and refreshes via onMemberPhotosChanged() + PAYLOAD_MEMBER_AVATAR.
      */
     public void setMemberPhotos(java.util.Map<String, String> photos) {
         this.memberPhotos = photos;

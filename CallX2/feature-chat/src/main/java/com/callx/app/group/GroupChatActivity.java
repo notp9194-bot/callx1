@@ -797,6 +797,9 @@ public class GroupChatActivity extends AppCompatActivity
     protected void onDestroy() {
         chatUiEventBatcher.cancel();
         flushGroupDraftSave();
+        // PERF FIX: matching leak-safety half of switching to the shared
+        // static Canvas ViewHolder pool above — same trim ChatActivity does.
+        com.callx.app.conversation.MessagePagingAdapter.trimSharedCanvasPool();
         // Pair with the bounded keepSynced(true) Query set on group open.
         if (messagesSyncQuery != null) {
             try { messagesSyncQuery.keepSynced(false); } catch (Exception ignored) {}
@@ -1189,6 +1192,31 @@ public class GroupChatActivity extends AppCompatActivity
 
     private void setupPagingRecyclerView() {
         pagingAdapter = new MessagePagingAdapter(currentUid, true /* isGroup */);
+        // WhatsApp-style group-sender avatar (see MessageBubbleCanvasView's
+        // GROUP_AVATAR_* fields): wire the SAME live memberPhotos map
+        // setupGroupMembersAndPresence()'s listeners already keep updated —
+        // reference passed once here, no extra network/DB call and no
+        // re-wiring needed on every presence update since the adapter reads
+        // through this same map instance at bind time.
+        pagingAdapter.setGroupMemberPhotos(memberPhotos);
+
+        // Batch prefetch on open: the moment the FIRST non-empty page lands,
+        // warm every visible member's avatar in one go (see
+        // MessagePagingAdapter#prefetchSenderAvatars) so the first
+        // bind/scroll is a cache hit, not one network round-trip per row.
+        // One-shot — later photo arrivals trigger the same warm themselves
+        // (onMemberPhotosChanged), and if the member photos haven't synced
+        // yet at this point that path picks it up when they do.
+        final kotlin.jvm.functions.Function0<kotlin.Unit>[] avatarWarmHolder =
+                new kotlin.jvm.functions.Function0[1];
+        avatarWarmHolder[0] = () -> {
+            if (pagingAdapter != null && pagingAdapter.getItemCount() > 0) {
+                pagingAdapter.removeOnPagesUpdatedListener(avatarWarmHolder[0]);
+                pagingAdapter.prefetchSenderAvatars();
+            }
+            return kotlin.Unit.INSTANCE;
+        };
+        pagingAdapter.addOnPagesUpdatedListener(avatarWarmHolder[0]);
 
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
             @Override public void onReply(Message m)               { startReply(m); }
@@ -1275,8 +1303,15 @@ public class GroupChatActivity extends AppCompatActivity
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
         applyAdaptiveMessageRecyclerBudget(RecyclerView.SCROLL_STATE_IDLE, 0);
-        androidx.recyclerview.widget.RecyclerView.RecycledViewPool groupPool =
-                new androidx.recyclerview.widget.RecyclerView.RecycledViewPool();
+        // PERF FIX: was `new RecyclerView.RecycledViewPool()` — a fresh pool
+        // local to this activity, so a second chat (1:1 or another group)
+        // opened in the same process could never reuse already-warm Canvas
+        // ViewHolders from this one. Switched to the shared/static pool —
+        // same one ChatActivity uses — so Canvas ViewHolders are reused
+        // across every open chat screen instead of being paid for again.
+        // See trimSharedCanvasPool() call added to onDestroy() below for the
+        // matching leak-safety half of this change.
+        RecyclerView.RecycledViewPool groupPool = MessagePagingAdapter.getSharedCanvasPool();
         // PERF: pool sizes 5→10 for sent/received — same reasoning as 1:1 chat.
         groupPool.setMaxRecycledViews(1, 10);
         groupPool.setMaxRecycledViews(2, 10);
@@ -1291,6 +1326,14 @@ public class GroupChatActivity extends AppCompatActivity
         groupPool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     10);
         groupPool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 10);
         binding.rvMessages.setRecycledViewPool(groupPool);
+        // PERF FIX: 1:1 ChatActivity warms the pool with a few
+        // TYPE_CANVAS_SENT/RECEIVED holders before the user's first scroll
+        // (see warmUpRecycledViewPool() doc) — group chat never called this,
+        // so its first fling always paid onCreateViewHolder() cost mid-gesture.
+        // Posted (not inline) so it runs after the current cold-open frame.
+        final RecyclerView.RecycledViewPool warmPool = groupPool;
+        binding.rvMessages.post(() ->
+                pagingAdapter.warmUpRecycledViewPool(binding.rvMessages, warmPool, 6));
         // PERF: scroll-ahead image preloading — same helper/size as 1:1
         // ChatActivity, keeps cache-key size consistent with bind().
         // v3 ULTRA-ADVANCED: window bumped 8 -> 14, same reasoning as
@@ -3723,17 +3766,27 @@ public class GroupChatActivity extends AppCompatActivity
         memberPresenceRef = FirebaseUtils.getGroupsRef().child(groupId).child("memberPresence");
         memberPresenceListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                // PERF: this snapshot re-fires for ANY member's lastSeen/online
+                // tick, so photos are diffed — only uids whose photo URL
+                // actually changed (first arrival or replaced) get a
+                // targeted avatar-only payload refresh below.
+                java.util.List<String> photoChangedUids = null;
                 for (DataSnapshot c : snap.getChildren()) {
                     String uid = c.getKey();
                     if (uid == null || uid.equals(currentUid)) continue;
                     Long ls = c.child("lastSeen").getValue(Long.class);
                     memberLastSeen.put(uid, ls != null ? ls : 0L);
                     String photo = c.child("photoUrl").getValue(String.class);
-                    if (photo != null) memberPhotos.put(uid, photo);
+                    if (photo != null && putMemberPhoto(uid, photo)) {
+                        if (photoChangedUids == null) photoChangedUids = new java.util.ArrayList<>(4);
+                        photoChangedUids.add(uid);
+                    }
                 }
                 refreshSubtitle();
                 if (groupMentionController != null)
                     groupMentionController.updateMembers(memberNames, memberPhotos);
+                if (photoChangedUids != null && pagingAdapter != null)
+                    pagingAdapter.onMemberPhotosChanged(photoChangedUids);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -3767,10 +3820,11 @@ public class GroupChatActivity extends AppCompatActivity
         FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot userSnap) {
                 boolean changed = false;
+                boolean photoChanged = false;
                 String photo = userSnap.child("photoUrl").getValue(String.class);
                 if (photo == null) photo = userSnap.child("thumbUrl").getValue(String.class);
                 if (photo != null && !photo.isEmpty()) {
-                    memberPhotos.put(uid, photo);
+                    photoChanged = putMemberPhoto(uid, photo);
                     changed = true;
                 }
                 if (nameMissing) {
@@ -3785,9 +3839,29 @@ public class GroupChatActivity extends AppCompatActivity
                         groupMentionController.updateMembers(memberNames, memberPhotos);
                     if (pagingAdapter != null) pagingAdapter.setMemberPhotos(memberPhotos);
                 }
+                // PERF: a photo that resolved AFTER its rows were bound (the
+                // common case — this is an async single-value read) used to
+                // leave those rows on the placeholder until scrolled away and
+                // back. Payload-refresh just this member's visible rows:
+                // avatar bitmap swap only, no re-measure / full rebind.
+                if (photoChanged && pagingAdapter != null)
+                    pagingAdapter.onMemberPhotoChanged(uid);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
+    }
+
+    /**
+     * Stores a member's photo URL in the live memberPhotos map and reports
+     * whether the stored value ACTUALLY changed — a first non-empty value
+     * for that uid, or a different URL than before. The presence listener
+     * re-delivers every member's (unchanged) photoUrl on every lastSeen
+     * tick; without this diff each tick would fire an avatar refresh.
+     */
+    private boolean putMemberPhoto(String uid, String photo) {
+        String prev = memberPhotos.put(uid, photo);
+        if (prev == null) return photo != null && !photo.isEmpty();
+        return !prev.equals(photo);
     }
 
     // ─────────────────────────────────────────────────────────────────────

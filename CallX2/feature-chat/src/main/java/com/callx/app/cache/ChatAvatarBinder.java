@@ -5,6 +5,8 @@ import android.graphics.Bitmap;
 import android.widget.ImageView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.Priority;
+import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
@@ -137,14 +139,7 @@ public final class ChatAvatarBinder {
         }
 
         int px = AvatarUrlBuilder.tierPx(ctx, tier);
-        Glide.with(ctx)
-            .asBitmap()
-            .load(url)
-            .apply(new RequestOptions()
-                    .override(px, px)
-                    .format(AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
-            .circleCrop()
+        bitmapRequest(ctx, url, px)
             .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
                 @Override
                 public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
@@ -171,6 +166,64 @@ public final class ChatAvatarBinder {
                 @Override
                 public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable placeholder) {}
             });
+    }
+
+    /**
+     * The ONE place bindBitmap()'s Glide request options live. prefetchBatch()
+     * builds its request from this same method on purpose: Glide's cache key
+     * covers url + override size + transformations + decode format + options,
+     * so a warm request only produces a hit for a later bindBitmap() call if
+     * every one of those is IDENTICAL. Sharing the builder makes drift
+     * (someone tweaking one path and silently killing the other's cache hits)
+     * impossible.
+     */
+    private static RequestBuilder<Bitmap> bitmapRequest(Context ctx, String url, int px) {
+        return Glide.with(ctx)
+            .asBitmap()
+            .load(url)
+            .apply(new RequestOptions()
+                    .override(px, px)
+                    .format(AVATAR_FORMAT)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+            .circleCrop();
+    }
+
+    /**
+     * Batch warm for canvas-drawn inline avatars (group sender avatar): fires
+     * one preload per distinct photo, all at once, so a freshly-opened group's
+     * first bind/scroll finds every visible member's avatar already in Glide's
+     * memory cache (sync deliver) or its RESOURCE disk cache (no network).
+     *
+     * WHY NOT prefetch() ABOVE: that is the chat-LIST prefetch — (a) it warms
+     * TIER (50dp -> MEDIUM) URLs, but bindBitmap() reads TIER_INLINE URLs, so
+     * it would warm entries nothing here ever asks for; (b) it stores
+     * DiskCacheStrategy.DATA (raw bytes), which a DiskCacheStrategy.RESOURCE
+     * request such as bindBitmap()'s never reads — Glide skips the DATA_CACHE
+     * stage entirely for RESOURCE — so the later bind would still hit the
+     * network; (c) it's velocity/metered gated and depth-limited, none of
+     * which applies to "warm these N members that are about to be on screen".
+     * This method instead issues the exact same request bindBitmap() will
+     * (see bitmapRequest()), so the later bind is a real cache hit. Glide's
+     * Engine also coalesces an in-flight warm with a bind that lands on the
+     * same key — no double fetch.
+     *
+     * Deliberately does NOT write ChatAvatarL2Cache/L3: L2 holds weak refs
+     * (nothing would keep a warmed bitmap alive), and preload() releases the
+     * bitmap straight back to Glide — the real bind fills L2/L3 as usual.
+     */
+    public static void prefetchBatch(Context ctx, java.util.Collection<String> photos) {
+        if (ctx == null || photos == null || photos.isEmpty()) return;
+        int px = AvatarUrlBuilder.tierPx(ctx, TIER_INLINE);
+        for (String photo : photos) {
+            if (photo == null || photo.isEmpty()) continue;
+            String url = AvatarUrlBuilder.buildResponsive(ctx, photo, TIER_INLINE, 0L);
+            if (url == null) continue;
+            Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
+            if (l2Hit != null && !l2Hit.isRecycled()) continue; // already decoded in memory
+            bitmapRequest(ctx, url, px)
+                    .priority(Priority.NORMAL) // tiny (~72px) assets — must not queue behind, or sit LOW under, a visible row's own load
+                    .preload();
+        }
     }
 
     /**

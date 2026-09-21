@@ -404,6 +404,20 @@ public class MessageBubbleCanvasView extends View {
     static final float PINNED_LABEL_GAP_DP  = 2f; // gap between label and bubble top
     static final float GROUP_SENDER_TEXT_SP = 11f; // matches tv_sender_name in item_message_received.xml
 
+    // ── Group-chat sender avatar (WhatsApp-style, received-only) — a small
+    // circular avatar bottom-aligned to the bubble's start edge, mirrors
+    // iv_sender_avatar in item_message_received.xml (dead in that legacy
+    // layout since it was never bound) and reuses the exact draw-a-Bitmap-
+    // into-an-oval-via-cached-BitmapShader technique SeenBubbleRenderer
+    // already uses for the reel/status-seen avatar, just at a smaller size
+    // and positioned relative to bubbleRect instead of seenCardRect. Shifts
+    // bubbleLeft/maxTextWidth right by AVATAR_SIZE+AVATAR_GAP so the bubble
+    // itself never overlaps the avatar column — same reservation the legacy
+    // XML's ll_bubble-constraintStart_toEndOf-iv_sender_avatar gave it. ──
+    static final float GROUP_AVATAR_SIZE_DP = 20f;
+    static final float GROUP_AVATAR_GAP_DP  = 6f; // gap between avatar and bubble start edge
+    static final int   GROUP_AVATAR_PLACEHOLDER_COLOR = 0xFFBDBDBD;
+
     // ── Forwarded label — mirrors tv_forwarded's text/size/color/style from
     // item_message_received.xml ("↪ Forwarded from X", 11sp italic, #888888).
     // Stacked directly below the pinned-label/group-sender row (same
@@ -2125,15 +2139,48 @@ public class MessageBubbleCanvasView extends View {
     float pinnedLabelWidth = 0;
 
     // ── Group-chat sender-name state — mirrors tv_sender_name in
-    // item_message_received.xml. Only meaningful for received messages;
-    // the sender AVATAR (iv_sender_avatar) is intentionally not modeled —
-    // it's dead markup in the legacy layout too (never bound anywhere in
-    // MessagePagingAdapter), so there's nothing functional to mirror. ──
+    // item_message_received.xml. Only meaningful for received messages. ──
     boolean hasGroupSender = false;
     String groupSenderName = "";
     final TextPaint groupSenderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     int groupSenderTextHeight = 0;
     float groupSenderWidth = 0;
+
+    // ── Group-chat sender-AVATAR state (WhatsApp-style, 20dp, bottom-
+    // aligned to the bubble's start edge) — was previously unmodeled (see
+    // iv_sender_avatar being dead markup in the legacy layout); now bound
+    // by MessagePagingAdapter via setGroupSenderAvatarBitmap(), sourced
+    // from the group's already-loaded member list (no extra network/DB
+    // call — see ChatAvatarBinder.bindBitmap() call site). Only reserves
+    // its column width (shifts bubbleLeft/maxTextWidth) when hasGroupSender
+    // is also true, i.e. only for received group messages. ──
+    Bitmap groupSenderAvatarBitmap = null;
+    boolean hasGroupSenderAvatar = false;
+    // WhatsApp-style run gating: in a run of consecutive messages from the
+    // same sender ALL bubbles keep the reserved avatar column (so they stay
+    // left-aligned together — hasGroupSenderAvatar, layout-affecting), but
+    // only the LAST bubble of the run actually draws the circle. This flag
+    // is draw-only (no re-measure when it flips). Default true so any
+    // caller that never sets it keeps the old always-draw behaviour.
+    boolean groupSenderAvatarShown = true;
+    final Paint groupSenderAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    // PERF: the "no photo yet" placeholder used to be a Paint-drawn oval
+    // (drawOval + AA paint every draw() for as long as the avatar was
+    // unresolved). Now a pre-rendered flat-gray circle Bitmap, built once
+    // per size and shared process-wide (see getGroupAvatarPlaceholderBitmap()
+    // / GROUP_AVATAR_PLACEHOLDER_BITMAP_CACHE) — draw() is a plain
+    // drawBitmap(). This field just memoizes the shared instance so the
+    // per-frame path is a field read, not a synchronized cache lookup.
+    private Bitmap groupSenderAvatarPlaceholderBmp;
+    final RectF groupSenderAvatarRect = new RectF();
+    final android.graphics.Matrix groupSenderAvatarShaderMatrix = new android.graphics.Matrix();
+    // PERF: cached BitmapShader for the group-avatar circle — same
+    // rebuild-only-when-changed treatment SeenBubbleRenderer's avatarShader
+    // gets, avoids a `new BitmapShader(...)` on every single draw() while a
+    // group message with a resolved avatar is on screen/scrolling.
+    private android.graphics.BitmapShader groupSenderAvatarShader;
+    private Bitmap lastGroupSenderAvatarBitmap;
+    private float lastGroupSenderAvatarScale = Float.NaN, lastGroupSenderAvatarDx, lastGroupSenderAvatarDy;
 
     // ── Forwarded-label state — stacks below the pinned-label/group-sender
     // row above the bubble (own row, own baseline; see onMeasure). ──
@@ -4616,6 +4663,7 @@ public class MessageBubbleCanvasView extends View {
         seenThumbBitmap   = null;
         seenLabelOverride = null;
         linkThumbBitmap   = null;
+        groupSenderAvatarBitmap = null;
     }
 
     private static int resolveFileIconColor(@Nullable String mime) {
@@ -5222,6 +5270,66 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
+     * Reserves/releases the WhatsApp-style avatar column beside a received
+     * group bubble (20dp circle, bottom-aligned to the bubble's start edge —
+     * see field doc above). Call this synchronously at bind time — true for
+     * every real group message (`!sent && isGroup`), independent of whether
+     * the photo bitmap itself has resolved yet, so the bubble's width/layout
+     * is correct on the very first frame instead of jumping once the async
+     * avatar load (setGroupSenderAvatarBitmap()) completes. A recycled view
+     * that no longer shows a group avatar (1:1 chat, sent message, or the
+     * 1:1-broadcast pseudo-label) must pass false here.
+     */
+    public void setGroupSenderAvatarVisible(boolean visible) {
+        if (this.hasGroupSenderAvatar == visible) return;
+        this.hasGroupSenderAvatar = visible;
+        if (!visible) this.groupSenderAvatarBitmap = null;
+        requestLayoutIfSizeChanged();
+        invalidate();
+    }
+
+    /**
+     * Swaps in a decoded sender-photo Bitmap once ChatAvatarBinder.bindBitmap()
+     * resolves it (L2-memory hit: same frame; cache miss: async Glide
+     * callback) — no re-measure needed, the avatar column's size was already
+     * reserved by setGroupSenderAvatarVisible(true). Passing null (no photo
+     * URL for this sender) just leaves the placeholder circle drawn.
+     */
+    public void setGroupSenderAvatarBitmap(@Nullable Bitmap bitmap) {
+        // A late async load can land after the row stopped being the run
+        // tail (setGroupSenderAvatarShown(false)) — don't pin it then.
+        this.groupSenderAvatarBitmap = groupSenderAvatarShown ? bitmap : null;
+        invalidate();
+    }
+
+    /**
+     * Draw-only gate for the avatar circle (see groupSenderAvatarShown doc).
+     * false = column stays reserved but nothing is drawn, and any held
+     * bitmap is dropped so a skipped row pins no memory. Flipping this is
+     * just an invalidate — never a re-measure — so the adapter can move the
+     * avatar from the previous tail bubble to a new one cheaply.
+     */
+    public void setGroupSenderAvatarShown(boolean shown) {
+        if (this.groupSenderAvatarShown == shown) return;
+        this.groupSenderAvatarShown = shown;
+        if (!shown) this.groupSenderAvatarBitmap = null;
+        invalidate();
+    }
+
+    /** True when the avatar column is reserved (received group bubble). Used by
+     *  the adapter's PAYLOAD_MEMBER_AVATAR fast path to skip rows that have no
+     *  avatar to swap (sent / 1:1 / broadcast pseudo-label). */
+    public boolean isGroupSenderAvatarVisible() {
+        return hasGroupSenderAvatar;
+    }
+
+    /** Convenience: clears both the avatar-column reservation and any bitmap — equivalent to setGroupSenderAvatarVisible(false). */
+    public void clearGroupSenderAvatar() {
+        setGroupSenderAvatarVisible(false);
+    }
+
+
+    /**
      * Show the italic "↪ Forwarded from X" label, stacked directly below
      * the pinned-label/group-sender row (mirrors tv_forwarded's
      * constraintTop_toBottomOf tv_sender_name in item_message_received.xml —
@@ -5553,7 +5661,16 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int parentWidth = MeasureSpec.getSize(widthMeasureSpec);
-        int maxBubbleWidth = Math.round(parentWidth * MAX_BUBBLE_WIDTH_FRACTION);
+        // WhatsApp-style group-avatar column — reserved only for received
+        // group messages (hasGroupSenderAvatar, set by
+        // setGroupSenderAvatarVisible()). Subtracted from maxBubbleWidth
+        // (not just applied as a bubbleLeft offset) so bubbleWidth/
+        // maxTextWidth below are sized to actually fit inside
+        // parentWidth - avatarColW instead of overflowing off the row's
+        // end once bubbleLeft is shifted right by this same amount.
+        int avatarColW = hasGroupSenderAvatar
+                ? Math.round((GROUP_AVATAR_SIZE_DP + GROUP_AVATAR_GAP_DP) * density) : 0;
+        int maxBubbleWidth = Math.round(parentWidth * MAX_BUBBLE_WIDTH_FRACTION) - avatarColW;
         int hPad = Math.round(H_PADDING_DP * density);
         int vPad = Math.round(V_PADDING_DP * density);
         int footerHeight = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
@@ -6456,9 +6573,22 @@ public class MessageBubbleCanvasView extends View {
         // the original flush-to-edge behaviour, so this only applies when
         // isMedia is true.
         int edgeMargin = isMedia ? Math.round(MEDIA_ROW_EDGE_MARGIN_DP * density) : 0;
-        bubbleLeft = sent ? (parentWidth - bubbleWidth - edgeMargin) : edgeMargin;
+        bubbleLeft = sent ? (parentWidth - bubbleWidth - edgeMargin) : (edgeMargin + avatarColW);
         bubbleTop = pinnedTopExtra;
         bubbleRect.set(bubbleLeft, bubbleTop, bubbleLeft + bubbleWidth, bubbleTop + bubbleHeight);
+
+        // ── Group-avatar rect — bottom-aligned to the bubble's start edge,
+        // sitting in the avatarColW gutter just reserved above (mirrors
+        // iv_sender_avatar's layout_constraintBottom_toBottomOf=ll_bubble in
+        // the legacy XML, and seenAvatarRect's same "outside/left of the
+        // card" placement in SeenBubbleRenderer). Only meaningful when
+        // hasGroupSenderAvatar — left unset (stale) otherwise, same as
+        // every other conditional rect in this method. ──
+        if (hasGroupSenderAvatar) {
+            float avatarSize = GROUP_AVATAR_SIZE_DP * density;
+            groupSenderAvatarRect.set(edgeMargin, bubbleRect.bottom - avatarSize,
+                    edgeMargin + avatarSize, bubbleRect.bottom);
+        }
 
         if (isCallEntry) {
             callEntryPillRect.set(bubbleRect);
@@ -6942,6 +7072,10 @@ public class MessageBubbleCanvasView extends View {
             drawGroupSenderName(canvas);
         }
 
+        if (hasGroupSenderAvatar && groupSenderAvatarShown) {
+            drawGroupSenderAvatar(canvas);
+        }
+
         if (hasForwarded) {
             drawForwardedLabel(canvas);
         }
@@ -7051,12 +7185,62 @@ public class MessageBubbleCanvasView extends View {
 
     private void drawGroupSenderName(Canvas canvas) {
         // Same reserved row as the pinned label, but left-aligned to the
-        // bubble's own left edge (opposite corner) — received bubbles
-        // start at bubbleLeft=0, so this sits at the row's start, matching
-        // tv_sender_name's constraintStart_toEndOf the (unused) avatar.
+        // bubble's own left edge (opposite corner) — bubbleRect.left already
+        // accounts for the avatar-column shift onMeasure applies when
+        // hasGroupSenderAvatar is set, so this naturally starts right after
+        // the avatar, matching tv_sender_name's constraintStart_toEndOf
+        // iv_sender_avatar in the legacy layout.
         // Also used for the 📢 broadcast badge — the caller composes
         // whichever string applies (see setGroupSender()'s doc).
         canvas.drawText(groupSenderName, bubbleRect.left, groupSenderBaselineY, groupSenderPaint);
+    }
+
+    /**
+     * Draws the WhatsApp-style 20dp circular group-sender avatar, outside/
+     * left of the bubble in the avatarColW gutter onMeasure reserved (same
+     * "avatar outside the card" technique SeenBubbleRenderer uses for the
+     * reel/status-seen avatar, just against groupSenderAvatarRect instead of
+     * seenAvatarRect). A resolved bitmap draws via a cached center-cropped
+     * BitmapShader; before it resolves (or if this sender has no photo url)
+     * a flat-gray placeholder circle draws instead — never leaves an empty
+     * gap where WhatsApp would already show something. The placeholder is
+     * a cached pre-rendered Bitmap blit (no per-frame drawOval/AA paint).
+     */
+    private void drawGroupSenderAvatar(Canvas canvas) {
+        Bitmap bmp = groupSenderAvatarBitmap;
+        if (bmp == null || bmp.isRecycled()) {
+            int px = groupAvatarPlaceholderPx(density);
+            Bitmap ph = groupSenderAvatarPlaceholderBmp;
+            if (ph == null || ph.isRecycled() || ph.getWidth() != px) {
+                ph = getGroupAvatarPlaceholderBitmap(px);
+                groupSenderAvatarPlaceholderBmp = ph;
+            }
+            // Rounded origin keeps the pre-rendered AA edge pixel-crisp
+            // (a fractional drawBitmap() offset would resample/blur it).
+            canvas.drawBitmap(ph, Math.round(groupSenderAvatarRect.left),
+                    Math.round(groupSenderAvatarRect.top), null);
+            return;
+        }
+        float scale = Math.max(groupSenderAvatarRect.width() / bmp.getWidth(),
+                groupSenderAvatarRect.height() / bmp.getHeight());
+        float dx = groupSenderAvatarRect.left - (bmp.getWidth() * scale - groupSenderAvatarRect.width()) / 2f;
+        float dy = groupSenderAvatarRect.top - (bmp.getHeight() * scale - groupSenderAvatarRect.height()) / 2f;
+
+        if (groupSenderAvatarShader == null || lastGroupSenderAvatarBitmap != bmp
+                || scale != lastGroupSenderAvatarScale || dx != lastGroupSenderAvatarDx || dy != lastGroupSenderAvatarDy) {
+            groupSenderAvatarShaderMatrix.reset();
+            groupSenderAvatarShaderMatrix.setScale(scale, scale);
+            groupSenderAvatarShaderMatrix.postTranslate(dx, dy);
+            groupSenderAvatarShader = new android.graphics.BitmapShader(
+                    bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+            groupSenderAvatarShader.setLocalMatrix(groupSenderAvatarShaderMatrix);
+            lastGroupSenderAvatarBitmap = bmp;
+            lastGroupSenderAvatarScale = scale;
+            lastGroupSenderAvatarDx = dx;
+            lastGroupSenderAvatarDy = dy;
+        }
+        groupSenderAvatarPaint.setShader(groupSenderAvatarShader);
+        canvas.drawOval(groupSenderAvatarRect, groupSenderAvatarPaint);
     }
 
     private void drawForwardedLabel(Canvas canvas) {
@@ -7099,6 +7283,65 @@ public class MessageBubbleCanvasView extends View {
         // drawCircle()+drawPath() every frame — see FORWARD_BTN_BITMAP_CACHE.
         Bitmap fwdBmp = getForwardButtonBitmap(btnSize);
         canvas.drawBitmap(fwdBmp, forwardBtnRect.left, forwardBtnRect.top, null);
+    }
+
+    // ── PERF: pre-rendered group-avatar placeholder (same pattern as
+    // FORWARD_BTN_BITMAP_CACHE below / TICK_BITMAP_CACHE) — a flat-gray
+    // circle (GROUP_AVATAR_PLACEHOLDER_COLOR) that never changes shape or
+    // color, only where it's blitted. Keyed by pixel size (one entry in
+    // practice; a 2nd only if display density changes mid-process, e.g.
+    // multi-display/font-scale). ~14KB at xxhdpi, built once, never
+    // recycled and never cleared by clearRecycledBitmaps(). ────────────
+    private static final android.util.SparseArray<Bitmap> GROUP_AVATAR_PLACEHOLDER_BITMAP_CACHE =
+            new android.util.SparseArray<>(2);
+
+    /** Pixel size of the avatar circle — the ONE formula draw-time, the
+     *  per-view preset and the static pre-warm all share, so their cache
+     *  keys always match (deriving it from the float rect width at draw time
+     *  could round differently from GROUP_AVATAR_SIZE_DP * density at .5px). */
+    private static int groupAvatarPlaceholderPx(float density) {
+        return Math.max(1, Math.round(GROUP_AVATAR_SIZE_DP * density));
+    }
+
+    /**
+     * Warm-up hook (see MessagePagingAdapter#warmUpRecycledViewPool): builds
+     * the shared placeholder bitmap NOW, on the pre-warm frame, so the first
+     * unresolved-avatar draw() of the first scroll doesn't pay the
+     * createBitmap + drawCircle. Cheap and idempotent (cache hit after the
+     * first call in the process).
+     */
+    public static void prewarmGroupAvatarPlaceholder(Context ctx) {
+        getGroupAvatarPlaceholderBitmap(
+                groupAvatarPlaceholderPx(ctx.getResources().getDisplayMetrics().density));
+    }
+
+    /**
+     * Pre-sets this view's memoized placeholder reference (see
+     * groupSenderAvatarPlaceholderBmp) so a view coming straight out of the
+     * RecycledViewPool draws its first placeholder with zero lookup work —
+     * no synchronized cache access, no build. Only worth calling on views
+     * that will be bound as received GROUP bubbles.
+     */
+    public void presetGroupSenderAvatarPlaceholder() {
+        groupSenderAvatarPlaceholderBmp =
+                getGroupAvatarPlaceholderBitmap(groupAvatarPlaceholderPx(density));
+    }
+
+    private static synchronized Bitmap getGroupAvatarPlaceholderBitmap(int px) {
+        Bitmap cached = GROUP_AVATAR_PLACEHOLDER_BITMAP_CACHE.get(px);
+        if (cached != null && !cached.isRecycled()) return cached;
+
+        Bitmap bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
+        bmp.setDensity(Bitmap.DENSITY_NONE); // blit 1:1, no canvas-density scaling
+        // Local Paint (not an instance field) so this builder stays
+        // static/thread-safe like getForwardButtonBitmap()/getTickBitmap().
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(GROUP_AVATAR_PLACEHOLDER_COLOR);
+        float r = px / 2f;
+        new Canvas(bmp).drawCircle(r, r, r, p);
+
+        GROUP_AVATAR_PLACEHOLDER_BITMAP_CACHE.put(px, bmp);
+        return bmp;
     }
 
     // ── PERF: pre-rendered forward-button bitmap (same pattern as
@@ -7196,6 +7439,7 @@ public class MessageBubbleCanvasView extends View {
         StringBuilder sb = new StringBuilder(96);
         sb.append(sent ? '1' : '0').append(isPinned ? 'P' : '_');
         if (hasGroupSender) sb.append("|G").append(groupSenderName);
+        if (hasGroupSenderAvatar) sb.append("|GA"); // avatar-column width affects bubbleLeft/maxTextWidth — see onMeasure
         if (hasForwarded) sb.append("|F").append(forwardedText);
         if (hasReply) {
             sb.append("|R").append(replySenderName).append('\u0001').append(replyText)
