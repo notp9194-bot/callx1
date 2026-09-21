@@ -45,7 +45,7 @@
 
         <!-- Feature 13: View Once viewer — FLAG_SECURE, no history -->
         <activity
-            android:name=".conversation.ViewOnceViewerActivity"
+            android:name="com.callx.app.conversation.ViewOnceViewerActivity"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:screenOrientation="portrait"
             android:excludeFromRecents="true"
@@ -171,17 +171,17 @@
             android:windowSoftInputMode="adjustResize"
             android:label="Create Topic"/>
 
-        <activity android:name=".group.GroupReadByActivity"
+        <activity android:name="com.callx.app.group.GroupReadByActivity"
             android:label="Message info"
             android:theme="@style/Theme.App"
             android:exported="false"/>
 
-        <activity android:name=".bots.BotSettingsActivity"
+        <activity android:name="com.callx.app.bots.BotSettingsActivity"
             android:label="Bot Commands"
             android:theme="@style/Theme.App"
             android:exported="false"/>
 
-        <activity android:name=".group.ChatBackupActivity"
+        <activity android:name="com.callx.app.group.ChatBackupActivity"
             android:label="Chat Backup"
             android:theme="@style/Theme.App"
             android:exported="false"/>
