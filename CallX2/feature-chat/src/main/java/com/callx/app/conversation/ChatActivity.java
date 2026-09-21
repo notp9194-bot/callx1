@@ -497,6 +497,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             binding.shimmerContainer.setVisibility(View.VISIBLE);
         }
     };
+    // Reuse the Activity's main-thread scheduler instead of allocating a
+    // throwaway Handler for the transition safety ceiling on every chat open.
+    // Keeping the Runnable as a field also lets onDestroy() cancel it with the
+    // other delayed UI work.
+    private final Runnable transitionTimeoutRunnable = this::startPostponedContentTransition;
 
     // ── Reply state ────────────────────────────────────────────────────────
     private Message replyingTo = null;
@@ -836,8 +841,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // screen with its own opaque root background).
         getWindow().setBackgroundDrawable(null);
         postponeEnterTransition();
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                this::startPostponedContentTransition, SAFETY_TRANSITION_TIMEOUT_MS);
+        shimmerHandler.postDelayed(transitionTimeoutRunnable, SAFETY_TRANSITION_TIMEOUT_MS);
 
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -1632,6 +1636,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             try { messagesSyncQuery.keepSynced(false); } catch (Exception ignored) {}
         }
         shimmerHandler.removeCallbacks(shimmerShowRunnable);
+        shimmerHandler.removeCallbacks(transitionTimeoutRunnable);
 
         // LISTENER-LEAK FIX: remove from the exact Query each listener was
         // attached to (see field doc above) — removing from bare messagesRef

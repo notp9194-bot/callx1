@@ -5199,8 +5199,11 @@ public class MessageBubbleCanvasView extends View {
      * @param name display name; null/empty is treated as clearGroupSender().
      */
     public void setGroupSender(@Nullable String name) {
-        this.hasGroupSender = name != null && !name.isEmpty();
-        this.groupSenderName = name != null ? name : "";
+        boolean nextHasSender = name != null && !name.isEmpty();
+        String nextName = name != null ? name : "";
+        if (this.hasGroupSender == nextHasSender && this.groupSenderName.equals(nextName)) return;
+        this.hasGroupSender = nextHasSender;
+        this.groupSenderName = nextName;
         if (hasGroupSender) {
             groupSenderPaint.setColor(androidx.core.content.ContextCompat.getColor(
                     getContext(), com.callx.app.core.R.color.brand_primary));
@@ -5211,6 +5214,7 @@ public class MessageBubbleCanvasView extends View {
 
     /** Call for sent messages, or received messages outside a group chat — clears any stale sender-name state on a recycled view. */
     public void clearGroupSender() {
+        if (!this.hasGroupSender && this.groupSenderName.isEmpty()) return;
         this.hasGroupSender = false;
         this.groupSenderName = "";
         requestLayoutIfSizeChanged();
@@ -5231,8 +5235,10 @@ public class MessageBubbleCanvasView extends View {
      */
     public void setForwardedFrom(@Nullable String originalSenderName) {
         boolean fwd = originalSenderName != null && !originalSenderName.isEmpty();
+        String nextText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
+        if (this.hasForwarded == fwd && this.forwardedText.equals(nextText)) return;
         this.hasForwarded = fwd;
-        this.forwardedText = fwd ? ("\u21AA Forwarded from " + originalSenderName) : "";
+        this.forwardedText = nextText;
         requestLayoutIfSizeChanged();
         invalidate();
     }
@@ -5253,10 +5259,12 @@ public class MessageBubbleCanvasView extends View {
      * otherwise keeps the previous message's button state.
      */
     public void setQuickForwardVisible(boolean visible) {
-        // Always invalidate (not just on a boolean flip) — this is a fresh
-        // bind for a (possibly) different message, and the button's
-        // position depends on bubbleRect, which can move even when
-        // showForwardBtn itself stays true across binds.
+        // A full bind already invalidates/re-records the static bubble. When
+        // recycled holders are rebound to the same eligibility state, avoid
+        // another dirty flag flip and invalidate traversal. drawForwardButton
+        // recomputes its position from bubbleRect whenever it is actually
+        // drawn, so a same-state call cannot leave a stale location behind.
+        if (this.showForwardBtn == visible) return;
         this.showForwardBtn = visible;
         invalidate();
     }
@@ -5273,6 +5281,7 @@ public class MessageBubbleCanvasView extends View {
      * isCanvasEligible() in MessagePagingAdapter).
      */
     public void setDeletedStyle(boolean deleted) {
+        if (this.isDeletedStyle == deleted) return;
         this.isDeletedStyle = deleted;
         textPaint.setTypeface(deleted ? Typeface.create(Typeface.DEFAULT, Typeface.ITALIC) : Typeface.DEFAULT);
         textPaint.setAlpha(deleted ? DELETED_TEXT_ALPHA : 255);
@@ -5293,8 +5302,11 @@ public class MessageBubbleCanvasView extends View {
      * formatting, same as formatRemaining() does for the legacy TextView).
      */
     public void setExpiryText(@Nullable String text) {
-        this.hasExpiry = text != null && !text.isEmpty();
-        this.expiryText = text != null ? text : "";
+        boolean nextHasExpiry = text != null && !text.isEmpty();
+        String nextText = text != null ? text : "";
+        if (this.hasExpiry == nextHasExpiry && this.expiryText.equals(nextText)) return;
+        this.hasExpiry = nextHasExpiry;
+        this.expiryText = nextText;
         requestLayoutIfSizeChanged();
         invalidateExpiryRegion();
     }

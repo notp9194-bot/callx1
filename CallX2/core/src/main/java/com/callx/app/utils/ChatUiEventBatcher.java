@@ -24,10 +24,19 @@ import java.util.HashMap;
 public final class ChatUiEventBatcher {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Object lock = new Object();
-    private final ArrayDeque<PendingTask> pending = new ArrayDeque<>();
+    private ArrayDeque<PendingTask> pending = new ArrayDeque<>();
+    // Reused as the drain buffer. Swapping the two queues avoids copying every
+    // pending task into a new ArrayDeque at the frame boundary. Posts that
+    // arrive while callbacks are running go into the now-empty pending queue
+    // and are therefore preserved for the next frame.
+    private ArrayDeque<PendingTask> drainBuffer = new ArrayDeque<>();
     private final HashMap<String, PendingTask> pendingByMessage = new HashMap<>();
     private boolean frameScheduled;
     private boolean cancelled;
+    private final Choreographer.FrameCallback frameCallback =
+            frameTimeNanos -> drain();
+    private final Runnable postFrameCallback = () ->
+            Choreographer.getInstance().postFrameCallback(frameCallback);
 
     private static final class PendingTask {
         final String messageId;
@@ -89,8 +98,7 @@ public final class ChatUiEventBatcher {
     }
 
     private void scheduleNextFrame() {
-        main.post(() -> Choreographer.getInstance().postFrameCallback(
-                frameTimeNanos -> drain()));
+        main.post(postFrameCallback);
     }
 
     private void drain() {
@@ -98,8 +106,9 @@ public final class ChatUiEventBatcher {
         synchronized (lock) {
             frameScheduled = false;
             if (cancelled || pending.isEmpty()) return;
-            batch = new ArrayDeque<>(pending);
-            pending.clear();
+            batch = pending;
+            pending = drainBuffer;
+            drainBuffer = batch;
             pendingByMessage.clear();
         }
         while (!batch.isEmpty()) {
@@ -114,8 +123,7 @@ public final class ChatUiEventBatcher {
         synchronized (lock) {
             if (!cancelled && !pending.isEmpty() && !frameScheduled) {
                 frameScheduled = true;
-                main.post(() -> Choreographer.getInstance().postFrameCallback(
-                        frameTimeNanos -> drain()));
+                main.post(postFrameCallback);
             }
         }
     }
