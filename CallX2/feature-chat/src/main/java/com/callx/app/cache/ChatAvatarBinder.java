@@ -11,6 +11,7 @@ import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 
+import com.callx.app.utils.AvatarNetworkQuality;
 import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
 
@@ -123,12 +124,66 @@ public final class ChatAvatarBinder {
         bindBitmap(ctx, photo, avatarVersion, TIER_INLINE, callback);
     }
 
+    // ── v445: resolved-URL memo + synchronous L2 peek ─────────────────────
+    // buildResponsive() is a pure function of (photo, tier, low-RAM flag, density
+    // bucket, network bucket, image format). Tier is fixed here (TIER_INLINE);
+    // low-RAM and format never change mid-process; density and the network
+    // bucket CAN, so both are folded into a per-entry signature — a stale entry
+    // is simply recomputed on its next lookup (no clear-races, no listeners).
+    private static final class ResolvedUrl {
+        final long sig; final String url;
+        ResolvedUrl(long sig, String url) { this.sig = sig; this.url = url; }
+    }
+    private static final java.util.concurrent.ConcurrentHashMap<String, ResolvedUrl> INLINE_URL_MEMO =
+            new java.util.concurrent.ConcurrentHashMap<>(64);
+    private static final int INLINE_URL_MEMO_MAX = 512;
+
+    private static long urlSignature(Context ctx) {
+        long bucket = AvatarNetworkQuality.current(ctx).ordinal(); // 4s-TTL cached, no binder call on the hot path
+        long density = Float.floatToIntBits(ctx.getResources().getDisplayMetrics().density) & 0xFFFFFFFFL;
+        return (bucket << 32) | density;
+    }
+
+    /** Memoized {@code buildResponsive(ctx, photo, TIER_INLINE, 0)}. */
+    static String resolveInlineUrl(Context ctx, String photo) {
+        if (photo == null || photo.isEmpty()) return null;
+        final long sig = urlSignature(ctx);
+        final ResolvedUrl hit = INLINE_URL_MEMO.get(photo);
+        if (hit != null && hit.sig == sig) return hit.url;
+        final String url = AvatarUrlBuilder.buildResponsive(ctx, photo, TIER_INLINE, 0L);
+        if (url == null) return null;
+        if (INLINE_URL_MEMO.size() >= INLINE_URL_MEMO_MAX) INLINE_URL_MEMO.clear(); // bounded; correctness never depends on it
+        INLINE_URL_MEMO.put(photo, new ResolvedUrl(sig, url));
+        return url;
+    }
+
+    /**
+     * Synchronous L2 fast path for the 24dp inline tier: returns the decoded
+     * bitmap if it is already in the shared L2 memory cache, else null (caller
+     * then falls back to {@link #bindBitmap}). Same lookup + analytics as
+     * bindBitmap()'s own L2-hit branch, but with no callback object / lambda
+     * allocation — the common case on a scroll re-bind of a recycled view.
+     */
+    public static Bitmap peekInline(Context ctx, String photo) {
+        final String url = resolveInlineUrl(ctx, photo);
+        if (url == null) return null;
+        final Bitmap hit = ChatAvatarL2Cache.get(ctx).get(url);
+        if (hit == null || hit.isRecycled()) return null;
+        AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
+        return hit;
+    }
+
     /** Same as {@link #bindBitmap(Context, String, long, BitmapCallback)} but
      *  for a caller-specified tier -- e.g. the ~36dp "seen this reel/status"
      *  bubble avatar, which under-resolves at the default 24dp TIER_INLINE. */
     public static void bindBitmap(Context ctx, String photo, long avatarVersion, AvatarSizeTier tier, BitmapCallback callback) {
         if (photo == null || photo.isEmpty()) return;
-        String url = AvatarUrlBuilder.buildResponsive(ctx, photo, tier, avatarVersion);
+        // v445: the default 24dp inline tier / unversioned case (every canvas strip +
+        // sender avatar) goes through the resolved-URL memo instead of re-running
+        // indexOf + ~8 String concats + 2 substrings on every single bind.
+        String url = (tier == TIER_INLINE && avatarVersion == 0L)
+                ? resolveInlineUrl(ctx, photo)
+                : AvatarUrlBuilder.buildResponsive(ctx, photo, tier, avatarVersion);
         if (url == null) return;
 
         Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
@@ -224,6 +279,38 @@ public final class ChatAvatarBinder {
                     .priority(Priority.NORMAL) // tiny (~72px) assets — must not queue behind, or sit LOW under, a visible row's own load
                     .preload();
         }
+    }
+
+    /**
+     * Feature 1 — full-screen avatar viewer warm-up. {@code DialogFullscreenHelper
+     * #showAvatarZoom} deliberately loads the RAW (un-tiered) {@code photoUrl} —
+     * a zoomable full-screen PhotoView needs the original resolution, not one of
+     * this class's TIER_INLINE/TIER CDN-resized buckets, so it can never be an L2/
+     * L3 hit off the small avatar's own cache entries (different URL = different
+     * Glide cache key, same reasoning as {@link #prefetchBatch}'s doc on why the
+     * chat-list prefetch can't warm this class's own bindBitmap() entries either).
+     *
+     * What CAN be shared: the underlying bytes. Call this the moment a member's
+     * small avatar becomes tap-able (member sheet open, run-tail bind) — it issues
+     * the exact same raw-URL request {@code showAvatarZoom}'s Glide load will, as
+     * bytes-only/LOW-priority so it never competes with the small avatar's own
+     * HIGH-priority decode. By the time the user actually taps "View photo" (a
+     * sheet is up for at least a second), Glide's disk cache already has the full
+     * photo's bytes — the fullscreen load decodes from disk instead of a cold
+     * network round-trip. Glide's Engine coalesces this with a same-URL real load
+     * that lands before the preload finishes, so a fast tap loses nothing either.
+     *
+     * Deliberately NOT routed through AvatarBinderCore.prefetch()/prefetchBatch()
+     * above — both of those build TIER-bucketed, responsive (CDN-resized) URLs;
+     * this needs the one raw URL the viewer itself will request, unmodified.
+     */
+    public static void prefetchFullPhoto(Context ctx, String photoUrl) {
+        if (ctx == null || photoUrl == null || photoUrl.isEmpty()) return;
+        Glide.with(ctx)
+            .load(photoUrl)
+            .diskCacheStrategy(DiskCacheStrategy.DATA) // bytes only — the viewer itself does the real decode
+            .priority(Priority.LOW)                    // never queues ahead of a visible row's own HIGH bind
+            .preload();
     }
 
     /**

@@ -55,6 +55,50 @@ public class Message {
      *  no photo at post time. */
     public String eventPhoto;
 
+    // ── PERF (ultra-advanced pass, Feature 2's run-tail/run-head check) ──────
+    /**
+     * Scratch cache slot for {@code MessagePagingAdapter#viewTypeOf()} — NOT a
+     * real message field (never read/written by Firebase, Room, or any model
+     * code outside that one adapter method). {@code transient} so Firebase's
+     * reflection-based POJO mapper (and Room, if this class is ever mapped
+     * there directly) silently skips it — it plays no part in equality,
+     * serialization, or {@code DiffUtil}'s {@code areContentsTheSame()}.
+     *
+     * Why here instead of an adapter-side {@code IdentityHashMap<Message,Integer>}:
+     * every group row's bind path resolves its own view type (via
+     * {@code getItemViewType()}) AND has that exact same computation repeated
+     * by its PREVIOUS row's {@code isGroupAvatarRunTail()} neighbor-peek
+     * (needs to know "would the NEXT row draw a group avatar"), AND — for a
+     * user's own sent rows — again on every "seen by" strip rebind
+     * ({@code canShowSeenBy()}). {@code viewTypeOf()} is a real branch chain
+     * (half a dozen {@code String#equals} checks plus {@code isCanvasEligible()}'s
+     * own type-string switch) and is a pure function of this object's own
+     * fields + the adapter's (session-constant) current-user uid — so once
+     * computed for a given Message instance it can never change for that
+     * instance. A plain int field on the object itself is a direct slot read
+     * (no hashing, no map bucket walk) and needs no explicit invalidation:
+     * whenever this message's content actually changes, {@code DiffUtil}
+     * hands the adapter a brand-new {@code Message} instance (see the
+     * "fresh objects" note on {@code DIFF.areContentsTheSame}) with this field
+     * at its default 0 — never a mutation of this one in place.
+     *
+     * 0 = not yet computed (every real {@code MessagePagingAdapter.TYPE_*}
+     * constant is >= 1, so 0 is a safe, unambiguous sentinel).
+     */
+    public transient int cachedAdapterViewType = 0;
+
+    /**
+     * v443: scratch slots owned by {@code MessagePagingAdapter#bindSeenByAvatars}
+     * — the memoized "Seen by" strip result for this row and the adapter epoch
+     * it was computed under (0 = never). {@code transient} so Firebase/Room skip
+     * them; typed Object so core needn't know the adapter's private class.
+     */
+    public transient int cachedSeenByEpoch = 0;
+    public transient Object cachedSeenBy;
+    /** v444: memoized reaction badge/reactor strip + poll-voter strip (adapter-private types). */
+    public transient Object cachedReactionBound;
+    public transient Object cachedPollVoterBound;
+
     public String mediaUrl;
     /** Cloudinary URL for a low-res preview. Populated for video messages
      *  (VideoCompressor's extracted poster frame — needed since a video

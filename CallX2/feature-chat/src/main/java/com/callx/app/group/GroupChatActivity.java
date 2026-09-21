@@ -3065,6 +3065,12 @@ public class GroupChatActivity extends AppCompatActivity
     /** Opens the search bar filtered to one member's messages (newest first). */
     private void openMemberMessageSearch(String uid, String name, int accentColor) {
         if (uid == null || uid.isEmpty()) return;
+        // PERF (Feature 7 ↔ core avatar pipeline): the filter is about to jump
+        // to this member's messages, likely well outside the adapter's normal
+        // prefetch window — warm their avatar now via the same TIER_INLINE
+        // ChatAvatarBinder pipeline the message list itself binds from, so the
+        // jumped-to row's run-tail avatar paints instantly instead of cold-decoding.
+        if (pagingAdapter != null) pagingAdapter.prefetchMemberFilterAvatar(uid);
         ensureSearchController().openSearchForSender(uid, name, accentColor);
     }
 
@@ -3112,6 +3118,11 @@ public class GroupChatActivity extends AppCompatActivity
         header.addView(iv, ivLp);
         if (photoUrl != null && !photoUrl.isEmpty()) {
             com.callx.app.cache.ChatAvatarBinder.bind(this, iv, photoUrl, 0L, R.drawable.ic_person);
+            // PERF (Feature 1 ↔ core avatar pipeline): warm the raw full-res
+            // bytes now, while the sheet is up — see prefetchFullPhoto()'s doc.
+            // "View photo" (below) then hits Glide's disk cache instead of a
+            // cold network fetch for the fullscreen viewer's own decode.
+            com.callx.app.cache.ChatAvatarBinder.prefetchFullPhoto(this, photoUrl);
         } else {
             iv.setImageResource(R.drawable.ic_person);
         }
@@ -3700,6 +3711,7 @@ public class GroupChatActivity extends AppCompatActivity
                         java.util.Map<String, Long> freshRead = readReceiptChild(snap, "readBy");
                         java.util.Map<String, Long> freshDelivered = readReceiptChild(snap, "deliveredBy");
                         m.readBy = freshRead;
+                        if (pagingAdapter != null) pagingAdapter.invalidateSeenByCache(); // v443
                         m.deliveredBy = freshDelivered;
                         pushGroupInfoUpdate(m.id, otherUids, freshRead, freshDelivered);
                     }

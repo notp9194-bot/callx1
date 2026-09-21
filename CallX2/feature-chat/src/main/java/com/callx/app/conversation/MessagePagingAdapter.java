@@ -1463,6 +1463,8 @@ public class MessagePagingAdapter
      *  listeners are set up. No-op for 1:1 chat. */
     public void setGroupMemberPhotos(java.util.Map<String, String> photos) {
         this.groupMemberPhotos = photos != null ? photos : java.util.Collections.emptyMap();
+        bumpSeenByEpoch();
+        bumpPhotosEpoch();
     }
 
     /**
@@ -2045,6 +2047,8 @@ public class MessagePagingAdapter
      */
     public void onMemberPhotosChanged(@Nullable java.util.Collection<String> changedUids) {
         if (!isGroup || changedUids == null || changedUids.isEmpty()) return;
+        bumpSeenByEpoch(); // photo map changed → every cached strip (key embeds photo hashes) is stale
+        bumpPhotosEpoch(); // v444: same for cached reactor / poll-voter strips
         // Batch-warm the visible members' avatars (coalesced — a burst of
         // per-member photo arrivals becomes one preload batch).
         prefetchSenderAvatars();
@@ -2137,7 +2141,7 @@ public class MessagePagingAdapter
 
     private void runSenderAvatarPrefetch() {
         RecyclerView rv = attachedRecyclerView;
-        if (rv == null || !isGroup || groupMemberPhotos.isEmpty()) return;
+        if (rv == null || !isGroup) return;
         int count = getItemCount();
         if (count == 0) return;
 
@@ -2161,7 +2165,43 @@ public class MessagePagingAdapter
         java.util.LinkedHashSet<String> photos = new java.util.LinkedHashSet<>();
         for (int i = end; i >= start && photos.size() < SENDER_AVATAR_PREFETCH_MAX; i--) { // newest first
             Message m = peek(i);
-            if (m == null || m.senderId == null) continue;
+            if (m == null) continue;
+
+            // Feature 8 — join/leave system rows: eventPhoto rides on the
+            // message itself (set once at post time), so no groupMemberPhotos
+            // lookup is needed — warm it directly at the same TIER_INLINE
+            // bindBitmap() reads (see onBindViewHolder's system-row branch).
+            if ("system".equals(m.type) && m.eventUid != null && !m.eventUid.isEmpty()) {
+                String ep = m.eventPhoto;
+                if (ep != null && !ep.isEmpty() && prefetchedSenderPhotoUrls.add(ep)) photos.add(ep);
+                continue;
+            }
+
+            if (m.senderId == null) continue;
+
+            // Feature 6 — reactor faces (first MINI_STRIP_REACTORS in reaction
+            // order, matching bindReactionAvatars()) and non-anonymous poll
+            // voter faces (up to SEEN_BY_MAX_CIRCLES, matching bindPollVoters()) —
+            // warmed on ANY row (mine or not), same as their bind-time source.
+            if (m.reactions != null && !m.reactions.isEmpty()) {
+                int shown = 0;
+                for (String ruid : m.reactions.keySet()) {
+                    if (++shown > MINI_STRIP_REACTORS || photos.size() >= SENDER_AVATAR_PREFETCH_MAX) break;
+                    if (ruid == null) continue;
+                    String rp = groupMemberPhotos.get(ruid);
+                    if (rp != null && !rp.isEmpty() && prefetchedSenderPhotoUrls.add(rp)) photos.add(rp);
+                }
+            }
+            if (m.pollVotes != null && !m.pollVotes.isEmpty() && !Boolean.TRUE.equals(m.pollAnonymous)) {
+                int shown = 0;
+                for (String vuid : m.pollVotes.keySet()) {
+                    if (++shown > SEEN_BY_MAX_CIRCLES || photos.size() >= SENDER_AVATAR_PREFETCH_MAX) break;
+                    if (vuid == null) continue;
+                    String vp = groupMemberPhotos.get(vuid);
+                    if (vp != null && !vp.isEmpty() && prefetchedSenderPhotoUrls.add(vp)) photos.add(vp);
+                }
+            }
+
             if (m.senderId.equals(currentUid)) {
                 // My own row: warm the (few) readers its "Seen by" strip will draw.
                 if (m.readBy != null) {
@@ -2182,6 +2222,26 @@ public class MessagePagingAdapter
         if (!photos.isEmpty()) {
             com.callx.app.cache.ChatAvatarBinder.prefetchBatch(rv.getContext(), photos);
         }
+    }
+
+    /**
+     * Feature 7 — "Messages from <member>" filter: called by
+     * {@code GroupChatActivity#openMemberMessageSearch} the instant the
+     * filter opens. The filter jumps straight to that member's messages,
+     * which are very often scrolled well outside {@link #runSenderAvatarPrefetch}'s
+     * normal ± viewport window (that's the whole point of the filter — finding
+     * older messages) — so without this, the first jumped-to row would cold-decode
+     * its run-tail avatar. One photo, same TIER_INLINE {@code prefetchBatch()}
+     * pipeline every other avatar in this adapter already shares — practically
+     * always an instant L2 hit anyway, since the same member's avatar was almost
+     * certainly already bound somewhere in the currently-loaded window.
+     */
+    public void prefetchMemberFilterAvatar(String senderUid) {
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null || !isGroup || senderUid == null || senderUid.isEmpty()) return;
+        String photo = groupMemberPhotos.get(senderUid);
+        if (photo == null || photo.isEmpty() || !prefetchedSenderPhotoUrls.add(photo)) return;
+        com.callx.app.cache.ChatAvatarBinder.prefetchBatch(rv.getContext(), java.util.Collections.singleton(photo));
     }
 
     /**
@@ -2265,6 +2325,9 @@ public class MessagePagingAdapter
             cv.setGroupSenderAvatarBitmap(null); // photo removed → placeholder
             return;
         }
+        // v445: L2 hit → set inline (no lambda / token / callback allocation).
+        final android.graphics.Bitmap l2 = com.callx.app.cache.ChatAvatarBinder.peekInline(h.itemView.getContext(), url);
+        if (l2 != null) { cv.setGroupSenderAvatarBitmap(l2); return; }
         final int token = h.canvasBindToken;
         com.callx.app.cache.ChatAvatarBinder.bindBitmap(h.itemView.getContext(), url, 0L, resource -> {
             if (h.canvasBindToken != token) return; // recycled/rebound meanwhile
@@ -2297,6 +2360,14 @@ public class MessagePagingAdapter
     }
 
     private static final int TAG_KEY_SELECTED = 0x7F_0B_0001;
+
+    /** v448: unregister only when this holder actually registered (skips the map op on ~every bind). */
+    private static void expiryUnregister(@NonNull VH h) {
+        if (h.expiryRegistered) {
+            com.callx.app.utils.ExpiryTickManager.get().unregister(h);
+            h.expiryRegistered = false;
+        }
+    }
 
     private void applySelectionHighlight(VH h, Message m) {
         String id = m.messageId != null ? m.messageId : m.id;
@@ -2355,18 +2426,28 @@ public class MessagePagingAdapter
                 // Row BELOW it: its PREVIOUS row changed (name run-head) — this
                 // is also what fixes the oldest row when an older page is
                 // prepended, and the row after a deleted message.
+                @Override public void onItemRangeChanged(int positionStart, int itemCount) {
+                    // v443: a changed row below may be some own row's "next own row".
+                    bumpSeenByEpoch();
+                }
+                @Override public void onItemRangeChanged(int positionStart, int itemCount, @Nullable Object payload) {
+                    bumpSeenByEpoch();
+                }
                 @Override public void onItemRangeInserted(int positionStart, int itemCount) {
+                    bumpSeenByEpoch();
                     refreshGroupSenderRow(positionStart - 1);
                     refreshGroupSenderRow(positionStart + itemCount);
                     // A new own row below changes which readers the own row above shows.
                     if (rangeHasOwnRow(positionStart, itemCount)) refreshSeenByOwnRowAbove(positionStart - 1);
                 }
                 @Override public void onItemRangeRemoved(int positionStart, int itemCount) {
+                    bumpSeenByEpoch();
                     refreshGroupSenderRow(positionStart - 1);
                     refreshGroupSenderRow(positionStart);
                     refreshSeenByOwnRowAbove(positionStart - 1); // removed row may have been the "next own row"
                 }
                 @Override public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
+                    bumpSeenByEpoch();
                     int lo = Math.min(fromPosition, toPosition) - 1;
                     int hi = Math.max(fromPosition, toPosition) + itemCount;
                     for (int p = Math.max(0, lo); p <= hi && p - lo < 30; p++) {
@@ -2568,11 +2649,33 @@ public class MessagePagingAdapter
         return viewTypeOf(getItem(position));
     }
 
-    /** Body of getItemViewType(), split out so neighbor-aware logic (see
-     *  isGroupAvatarRunTail) can ask "what view type would THAT message get"
-     *  from a peek()ed Message without a position-based getItem() call. */
+    /**
+     * Body of getItemViewType(), split out so neighbor-aware logic (see
+     * isGroupAvatarRunTail) can ask "what view type would THAT message get"
+     * from a peek()ed Message without a position-based getItem() call.
+     *
+     * PERF (ultra-advanced pass): the same Message instance gets asked this
+     * up to 3x per scroll — its own getItemViewType(), the row ABOVE it
+     * peeking ahead in isGroupAvatarRunTail()/willShowGroupSenderAvatar(),
+     * and (for the user's own sent rows) canShowSeenBy() on every "seen by"
+     * strip rebind. The result is a pure function of this object's own
+     * (immutable-once-set — see Message#cachedAdapterViewType's doc) fields,
+     * so it's memoized directly on the object: first call runs the full
+     * branch chain below, every later call on the SAME instance is a field
+     * read. A content change never mutates this instance in place — DiffUtil
+     * hands the adapter a fresh Message object instead (see DIFF's
+     * areContentsTheSame doc), which starts with a fresh, uncached slot.
+     */
     private int viewTypeOf(@Nullable Message m) {
         if (m == null) return TYPE_RECEIVED;
+        if (m.cachedAdapterViewType != 0) return m.cachedAdapterViewType;
+        int type = computeViewTypeOf(m);
+        m.cachedAdapterViewType = type;
+        return type;
+    }
+
+    /** The actual branch chain — see {@link #viewTypeOf} for the memoizing wrapper. */
+    private int computeViewTypeOf(@NonNull Message m) {
         // "security_event" (E2EE security-code-change notice) reuses the
         // same standalone pill-chip rendering as date separators — see
         // ChatMessageSender#insertSecurityEventIfPending. Both are
@@ -3157,6 +3260,16 @@ public class MessagePagingAdapter
         // Mutate the object PagingData already exposes. PagingDataAdapter's
         // differ cannot be replaced from here, but a targeted notify is safe
         // and avoids creating a second full Message model for every tick.
+        //
+        // PERF (ultra-advanced pass) CORRECTNESS NOTE: viewTypeOf()'s memoized
+        // cachedAdapterViewType assumes a Message instance's type-relevant
+        // fields never change in place — true everywhere EXCEPT here, the one
+        // spot in the codebase that mutates an already-bound `current` object
+        // instead of DiffUtil handing over a fresh one. `type` and `deleted`
+        // both feed computeViewTypeOf(), so the cached slot MUST be reset
+        // whenever this runs, or a deleted / retyped message would keep
+        // rendering under its old (now-wrong) view type forever.
+        current.cachedAdapterViewType = 0;
         current.text = incoming.text;
         current.type = incoming.type;
         current.mediaUrl = incoming.mediaUrl;
@@ -3171,6 +3284,7 @@ public class MessagePagingAdapter
         current.reactions = incoming.reactions;
         current.readBy = incoming.readBy;
         current.deliveredBy = incoming.deliveredBy;
+        bumpSeenByEpoch(); // v443: readBy replaced in place → cached seen-by selections are stale
 
         if (contentChanged) {
             notifyItemChanged(position);
@@ -3271,8 +3385,19 @@ public class MessagePagingAdapter
         if ("system".equals(m.type) && m.eventUid != null && !m.eventUid.isEmpty()) {
             if (h.dateSeparatorView != null) {
                 h.dateSeparatorView.setLabel(m.text);
-                h.dateSeparatorView.setAvatar(null); // clear any stale bitmap from a recycled holder first
                 String photo = m.eventPhoto;
+                // v446: L2 hit → set the avatar inline (no stale-clear pass, no tag String concat, no lambda).
+                // Tag reset to null so an older in-flight async load for a previous row is ignored.
+                if (photo != null && !photo.isEmpty()) {
+                    final android.graphics.Bitmap l2 =
+                            com.callx.app.cache.ChatAvatarBinder.peekInline(h.itemView.getContext(), photo);
+                    if (l2 != null) {
+                        h.dateSeparatorView.setTag(null);
+                        h.dateSeparatorView.setAvatar(l2);
+                        return;
+                    }
+                }
+                h.dateSeparatorView.setAvatar(null); // clear any stale bitmap from a recycled holder first
                 if (photo != null && !photo.isEmpty()) {
                     final android.view.View tagTarget = h.dateSeparatorView;
                     final String expectedTag = m.eventUid + "|" + m.messageId;
@@ -6136,7 +6261,7 @@ public class MessagePagingAdapter
                     Boolean.TRUE.equals(m.pollClosed),
                     Boolean.TRUE.equals(m.pollMultiChoice),
                     sent, timeStr, isRead, isDelivered);
-            bindPollVoters(cv, m, ctx); // group + non-anonymous only; clears itself otherwise
+            bindPollVoters(cv, m, ctx, false); // group + non-anonymous only; clears itself otherwise
             cv.setDeletedStyle(false);
             // NOTE: poll-option tap → ActionListener.onPollVote() is wired
             // in the single setOnBubbleClickListener() call at the end of
@@ -6322,10 +6447,10 @@ public class MessagePagingAdapter
         cv.setBigReactionEmoji(isStoryReactionEmojiMessage(m) ? m.text : null);
 
         // ── Reaction badge ──
-        String reactionsText = formatReactions(m.reactions);
-        if (reactionsText != null) cv.setReactions(reactionsText);
+        final ReactionBound rxb = reactionBoundFor(m); // v444: memoized text + reactor strip
+        if (rxb != null && rxb.text != null) cv.setReactions(rxb.text);
         else cv.clearReactions();
-        bindReactionAvatars(cv, m, ctx); // group: reactor faces after the emoji (clears itself otherwise)
+        applyReactionAvatars(cv, rxb, ctx); // group: reactor faces after the emoji (clears itself otherwise)
 
         // ── Pinned label ──
         cv.setPinned(Boolean.TRUE.equals(m.pinned));
@@ -6377,10 +6502,17 @@ public class MessagePagingAdapter
             if (avatarShown) {
                 String avatarPhotoUrl = groupMemberPhotos.get(m.senderId);
                 if (avatarPhotoUrl != null && !avatarPhotoUrl.isEmpty()) {
-                    com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, avatarPhotoUrl, 0L, resource -> {
-                        if (h.canvasBindToken != myToken) return; // recycled/rebound meanwhile
-                        cv.setGroupSenderAvatarBitmap(resource);
-                    });
+                    // v447: L2 hit → set inline (no lambda / token capture / callback allocation).
+                    final android.graphics.Bitmap l2 =
+                            com.callx.app.cache.ChatAvatarBinder.peekInline(ctx, avatarPhotoUrl);
+                    if (l2 != null) {
+                        cv.setGroupSenderAvatarBitmap(l2);
+                    } else {
+                        com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, avatarPhotoUrl, 0L, resource -> {
+                            if (h.canvasBindToken != myToken) return; // recycled/rebound meanwhile
+                            cv.setGroupSenderAvatarBitmap(resource);
+                        });
+                    }
                 } else {
                     cv.setGroupSenderAvatarBitmap(null);
                 }
@@ -6408,18 +6540,20 @@ public class MessagePagingAdapter
         // handler the legacy path uses, targeting the canvas view instead of
         // tv_expiry. Mirrors bindMessage(): skipped entirely once a message
         // is deleted (nothing left to count down to). ──
-        com.callx.app.utils.ExpiryTickManager.get().unregister(h);
+        expiryUnregister(h); // v448: skipped unless this holder had registered
         if (!isDeleted) {
             long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
             long remaining = expiresAt - System.currentTimeMillis();
             if (expiresAt > 0 && remaining > 0) {
                 cv.setExpiryText("\u23F3 " + formatRemaining(remaining));
+                h.expiryRegistered = true;
                 com.callx.app.utils.ExpiryTickManager.get().register(h, expiresAt,
                         new com.callx.app.utils.ExpiryTickManager.Listener() {
                     @Override public void onTick(long ms) {
                         if (h.canvasView != null) h.canvasView.setExpiryText("\u23F3 " + formatRemaining(ms));
                     }
                     @Override public void onFinish() {
+                        h.expiryRegistered = false; // manager already dropped the entry
                         if (h.canvasView != null) h.canvasView.clearExpiry();
                     }
                 });
@@ -7908,13 +8042,14 @@ public class MessagePagingAdapter
 
         // ── Disappearing message countdown ────────────────────────────────
         // PERF: shared ExpiryTickManager handler instead of a per-row CountDownTimer.
-        com.callx.app.utils.ExpiryTickManager.get().unregister(h);
+        expiryUnregister(h); // v448
         if (h.tvExpiry != null) {
             long expiresAt = m.expiresAt != null ? m.expiresAt : 0L;
             long remaining = expiresAt - System.currentTimeMillis();
             if (expiresAt > 0 && remaining > 0) {
                 h.tvExpiry.setVisibility(View.VISIBLE);
                 h.tvExpiry.setText("⏳ " + formatRemaining(remaining));
+                h.expiryRegistered = true;
                 com.callx.app.utils.ExpiryTickManager.get().register(h, expiresAt,
                         new com.callx.app.utils.ExpiryTickManager.Listener() {
                     @Override public void onTick(long ms) {
@@ -7922,6 +8057,7 @@ public class MessagePagingAdapter
                             h.tvExpiry.setText("⏳ " + formatRemaining(ms));
                     }
                     @Override public void onFinish() {
+                        h.expiryRegistered = false; // manager already dropped the entry
                         if (h.tvExpiry != null) h.tvExpiry.setVisibility(View.GONE);
                     }
                 });
@@ -9395,7 +9531,7 @@ public class MessagePagingAdapter
                     Boolean.TRUE.equals(m.pollClosed),
                     Boolean.TRUE.equals(m.pollMultiChoice),
                     sent, timeStr, isRead, isDelivered);
-            bindPollVoters(h.canvasView, m, h.itemView.getContext());
+            bindPollVoters(h.canvasView, m, h.itemView.getContext(), true); // live-vote path: force recompute
             return;
         }
         // Legacy non-canvas path — defer to the full poll bind helper.
@@ -9518,7 +9654,7 @@ public class MessagePagingAdapter
         // can't touch this holder after it's been recycled for a new one.
         if (holder.fl_download_overlay != null) holder.fl_download_overlay.setTag(null);
         // Stop any pending tick updates from the shared manager to prevent leaks on recycled views
-        com.callx.app.utils.ExpiryTickManager.get().unregister(holder);
+        expiryUnregister(holder); // v448
         // Invalidate any in-flight async PrecomputedText work for this
         // holder — it may still be running on TEXT_PRECOMPUTE_EXECUTOR
         // when the holder goes back into the pool. The posted callback
@@ -9733,6 +9869,7 @@ public class MessagePagingAdapter
         } else {
             m.reactions.put(uid, emoji);
         }
+        m.cachedReactionBound = null; // v444: in-place mutation → drop the memoized badge/strip
         notifyItemChanged(position, PAYLOAD_REACTIONS);
     }
 
@@ -9743,8 +9880,9 @@ public class MessagePagingAdapter
      *  no Linkify, no new GradientDrawable, no countdown restart) just to
      *  refresh a 1-line TextView. */
     private void bindReactionsOnly(@NonNull VH h, @NonNull Message m) {
-        String formatted = formatReactions(m.reactions);
         if (h.canvasView != null) {
+            final ReactionBound rxb = reactionBoundFor(m);
+            final String formatted = rxb != null ? rxb.text : null;
             // Canvas path: setReactions()/clearReactions() handles its own
             // requestLayout()+invalidate(), and the tap target is wired
             // via onReactionsClick() in bindCanvasMessage()'s click
@@ -9752,9 +9890,10 @@ public class MessagePagingAdapter
             // reattach here, unlike the legacy llReactions view).
             if (formatted != null) h.canvasView.setReactions(formatted);
             else h.canvasView.clearReactions();
-            bindReactionAvatars(h.canvasView, m, h.itemView.getContext());
+            applyReactionAvatars(h.canvasView, rxb, h.itemView.getContext());
             return;
         }
+        String formatted = formatReactions(m.reactions);
         if (h.llReactions == null || h.tvReactions == null) return;
         if (formatted != null) {
             h.tvReactions.setText(formatted);
@@ -9949,9 +10088,61 @@ public class MessagePagingAdapter
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
         if (cv == null) return;
         if (!canShowSeenBy(m)) { cv.clearSeenBy(); return; }
-        final SeenBySelection sel = selectSeenByReaders(position, m);
-        if (sel == null) { cv.clearSeenBy(); return; }
 
+        // v443: per-bind memoization. The strip is a pure function of (this
+        // row's readBy, the next own row's readBy, groupMemberPhotos). All
+        // three change only through paths that call bumpSeenByEpoch(), so a
+        // plain scroll re-bind (same epoch) skips the 80-row peek() scan,
+        // the readBy iteration, the StringBuilder key, the String[] allocs
+        // and the photo-map lookups — it just reuses the frozen result.
+        final SeenByBound b;
+        final Object cached = m.cachedSeenBy;
+        if (m.cachedSeenByEpoch == seenByEpoch && cached != null) {
+            b = (cached == SEEN_BY_NONE) ? null : (SeenByBound) cached;
+        } else {
+            b = computeSeenByBound(position, m);
+            m.cachedSeenBy = (b != null) ? b : SEEN_BY_NONE;
+            m.cachedSeenByEpoch = seenByEpoch;
+        }
+        if (b == null) { cv.clearSeenBy(); return; }
+
+        final String key = b.key;
+        if (!cv.setSeenBy(key, b.shown, b.overflow)) return; // same readers already shown, bitmaps held
+        final android.content.Context ctx = h.itemView.getContext();
+        for (int i = 0; i < b.shown; i++) {
+            final String url = b.urls[i];
+            if (url == null || url.isEmpty()) continue; // no photo → placeholder circle
+            final int slot = i;
+            final android.graphics.Bitmap l2 = com.callx.app.cache.ChatAvatarBinder.peekInline(ctx, url);
+            if (l2 != null) { cv.setSeenByAvatarBitmap(key, slot, l2); continue; } // v445: no lambda on L2 hit
+            com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, url, 0L,
+                    resource -> cv.setSeenByAvatarBitmap(key, slot, resource)); // key-guarded in the view
+        }
+    }
+
+    // ── v443: seen-by per-bind memoization ────────────────────────────────
+    /** Frozen result of one strip computation (immutable once built). */
+    private static final class SeenByBound {
+        final String key; final String[] urls; final int shown; final int overflow;
+        SeenByBound(String key, String[] urls, int shown, int overflow) {
+            this.key = key; this.urls = urls; this.shown = shown; this.overflow = overflow;
+        }
+    }
+    /** Cached "nothing to show" marker (distinct from "not computed yet" = null). */
+    private static final Object SEEN_BY_NONE = new Object();
+    // Process-wide sequence so a Message instance that outlives an adapter
+    // (message-model cache) can never match a NEW adapter's epoch by accident.
+    private static int seenByEpochSeq = 0;
+    private int seenByEpoch = ++seenByEpochSeq;
+    /** Main thread only (same as every notify*()). Invalidates every cached strip. */
+    private void bumpSeenByEpoch() { seenByEpoch = ++seenByEpochSeq; }
+    /** For callers that mutate a bound Message's readBy without going through the adapter. */
+    public void invalidateSeenByCache() { bumpSeenByEpoch(); }
+
+    @Nullable
+    private SeenByBound computeSeenByBound(int position, @NonNull Message m) {
+        final SeenBySelection sel = selectSeenByReaders(position, m);
+        if (sel == null) return null;
         final int shown = sel.uids.length;
         final String[] urls = new String[shown];
         // Key = who is shown + which photo each has, so a changed profile
@@ -9963,16 +10154,7 @@ public class MessagePagingAdapter
             kb.append(sel.uids[i]).append('@').append(url != null ? url.hashCode() : 0).append(',');
         }
         final String key = kb.append('+').append(sel.total - shown).toString();
-
-        if (!cv.setSeenBy(key, shown, sel.total - shown)) return; // same readers already shown, bitmaps held
-        final android.content.Context ctx = h.itemView.getContext();
-        for (int i = 0; i < shown; i++) {
-            final String url = urls[i];
-            if (url == null || url.isEmpty()) continue; // no photo → placeholder circle
-            final int slot = i;
-            com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, url, 0L,
-                    resource -> cv.setSeenByAvatarBitmap(key, slot, resource)); // key-guarded in the view
-        }
+        return new SeenByBound(key, urls, shown, sel.total - shown);
     }
 
     /**
@@ -9981,6 +10163,7 @@ public class MessagePagingAdapter
      * row above it, whose strip depends on this row's readers.
      */
     public void notifyReadByChanged(int position) {
+        bumpSeenByEpoch();
         if (position < 0 || position >= getItemCount()) return;
         notifyItemChanged(position, PAYLOAD_READ_BY);
         if (isGroup) refreshSeenByOwnRowAbove(position - 1);
@@ -10026,70 +10209,157 @@ public class MessagePagingAdapter
     // skip the loads, and lets the view drop a late bitmap for a stale set.
     private static final int MINI_STRIP_REACTORS = 3; // no "+N" chip — the badge text already carries counts
 
-    private interface MiniStripSetter { boolean set(String key, int count, int overflow); }
-    private interface MiniStripBitmapSetter { void set(String key, int slot, android.graphics.Bitmap bmp); }
+    private static final int MINI_KIND_REACTION = 0;
+    private static final int MINI_KIND_POLL     = 1;
 
-    private void bindMiniStrip(@NonNull android.content.Context ctx, @NonNull String[] uids, int n, int overflow,
-                               @NonNull MiniStripSetter setter, @NonNull MiniStripBitmapSetter bitmapSetter) {
-        final String[] urls = new String[n];
+    // ── v444: memoized reaction badge text + reactor strip / poll-voter strip ─
+    // Before: EVERY bind of a reacted row rebuilt the badge text (LinkedHashMap +
+    // boxed Integers + StringBuilder), the uid[] array, the key StringBuilder,
+    // N photo-map lookups + hashCodes, and two lambdas — for a result that only
+    // changes when the reactions map / photo map change. Now frozen per Message.
+    //
+    // Validity signature = (source map IDENTITY, its size, photosEpoch):
+    //  • DiffUtil / Room / Firebase / applyRealtimeUpdate hand over a NEW map → identity differs
+    //  • member added/removed a reaction / vote in place → size differs
+    //  • applyLocalReaction (only in-place emoji swap) explicitly nulls the cache
+    //  • profile photo change → photosEpoch bumped (setGroupMemberPhotos / onMemberPhotosChanged)
+    //  • live poll votes (bindPollOnly) pass force=true
+    private static final class ReactionBound {
+        final java.util.Map<String, String> src; final int size; final int photosEpoch;
+        final String text;          // badge text ("😍2 👍"), null → nothing to show
+        final String key;           // reactor-strip key (null when not group / no reactors)
+        final String[] urls; final int n;
+        ReactionBound(java.util.Map<String, String> src, int size, int photosEpoch,
+                      String text, String key, String[] urls, int n) {
+            this.src = src; this.size = size; this.photosEpoch = photosEpoch;
+            this.text = text; this.key = key; this.urls = urls; this.n = n;
+        }
+    }
+
+    private static final class PollVoterBound {
+        final java.util.Map<String, java.util.List<Integer>> src; final int size; final int photosEpoch;
+        final String key; final String[] urls; final int n; final int overflow;
+        PollVoterBound(java.util.Map<String, java.util.List<Integer>> src, int size, int photosEpoch,
+                       String key, String[] urls, int n, int overflow) {
+            this.src = src; this.size = size; this.photosEpoch = photosEpoch;
+            this.key = key; this.urls = urls; this.n = n; this.overflow = overflow;
+        }
+    }
+
+    private int photosEpoch = ++seenByEpochSeq;
+    private void bumpPhotosEpoch() { photosEpoch = ++seenByEpochSeq; }
+
+    /** Builds the strip key (who + which photo) and fills {@code urlsOut}. */
+    private String buildMiniKey(@NonNull String[] uids, int n, int overflow, @NonNull String[] urlsOut) {
         StringBuilder kb = new StringBuilder(n * 24 + 8);
         for (int i = 0; i < n; i++) {
             String url = groupMemberPhotos.get(uids[i]);
-            urls[i] = url;
+            urlsOut[i] = url;
             kb.append(uids[i]).append('@').append(url != null ? url.hashCode() : 0).append(',');
         }
-        final String key = kb.append('+').append(overflow).toString();
-        if (!setter.set(key, n, overflow)) return; // same people already shown, bitmaps held
+        return kb.append('+').append(overflow).toString();
+    }
+
+    /** Memoized badge text + reactor strip for {@code m}; null when it has no reactions. */
+    @Nullable
+    private ReactionBound reactionBoundFor(@NonNull Message m) {
+        final java.util.Map<String, String> rx = m.reactions;
+        if (rx == null || rx.isEmpty()) return null;
+        final Object c = m.cachedReactionBound;
+        if (c != null) {
+            final ReactionBound cb = (ReactionBound) c;
+            if (cb.src == rx && cb.size == rx.size() && cb.photosEpoch == photosEpoch) return cb;
+        }
+        final String text = formatReactions(rx);
+        String key = null; String[] urls = null; int n = 0;
+        if (isGroup) {
+            final String[] uids = new String[MINI_STRIP_REACTORS];
+            for (java.util.Map.Entry<String, String> e : rx.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) continue;
+                uids[n++] = e.getKey();
+                if (n == MINI_STRIP_REACTORS) break;
+            }
+            if (n > 0) { urls = new String[n]; key = buildMiniKey(uids, n, 0, urls); }
+        }
+        final ReactionBound nb = new ReactionBound(rx, rx.size(), photosEpoch, text, key, urls, n);
+        m.cachedReactionBound = nb;
+        return nb;
+    }
+
+    /** Applies (or clears) the reactor strip from a memoized bound. Zero alloc when the view already shows it. */
+    private void applyReactionAvatars(@NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+                                      @Nullable ReactionBound rb, @NonNull android.content.Context ctx) {
+        if (!isGroup || rb == null || rb.n == 0 || rb.key == null) { cv.clearReactionAvatars(); return; }
+        applyMiniStrip(cv, MINI_KIND_REACTION, ctx, rb.key, rb.urls, rb.n, 0);
+    }
+
+    private void applyMiniStrip(@NonNull final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+                                final int kind, @NonNull android.content.Context ctx,
+                                @NonNull final String key, @NonNull String[] urls, int n, int overflow) {
+        final boolean changed = (kind == MINI_KIND_REACTION)
+                ? cv.setReactionAvatars(key, n)
+                : cv.setPollVoters(key, n, overflow);
+        if (!changed) return; // same people already shown, bitmaps held
         for (int i = 0; i < n; i++) {
             final String url = urls[i];
             if (url == null || url.isEmpty()) continue; // no photo → placeholder circle
             final int slot = i;
-            com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, url, 0L,
-                    resource -> bitmapSetter.set(key, slot, resource)); // key-guarded in the view
+            final android.graphics.Bitmap l2 = com.callx.app.cache.ChatAvatarBinder.peekInline(ctx, url);
+            if (l2 != null) { // v445: L2 hit → set inline, no lambda
+                if (kind == MINI_KIND_REACTION) cv.setReactionAvatarBitmap(key, slot, l2);
+                else cv.setPollVoterBitmap(key, slot, l2);
+                continue;
+            }
+            com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, url, 0L, resource -> {
+                if (kind == MINI_KIND_REACTION) cv.setReactionAvatarBitmap(key, slot, resource);
+                else cv.setPollVoterBitmap(key, slot, resource); // key-guarded in the view
+            });
         }
-    }
-
-    /** Reactor avatars (first 3 in reaction order) after the emoji badge — group chats only. */
-    private void bindReactionAvatars(@NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
-                                     @NonNull Message m, @NonNull android.content.Context ctx) {
-        if (!isGroup || m.reactions == null || m.reactions.isEmpty()) { cv.clearReactionAvatars(); return; }
-        final String[] uids = new String[MINI_STRIP_REACTORS];
-        int n = 0;
-        for (java.util.Map.Entry<String, String> e : m.reactions.entrySet()) {
-            if (e.getKey() == null || e.getValue() == null) continue;
-            uids[n++] = e.getKey();
-            if (n == MINI_STRIP_REACTORS) break;
-        }
-        if (n == 0) { cv.clearReactionAvatars(); return; }
-        bindMiniStrip(ctx, uids, n, 0,
-                (k, c, o) -> cv.setReactionAvatars(k, c),
-                cv::setReactionAvatarBitmap);
     }
 
     /**
      * Voter avatars in a group poll's footer row. NEVER for anonymous polls —
      * showing who voted would defeat the point. ≤5 voters → all; more → 4 + "+N".
+     * {@code force}: skip the memo (live-vote path, where the votes map may have
+     * been mutated in place by the vote handler).
      */
     private void bindPollVoters(@NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
-                                @NonNull Message m, @NonNull android.content.Context ctx) {
-        if (!isGroup || Boolean.TRUE.equals(m.pollAnonymous) || m.pollVotes == null || m.pollVotes.isEmpty()) {
+                                @NonNull Message m, @NonNull android.content.Context ctx, boolean force) {
+        final java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes;
+        if (!isGroup || Boolean.TRUE.equals(m.pollAnonymous) || votes == null || votes.isEmpty()) {
             cv.clearPollVoters();
             return;
         }
-        int total = 0;
-        for (java.util.Map.Entry<String, java.util.List<Integer>> e : m.pollVotes.entrySet()) {
-            if (e.getKey() != null && e.getValue() != null && !e.getValue().isEmpty()) total++;
+        PollVoterBound b;
+        final Object c = m.cachedPollVoterBound;
+        if (!force && c != null && ((PollVoterBound) c).src == votes
+                && ((PollVoterBound) c).size == votes.size()
+                && ((PollVoterBound) c).photosEpoch == photosEpoch) {
+            b = (PollVoterBound) c;
+        } else {
+            int total = 0;
+            for (java.util.Map.Entry<String, java.util.List<Integer>> e : votes.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null && !e.getValue().isEmpty()) total++;
+            }
+            if (total == 0) {
+                b = new PollVoterBound(votes, votes.size(), photosEpoch, "", null, 0, 0);
+            } else {
+                final int k = total <= SEEN_BY_MAX_CIRCLES ? total : SEEN_BY_MAX_CIRCLES - 1;
+                final String[] uids = new String[k];
+                int n = 0;
+                for (java.util.Map.Entry<String, java.util.List<Integer>> e : votes.entrySet()) {
+                    if (e.getKey() == null || e.getValue() == null || e.getValue().isEmpty()) continue;
+                    uids[n++] = e.getKey();
+                    if (n == k) break;
+                }
+                final String[] urls = new String[n];
+                final String key = buildMiniKey(uids, n, total - n, urls);
+                b = new PollVoterBound(votes, votes.size(), photosEpoch, key, urls, n, total - n);
+            }
+            m.cachedPollVoterBound = b;
         }
-        if (total == 0) { cv.clearPollVoters(); return; }
-        final int k = total <= SEEN_BY_MAX_CIRCLES ? total : SEEN_BY_MAX_CIRCLES - 1;
-        final String[] uids = new String[k];
-        int n = 0;
-        for (java.util.Map.Entry<String, java.util.List<Integer>> e : m.pollVotes.entrySet()) {
-            if (e.getKey() == null || e.getValue() == null || e.getValue().isEmpty()) continue;
-            uids[n++] = e.getKey();
-            if (n == k) break;
-        }
-        bindMiniStrip(ctx, uids, n, total - n, cv::setPollVoters, cv::setPollVoterBitmap);
+        if (b.n == 0) { cv.clearPollVoters(); return; }
+        applyMiniStrip(cv, MINI_KIND_POLL, ctx, b.key, b.urls, b.n, b.overflow);
     }
 
     /** PERF: tiny view-cache for a poll option row, stashed via row.setTag().
@@ -10218,6 +10488,11 @@ public class MessagePagingAdapter
         // (e.g. several rows rebinding at once when a new message arrives),
         // was a source of the reaction-badge flicker/junk on send/receive.
         int lastCanvasLayerType = -1;
+        /** v448: true while this holder may have an entry in ExpiryTickManager. Set on every
+         *  register(); cleared by our own unregister + onFinish. It is a SUPERSET of "manager
+         *  has an entry" (the manager can drop an entry on its own, e.g. finish), so a stale
+         *  true only costs one harmless no-op unregister — a false-while-registered is impossible. */
+        boolean expiryRegistered = false;
         // Canvas replacement for item_date_separator.xml's tv_date_label —
         // non-null only for TYPE_DATE_SEPARATOR holders. tvDateHeader below
         // is unused dead-fallback state, same status as tvMessage/etc. are
