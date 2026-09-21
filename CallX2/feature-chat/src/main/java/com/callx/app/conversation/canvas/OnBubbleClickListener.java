@@ -75,4 +75,24 @@ public interface OnBubbleClickListener {
      *  (setQuickForwardVisible only) — caller should forward this message,
      *  same as the legacy btn_quick_forward click listener. */
     default void onForwardClick() {}
+
+    /** Feature: Group sender-avatar tap. Tapped the WhatsApp-style 20dp
+     *  sender-avatar circle beside a received group bubble (setGroupSender
+     *  + setGroupSenderAvatarBitmap only, avatar-tail bubble of the run) —
+     *  caller should open the full-screen avatar viewer for that sender. */
+    default void onGroupSenderAvatarClick() {}
+    /** Feature: Group sender-avatar long-press. Long-pressed the same
+     *  20dp sender-avatar circle described above — caller should insert an
+     *  "@Name " mention for that sender into the compose box. */
+    default void onGroupSenderAvatarLongClick() {}
+
+    /** Feature: "Seen by" avatar strip tap. Tapped the small overlapping reader
+     *  circles under one of MY sent group bubbles (setSeenBy only) — caller
+     *  should open the readers list (GroupReadByActivity) for this message. */
+    default void onSeenByClick() {}
+
+    /** Feature: poll-voters strip tap. Tapped the small voter avatars in a group poll's
+     *  "N votes" footer (setPollVoters only — never shown for anonymous polls) — caller
+     *  should show who voted for which option. */
+    default void onPollVotersClick() {}
 }

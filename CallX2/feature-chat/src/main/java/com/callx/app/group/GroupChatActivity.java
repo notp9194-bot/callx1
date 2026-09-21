@@ -1199,6 +1199,10 @@ public class GroupChatActivity extends AppCompatActivity
         // re-wiring needed on every presence update since the adapter reads
         // through this same map instance at bind time.
         pagingAdapter.setGroupMemberPhotos(memberPhotos);
+        // Admin/creator pill after the sender name: same live-map wiring —
+        // memberRoles is mutated in place by setupGroupMembersAndPresence()'s
+        // membersRef listener, which also calls onMemberRolesChanged() on a diff.
+        pagingAdapter.setGroupMemberRoles(memberRoles);
 
         // Batch prefetch on open: the moment the FIRST non-empty page lands,
         // warm every visible member's avatar in one go (see
@@ -1237,6 +1241,24 @@ public class GroupChatActivity extends AppCompatActivity
             }
             @Override public void onNavigateToOriginal(String messageId) {
                 scrollToMessageId(messageId);
+            }
+            @Override public void onGroupSenderAvatarClick(Message m) {
+                if (m.senderId == null || m.senderId.isEmpty()) return;
+                // Tap now opens a small member sheet (View photo / Messages
+                // from … / Mention) instead of going straight to the photo
+                // viewer — "View photo" is the first row and opens the same
+                // DialogFullscreenHelper viewer as before.
+                showMemberActionSheet(m);
+            }
+            @Override public void onPollVotersTap(Message m) {
+                showGroupPollVoters(m);
+            }
+            @Override public void onGroupSenderAvatarLongClick(Message m) {
+                if (m.senderId == null || m.senderId.isEmpty() || groupMentionController == null) return;
+                String name = memberNames != null ? memberNames.get(m.senderId) : null;
+                if (name == null || name.isEmpty()) name = m.senderName;
+                if (name == null || name.isEmpty()) return;
+                groupMentionController.insertMention(name);
             }
         });
 
@@ -2076,6 +2098,8 @@ public class GroupChatActivity extends AppCompatActivity
         m.senderPhoto       = e.senderPhoto;
         m.text              = e.text;
         m.type              = e.type;
+        m.eventUid          = e.eventUid;
+        m.eventPhoto        = e.eventPhoto;
         m.mediaUrl          = e.mediaUrl;
         m.imageUrl          = "image".equals(e.type) ? e.mediaUrl : null;
         m.thumbnailUrl      = e.thumbnailUrl;
@@ -2206,6 +2230,8 @@ public class GroupChatActivity extends AppCompatActivity
         e.senderPhoto           = m.senderPhoto;
         e.text                  = m.text;
         e.type                  = m.type != null ? m.type : "text";
+        e.eventUid              = m.eventUid;
+        e.eventPhoto            = m.eventPhoto;
         e.mediaUrl              = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
         e.thumbnailUrl          = m.thumbnailUrl;
         e.fileName              = m.fileName;
@@ -2389,11 +2415,15 @@ public class GroupChatActivity extends AppCompatActivity
         // Wire "Seen by" strip → GroupReadByActivity
         if (pagingAdapter != null) {
             pagingAdapter.setOnSeenByClickListener(m -> {
-                if (m == null || m.id == null) return;
+                // Tapped from the reader-avatar strip under a sent bubble
+                // (MessageBubbleCanvasView#onSeenByClick). Paged rows can
+                // carry the Firebase key in either field.
+                String readByMsgId = m == null ? null : (m.id != null ? m.id : m.messageId);
+                if (readByMsgId == null) return;
                 android.content.Intent readByIntent =
                         new android.content.Intent(this, GroupReadByActivity.class);
                 readByIntent.putExtra(GroupReadByActivity.EXTRA_GROUP_ID, groupId);
-                readByIntent.putExtra(GroupReadByActivity.EXTRA_MSG_ID, m.id);
+                readByIntent.putExtra(GroupReadByActivity.EXTRA_MSG_ID, readByMsgId);
                 readByIntent.putExtra(GroupReadByActivity.EXTRA_MSG_TEXT,
                         m.text != null ? m.text : "[" + (m.type != null ? m.type : "message") + "]");
                 readByIntent.putExtra(GroupReadByActivity.EXTRA_TOTAL_OTHERS,
@@ -3002,6 +3032,163 @@ public class GroupChatActivity extends AppCompatActivity
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // MEMBER SHEET (sender-avatar tap) + "MESSAGES FROM <MEMBER>" SEARCH
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Lazily builds the in-chat search controller (shared by the ⋮ menu's
+     *  "Search Messages" and the member sheet's "Messages from …"). */
+    private com.callx.app.conversation.controllers.ChatSearchController ensureSearchController() {
+        if (searchController == null) {
+            // GroupChatActivity does not implement ChatActivityDelegate, so we
+            // supply a minimal SearchDelegate wrapper inline.
+            com.callx.app.conversation.controllers.ChatSearchController.SearchDelegate sd =
+                new com.callx.app.conversation.controllers.ChatSearchController.SearchDelegate() {
+                    @Override public com.callx.app.chat.databinding.ActivityChatBinding getBinding() { return binding; }
+                    @Override public android.app.Activity getActivity() { return GroupChatActivity.this; }
+                    @Override public com.callx.app.db.AppDatabase getDb() { return db; }
+                    @Override public java.util.concurrent.Executor getIoExecutor() { return ioExecutor; }
+                    @Override public String getChatId() { return groupId; }
+                    @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
+                    @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+                    // Reuse the same loaded-window-first / Room-fallback
+                    // jump logic already used for reply-tap and
+                    // "jump to where they're reading" navigation —
+                    // see scrollToMessageId's own doc comment.
+                    @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
+                };
+            searchController = new com.callx.app.conversation.controllers.ChatSearchController(sd);
+        }
+        return searchController;
+    }
+
+    /** Opens the search bar filtered to one member's messages (newest first). */
+    private void openMemberMessageSearch(String uid, String name, int accentColor) {
+        if (uid == null || uid.isEmpty()) return;
+        ensureSearchController().openSearchForSender(uid, name, accentColor);
+    }
+
+    /**
+     * Sender-avatar tap: compact bottom sheet — member header (avatar, name in
+     * their bubble color, Creator/Admin pill) + View photo / Messages from … /
+     * Mention. Long-press on the avatar still inserts the @mention directly.
+     */
+    private void showMemberActionSheet(Message m) {
+        final String uid = m.senderId;
+        String n = memberNames != null ? memberNames.get(uid) : null;
+        if (n == null || n.isEmpty()) n = m.senderName;
+        if (n == null || n.isEmpty()) n = "Member";
+        final String name = n;
+        final String photoUrl = memberPhotos.get(uid);
+        final String role = memberRoles.get(uid);
+        final int accent = com.callx.app.conversation.canvas.MessageBubbleCanvasView.groupSenderColorForUid(uid);
+        final int textPrimary = ContextCompat.getColor(this, R.color.text_primary);
+        final int textMuted = ContextCompat.getColor(this, R.color.text_muted);
+        final float d = getResources().getDisplayMetrics().density;
+
+        final BottomSheetDialog sheet = new BottomSheetDialog(this);
+        android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+        root.setBackgroundResource(R.drawable.bg_bottom_sheet_round);
+        root.setPadding((int) (20 * d), (int) (20 * d), (int) (20 * d), (int) (16 * d));
+
+        final Runnable viewPhoto = () -> {
+            sheet.dismiss();
+            // Same swipe-down-to-close avatar viewer every other avatar tap
+            // in the app opens (DialogFullscreenHelper). No sourceView: the
+            // avatar is Canvas-drawn, so no Telegram-style dock animation.
+            com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
+                    GroupChatActivity.this, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
+        };
+
+        // ── header ──
+        android.widget.LinearLayout header = new android.widget.LinearLayout(this);
+        header.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        de.hdodenhof.circleimageview.CircleImageView iv = new de.hdodenhof.circleimageview.CircleImageView(this);
+        android.widget.LinearLayout.LayoutParams ivLp =
+                new android.widget.LinearLayout.LayoutParams((int) (52 * d), (int) (52 * d));
+        ivLp.setMarginEnd((int) (14 * d));
+        header.addView(iv, ivLp);
+        if (photoUrl != null && !photoUrl.isEmpty()) {
+            com.callx.app.cache.ChatAvatarBinder.bind(this, iv, photoUrl, 0L, R.drawable.ic_person);
+        } else {
+            iv.setImageResource(R.drawable.ic_person);
+        }
+        iv.setOnClickListener(v -> viewPhoto.run());
+
+        android.widget.LinearLayout names = new android.widget.LinearLayout(this);
+        names.setOrientation(android.widget.LinearLayout.VERTICAL);
+        android.widget.TextView tvName = new android.widget.TextView(this);
+        tvName.setText(name);
+        tvName.setTextSize(17);
+        tvName.setTextColor(accent);
+        tvName.setTypeface(tvName.getTypeface(), android.graphics.Typeface.BOLD);
+        tvName.setSingleLine(true);
+        tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        names.addView(tvName);
+        if ("creator".equals(role) || "admin".equals(role)) {
+            android.widget.TextView tvRole = new android.widget.TextView(this);
+            tvRole.setText("creator".equals(role) ? "Group creator" : "Group admin");
+            tvRole.setTextSize(12);
+            tvRole.setTextColor(textMuted);
+            names.addView(tvRole);
+        }
+        header.addView(names, new android.widget.LinearLayout.LayoutParams(
+                0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(header);
+
+        android.widget.LinearLayout.LayoutParams gapLp = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, (int) (12 * d));
+        root.addView(new View(this), gapLp);
+
+        // ── actions ──
+        root.addView(buildMemberSheetRow("\uD83D\uDDBC\uFE0F", "View photo", textPrimary, viewPhoto));
+        root.addView(buildMemberSheetRow("\uD83D\uDD0D", "Messages from " + name, textPrimary, () -> {
+            sheet.dismiss();
+            openMemberMessageSearch(uid, name, accent);
+        }));
+        if (groupMentionController != null) {
+            root.addView(buildMemberSheetRow("@", "Mention " + name, textPrimary, () -> {
+                sheet.dismiss();
+                groupMentionController.insertMention(name);
+            }));
+        }
+
+        sheet.setContentView(root);
+        sheet.show();
+    }
+
+    private View buildMemberSheetRow(String icon, String label, int textColor, Runnable onClick) {
+        final float d = getResources().getDisplayMetrics().density;
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight((int) (52 * d));
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) {
+            row.setBackgroundResource(tv.resourceId);
+        }
+        android.widget.TextView tvIcon = new android.widget.TextView(this);
+        tvIcon.setText(icon);
+        tvIcon.setTextSize(20);
+        tvIcon.setGravity(android.view.Gravity.CENTER);
+        row.addView(tvIcon, new android.widget.LinearLayout.LayoutParams((int) (36 * d),
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        android.widget.TextView tvLabel = new android.widget.TextView(this);
+        tvLabel.setText(label);
+        tvLabel.setTextSize(15);
+        tvLabel.setTextColor(textColor);
+        tvLabel.setSingleLine(true);
+        tvLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        android.widget.LinearLayout.LayoutParams lblLp = new android.widget.LinearLayout.LayoutParams(
+                0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lblLp.setMarginStart((int) (8 * d));
+        row.addView(tvLabel, lblLp);
+        row.setOnClickListener(v -> onClick.run());
+        return row;
+    }
+
     /** "Who reacted" dialog for group chat — a group can have any number of
      *  reactors, unlike 1:1 chat's fixed self+partner pair, so this resolves
      *  every uid against the live memberNames map instead of assuming there
@@ -3024,30 +3211,96 @@ public class GroupChatActivity extends AppCompatActivity
             String emoji = e.getValue();
             if (uid == null || emoji == null) continue;
             String name = currentUid.equals(uid) ? "You" : memberNames.getOrDefault(uid, "Member");
-
-            android.widget.LinearLayout row = new android.widget.LinearLayout(this);
-            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            int vPad = (int) (10 * getResources().getDisplayMetrics().density);
-            row.setPadding(0, vPad, 0, vPad);
-
-            android.widget.TextView tvEmoji = new android.widget.TextView(this);
-            tvEmoji.setText(emoji);
-            tvEmoji.setTextSize(22);
-            tvEmoji.setPadding(0, 0, (int) (16 * getResources().getDisplayMetrics().density), 0);
-            row.addView(tvEmoji);
-
-            android.widget.TextView tvName = new android.widget.TextView(this);
-            tvName.setText(name);
-            tvName.setTextSize(15);
-            row.addView(tvName);
-
-            container.addView(row);
+            container.addView(buildMemberAvatarRow(uid, name, emoji));
         }
 
         com.callx.app.utils.AlertDialogStyler.showRounded(
             new AlertDialog.Builder(this)
                 .setTitle("Reactions")
+                .setView(scroll)
+                .setPositiveButton("Close", null)
+        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
+    }
+
+    /**
+     * One dialog row: circular member avatar (same ChatAvatarBinder pipeline as the
+     * Read-by / member lists, so it shares their L2/L3 entries) + name, with an
+     * optional trailing emoji (reactions list). Photo comes from the live memberPhotos map.
+     */
+    private android.view.View buildMemberAvatarRow(String uid, String name, @Nullable String trailingEmoji) {
+        final float d = getResources().getDisplayMetrics().density;
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int vPad = (int) (8 * d);
+        row.setPadding(0, vPad, 0, vPad);
+
+        de.hdodenhof.circleimageview.CircleImageView iv = new de.hdodenhof.circleimageview.CircleImageView(this);
+        android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams((int) (36 * d), (int) (36 * d));
+        lp.setMarginEnd((int) (12 * d));
+        row.addView(iv, lp);
+        String photo = memberPhotos.get(uid);
+        if (photo != null && !photo.isEmpty()) {
+            com.callx.app.cache.ChatAvatarBinder.bind(this, iv, photo, 0L, R.drawable.ic_person);
+        } else {
+            iv.setImageResource(R.drawable.ic_person);
+        }
+
+        android.widget.TextView tvName = new android.widget.TextView(this);
+        tvName.setText(name);
+        tvName.setTextSize(15);
+        row.addView(tvName, new android.widget.LinearLayout.LayoutParams(
+                0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (trailingEmoji != null) {
+            android.widget.TextView tvEmoji = new android.widget.TextView(this);
+            tvEmoji.setText(trailingEmoji);
+            tvEmoji.setTextSize(22);
+            row.addView(tvEmoji);
+        }
+        return row;
+    }
+
+    /**
+     * Tap on a group poll's voter-avatar strip: who voted for which option.
+     * Never for anonymous polls (the strip isn't drawn for them either — this is
+     * the second guard so the list can't be reached by any other path).
+     */
+    private void showGroupPollVoters(Message m) {
+        if (m == null || m.pollVotes == null || m.pollVotes.isEmpty()
+                || m.pollOptions == null || m.pollOptions.isEmpty()
+                || Boolean.TRUE.equals(m.pollAnonymous)) return;
+        final float d = getResources().getDisplayMetrics().density;
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * d);
+        container.setPadding(pad, (int) (8 * d), pad, (int) (8 * d));
+        scroll.addView(container);
+
+        for (int i = 0; i < m.pollOptions.size(); i++) {
+            java.util.List<String> voters = new java.util.ArrayList<>();
+            for (Map.Entry<String, java.util.List<Integer>> e : m.pollVotes.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null && e.getValue().contains(i)) voters.add(e.getKey());
+            }
+            android.widget.TextView header = new android.widget.TextView(this);
+            String opt = m.pollOptions.get(i) != null ? m.pollOptions.get(i) : "";
+            header.setText(opt + "  ·  " + voters.size());
+            header.setTextSize(14);
+            header.setTypeface(header.getTypeface(), android.graphics.Typeface.BOLD);
+            header.setPadding(0, (int) (i == 0 ? 4 * d : 14 * d), 0, (int) (2 * d));
+            container.addView(header);
+            for (String uid : voters) {
+                String name = currentUid.equals(uid) ? "You" : memberNames.getOrDefault(uid, "Member");
+                container.addView(buildMemberAvatarRow(uid, name, null));
+            }
+        }
+
+        com.callx.app.utils.AlertDialogStyler.showRounded(
+            new AlertDialog.Builder(this)
+                .setTitle("Poll votes")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
         .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
@@ -3467,8 +3720,9 @@ public class GroupChatActivity extends AppCompatActivity
                     if (item != null && m.id.equals(item.id)) {
                         item.readBy      = rb;
                         item.deliveredBy = db;
-                        pagingAdapter.notifyItemChanged(i,
-                                com.callx.app.conversation.MessagePagingAdapter.PAYLOAD_READ_BY);
+                        // Also refreshes the own row above (its reader-avatar
+                        // strip depends on this row's readers).
+                        pagingAdapter.notifyReadByChanged(i);
                         break;
                     }
                 }
@@ -3729,6 +3983,7 @@ public class GroupChatActivity extends AppCompatActivity
         membersListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 Set<String> latest = new HashSet<>();
+                java.util.List<String> roleChangedUids = null;
                 for (DataSnapshot c : snap.getChildren()) {
                     String uid = c.getKey();
                     if (uid == null) continue;
@@ -3736,7 +3991,14 @@ public class GroupChatActivity extends AppCompatActivity
                     String name = c.child("name").getValue(String.class);
                     String role = c.child("role").getValue(String.class);
                     memberNames.put(uid, name != null ? name : "Member");
-                    memberRoles.put(uid, role != null ? role : "member");
+                    String newRole = role != null ? role : "member";
+                    String prevRole = memberRoles.put(uid, newRole);
+                    // Admin/creator pill in the bubble's name row: only a real
+                    // change (first arrival included) refreshes rows.
+                    if (!newRole.equals(prevRole)) {
+                        if (roleChangedUids == null) roleChangedUids = new java.util.ArrayList<>();
+                        roleChangedUids.add(uid);
+                    }
                     resolveMemberProfileIfNeeded(uid, name == null || name.isEmpty());
                 }
                 // GROUP TICK FIX v62: memberNames/memberRoles were only ever
@@ -3750,6 +4012,9 @@ public class GroupChatActivity extends AppCompatActivity
                 memberNames.keySet().retainAll(latest);
                 memberRoles.keySet().retainAll(latest);
                 totalMembers = latest.size();
+                if (roleChangedUids != null && pagingAdapter != null) {
+                    pagingAdapter.onMemberRolesChanged(roleChangedUids);
+                }
                 refreshSubtitle();
                 // Keep @mention suggestion list in sync with live membership
                 if (groupMentionController != null)
@@ -5765,27 +6030,7 @@ public class GroupChatActivity extends AppCompatActivity
             startActivity(i); return true;
         }
         if (id == R.id.action_search) {
-            if (searchController == null) {
-                // GroupChatActivity does not implement ChatActivityDelegate, so we
-                // supply a minimal SearchDelegate wrapper inline.
-                com.callx.app.conversation.controllers.ChatSearchController.SearchDelegate sd =
-                    new com.callx.app.conversation.controllers.ChatSearchController.SearchDelegate() {
-                        @Override public com.callx.app.chat.databinding.ActivityChatBinding getBinding() { return binding; }
-                        @Override public android.app.Activity getActivity() { return GroupChatActivity.this; }
-                        @Override public com.callx.app.db.AppDatabase getDb() { return db; }
-                        @Override public java.util.concurrent.Executor getIoExecutor() { return ioExecutor; }
-                        @Override public String getChatId() { return groupId; }
-                        @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
-                        @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
-                        // Reuse the same loaded-window-first / Room-fallback
-                        // jump logic already used for reply-tap and
-                        // "jump to where they're reading" navigation —
-                        // see scrollToMessageId's own doc comment.
-                        @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
-                    };
-                searchController = new com.callx.app.conversation.controllers.ChatSearchController(sd);
-            }
-            searchController.openSearch();
+            ensureSearchController().openSearch();
             return true;
         }
         if (id == R.id.menu_invite)      { shareInviteLink(); return true; }

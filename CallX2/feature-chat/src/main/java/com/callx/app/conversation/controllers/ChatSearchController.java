@@ -4,6 +4,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.app.Activity;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
@@ -54,6 +55,12 @@ import static android.content.Context.INPUT_METHOD_SERVICE;
  *   • {@link #closeSearch()} clears all adapter highlights on close.
  *   • Works for both ChatActivity (1:1) and GroupChatActivity via
  *     {@link SearchDelegate} — no full ChatActivityDelegate needed.
+ *   • Member filter (group chat): {@link #openSearchForSender} opens the same
+ *     bar pre-filtered to one sender — a tinted "Name ✕" chip sits in the bar,
+ *     an empty text box lists every message that member sent (newest first,
+ *     Prev/Next walks back in time), typing narrows to that member's messages
+ *     containing the text. Tapping the chip drops the filter and falls back to
+ *     the ordinary all-members search.
  */
 public class ChatSearchController {
 
@@ -118,6 +125,16 @@ public class ChatSearchController {
     private Runnable      pendingSearch   = null;
     private String        lastQuery       = "";
     private boolean       searchOpen      = false;
+    /** True once a query has actually been dispatched since the last reset —
+     *  lets "no results" show for a member-filter query whose text is empty
+     *  (lastQuery.length() alone can't tell "ran with empty text" from "never ran"). */
+    private boolean       hasRun          = false;
+
+    // Member filter (group chat "messages from X"). Null uid = ordinary
+    // all-members search. Always cleared by closeSearch()/plain openSearch().
+    private String senderFilterUid   = null;
+    private String senderFilterName  = null;
+    private int    senderFilterColor = 0xFF459EDB;
 
     /** Set once the search bar ViewStub has actually inflated (first
      *  openSearch() call ever, for this activity instance). Null until then —
@@ -165,6 +182,7 @@ public class ChatSearchController {
                     String q = sb.etSearch.getText() != null
                             ? sb.etSearch.getText().toString().trim() : "";
                     if (q.length() >= 2) runQuery(q);
+                    else if (senderFilterUid != null) runQuery("");
                     return true;
                 }
                 return false;
@@ -172,6 +190,7 @@ public class ChatSearchController {
             sb.btnSearchPrev.setOnClickListener(v -> step(false));
             sb.btnSearchNext.setOnClickListener(v -> step(true));
             sb.btnCloseSearch.setOnClickListener(v -> closeSearch());
+            sb.tvSearchMember.setOnClickListener(v -> clearSenderFilter());
         });
     }
 
@@ -192,13 +211,94 @@ public class ChatSearchController {
     // ── Open ──────────────────────────────────────────────────────────────
 
     public void openSearch() {
+        openInternal(true);
+    }
+
+    /**
+     * Opens the search bar already filtered to one group member: every message
+     * {@code uid} sent (newest first) until the user types text to narrow it.
+     * Safe to call while the bar is already open (just swaps/apply the filter).
+     * The keyboard is NOT raised — the point is to see the messages; tap the
+     * text box to add a text filter on top.
+     *
+     * @param displayName shown in the chip (long names are shortened)
+     * @param accentColor the member's name color, so the chip matches their bubbles
+     */
+    public void openSearchForSender(String uid, String displayName, int accentColor) {
+        if (uid == null || uid.isEmpty()) return;
+        ActivityChatBinding b = delegate.getBinding();
+        if (b == null || b.stubSearchBar == null) return;
+        boolean wasOpen = searchOpen;
+        if (!wasOpen) openInternal(false);
+        LayoutSearchBarBinding sb = searchBarBinding;
+        if (sb == null) return;
+
+        senderFilterUid   = uid;
+        senderFilterName  = (displayName == null || displayName.trim().isEmpty()) ? "Member" : displayName.trim();
+        senderFilterColor = accentColor;
+        bindSenderChip(sb);
+
+        // Already open (e.g. previous member / plain search) → start clean, keep whatever
+        // text the user had typed so it now applies to this member.
+        resetState();
+        cancelPending();
+        String typed = sb.etSearch.getText() != null ? sb.etSearch.getText().toString().trim() : "";
+        runQuery(typed.length() >= 2 ? typed : "");
+    }
+
+    /** Drops the member filter (chip tap) and falls back to the all-members search. */
+    public void clearSenderFilter() {
+        if (senderFilterUid == null) return;
+        senderFilterUid  = null;
+        senderFilterName = null;
+        LayoutSearchBarBinding sb = searchBarBinding;
+        if (sb != null) bindSenderChip(sb);
+        cancelPending();
+        String typed = (sb != null && sb.etSearch.getText() != null)
+                ? sb.etSearch.getText().toString().trim() : "";
+        if (searchOpen && typed.length() >= 2) {
+            hasRun = false;
+            runQuery(typed);
+        } else {
+            clearResults();
+        }
+    }
+
+    private void bindSenderChip(LayoutSearchBarBinding sb) {
+        if (senderFilterUid == null) {
+            sb.tvSearchMember.setVisibility(View.GONE);
+            sb.etSearch.setHint("Search messages…");
+            return;
+        }
+        String n = senderFilterName;
+        if (n.length() > 14) {
+            int cut = 13;
+            if (Character.isHighSurrogate(n.charAt(cut - 1))) cut--; // don't split an emoji
+            n = n.substring(0, cut) + "…";
+        }
+        float d = delegate.getActivity().getResources().getDisplayMetrics().density;
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(14f * d);
+        bg.setColor((senderFilterColor & 0x00FFFFFF) | 0x2E000000); // ~18% fill, same look as the admin badge pill
+        sb.tvSearchMember.setBackground(bg);
+        sb.tvSearchMember.setTextColor(senderFilterColor);
+        sb.tvSearchMember.setText(n + "  \u2715");
+        sb.tvSearchMember.setVisibility(View.VISIBLE);
+        sb.etSearch.setHint("Filter by text…");
+    }
+
+    private void openInternal(boolean showKeyboard) {
         ActivityChatBinding b = delegate.getBinding();
         if (b == null || b.stubSearchBar == null) return;
         searchOpen = true;
         resetState();
+        // A plain open is always the all-members search.
+        senderFilterUid  = null;
+        senderFilterName = null;
 
         LayoutSearchBarBinding sb = searchBar(b);
         if (sb == null) return;
+        bindSenderChip(sb);
 
         // Slide-in animation
         sb.getRoot().setVisibility(View.VISIBLE);
@@ -209,19 +309,27 @@ public class ChatSearchController {
                 .setInterpolator(new DecelerateInterpolator())
                 .start();
 
-        sb.etSearch.requestFocus();
-        InputMethodManager imm = (InputMethodManager)
-                delegate.getActivity().getSystemService(INPUT_METHOD_SERVICE);
-        if (imm != null) imm.showSoftInput(sb.etSearch, 0);
+        if (showKeyboard) {
+            sb.etSearch.requestFocus();
+            InputMethodManager imm = (InputMethodManager)
+                    delegate.getActivity().getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(sb.etSearch, 0);
+        }
     }
 
     // ── Debounce ──────────────────────────────────────────────────────────
 
     private void scheduleSearch(String query) {
         cancelPending();
-        if (query.length() < 2) { clearResults(); return; }
-        if (query.equals(lastQuery)) return;
-        pendingSearch = () -> runQuery(query);
+        if (query.length() < 2) {
+            if (senderFilterUid == null) { clearResults(); return; }
+            // Member mode: too-short text just means "no text filter" → all of
+            // that member's messages, instead of blanking the results.
+            query = "";
+        }
+        if (hasRun && query.equals(lastQuery)) return;
+        final String q = query;
+        pendingSearch = () -> runQuery(q);
         debounceHandler.postDelayed(pendingSearch, DEBOUNCE_MS);
     }
 
@@ -237,6 +345,10 @@ public class ChatSearchController {
     private void runQuery(String query) {
         if (!searchOpen) return;
         lastQuery = query;
+        hasRun = true;
+        // Snapshot: a chip tap / another member can change the filter while the
+        // DB thread is busy — the stale-result guard below compares against this.
+        final String senderUid = senderFilterUid;
 
         // Show "Searching…" while debounce fires
         delegate.runOnMain(() -> {
@@ -253,6 +365,15 @@ public class ChatSearchController {
             AppDatabase db = delegate.getDb();
             if (db == null) return;
             List<String> ids;
+            if (senderUid != null) {
+                final List<String> senderIds = runSenderQuery(db, senderUid, query);
+                delegate.runOnMain(() -> {
+                    if (!searchOpen || !query.equals(lastQuery)
+                            || !senderUid.equals(senderFilterUid)) return; // superseded
+                    applyResults(senderIds, query);
+                });
+                return;
+            }
             // ULTRA-OPT: FTS4 index instead of a per-chat LIKE table scan —
             // see AppDatabase#MIGRATION_59_60's doc. Wrapped in try/catch as
             // a zero-risk fallback: if anything about the FTS path is ever
@@ -274,18 +395,47 @@ public class ChatSearchController {
             }
             final List<String> finalIds = ids;
             delegate.runOnMain(() -> {
-                if (!searchOpen || !query.equals(lastQuery)) return; // stale result, a newer query already superseded this one
-                matchIds.clear();
-                matchIds.addAll(finalIds);
-                // Land on the most recent match first (closest to where the
-                // chat is usually scrolled to), same convention WhatsApp uses.
-                currentIndex = matchIds.isEmpty() ? -1 : matchIds.size() - 1;
-                refreshCountUI();
-                MessagePagingAdapter adapter = delegate.getPagingAdapter();
-                if (adapter != null) adapter.setSearchQuery(query);
-                if (currentIndex >= 0) delegate.navigateToMessage(matchIds.get(currentIndex));
+                // stale result, a newer query (or a member filter switched on
+                // in the meantime) already superseded this one
+                if (!searchOpen || !query.equals(lastQuery) || senderFilterUid != null) return;
+                applyResults(finalIds, query);
             });
         });
+    }
+
+    /** Main thread: publish a result set, land on the newest match, refresh count + highlights. */
+    private void applyResults(List<String> ids, String query) {
+        matchIds.clear();
+        matchIds.addAll(ids);
+        // Land on the most recent match first (closest to where the
+        // chat is usually scrolled to), same convention WhatsApp uses.
+        currentIndex = matchIds.isEmpty() ? -1 : matchIds.size() - 1;
+        refreshCountUI();
+        MessagePagingAdapter adapter = delegate.getPagingAdapter();
+        // Empty text (member-only mode) → setSearchQuery normalises "" to null = no highlight.
+        if (adapter != null) adapter.setSearchQuery(query);
+        if (currentIndex >= 0) delegate.navigateToMessage(matchIds.get(currentIndex));
+    }
+
+    /**
+     * Member-filtered lookup (background thread). Empty text → everything that
+     * member sent; otherwise FTS restricted to their messages with the same
+     * LIKE fallback the all-members search has.
+     */
+    private List<String> runSenderQuery(AppDatabase db, String senderUid, String query) {
+        String chatId = delegate.getChatId();
+        if (query.isEmpty()) {
+            return db.messageDao().getMessageIdsBySender(chatId, senderUid, MAX_RESULTS);
+        }
+        String ftsQuery = buildFtsQuery(query);
+        if (!ftsQuery.isEmpty()) {
+            try {
+                return db.messageDao().searchMessageIdsFtsBySender(chatId, senderUid, ftsQuery, MAX_RESULTS);
+            } catch (Exception e) {
+                // FTS unavailable → fall through to LIKE, same safety net as the unfiltered path
+            }
+        }
+        return db.messageDao().searchMessageIdsLikeBySender(chatId, senderUid, buildLikePattern(query), MAX_RESULTS);
     }
 
     private List<String> legacyLikeSearch(AppDatabase db, String query) {
@@ -364,8 +514,8 @@ public class ChatSearchController {
             sb.btnSearchPrev.setVisibility(View.VISIBLE);
             sb.btnSearchNext.setVisibility(View.VISIBLE);
         } else {
-            sb.tvSearchCount.setVisibility(lastQuery.length() >= 2 ? View.VISIBLE : View.GONE);
-            if (lastQuery.length() >= 2) sb.tvSearchCount.setText("No results");
+            sb.tvSearchCount.setVisibility(hasRun ? View.VISIBLE : View.GONE);
+            if (hasRun) sb.tvSearchCount.setText("No results");
             sb.btnSearchPrev.setVisibility(View.GONE);
             sb.btnSearchNext.setVisibility(View.GONE);
         }
@@ -378,6 +528,7 @@ public class ChatSearchController {
         matchIds.clear();
         currentIndex = -1;
         lastQuery = "";
+        hasRun = false;
         refreshCountUI();
         MessagePagingAdapter adapter = delegate.getPagingAdapter();
         if (adapter != null) adapter.setSearchQuery(null);
@@ -387,15 +538,21 @@ public class ChatSearchController {
         matchIds.clear();
         currentIndex = -1;
         lastQuery = "";
+        hasRun = false;
     }
 
     /** Called by the activity's back-press handler or close button. */
     public void closeSearch() {
         searchOpen = false;
         cancelPending();
+        // Member filter never outlives the bar — cleared BEFORE setText("") below so
+        // the TextWatcher's scheduleSearch("") takes the plain clearResults() branch.
+        senderFilterUid  = null;
+        senderFilterName = null;
         // Never opened this session → nothing was ever inflated, nothing to close.
         LayoutSearchBarBinding sb = searchBarBinding;
         if (sb == null) return;
+        bindSenderChip(sb);
 
         // Clear UI text + highlights
         sb.etSearch.setText("");

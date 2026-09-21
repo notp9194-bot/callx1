@@ -233,6 +233,8 @@ final class PollRenderer {
         Paint.FontMetrics ffm = host.pollFooterFmScratch;
         float footerBaseline = rowTop + footerGap + (-ffm.ascent);
         canvas.drawText(footerStr, left, footerBaseline, host.pollFooterPaint);
+        // Voter avatars (group, non-anonymous) — right end of the same footer row.
+        host.drawPollVoters(canvas, right, footerBaseline + (ffm.ascent + ffm.descent) / 2f);
 
         // ── Timestamp / tick footer ─────────────────────────────────────────
         int    fvPad = Math.round(MessageBubbleCanvasView.V_PADDING_DP * host.density);

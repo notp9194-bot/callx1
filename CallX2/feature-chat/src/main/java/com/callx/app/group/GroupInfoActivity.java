@@ -12,6 +12,7 @@ import android.view.*;
 import android.widget.*;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
@@ -1096,7 +1097,7 @@ public class GroupInfoActivity extends AppCompatActivity {
         upd.put("groups/"    + groupId + "/unread/"  + currentUid, null);
         upd.put("userGroups/" + currentUid + "/" + groupId, null);
         FirebaseUtils.db().getReference().updateChildren(upd);
-        postSystemMessage(myName + " left the group");
+        postSystemMessage(myName + " left the group", currentUid, FirebaseUtils.getCurrentPhotoUrl());
 
         // WHATSAPP-LEVEL FIX: we're the one leaving, so OUR device can't
         // rotate anyone's Sender Key — but every remaining member's device
@@ -1165,6 +1166,17 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     private void postSystemMessage(String text) {
+        postSystemMessage(text, null, null);
+    }
+
+    /**
+     * Feature 8: overload for system rows ABOUT a single member — currently
+     * only the self-leave flow below, which already has both values on hand
+     * synchronously (FirebaseUtils.getCurrentUid/getCurrentPhotoUrl), so no
+     * extra Firebase read is needed here (contrast JoinRequestsBottomSheet's
+     * approve(), which has to look the joiner's photo up).
+     */
+    private void postSystemMessage(String text, @Nullable String eventUid, @Nullable String eventPhoto) {
         DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
         Map<String, Object> sys = new HashMap<>();
         sys.put("id",        sysRef.getKey());
@@ -1173,6 +1185,8 @@ public class GroupInfoActivity extends AppCompatActivity {
         sys.put("text",      text);
         sys.put("type",      "system");
         sys.put("timestamp", System.currentTimeMillis());
+        if (eventUid != null && !eventUid.isEmpty()) sys.put("eventUid", eventUid);
+        if (eventPhoto != null && !eventPhoto.isEmpty()) sys.put("eventPhoto", eventPhoto);
         sysRef.setValue(sys);
     }
 

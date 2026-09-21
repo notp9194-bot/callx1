@@ -37,6 +37,24 @@ public class Message {
     public String text;
     /** text | image | video | audio | file */
     public String type;
+
+    // ── Feature 8: Join/leave system-row avatar ─────────────────────────────
+    /** Set only on type="system" rows that are ABOUT a single member (someone
+     *  joined or left) — the uid of that member, so the row can show their
+     *  avatar. Null for every other system row (rename, icon change, admin
+     *  promote/demote, add/remove) and for every regular message — those
+     *  keep rendering exactly as before. See JoinRequestsBottomSheet#approve,
+     *  GroupInfoActivity's self-leave flow, and NotificationActionReceiver's
+     *  "Leave group" quick action for where this gets set at post time. */
+    public String eventUid;
+    /** Denormalized photo URL for {@link #eventUid}, captured at the moment
+     *  the system message was posted (mirrors the app's existing
+     *  denormalization pattern — see v301 view-count work) so the row keeps
+     *  showing the right face even after that member leaves the group and
+     *  drops out of the live groupMemberPhotos map. Null if the member had
+     *  no photo at post time. */
+    public String eventPhoto;
+
     public String mediaUrl;
     /** Cloudinary URL for a low-res preview. Populated for video messages
      *  (VideoCompressor's extracted poster frame — needed since a video

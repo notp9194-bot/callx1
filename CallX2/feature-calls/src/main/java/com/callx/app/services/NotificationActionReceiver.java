@@ -632,6 +632,14 @@ public class NotificationActionReceiver extends BroadcastReceiver {
                 sys.put("text",       myName + " left the group");
                 sys.put("type",       "system");
                 sys.put("timestamp",  System.currentTimeMillis());
+                // Feature 8: system-row avatar — same eventUid/eventPhoto
+                // shape GroupInfoActivity#doLeaveGroup's postSystemMessage
+                // overload writes for the in-app "Leave group" flow, so
+                // leaving via this notification quick-action also shows
+                // the leaver's avatar on the row.
+                String myPhoto = FirebaseUtils.getCurrentPhotoUrl();
+                sys.put("eventUid", myUid);
+                if (myPhoto != null && !myPhoto.isEmpty()) sys.put("eventPhoto", myPhoto);
                 sysRef.setValue(sys);
             }
             if (nm != null) nm.cancel(notifId);

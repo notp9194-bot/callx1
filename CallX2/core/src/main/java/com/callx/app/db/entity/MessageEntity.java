@@ -51,6 +51,11 @@ public class MessageEntity {
     public String senderPhoto;    // avatar URL — used by status_seen bubble
     public String text;
     public String type;           // text | image | video | audio | file | status_seen
+
+    // Feature 8: join/leave system-row avatar — see Message#eventUid/eventPhoto doc.
+    public String eventUid;
+    public String eventPhoto;
+
     public String mediaUrl;
 
     // BUG FIX: this field used to have @PropertyName("thumbUrl") — meant to

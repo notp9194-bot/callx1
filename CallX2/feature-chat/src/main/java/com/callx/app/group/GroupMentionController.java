@@ -193,7 +193,20 @@ public class GroupMentionController {
 
     // ── Insert mention ────────────────────────────────────────────────────
 
-    private void insertMention(String name) {
+    /**
+     * Feature: avatar long-press → @mention. Public entry point for
+     * inserting a mention from somewhere OTHER than tapping a suggestion
+     * row (see the private call site below) — e.g. long-pressing a group
+     * message's sender avatar. Same insertion logic: if the cursor sits
+     * right after an in-progress "@word" it replaces that word, otherwise
+     * (the common case here, since there's no "@" being typed) it just
+     * appends "@Name " at the end of the compose box.
+     */
+    public void insertMention(String name) {
+        insertMentionInternal(name);
+    }
+
+    private void insertMentionInternal(String name) {
         dismissSuggestions();
         if (binding.etMessage == null) return;
         Editable ed = binding.etMessage.getText();

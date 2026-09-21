@@ -83,7 +83,7 @@ import com.callx.app.db.entity.*;
         // ThumbHashCacheEntity's class doc.
         ThumbHashCacheEntity.class
     },
-    version = 72,
+    version = 73,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -1109,6 +1109,18 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    // Feature 8 — join/leave system-row avatar: new columns backing
+    // Message#eventUid/eventPhoto (see that field's doc). Both nullable
+    // TEXT, so existing rows just come back NULL — no backfill needed,
+    // and only newly-posted join/leave rows ever populate them.
+    static final Migration MIGRATION_72_73 = new Migration(72, 73) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN eventUid TEXT");
+            db.execSQL("ALTER TABLE messages ADD COLUMN eventPhoto TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1177,7 +1189,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_64_65, MIGRATION_65_66,
                                     MIGRATION_66_67, MIGRATION_67_68,
                                     MIGRATION_68_69, MIGRATION_69_70,
-                                    MIGRATION_70_71, MIGRATION_71_72)
+                                    MIGRATION_70_71, MIGRATION_71_72,
+                                    MIGRATION_72_73)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

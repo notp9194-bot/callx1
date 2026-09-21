@@ -151,7 +151,7 @@ public class JoinRequestsBottomSheet extends BottomSheetDialogFragment {
                         Toast.makeText(getContext(), "Could not approve request", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    postSystemMessage(item.name + " joined the group");
+                    postSystemMessage(item.name + " joined the group", item.uid);
                     postAuditLog("approve_join_request", item.name);
                     // Nudge existing members to redistribute their Sender
                     // Key to the newly-approved member, same as
@@ -175,7 +175,36 @@ public class JoinRequestsBottomSheet extends BottomSheetDialogFragment {
                 });
     }
 
+    /**
+     * Feature 8: overload that also resolves {@code eventUid}'s photo (a
+     * single value read off users/{uid}, same field names
+     * resolveMemberProfileIfNeeded() in GroupChatActivity uses) so the
+     * "X joined the group" row can carry an avatar. Falls back to no
+     * avatar (null eventPhoto) if the lookup fails or the user has none —
+     * never blocks posting the system message itself.
+     */
+    private void postSystemMessage(String text, @Nullable String eventUid) {
+        if (eventUid == null || eventUid.isEmpty()) {
+            postSystemMessageInternal(text, null, null);
+            return;
+        }
+        FirebaseUtils.getUserRef(eventUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String photo = snap.child("photoUrl").getValue(String.class);
+                if (photo == null || photo.isEmpty()) photo = snap.child("thumbUrl").getValue(String.class);
+                postSystemMessageInternal(text, eventUid, photo);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {
+                postSystemMessageInternal(text, eventUid, null);
+            }
+        });
+    }
+
     private void postSystemMessage(String text) {
+        postSystemMessageInternal(text, null, null);
+    }
+
+    private void postSystemMessageInternal(String text, @Nullable String eventUid, @Nullable String eventPhoto) {
         DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
         Map<String, Object> sys = new HashMap<>();
         sys.put("id",        sysRef.getKey());
@@ -184,6 +213,11 @@ public class JoinRequestsBottomSheet extends BottomSheetDialogFragment {
         sys.put("text",      text);
         sys.put("type",      "system");
         sys.put("timestamp", System.currentTimeMillis());
+        // Feature 8: only set on rows that are about a single member
+        // (join/leave) — every other system message leaves these null and
+        // keeps rendering exactly as before (see MessagePagingAdapter).
+        if (eventUid != null && !eventUid.isEmpty()) sys.put("eventUid", eventUid);
+        if (eventPhoto != null && !eventPhoto.isEmpty()) sys.put("eventPhoto", eventPhoto);
         sysRef.setValue(sys);
     }
 

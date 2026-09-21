@@ -128,6 +128,64 @@ public interface MessageDao {
            "ORDER BY timestamp ASC LIMIT :limit")
     List<String> searchMessageIdsFts(String chatId, String ftsQuery, int limit);
 
+    // ── Per-member ("messages from X") search — group chat avatar sheet ─────
+    //
+    // All three queries below return the NEWEST `limit` matching ids, then
+    // re-sort them ASC (oldest → newest) so ChatSearchController's "lands on
+    // the most recent match first, Prev walks back in time" convention holds
+    // even when a chatty member has more than `limit` messages. (A plain
+    // ORDER BY timestamp ASC LIMIT n would keep the OLDEST n instead, and the
+    // "most recent" jump would land on a message from months ago.)
+    //
+    // Rows that carry a senderId but are not something a member "said"
+    // (date separators, security events, status/reel-seen cards, view-once
+    // placeholders) and soft-deleted rows are excluded — same set the
+    // adapter treats as non-grouping rows.
+
+    /**
+     * Every message a member sent in this chat (empty search text — pure
+     * "show me what X said" mode). Uses the (chatId, senderId, status,
+     * timestamp) index prefix for the chatId + senderId filter.
+     */
+    @WorkerThread
+    @Query("SELECT id FROM (SELECT id, timestamp FROM messages " +
+           "WHERE chatId = :chatId AND senderId = :senderId " +
+           "AND (deleted IS NULL OR deleted != 1) " +
+           "AND (type IS NULL OR type NOT IN " +
+           "('date_separator','security_event','status_seen','reel_seen','view_once')) " +
+           "ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
+    List<String> getMessageIdsBySender(String chatId, String senderId, int limit);
+
+    /**
+     * FTS4 text search restricted to one member. `messages_fts` has no
+     * senderId column (adding one would need a schema migration + trigger
+     * rewrite), so the FTS hit-set is intersected with `messages` by id —
+     * MATCH still does the heavy lifting, the senderId check only runs on
+     * the (small) set of text hits. See {@link #searchMessageIdsFts} for the
+     * ftsQuery contract and why verification is skipped.
+     */
+    @WorkerThread
+    @androidx.room.SkipQueryVerification
+    @Query("SELECT id FROM (SELECT id, timestamp FROM messages " +
+           "WHERE chatId = :chatId AND senderId = :senderId " +
+           "AND id IN (SELECT id FROM messages_fts " +
+           "WHERE chatId = :chatId AND messages_fts MATCH :ftsQuery) " +
+           "ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
+    List<String> searchMessageIdsFtsBySender(String chatId, String senderId, String ftsQuery, int limit);
+
+    /**
+     * LIKE fallback for {@link #searchMessageIdsFtsBySender} — same role as
+     * {@link #searchMessagesByText} plays for the unfiltered search
+     * (`pattern` already wildcard-escaped + %-wrapped by the caller).
+     */
+    @WorkerThread
+    @Query("SELECT id FROM (SELECT id, timestamp FROM messages " +
+           "WHERE chatId = :chatId AND senderId = :senderId " +
+           "AND (deleted IS NULL OR deleted != 1) " +
+           "AND text LIKE :pattern ESCAPE '\\' " +
+           "ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
+    List<String> searchMessageIdsLikeBySender(String chatId, String senderId, String pattern, int limit);
+
     /**
      * PERF: used by LastMessagesCache priming — fetches just the most recent
      * `limit` rows but returns them ASC (oldest→newest), matching the order

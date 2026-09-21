@@ -17,6 +17,7 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.callx.app.chat.util.MarkdownFormatter;
@@ -403,6 +404,12 @@ public class MessageBubbleCanvasView extends View {
     static final String PINNED_LABEL_TEXT   = "📌 Pinned";
     static final float PINNED_LABEL_GAP_DP  = 2f; // gap between label and bubble top
     static final float GROUP_SENDER_TEXT_SP = 11f; // matches tv_sender_name in item_message_received.xml
+    // Admin/creator badge pill after the sender name (see groupSenderBadge).
+    static final float GROUP_BADGE_TEXT_SP   = 9f;
+    static final float GROUP_BADGE_GAP_DP    = 5f;   // name → pill
+    static final float GROUP_BADGE_PAD_H_DP  = 4f;
+    static final float GROUP_BADGE_PAD_V_DP  = 1.5f;
+    static final int   GROUP_BADGE_BG_ALPHA  = 0x2E; // pill fill = name color @ ~18%
 
     // ── Group-chat sender avatar (WhatsApp-style, received-only) — a small
     // circular avatar bottom-aligned to the bubble's start edge, mirrors
@@ -417,6 +424,32 @@ public class MessageBubbleCanvasView extends View {
     static final float GROUP_AVATAR_SIZE_DP = 20f;
     static final float GROUP_AVATAR_GAP_DP  = 6f; // gap between avatar and bubble start edge
     static final int   GROUP_AVATAR_PLACEHOLDER_COLOR = 0xFFBDBDBD;
+
+    // ── Reactor avatars on the reaction badge + poll-voters strip (v439). Both
+    // use MiniAvatarStrip; sizes are their own so they can be tuned apart. ──
+    static final float REACTION_AVATAR_SIZE_DP    = 14f;
+    static final float REACTION_AVATAR_OVERLAP_DP = 5f;
+    static final float REACTION_AVATAR_GAP_DP     = 4f;  // emoji text → first avatar
+    static final float POLL_VOTER_AVATAR_SIZE_DP    = 14f;
+    static final float POLL_VOTER_AVATAR_OVERLAP_DP = 5f;
+    static final float POLL_VOTER_TOUCH_SLOP_DP     = 8f;
+
+    // ── "Seen by" avatar strip (v437) — a row of small overlapping reader
+    // circles under one of MY sent group bubbles, right-aligned to the
+    // bubble's end edge (Messenger/Telegram style). Own row below the
+    // bubble/reactions badge, so it reserves height only while it exists
+    // (presence keyed in computeSizeSignature — the number/photos of the
+    // circles never change the measured size, only what gets drawn). ──
+    static final int   SEEN_BY_MAX_AVATARS       = 5;    // circle slots (avatars + optional "+N" chip share this budget in the adapter)
+    static final float SEEN_BY_AVATAR_SIZE_DP    = 14f;
+    static final float SEEN_BY_AVATAR_OVERLAP_DP = 4f;
+    static final float SEEN_BY_TOP_GAP_DP        = 3f;
+    static final float SEEN_BY_BOTTOM_GAP_DP     = 1f;
+    static final float SEEN_BY_END_MARGIN_DP     = 6f;
+    static final float SEEN_BY_CHIP_TEXT_SP      = 7f;
+    static final float SEEN_BY_TOUCH_SLOP_DP     = 8f;   // hit-target padding around the (tiny) strip
+    static final int   SEEN_BY_RING_COLOR        = 0xB3FFFFFF;
+    static final int   SEEN_BY_CHIP_COLOR        = 0xFF9E9E9E;
 
     // ── Forwarded label — mirrors tv_forwarded's text/size/color/style from
     // item_message_received.xml ("↪ Forwarded from X", 11sp italic, #888888).
@@ -2142,18 +2175,75 @@ public class MessageBubbleCanvasView extends View {
     // item_message_received.xml. Only meaningful for received messages. ──
     boolean hasGroupSender = false;
     String groupSenderName = "";
+    // Feature: per-member name color — the uid the current groupSenderName
+    // was derived from, so groupSenderPaint's color can be picked from
+    // GROUP_SENDER_NAME_PALETTE deterministically per sender (see
+    // groupSenderColorForUid()/setGroupSender(name, uid)). Null keeps the
+    // old single brand_primary color (broadcast label, legacy callers).
+    @Nullable String groupSenderUid = null;
     final TextPaint groupSenderPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     int groupSenderTextHeight = 0;
     float groupSenderWidth = 0;
+    // Feature: admin / creator badge — a small pill right after the sender
+    // name in the same row ("Admin" / "Creator", tinted with the member's own
+    // name color). Draw-only: the pill is clamped to the name text's height
+    // and sits after the name in a row that already exists, so it never
+    // changes the measured size (no size-signature key, no re-measure). Only
+    // drawn while the name row itself is (run-head bubbles), and only if it
+    // fits inside the row's width.
+    @Nullable private String groupSenderBadge = null;
+    private float groupSenderBadgeTextW = 0f;
+    private float groupSenderNameCenterY = 0f;
+    private float groupSenderNameCenterOffset = 0f;
+    private final TextPaint groupBadgeTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint.FontMetrics groupBadgeFm = new Paint.FontMetrics();
+    private final RectF groupBadgeRect = new RectF();
+    // Small fixed palette of visually-distinguishable colors used for
+    // per-member group-sender names (WhatsApp-style) — same uid always
+    // maps to the same palette entry for the life of the process (see
+    // groupSenderColorForUid()).
+    private static final int[] GROUP_SENDER_NAME_PALETTE = {
+            0xFFE17076, // red
+            0xFF7BC862, // green
+            0xFF459EDB, // blue
+            0xFFF2994A, // orange
+            0xFFA695E7, // purple
+            0xFF2CA5A0, // teal
+            0xFFEE7AAE, // pink
+            0xFF9AA33C, // olive
+            0xFF5C9BD5, // steel blue
+            0xFFD2725A, // terracotta
+            0xFF7E8CE0, // indigo
+            0xFFC97BC9, // orchid
+    };
+
+    /**
+     * Deterministic per-sender name color: same uid always yields the same
+     * palette entry, both within a session and across app restarts (uses
+     * String.hashCode(), which is content-based and stable — NOT
+     * Object.hashCode()/identity). null/empty uid falls back to index 0
+     * so callers that haven't migrated (e.g. the 1:1-broadcast label,
+     * which has no real "member") still get a sane, stable color.
+     */
+    public static int groupSenderColorForUid(@Nullable String uid) {
+        if (uid == null || uid.isEmpty()) return GROUP_SENDER_NAME_PALETTE[0];
+        int idx = (uid.hashCode() & 0x7FFFFFFF) % GROUP_SENDER_NAME_PALETTE.length;
+        return GROUP_SENDER_NAME_PALETTE[idx];
+    }
 
     // ── Group-chat sender-AVATAR state (WhatsApp-style, 20dp, bottom-
     // aligned to the bubble's start edge) — was previously unmodeled (see
     // iv_sender_avatar being dead markup in the legacy layout); now bound
     // by MessagePagingAdapter via setGroupSenderAvatarBitmap(), sourced
     // from the group's already-loaded member list (no extra network/DB
-    // call — see ChatAvatarBinder.bindBitmap() call site). Only reserves
-    // its column width (shifts bubbleLeft/maxTextWidth) when hasGroupSender
-    // is also true, i.e. only for received group messages. ──
+    // call — see ChatAvatarBinder.bindBitmap() call site). Reserves its
+    // column width (shifts bubbleLeft/maxTextWidth) whenever
+    // hasGroupSenderAvatar is set — i.e. for every received group bubble,
+    // INDEPENDENT of whether the sender-name row is shown (the name only
+    // shows on the first bubble of a same-sender run, the avatar only on
+    // the last; the column stays reserved on all of them so a run stays
+    // left-aligned). ──
     Bitmap groupSenderAvatarBitmap = null;
     boolean hasGroupSenderAvatar = false;
     // WhatsApp-style run gating: in a run of consecutive messages from the
@@ -2181,6 +2271,38 @@ public class MessageBubbleCanvasView extends View {
     private android.graphics.BitmapShader groupSenderAvatarShader;
     private Bitmap lastGroupSenderAvatarBitmap;
     private float lastGroupSenderAvatarScale = Float.NaN, lastGroupSenderAvatarDx, lastGroupSenderAvatarDy;
+
+    // ── "Seen by" strip state (see SEEN_BY_* constants). hasSeenBy is the
+    // only layout-affecting bit; everything else is draw-only and lives in
+    // the dynamic overlay layer (never baked into the cached bubble
+    // RenderNode/Picture), so a late avatar bitmap is just an invalidate. ──
+    // Reactor avatars appended after the reaction badge's emoji text, and the
+    // poll-voters strip in the poll card's "N votes" footer row. Assigned in
+    // the constructor (need density).
+    private MiniAvatarStrip reactionAvatars;
+    private MiniAvatarStrip pollVoterAvatars;
+    /** Where PollRenderer last drew the voters strip (hit-test target; empty = none). */
+    final RectF pollVotersRect = new RectF();
+    boolean hasSeenBy = false;
+    /** Identity of what the strip currently shows (reader uids + photo
+     *  hashes, built by the adapter). Lets the adapter skip re-requesting
+     *  bitmaps when a rebind carries the same readers, and lets a late
+     *  async bitmap for a stale reader set be dropped. */
+    @Nullable private String seenByKey = null;
+    private int seenByCount = 0;      // avatar circles drawn (<= SEEN_BY_MAX_AVATARS)
+    private int seenByOverflow = 0;   // >0 → trailing "+N" chip
+    private String seenByOverflowText = "";
+    private final Bitmap[] seenByBitmaps = new Bitmap[SEEN_BY_MAX_AVATARS];
+    private final android.graphics.BitmapShader[] seenByShaders = new android.graphics.BitmapShader[SEEN_BY_MAX_AVATARS];
+    private final Bitmap[] seenByShaderBmps = new Bitmap[SEEN_BY_MAX_AVATARS];
+    private final android.graphics.Matrix seenByShaderMatrix = new android.graphics.Matrix();
+    final RectF seenByRect = new RectF();
+    private final android.graphics.Rect seenByDirtyRect = new android.graphics.Rect();
+    private final Paint seenByAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint seenByFillPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint seenByRingPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint seenByChipTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint.FontMetrics seenByChipFm = new Paint.FontMetrics();
 
     // ── Forwarded-label state — stacks below the pinned-label/group-sender
     // row above the bubble (own row, own baseline; see onMeasure). ──
@@ -2504,6 +2626,25 @@ public class MessageBubbleCanvasView extends View {
     // reveals the mini player" bug. Skipping onImageClick() here when
     // this flag is set makes a long-press open only the mini player.
     private boolean reelPeekConsumedThisTouch = false;
+
+    // ── Feature: group sender-avatar tap / long-press state ────────────────
+    // groupSenderAvatarRect (declared with the avatar's other draw state
+    // above) is hit-tested manually here rather than through gestureDetector,
+    // since it needs its own tap-vs-long-press distinction independent of
+    // the whole-bubble click/long-click gestureDetector already owns (a
+    // long-press starting on the avatar should mention that sender, NOT
+    // also open the multi-select action sheet the bubble's own long-press
+    // triggers). Mirrors the DOWN/MOVE/UP tracking a plain GestureDetector
+    // does internally, just scoped to this one sub-rect.
+    private boolean avatarTouchActive = false;
+    private boolean avatarLongPressFired = false;
+    private float avatarTouchDownX, avatarTouchDownY;
+    private final Runnable avatarLongPressRunnable = () -> {
+        avatarLongPressFired = true;
+        avatarTouchActive = false;
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        if (clickListener != null) clickListener.onGroupSenderAvatarLongClick();
+    };
 
     // ── Per-feature draw() renderers (feature-based file split) — bind/
     // measure/touch logic stays on this host view; each renderer only
@@ -2868,6 +3009,22 @@ public class MessageBubbleCanvasView extends View {
 
         groupSenderPaint.setTextSize(spToPx(GROUP_SENDER_TEXT_SP));
         groupSenderPaint.setFakeBoldText(true);
+
+        reactionAvatars  = new MiniAvatarStrip(density);
+        pollVoterAvatars = new MiniAvatarStrip(density);
+
+        groupBadgeTextPaint.setTextSize(spToPx(GROUP_BADGE_TEXT_SP));
+        groupBadgeTextPaint.setFakeBoldText(true);
+        groupBadgeTextPaint.getFontMetrics(groupBadgeFm);
+
+        seenByRingPaint.setStyle(Paint.Style.STROKE);
+        seenByRingPaint.setStrokeWidth(Math.max(1f, density));
+        seenByRingPaint.setColor(SEEN_BY_RING_COLOR);
+        seenByChipTextPaint.setTextSize(spToPx(SEEN_BY_CHIP_TEXT_SP));
+        seenByChipTextPaint.setColor(Color.WHITE);
+        seenByChipTextPaint.setFakeBoldText(true);
+        seenByChipTextPaint.setTextAlign(Paint.Align.CENTER);
+        seenByChipTextPaint.getFontMetrics(seenByChipFm);
 
         // COLOR: forwarded label gets a soft brand-teal tint instead of
         // plain grey, so "↪ Forwarded from X" reads as a distinct, on-brand
@@ -4664,6 +4821,16 @@ public class MessageBubbleCanvasView extends View {
         seenLabelOverride = null;
         linkThumbBitmap   = null;
         groupSenderAvatarBitmap = null;
+        // Seen-by bitmaps go too; key reset so the next bind (even with the
+        // same reader set) re-requests them instead of trusting empty slots.
+        for (int i = 0; i < seenByBitmaps.length; i++) {
+            seenByBitmaps[i] = null;
+            seenByShaders[i] = null;
+            seenByShaderBmps[i] = null;
+        }
+        seenByKey = null;
+        reactionAvatars.clearBitmaps();
+        pollVoterAvatars.clearBitmaps();
     }
 
     private static int resolveFileIconColor(@Nullable String mime) {
@@ -5182,7 +5349,7 @@ public class MessageBubbleCanvasView extends View {
         if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
         float marginEnd = REACTIONS_MARGIN_END_DP * density;
         float overlap = REACTIONS_OVERLAP_DP * density;
-        float badgeW = reactionsTextPaint.measureText(reactionsText);
+        float badgeW = reactionsTextPaint.measureText(reactionsText) + reactionAvatarsExtraWidth();
         float badgeH = reactionsTextFM.descent - reactionsTextFM.ascent;
         float right = bubbleRect.right - marginEnd;
         float bottom = bubbleRect.bottom + overlap;
@@ -5200,6 +5367,7 @@ public class MessageBubbleCanvasView extends View {
 
     /** Call when a message has no reactions — clears any previous badge state so a recycled view doesn't show a stale reaction. */
     public void clearReactions() {
+        reactionAvatars.clear(); // avatars belong to the badge — a recycled view must not keep the old reactors
         if (!this.hasReactions && this.reactionsText.isEmpty()) return;
         this.hasReactions = false;
         this.reactionsText = "";
@@ -5247,14 +5415,46 @@ public class MessageBubbleCanvasView extends View {
      * @param name display name; null/empty is treated as clearGroupSender().
      */
     public void setGroupSender(@Nullable String name) {
+        setGroupSender(name, null);
+        setGroupSenderBadge(null); // 1:1 broadcast pseudo-label — no member, no role
+    }
+
+    /**
+     * Feature: admin / creator badge. {@code label} is the pill text
+     * ("Admin" / "Creator"); null/empty removes it. Call right after
+     * setGroupSender(name, uid) on every bind (a recycled view otherwise
+     * keeps the previous sender's badge — clearGroupSender() resets it too).
+     * Draw-only, see groupSenderBadge.
+     */
+    public void setGroupSenderBadge(@Nullable String label) {
+        String next = (label != null && !label.isEmpty()) ? label : null;
+        if (java.util.Objects.equals(next, this.groupSenderBadge)) return;
+        this.groupSenderBadge = next;
+        this.groupSenderBadgeTextW = next != null ? groupBadgeTextPaint.measureText(next) : 0f;
+        invalidate(); // name row is baked into the cached bubble → re-record
+    }
+
+    /**
+     * @param name      display name; null/empty is treated as clearGroupSender().
+     * @param senderUid Feature: per-member name color — sender's uid, used to
+     *                  derive a stable color from GROUP_SENDER_NAME_PALETTE
+     *                  (see groupSenderColorForUid()). Pass null to keep the
+     *                  old single brand_primary color (e.g. the 1:1-broadcast
+     *                  pseudo-label, which has no real member behind it).
+     */
+    public void setGroupSender(@Nullable String name, @Nullable String senderUid) {
         boolean nextHasSender = name != null && !name.isEmpty();
         String nextName = name != null ? name : "";
-        if (this.hasGroupSender == nextHasSender && this.groupSenderName.equals(nextName)) return;
+        boolean uidChanged = !java.util.Objects.equals(this.groupSenderUid, senderUid);
+        if (this.hasGroupSender == nextHasSender && this.groupSenderName.equals(nextName) && !uidChanged) return;
         this.hasGroupSender = nextHasSender;
         this.groupSenderName = nextName;
+        this.groupSenderUid = senderUid;
         if (hasGroupSender) {
-            groupSenderPaint.setColor(androidx.core.content.ContextCompat.getColor(
-                    getContext(), com.callx.app.core.R.color.brand_primary));
+            groupSenderPaint.setColor(senderUid != null && !senderUid.isEmpty()
+                    ? groupSenderColorForUid(senderUid)
+                    : androidx.core.content.ContextCompat.getColor(
+                            getContext(), com.callx.app.core.R.color.brand_primary));
         }
         requestLayoutIfSizeChanged();
         invalidate();
@@ -5265,6 +5465,9 @@ public class MessageBubbleCanvasView extends View {
         if (!this.hasGroupSender && this.groupSenderName.isEmpty()) return;
         this.hasGroupSender = false;
         this.groupSenderName = "";
+        this.groupSenderUid = null;
+        this.groupSenderBadge = null;
+        this.groupSenderBadgeTextW = 0f;
         requestLayoutIfSizeChanged();
         invalidate();
     }
@@ -5283,7 +5486,16 @@ public class MessageBubbleCanvasView extends View {
     public void setGroupSenderAvatarVisible(boolean visible) {
         if (this.hasGroupSenderAvatar == visible) return;
         this.hasGroupSenderAvatar = visible;
-        if (!visible) this.groupSenderAvatarBitmap = null;
+        if (!visible) {
+            this.groupSenderAvatarBitmap = null;
+            // A view about to be recycled/rebound to a different message
+            // must not fire a stale tap/long-press for the OLD sender once
+            // it lands on a new row — cancel any pending timer and drop the
+            // in-progress touch (see avatarLongPressRunnable doc).
+            removeCallbacks(avatarLongPressRunnable);
+            avatarTouchActive = false;
+            avatarLongPressFired = false;
+        }
         requestLayoutIfSizeChanged();
         invalidate();
     }
@@ -5326,6 +5538,146 @@ public class MessageBubbleCanvasView extends View {
     /** Convenience: clears both the avatar-column reservation and any bitmap — equivalent to setGroupSenderAvatarVisible(false). */
     public void clearGroupSenderAvatar() {
         setGroupSenderAvatarVisible(false);
+    }
+
+    // ── Poll voters strip (group, non-anonymous polls) ──────────────────────
+    /**
+     * Voter avatars in the poll card's "N votes" footer row (right-aligned;
+     * PollRenderer draws it). Layout-neutral — the footer row already exists —
+     * so this only redraws. Returns true when the set changed (caller then
+     * requests bitmaps via setPollVoterBitmap()).
+     */
+    public boolean setPollVoters(@NonNull String key, int count, int overflow) {
+        boolean changed = pollVoterAvatars.set(key, count, overflow);
+        if (changed) invalidate(); // poll card is baked into the cached bubble → re-record
+        return changed;
+    }
+
+    public void setPollVoterBitmap(@NonNull String key, int slot, @Nullable Bitmap bitmap) {
+        if (pollVoterAvatars.setBitmap(key, slot, bitmap)) invalidate();
+    }
+
+    public void clearPollVoters() {
+        if (pollVoterAvatars.isEmpty() && pollVotersRect.isEmpty()) return;
+        pollVoterAvatars.clear();
+        pollVotersRect.setEmpty();
+        invalidate();
+    }
+
+    /** Called by PollRenderer inside the footer row. {@code right} = strip's right edge, {@code cy} = footer text's vertical centre. */
+    void drawPollVoters(Canvas canvas, float right, float cy) {
+        if (pollVoterAvatars.isEmpty()) { pollVotersRect.setEmpty(); return; }
+        float size = POLL_VOTER_AVATAR_SIZE_DP * density;
+        float overlap = POLL_VOTER_AVATAR_OVERLAP_DP * density;
+        float w = pollVoterAvatars.width(size, overlap);
+        float left = right - w;
+        float top = cy - size / 2f;
+        pollVotersRect.set(left, top, right, top + size);
+        pollVoterAvatars.draw(canvas, left, top, size, overlap);
+    }
+
+    /**
+     * Shows/updates the "Seen by" avatar strip under this (sent, group)
+     * bubble. {@code key} identifies the reader set being shown (see
+     * seenByKey); {@code avatarCount} circles are drawn (clamped to
+     * SEEN_BY_MAX_AVATARS) plus a "+overflow" chip when {@code overflow > 0}.
+     *
+     * Returns true when the shown set changed — the caller then (re)requests
+     * one bitmap per slot via setSeenByAvatarBitmap(); false means the strip
+     * already shows exactly this set (and holds its bitmaps), so a rebind
+     * can skip the loads. Only the strip's presence re-measures the bubble.
+     */
+    public boolean setSeenBy(@NonNull String key, int avatarCount, int overflow) {
+        int count = Math.max(0, Math.min(avatarCount, SEEN_BY_MAX_AVATARS));
+        int of = Math.max(0, overflow);
+        if (count == 0 && of == 0) { clearSeenBy(); return false; }
+        if (hasSeenBy && key.equals(seenByKey) && count == seenByCount && of == seenByOverflow) {
+            return false;
+        }
+        for (int i = 0; i < seenByBitmaps.length; i++) seenByBitmaps[i] = null; // stale readers' bitmaps
+        seenByKey = key;
+        seenByCount = count;
+        seenByOverflow = of;
+        seenByOverflowText = of > 0 ? (of > 9 ? "9+" : "+" + of) : "";
+        boolean wasShowing = hasSeenBy;
+        hasSeenBy = true;
+        if (!wasShowing) {
+            requestLayoutIfSizeChanged(); // strip appeared → row height grows (onMeasure lays the rect out)
+            invalidate();
+        } else {
+            // Same height, but the circle COUNT may have changed → the strip
+            // is right-anchored, so its left edge moves. onMeasure won't rerun
+            // (size signature unchanged), so re-derive the rect here.
+            invalidateSeenByRegion(true);
+        }
+        return true;
+    }
+
+    /**
+     * Swaps in a reader's decoded avatar (draw-only, no re-measure).
+     * {@code key} must be the one passed to setSeenBy() — a late async load
+     * for a reader set this view no longer shows (recycled / rebound /
+     * a new reader read since) is dropped here instead of pinning a wrong face.
+     */
+    public void setSeenByAvatarBitmap(@NonNull String key, int slot, @Nullable Bitmap bitmap) {
+        if (!hasSeenBy || !key.equals(seenByKey)) return;
+        if (slot < 0 || slot >= seenByCount) return;
+        seenByBitmaps[slot] = bitmap;
+        invalidateSeenByRegion(false);
+    }
+
+    /** Strip width for the current circle count (avatars + optional "+N" chip). */
+    private float seenByStripWidth() {
+        float size = SEEN_BY_AVATAR_SIZE_DP * density;
+        float step = size - SEEN_BY_AVATAR_OVERLAP_DP * density;
+        int circles = seenByCount + (seenByOverflow > 0 ? 1 : 0);
+        return circles > 0 ? size + (circles - 1) * step : 0f;
+    }
+
+    /**
+     * Dirty-region invalidate for the strip — it lives in the dynamic overlay
+     * layer, and a plain invalidate() here would ALSO mark the whole cached
+     * bubble stale (see the invalidate() override) and re-record it for
+     * nothing. Same approach as invalidateReactionsRegion().
+     *
+     * @param relayoutHorizontal true when the circle count changed: re-derive
+     *        the (right-anchored) rect's left edge first and dirty old ∪ new.
+     */
+    private void invalidateSeenByRegion(boolean relayoutHorizontal) {
+        if (seenByRect.isEmpty() || bubbleRect.isEmpty()) {
+            invalidate(); // not measured yet — full pass; onMeasure will lay the rect out
+            return;
+        }
+        float oldLeft = seenByRect.left;
+        if (relayoutHorizontal) {
+            seenByRect.left = seenByRect.right - seenByStripWidth();
+        }
+        int pad = Math.round(2f * density);
+        seenByDirtyRect.set(
+                (int) Math.floor(Math.min(oldLeft, seenByRect.left)) - pad,
+                (int) Math.floor(seenByRect.top) - pad,
+                (int) Math.ceil(seenByRect.right) + pad,
+                (int) Math.ceil(seenByRect.bottom) + pad);
+        invalidate(seenByDirtyRect);
+    }
+
+    /** No readers to show (or not a sent group bubble) — drops the strip and its reserved height. */
+    public void clearSeenBy() {
+        if (!hasSeenBy && seenByKey == null) return;
+        for (int i = 0; i < seenByBitmaps.length; i++) {
+            seenByBitmaps[i] = null;
+            seenByShaders[i] = null;
+            seenByShaderBmps[i] = null;
+        }
+        seenByKey = null;
+        seenByCount = 0;
+        seenByOverflow = 0;
+        seenByOverflowText = "";
+        seenByRect.setEmpty();
+        boolean wasShowing = hasSeenBy;
+        hasSeenBy = false;
+        if (wasShowing) requestLayoutIfSizeChanged(); // strip gone → row height shrinks (full re-record anyway)
+        invalidate();
     }
 
 
@@ -5715,6 +6067,7 @@ public class MessageBubbleCanvasView extends View {
             groupSenderTextHeight = Math.round(gfm.descent - gfm.ascent);
             groupSenderWidth = groupSenderPaint.measureText(groupSenderName);
             row1Height = Math.max(row1Height, groupSenderTextHeight);
+            groupSenderNameCenterOffset = (gfm.ascent + gfm.descent) / 2f; // baseline-relative; badge pill centres on it
         } else {
             groupSenderTextHeight = 0;
             groupSenderWidth = 0;
@@ -5726,6 +6079,7 @@ public class MessageBubbleCanvasView extends View {
             groupSenderPaint.getFontMetrics(groupSenderFmScratch);
             pinnedBaselineY = row1Height - pinnedLabelFmScratch.descent;
             groupSenderBaselineY = row1Height - groupSenderFmScratch.descent;
+            groupSenderNameCenterY = groupSenderBaselineY + groupSenderNameCenterOffset;
             aboveExtra = row1Height + labelGap;
         }
 
@@ -6827,7 +7181,7 @@ public class MessageBubbleCanvasView extends View {
             // of allocating its own copy.
             if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
             Paint.FontMetrics fm = reactionsTextFM;
-            float badgeW = reactionsTextPaint.measureText(reactionsText);
+            float badgeW = reactionsTextPaint.measureText(reactionsText) + reactionAvatarsExtraWidth();
             float badgeH = fm.descent - fm.ascent;
             float right = bubbleRect.right - marginEnd;
             float bottom = bubbleRect.bottom + overlap;
@@ -6835,6 +7189,20 @@ public class MessageBubbleCanvasView extends View {
             totalHeight = Math.max(totalHeight, Math.round(bottom));
         } else {
             reactionsRect.setEmpty();
+        }
+
+        // ── "Seen by" strip — own row BELOW everything above (bubble and the
+        // reactions badge hanging off its corner), right-aligned to the
+        // bubble's end edge. Reserves its height only while it exists. ──
+        if (hasSeenBy) {
+            float size = SEEN_BY_AVATAR_SIZE_DP * density;
+            float stripW = seenByStripWidth();
+            float top = totalHeight + SEEN_BY_TOP_GAP_DP * density;
+            float right = bubbleRect.right - SEEN_BY_END_MARGIN_DP * density;
+            seenByRect.set(right - stripW, top, right, top + size);
+            totalHeight = Math.round(seenByRect.bottom + SEEN_BY_BOTTOM_GAP_DP * density);
+        } else {
+            seenByRect.setEmpty();
         }
 
         setMeasuredDimension(parentWidth, totalHeight);
@@ -7159,11 +7527,70 @@ public class MessageBubbleCanvasView extends View {
         if (hasReactions) {
             drawReactionsBadge(canvas);
         }
+        if (hasSeenBy) {
+            drawSeenByStrip(canvas);
+        }
         if (isBeingViewed) {
             drawViewingDot(canvas);
         }
         if (isBeingPlayed) {
             drawPlayingBadge(canvas);
+        }
+    }
+
+    /**
+     * Draws the "Seen by" strip: overlapping reader circles left→right
+     * (earliest reader first, later ones on top) plus an optional grey
+     * "+N" chip. Bitmap circles reuse one cached BitmapShader per slot
+     * (rebuilt only when that slot's bitmap changes) and just re-aim its
+     * local matrix — nothing is allocated per frame. A slot whose photo
+     * hasn't resolved (or that has none) draws a flat placeholder circle.
+     */
+    private void drawSeenByStrip(Canvas canvas) {
+        if (seenByRect.isEmpty()) return;
+        final float size = SEEN_BY_AVATAR_SIZE_DP * density;
+        final float step = size - SEEN_BY_AVATAR_OVERLAP_DP * density;
+        final float r = size / 2f;
+        final float ringR = r - seenByRingPaint.getStrokeWidth() / 2f;
+        final float top = seenByRect.top;
+        final float cy = top + r;
+        float left = seenByRect.left;
+
+        for (int i = 0; i < seenByCount; i++) {
+            final float cx = left + r;
+            Bitmap bmp = seenByBitmaps[i];
+            if (bmp == null || bmp.isRecycled()) {
+                seenByFillPaint.setColor(GROUP_AVATAR_PLACEHOLDER_COLOR);
+                canvas.drawCircle(cx, cy, r, seenByFillPaint);
+            } else {
+                android.graphics.BitmapShader sh = seenByShaders[i];
+                if (sh == null || seenByShaderBmps[i] != bmp) {
+                    sh = new android.graphics.BitmapShader(bmp,
+                            android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                    seenByShaders[i] = sh;
+                    seenByShaderBmps[i] = bmp;
+                }
+                float scale = Math.max(size / bmp.getWidth(), size / bmp.getHeight());
+                float dx = left - (bmp.getWidth() * scale - size) / 2f;
+                float dy = top - (bmp.getHeight() * scale - size) / 2f;
+                seenByShaderMatrix.reset();
+                seenByShaderMatrix.setScale(scale, scale);
+                seenByShaderMatrix.postTranslate(dx, dy);
+                sh.setLocalMatrix(seenByShaderMatrix);
+                seenByAvatarPaint.setShader(sh);
+                canvas.drawCircle(cx, cy, r, seenByAvatarPaint);
+            }
+            canvas.drawCircle(cx, cy, ringR, seenByRingPaint); // separates the overlap
+            left += step;
+        }
+
+        if (seenByOverflow > 0) {
+            final float cx = left + r;
+            seenByFillPaint.setColor(SEEN_BY_CHIP_COLOR);
+            canvas.drawCircle(cx, cy, r, seenByFillPaint);
+            canvas.drawCircle(cx, cy, ringR, seenByRingPaint);
+            float baseline = cy - (seenByChipFm.ascent + seenByChipFm.descent) / 2f;
+            canvas.drawText(seenByOverflowText, cx, baseline, seenByChipTextPaint);
         }
     }
 
@@ -7173,6 +7600,45 @@ public class MessageBubbleCanvasView extends View {
         if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
         float baselineY = reactionsRect.bottom - reactionsTextFM.descent;
         canvas.drawText(reactionsText, reactionsRect.left, baselineY, reactionsTextPaint);
+        if (!reactionAvatars.isEmpty()) {
+            float size = REACTION_AVATAR_SIZE_DP * density;
+            float overlap = REACTION_AVATAR_OVERLAP_DP * density;
+            float left = reactionsRect.right - reactionAvatars.width(size, overlap);
+            float top = reactionsRect.centerY() - size / 2f;
+            reactionAvatars.draw(canvas, left, top, size, overlap);
+        }
+    }
+
+    /** Extra badge width taken by the reactor avatars (0 when none). Right-anchored, so it only moves the badge's LEFT edge. */
+    private float reactionAvatarsExtraWidth() {
+        if (reactionAvatars == null || reactionAvatars.isEmpty()) return 0f;
+        return REACTION_AVATAR_GAP_DP * density + reactionAvatars.width(
+                REACTION_AVATAR_SIZE_DP * density, REACTION_AVATAR_OVERLAP_DP * density);
+    }
+
+    /**
+     * Reactor avatars after the emoji(s) on the reaction badge (group chats).
+     * Call right after setReactions(). Returns true when the set changed — the
+     * caller then (re)requests one bitmap per slot via setReactionAvatarBitmap().
+     * Width-only effect on the badge (right-anchored → left edge moves), so it
+     * goes through the same dirty-region path as a reaction text change, never a re-measure.
+     */
+    public boolean setReactionAvatars(@NonNull String key, int count) {
+        boolean changed = reactionAvatars.set(key, count, 0);
+        if (changed && hasReactions) invalidateReactionsRegion();
+        return changed;
+    }
+
+    /** Key-guarded (see MiniAvatarStrip): a late load for a stale reactor set is dropped. */
+    public void setReactionAvatarBitmap(@NonNull String key, int slot, @Nullable Bitmap bitmap) {
+        if (reactionAvatars.setBitmap(key, slot, bitmap) && hasReactions) invalidateReactionsRegion();
+    }
+
+    /** No reactor avatars (no reactions, or not a group chat). */
+    public void clearReactionAvatars() {
+        if (reactionAvatars.isEmpty()) return;
+        reactionAvatars.clear();
+        if (hasReactions) invalidateReactionsRegion();
     }
 
     private void drawPinnedLabel(Canvas canvas) {
@@ -7193,6 +7659,31 @@ public class MessageBubbleCanvasView extends View {
         // Also used for the 📢 broadcast badge — the caller composes
         // whichever string applies (see setGroupSender()'s doc).
         canvas.drawText(groupSenderName, bubbleRect.left, groupSenderBaselineY, groupSenderPaint);
+        if (groupSenderBadge != null) drawGroupSenderBadge(canvas);
+    }
+
+    /**
+     * Admin / creator pill right after the name, tinted with the name's own
+     * color (fill @ ~18%, text solid). Skipped when it wouldn't fit in the
+     * row — the name row isn't width-constrained, so a very long name could
+     * otherwise push the pill past the view edge and clip it.
+     */
+    private void drawGroupSenderBadge(Canvas canvas) {
+        final float padH = GROUP_BADGE_PAD_H_DP * density;
+        final float textH = groupBadgeFm.descent - groupBadgeFm.ascent;
+        // Clamped to the name's own text height so the pill can never grow the row.
+        final float pillH = Math.min(textH + 2f * GROUP_BADGE_PAD_V_DP * density, (float) groupSenderTextHeight);
+        final float pillW = groupSenderBadgeTextW + 2f * padH;
+        final float left = bubbleRect.left + groupSenderWidth + GROUP_BADGE_GAP_DP * density;
+        if (pillH <= 0f || left + pillW > getWidth() - 4f * density) return;
+        final float cy = groupSenderNameCenterY;
+        groupBadgeRect.set(left, cy - pillH / 2f, left + pillW, cy + pillH / 2f);
+        final int nameColor = groupSenderPaint.getColor();
+        groupBadgeBgPaint.setColor((nameColor & 0x00FFFFFF) | (GROUP_BADGE_BG_ALPHA << 24));
+        canvas.drawRoundRect(groupBadgeRect, pillH / 2f, pillH / 2f, groupBadgeBgPaint);
+        groupBadgeTextPaint.setColor(nameColor);
+        canvas.drawText(groupSenderBadge, left + padH,
+                cy - (groupBadgeFm.ascent + groupBadgeFm.descent) / 2f, groupBadgeTextPaint);
     }
 
     /**
@@ -7456,6 +7947,9 @@ public class MessageBubbleCanvasView extends View {
         // presence only — ULTRA PERF: see setReactions()'s content-only
         // fast path, which relies on this NOT re-triggering a relayout.
         sb.append(hasReactions ? "|X1" : "|X0");
+        // Seen-by strip: presence only (adds a fixed-height row under the
+        // bubble). Its circle count/photos never change the measured size.
+        sb.append(hasSeenBy ? "|SB1" : "|SB0");
 
         if (isMedia) {
             // mediaAspectRatio must be part of the key: it starts at 0f
@@ -7980,6 +8474,21 @@ public class MessageBubbleCanvasView extends View {
             if (clickListener != null) clickListener.onReactionsClick();
             return true;
         }
+        // "Seen by" strip tap → readers list. The strip is only ~14dp tall,
+        // so the hit target is padded; a long-press on it still falls
+        // through to the bubble's own gesture (multi-select sheet).
+        if (hasSeenBy && event.getActionMasked() == MotionEvent.ACTION_UP && !seenByRect.isEmpty()) {
+            float slop = SEEN_BY_TOUCH_SLOP_DP * density;
+            float x = event.getX(), y = event.getY();
+            if (x >= seenByRect.left - slop && x <= seenByRect.right + slop
+                    && y >= seenByRect.top - slop && y <= seenByRect.bottom + slop
+                    && event.getEventTime() - event.getDownTime()
+                            < android.view.ViewConfiguration.getLongPressTimeout()) {
+                cancelPendingLongPress(event);
+                if (clickListener != null) clickListener.onSeenByClick();
+                return true;
+            }
+        }
         if (isAudio) {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_UP && audioBtnRect.contains(event.getX(), event.getY())) {
@@ -8101,6 +8610,18 @@ public class MessageBubbleCanvasView extends View {
         }
         if (isPoll && event.getActionMasked() == MotionEvent.ACTION_UP) {
             float ex = event.getX(), ey = event.getY();
+            // Voters strip (footer row) → who-voted-for-what list. Padded: the strip is ~14dp tall.
+            if (!pollVotersRect.isEmpty()) {
+                float slop = POLL_VOTER_TOUCH_SLOP_DP * density;
+                if (ex >= pollVotersRect.left - slop && ex <= pollVotersRect.right + slop
+                        && ey >= pollVotersRect.top - slop && ey <= pollVotersRect.bottom + slop
+                        && event.getEventTime() - event.getDownTime()
+                                < android.view.ViewConfiguration.getLongPressTimeout()) {
+                    cancelPendingLongPress(event);
+                    if (clickListener != null) clickListener.onPollVotersClick();
+                    return true;
+                }
+            }
             for (int i = 0; i < pollOptionRects.size(); i++) {
                 if (pollOptionRects.get(i).contains(ex, ey)) {
                     cancelPendingLongPress(event);
@@ -8188,6 +8709,57 @@ public class MessageBubbleCanvasView extends View {
             fullBubbleDirty = true;
             invalidate();
             return true;
+        }
+
+        // ── Feature: group sender-avatar tap (full-screen viewer) /
+        // long-press (@mention insert) ──────────────────────────────────
+        // Handled with our own DOWN/MOVE/UP tracking (not gestureDetector)
+        // so this sub-rect's long-press can fire independently of, and
+        // instead of, the whole-bubble long-click below it — mirrors the
+        // audio-waveform scrub block's early-intercept-on-DOWN pattern.
+        if (hasGroupSenderAvatar && groupSenderAvatarShown && !groupSenderAvatarRect.isEmpty()) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN
+                    && groupSenderAvatarRect.contains(event.getX(), event.getY())) {
+                avatarTouchActive = true;
+                avatarLongPressFired = false;
+                avatarTouchDownX = event.getX();
+                avatarTouchDownY = event.getY();
+                // Don't let the whole-bubble gestureDetector also schedule
+                // its own long-press timer for this same DOWN — the avatar
+                // owns this touch sequence now.
+                cancelPendingLongPress(event);
+                postDelayed(avatarLongPressRunnable,
+                        android.view.ViewConfiguration.getLongPressTimeout());
+                return true;
+            }
+            if (avatarTouchActive) {
+                if (action == MotionEvent.ACTION_MOVE) {
+                    float slop = android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop();
+                    if (Math.abs(event.getX() - avatarTouchDownX) > slop
+                            || Math.abs(event.getY() - avatarTouchDownY) > slop) {
+                        removeCallbacks(avatarLongPressRunnable);
+                        avatarTouchActive = false;
+                    }
+                    return true;
+                }
+                if (action == MotionEvent.ACTION_UP) {
+                    removeCallbacks(avatarLongPressRunnable);
+                    boolean wasLongPress = avatarLongPressFired;
+                    avatarTouchActive = false;
+                    avatarLongPressFired = false;
+                    if (!wasLongPress && groupSenderAvatarRect.contains(event.getX(), event.getY())) {
+                        if (clickListener != null) clickListener.onGroupSenderAvatarClick();
+                    }
+                    return true;
+                }
+                if (action == MotionEvent.ACTION_CANCEL) {
+                    removeCallbacks(avatarLongPressRunnable);
+                    avatarTouchActive = false;
+                    avatarLongPressFired = false;
+                    return true;
+                }
+            }
         }
 
         return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event);
