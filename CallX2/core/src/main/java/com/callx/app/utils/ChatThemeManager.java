@@ -109,39 +109,21 @@ public class ChatThemeManager {
     }
 
     /**
-     * Text color for bubble content — now computed FROM the bubble's own
-     * actual runtime color (bubble_sent / bubble_received), instead of being
-     * resolved from a separately-maintained bubble_sent_text /
-     * bubble_received_text resource pair.
-     *
-     * WHY: two independent color pairs (bubble color + bubble text color)
-     * had to be hand-kept in sync across values/colors.xml, values-night/
-     * colors.xml, and core's own colors.xml — easy to drift (e.g. a bubble
-     * color tweak in one file without updating the matching text color),
-     * which is exactly what a reference-image request like "sender text
-     * matches its own bubble+tail, received text matches its own
-     * bubble+tail" is guarding against. Deriving the text color directly
-     * from the resolved bubble color makes the two impossible to
-     * desynchronize: whatever color the bubble+tail actually paints with
-     * (any theme, any future recolor) the text is always computed against
-     * that exact value.
-     *
-     * HOW: standard perceived-luminance check on the resolved bubble color
-     * (contrastTextColor()) — light/bright bubbles (e.g. a WhatsApp-green
-     * or sticky-note-yellow sent/received bubble) get the app's established
-     * dark bubble-text tone; dark/deep bubbles get the established light
-     * tone. The two tones themselves are unchanged from before (same
-     * dark-navy / near-white pair the app already used), so this is a
-     * behavior-preserving no-op wherever the old resource pair already
-     * matched the bubble — it only self-corrects where they didn't.
+     * Text color for bubble content — from color resources.
+     * BUG FIX: this used to ignore the Context entirely and always return a
+     * hardcoded dark color, regardless of light/dark mode — so setText color
+     * calls in the adapter silently overrode the correct
+     * @color/bubble_sent_text / bubble_received_text values from XML with a
+     * constant dark navy, making text nearly invisible in dark mode. Now it
+     * resolves the actual theme-aware color resource (light mode → black,
+     * dark mode → white, via values-night).
      */
     // v426 PERF: getTextColor() runs on EVERY bubble bind (text, image,
     // caption, album, ...) and used to do a full Resources.getColor() theme
-    // resolve each time. Both colors are resolved+computed once and
-    // memoized in an immutable holder keyed by uiMode (so a dark/light
-    // switch or any other configuration change transparently re-resolves).
-    // Immutable + volatile = safe for the background text-precompute
-    // threads that also call this.
+    // resolve each time. Both colors are resolved once and memoized in an
+    // immutable holder keyed by uiMode (so a dark/light switch or any other
+    // configuration change transparently re-resolves). Immutable + volatile =
+    // safe for the background text-precompute threads that also call this.
     private static final class TextColors {
         final int uiMode, sent, received;
         TextColors(int uiMode, int sent, int received) {
@@ -150,36 +132,13 @@ public class ChatThemeManager {
     }
     private volatile TextColors textColors;
 
-    // The app's two established bubble-text tones (previously
-    // bubble_*_text's light-mode and night-mode values respectively) — kept
-    // as the only two candidates so this stays a pure "which existing tone
-    // fits this bubble" decision, never introducing a brand-new color.
-    private static final int TEXT_TONE_DARK  = 0xFF111B21; // for light/bright bubbles
-    private static final int TEXT_TONE_LIGHT = 0xFFE9EDEF; // for dark/deep bubbles
-
-    /**
-     * Perceived-luminance contrast pick: returns whichever of the two
-     * established text tones reads cleanly on top of {@code bubbleColor}.
-     * Standard broadcast-luma weighting (ITU-R BT.601) — cheap, and more
-     * than accurate enough for a two-way light/dark bubble-text decision.
-     */
-    private static int contrastTextColor(int bubbleColor) {
-        int r = (bubbleColor >> 16) & 0xFF;
-        int g = (bubbleColor >> 8) & 0xFF;
-        int b = bubbleColor & 0xFF;
-        double luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
-        return luminance > 0.6 ? TEXT_TONE_DARK : TEXT_TONE_LIGHT;
-    }
-
     public int getTextColor(Context ctx, boolean sent) {
         final int ui = ctx.getResources().getConfiguration().uiMode;
         TextColors tc = textColors;
         if (tc == null || tc.uiMode != ui) {
-            int sentBubble = resolveColor(ctx, com.callx.app.core.R.color.bubble_sent);
-            int receivedBubble = resolveColor(ctx, com.callx.app.core.R.color.bubble_received);
             tc = new TextColors(ui,
-                    contrastTextColor(sentBubble),
-                    contrastTextColor(receivedBubble));
+                    resolveColor(ctx, com.callx.app.core.R.color.bubble_sent_text),
+                    resolveColor(ctx, com.callx.app.core.R.color.bubble_received_text));
             textColors = tc;
         }
         return sent ? tc.sent : tc.received;

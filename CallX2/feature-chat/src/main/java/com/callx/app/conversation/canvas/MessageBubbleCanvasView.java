@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -245,6 +246,18 @@ public class MessageBubbleCanvasView extends View {
 
     static final float CORNER_RADIUS_DP = 18f;
     static final float TAIL_RADIUS_DP    = 4f;
+    // Reference-style text bubbles are painted directly on this Canvas.
+    // These are intentionally local to the canvas path: legacy XML bubbles,
+    // media cards, and the rest of the message surface keep their existing
+    // theme drawable treatment.
+    static final float REFERENCE_TAIL_WIDTH_DP  = 13f;
+    static final float REFERENCE_TAIL_HEIGHT_DP = 11f;
+    static final float REFERENCE_STICKY_FOLD_DP  = 15f;
+    static final int REFERENCE_SENT_BUBBLE      = 0xFF20B957;
+    static final int REFERENCE_RECEIVED_BUBBLE  = 0xFFFFD21F;
+    static final int REFERENCE_SENT_TEXT       = 0xFFFFFFFF;
+    static final int REFERENCE_RECEIVED_TEXT   = 0xFF172B4D;
+    static final int REFERENCE_STICKY_FOLD     = 0xFFE7AE12;
     static final float H_PADDING_DP      = 12f;
     // TELEGRAM-STYLE COMPACT PASS: was 8f. Telegram's bubble text padding
     // reads tighter/denser than WhatsApp's — smaller per-bubble height means
@@ -873,6 +886,10 @@ public class MessageBubbleCanvasView extends View {
     // constructor instead (needs `density`, so can't be a field initializer
     // here — see the constructor body below).
     final RectF bubbleRect = new RectF();
+    private final Path referenceBubblePath = new Path();
+    private final Path referenceFoldPath = new Path();
+    private final Paint referenceBubblePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint referenceFoldPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     // ── In-chat search highlight (ChatSearchController) ─────────────────
     // Drawn straight on this Canvas behind the message glyphs — no child
@@ -3373,7 +3390,10 @@ public class MessageBubbleCanvasView extends View {
         this.delivered = isDelivered;
 
         Context ctx = getContext();
-        textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
+        // The canvas text-message references use a saturated green sender
+        // bubble and a warm sticky-note receiver bubble. Keep the glyphs,
+        // timestamp, and inline metadata contrast-matched to those fills.
+        textPaint.setColor(sent ? REFERENCE_SENT_TEXT : REFERENCE_RECEIVED_TEXT);
         footerPaint.setColor(textPaint.getColor());
         tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
@@ -5900,6 +5920,12 @@ public class MessageBubbleCanvasView extends View {
             // bg_reply_preview_sent — same #33000000 6dp-radius card background the
             // link-preview card reuses (see LINK_PREVIEW_* constants doc).
             linkCardBgPaint.setColor(SENT_REPLY_BG);
+        } else if (isReferenceTextBubble()) {
+            replyBgPaint.setColor(0x26000000);
+            replyBarPaint.setColor(0xFFB27B00);
+            replySenderPaint.setColor(0xFF6B4A00);
+            replyTextPaint.setColor(0xFF4A3A00);
+            linkCardBgPaint.setColor(0x26000000);
         } else {
             replyBgPaint.setColor(RECEIVED_REPLY_BG);
             int brand = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.brand_primary);
@@ -7410,6 +7436,105 @@ public class MessageBubbleCanvasView extends View {
         drawDynamicOverlayLayer(canvas);
     }
 
+    /**
+     * Only the plain text-message path uses the two supplied reference
+     * treatments. Media, files, polls, call rows, and cards retain their
+     * purpose-built canvas renderers and existing theme surfaces.
+     */
+    private boolean isReferenceTextBubble() {
+        return !isMedia
+                && !isMediaGroup
+                && !isReelShare
+                && !isAudio
+                && !isContact
+                && !isLocation
+                && !isPoll
+                && !isViewOnce
+                && !isSeenBubble
+                && !isCallEntry
+                && !isFileBubble;
+    }
+
+    /**
+     * Draws the text-message backgrounds from the supplied references:
+     * outgoing = rounded green bubble with a soft curved lower-right tail;
+     * incoming = warm yellow sticky note with a folded top-right corner and
+     * a pointed lower-right tail. The paths stay inside bubbleRect so the
+     * RecyclerView row needs no extra layout padding and cannot clip them.
+     */
+    private void drawReferenceTextBubble(Canvas canvas) {
+        if (bubbleRect.isEmpty()) return;
+
+        final float left = bubbleRect.left;
+        final float top = bubbleRect.top;
+        final float right = bubbleRect.right;
+        final float bottom = bubbleRect.bottom;
+        final float radius = CORNER_RADIUS_DP * density;
+        final float tailWidth = REFERENCE_TAIL_WIDTH_DP * density;
+        final float tailHeight = REFERENCE_TAIL_HEIGHT_DP * density;
+        final float bodyRight = right - tailWidth * 0.18f;
+        final float bodyBottom = bottom - tailHeight * 0.42f;
+
+        referenceBubblePath.reset();
+        referenceBubblePath.moveTo(left + radius, top);
+        referenceBubblePath.lineTo(bodyRight - (sent ? radius : REFERENCE_STICKY_FOLD_DP * density), top);
+
+        if (sent) {
+            referenceBubblePath.quadTo(bodyRight, top, bodyRight, top + radius);
+            referenceBubblePath.lineTo(bodyRight, bodyBottom - tailHeight * 0.30f);
+            // A curved tail, rather than the old asymmetric rounded corner.
+            referenceBubblePath.cubicTo(
+                    bodyRight, bodyBottom + tailHeight * 0.05f,
+                    bodyRight + tailWidth * 0.08f, bottom - tailHeight * 0.08f,
+                    right, bottom);
+            referenceBubblePath.cubicTo(
+                    right - tailWidth * 0.72f, bottom + tailHeight * 0.02f,
+                    right - tailWidth * 0.98f, bottom - tailHeight * 0.38f,
+                    bodyRight - tailWidth * 0.54f, bodyBottom);
+            referenceBubblePath.lineTo(left + radius, bodyBottom);
+            referenceBubblePath.quadTo(left, bodyBottom, left, bodyBottom - radius);
+            referenceBubblePath.lineTo(left, top + radius);
+            referenceBubblePath.quadTo(left, top, left + radius, top);
+        } else {
+            final float fold = REFERENCE_STICKY_FOLD_DP * density;
+            referenceBubblePath.lineTo(bodyRight - fold, top);
+            referenceBubblePath.lineTo(bodyRight, top + fold);
+            referenceBubblePath.lineTo(bodyRight, bodyBottom - tailHeight * 0.38f);
+            // Sticky-note point at the lower-right corner.
+            referenceBubblePath.cubicTo(
+                    bodyRight, bodyBottom + tailHeight * 0.06f,
+                    right - tailWidth * 0.12f, bottom - tailHeight * 0.20f,
+                    right, bottom);
+            referenceBubblePath.cubicTo(
+                    right - tailWidth * 0.42f, bottom - tailHeight * 0.08f,
+                    right - tailWidth * 0.78f, bottom - tailHeight * 0.22f,
+                    bodyRight - tailWidth * 0.56f, bodyBottom);
+            referenceBubblePath.lineTo(left + radius, bodyBottom);
+            referenceBubblePath.quadTo(left, bodyBottom, left, bodyBottom - radius);
+            referenceBubblePath.lineTo(left, top + radius);
+            referenceBubblePath.quadTo(left, top, left + radius, top);
+        }
+        referenceBubblePath.close();
+
+        referenceBubblePaint.setStyle(Paint.Style.FILL);
+        referenceBubblePaint.setColor(sent ? REFERENCE_SENT_BUBBLE : REFERENCE_RECEIVED_BUBBLE);
+        canvas.drawPath(referenceBubblePath, referenceBubblePaint);
+
+        if (!sent) {
+            // The darker triangular fold makes the received bubble read as a
+            // sticky note instead of a plain yellow rounded rectangle.
+            final float fold = REFERENCE_STICKY_FOLD_DP * density;
+            referenceFoldPath.reset();
+            referenceFoldPath.moveTo(bodyRight - fold, top);
+            referenceFoldPath.lineTo(bodyRight, top + fold);
+            referenceFoldPath.lineTo(bodyRight - fold, top + fold);
+            referenceFoldPath.close();
+            referenceFoldPaint.setStyle(Paint.Style.FILL);
+            referenceFoldPaint.setColor(REFERENCE_STICKY_FOLD);
+            canvas.drawPath(referenceFoldPath, referenceFoldPaint);
+        }
+    }
+
     /** All bubble drawing logic, called from onDraw. Extracted so we can draw
      *  into either a Picture-recording canvas or the real canvas. */
     private void drawBubbleContent(Canvas canvas) {
@@ -7426,10 +7551,14 @@ public class MessageBubbleCanvasView extends View {
             // not regular message content.
             // File still draws the normal bubble behind it (that was a
             // genuine missing-background bug fix, unrelated to this one).
-            bubbleDrawable.setBounds(
-                    (int) bubbleRect.left, (int) bubbleRect.top,
-                    (int) bubbleRect.right, (int) bubbleRect.bottom);
-            bubbleDrawable.draw(canvas);
+            if (isReferenceTextBubble()) {
+                drawReferenceTextBubble(canvas);
+            } else {
+                bubbleDrawable.setBounds(
+                        (int) bubbleRect.left, (int) bubbleRect.top,
+                        (int) bubbleRect.right, (int) bubbleRect.bottom);
+                bubbleDrawable.draw(canvas);
+            }
         }
 
         if (isPinned) {
