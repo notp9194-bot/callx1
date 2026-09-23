@@ -4,6 +4,9 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
@@ -34,6 +37,7 @@ import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.comments.ReelCommentActivity;
 import com.callx.app.cache.PostFeedAvatarBinder;
@@ -45,6 +49,8 @@ import com.callx.app.social.ReelShareSheetFragment;
 import com.callx.app.social.ReelSharesBottomSheet;
 import com.callx.app.reels.R;
 import com.callx.app.utils.AlertDialogStyler;
+import com.callx.app.utils.BlurHashPlaceholder;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.google.firebase.database.DataSnapshot;
@@ -124,6 +130,15 @@ public class PostsFeedActivity extends AppCompatActivity {
      *  and the once-registered "more"/"less" click listener in
      *  setupClickListenersOnce(), which needs the same value the bind used. */
     private static final int CAPTION_MAX_LINES = 2;
+
+    /** BlurHash decode size (px) — same value ReelGridAdapter uses. A
+     *  BlurHash only carries a handful of cosine components, so anything
+     *  bigger buys no visible detail once stretched to the card. */
+    private static final int BLURHASH_DECODE_SIZE = 24;
+    /** Tiny + heavily compressed Cloudinary variant of the same photo,
+     *  shown via Glide's thumbnail() while the full image loads — same
+     *  Instagram-style blur-up ReelGridAdapter uses (BLUR_THUMB_SIZE). */
+    private static final int BLUR_THUMB_SIZE = 20;
 
     /**
      * Opens StatusViewerActivity via Class.forName so feature-reels doesn't
@@ -1234,6 +1249,57 @@ public class PostsFeedActivity extends AppCompatActivity {
             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
             .placeholder(R.drawable.ic_audio);
 
+        // Blur-up thumbnail options — tiny (20px) image, so no override()
+        // needed; RGB_565 is plenty for something that's only ever a blur.
+        private final RequestOptions blurThumbOpts = new RequestOptions()
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .format(DecodeFormat.PREFER_RGB_565)
+            .centerCrop();
+
+        /** BlurHash → Drawable via the shared core BlurHashPlaceholder
+         *  cache (decoded once per hash per process). Returns null when the
+         *  post has no hash (older posts) or it's malformed — caller then
+         *  just gets Glide's normal no-placeholder behaviour. */
+        @Nullable
+        private Drawable blurHashDrawable(@Nullable String blurHash) {
+            Bitmap bmp = BlurHashPlaceholder.get(blurHash, BLURHASH_DECODE_SIZE, BLURHASH_DECODE_SIZE);
+            return bmp != null ? new BitmapDrawable(getResources(), bmp) : null;
+        }
+
+        /** Per-holder wrapper around blurHashDrawable(): a same-hash rebind
+         *  onto this holder reuses the Drawable it already built instead of
+         *  allocating a new BitmapDrawable every bind. Safe because the
+         *  instance never leaves this holder's own ImageView (Drawable
+         *  bounds are per-instance mutable state, so sharing one across
+         *  holders would corrupt them). */
+        @Nullable
+        private Drawable blurHashPlaceholderFor(Holder h, @Nullable String blurHash) {
+            if (blurHash == null || blurHash.isEmpty()) {
+                h.lastBlurHashKey = null;
+                h.lastBlurPlaceholder = null;
+                return null;
+            }
+            if (blurHash.equals(h.lastBlurHashKey) && h.lastBlurPlaceholder != null) {
+                return h.lastBlurPlaceholder;
+            }
+            Drawable d = blurHashDrawable(blurHash);
+            h.lastBlurHashKey = blurHash;
+            h.lastBlurPlaceholder = d;
+            return d;
+        }
+
+        /** Low-res blur-up request for Glide's thumbnail(), or null when the
+         *  URL isn't a Cloudinary delivery URL (deriveThumbUrl returns it
+         *  unchanged then — a "thumbnail" of the same full-size URL would
+         *  just double the request for nothing). */
+        @Nullable
+        private RequestBuilder<Drawable> blurThumbRequest(android.content.Context ctx, @Nullable String url) {
+            if (url == null || url.isEmpty()) return null;
+            String blurUrl = CloudinaryUploader.deriveThumbUrl(url, BLUR_THUMB_SIZE, "webp");
+            if (blurUrl == null || blurUrl.isEmpty() || blurUrl.equals(url)) return null;
+            return Glide.with(ctx).load(blurUrl).apply(blurThumbOpts);
+        }
+
         PostsAdapter() {
             // Stable ids (reelId hash) → RecyclerView can tell "same row,
             // different position" apart from "new row" during the DiffUtil
@@ -1252,8 +1318,12 @@ public class PostsFeedActivity extends AppCompatActivity {
          *  just gets handed a new photo list per bind. */
         private class PhotoPagerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             private List<String> urls = Collections.emptyList();
+            /** BlurHash of the post's cover (page 0) — only page 0 has one;
+             *  the other pages fall back to the tiny Cloudinary blur-up. */
+            @Nullable private String coverBlurHash;
 
-            void setUrls(@NonNull List<String> newUrls) {
+            void setUrls(@NonNull List<String> newUrls, @Nullable String blurHash) {
+                coverBlurHash = blurHash;
                 // Same row rebound with the same post (e.g. a live-count
                 // update elsewhere triggered a rebind) — nothing to redo.
                 if (urls == newUrls) return;
@@ -1271,9 +1341,14 @@ public class PostsFeedActivity extends AppCompatActivity {
             }
 
             @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder vh, int pos) {
-                Glide.with(vh.itemView.getContext())
-                    .load(urls.get(pos))
+                android.content.Context ctx = vh.itemView.getContext();
+                String url = urls.get(pos);
+                Glide.with(ctx)
+                    .load(url)
+                    .thumbnail(blurThumbRequest(ctx, url))
                     .apply(pagerPhotoOpts)
+                    .transition(DrawableTransitionOptions.withCrossFade())
+                    .placeholder(pos == 0 ? blurHashDrawable(coverBlurHash) : null)
                     .into((ImageView) vh.itemView);
             }
 
@@ -1333,9 +1408,18 @@ public class PostsFeedActivity extends AppCompatActivity {
             String thumbUrl = r.effectiveThumbUrl();
             if (!java.util.Objects.equals(thumbUrl, h.lastThumbUrl)) {
                 h.lastThumbUrl = thumbUrl;
-                Glide.with(h.ivThumb.getContext())
+                // Instagram-style blur-up (same pattern as ReelGridAdapter):
+                // BlurHash placeholder shows instantly from memory, tiny
+                // 20px Cloudinary thumb sharpens it, then the full photo
+                // crossfades in — instead of a flat #111 box on slow network.
+                android.content.Context thumbCtx = h.ivThumb.getContext();
+                Drawable blurPlaceholder = blurHashPlaceholderFor(h, r.blurHash);
+                Glide.with(thumbCtx)
                     .load(thumbUrl)
+                    .thumbnail(blurThumbRequest(thumbCtx, thumbUrl))
                     .apply(thumbOpts)
+                    .transition(DrawableTransitionOptions.withCrossFade())
+                    .placeholder(blurPlaceholder)
                     .into(h.ivThumb);
             }
 
@@ -1355,7 +1439,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // Hand the persistent adapter this row's photo list instead
                 // of swapping the whole adapter object out — see
                 // PhotoPagerAdapter's doc for why that matters.
-                h.photoPagerAdapter.setUrls(photoList);
+                h.photoPagerAdapter.setUrls(photoList, r.blurHash);
                 // Recycled Holder may carry a stale scroll position from
                 // whatever row it previously rendered — always reset.
                 h.photoPager.setCurrentItem(0, false);
@@ -2107,6 +2191,10 @@ public class PostsFeedActivity extends AppCompatActivity {
             String lastAvatarUrl;
             String lastCollabAv2Url;
             String lastAudioCoverSrcUrl;
+            // BlurHash placeholder cache — see blurHashPlaceholderFor().
+            // Confined to this holder, never shared across holders.
+            String   lastBlurHashKey;
+            Drawable lastBlurPlaceholder;
 
             Holder(@NonNull View itemView) {
                 super(itemView);
