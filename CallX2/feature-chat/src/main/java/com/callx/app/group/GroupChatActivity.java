@@ -1390,6 +1390,11 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setSaveEnabled(false);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            // PERF ADV #4: velocity tracking for MessagePagingAdapter's
+            // link-preview thumbnail prefetch — mirrors ChatActivity's own
+            // wiring of the same adapter method.
+            private long lastLinkPreviewPrefetchTimeMs = 0L;
+
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
                 if (lm == null) return;
@@ -1410,6 +1415,13 @@ public class GroupChatActivity extends AppCompatActivity
                         && binding.fabBackToLatest.getVisibility() != android.view.View.VISIBLE) {
                     binding.fabBackToLatest.setVisibility(android.view.View.VISIBLE);
                     binding.fabBackToLatest.setAlpha(1f);
+                }
+                if (lastVis >= 0) {
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    long dt = lastLinkPreviewPrefetchTimeMs == 0L ? 0L : (now - lastLinkPreviewPrefetchTimeMs);
+                    float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                    lastLinkPreviewPrefetchTimeMs = now;
+                    pagingAdapter.prefetchLinkPreviews(GroupChatActivity.this, lastVis + 1, velocity);
                 }
             }
 

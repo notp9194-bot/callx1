@@ -6474,16 +6474,36 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void attachUnifiedMessagesScrollListener() {
         if (binding.rvMessages == null) return;
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            // PERF ADV #4: velocity tracking for MessagePagingAdapter's
+            // link-preview thumbnail prefetch — same technique CallsFragment
+            // uses for CallAvatarBinder.prefetch() (elapsed-time-delta over
+            // dy). Local to this listener instance; one chat screen only.
+            private long lastLinkPreviewPrefetchTimeMs = 0L;
+
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 handleStickyDateScrolled(dy);
                 handleBottomTrackingScrolled(rv, dy);
                 captureHistoryViewportAnchor(rv);
+                handleLinkPreviewPrefetch(rv, dy);
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
                 handleLayerTypeStateChanged(rv, newState);
                 handleStickyDateStateChanged(newState);
                 handleGlideAndPresenceStateChanged(rv, newState);
+            }
+
+            private void handleLinkPreviewPrefetch(@NonNull RecyclerView rv, int dy) {
+                if (pagingAdapter == null) return;
+                RecyclerView.LayoutManager raw = rv.getLayoutManager();
+                if (!(raw instanceof LinearLayoutManager)) return;
+                int lastVisible = ((LinearLayoutManager) raw).findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastLinkPreviewPrefetchTimeMs == 0L ? 0L : (now - lastLinkPreviewPrefetchTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastLinkPreviewPrefetchTimeMs = now;
+                pagingAdapter.prefetchLinkPreviews(ChatActivity.this, lastVisible + 1, velocity);
             }
         });
     }

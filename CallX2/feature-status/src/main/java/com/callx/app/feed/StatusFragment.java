@@ -60,6 +60,21 @@ public class StatusFragment extends BaseFragment {
     private final ArrayList<String> queueOwnerNames = new ArrayList<>();
     private final Map<String, Set<String>>       seenMap   = new HashMap<>();
     private final List<StatusItem>               myStatuses = new ArrayList<>();
+
+    // ── BUG FIX (WhatsApp-level status expiry) ──────────────────────────────
+    // statusMap/myStatuses were previously only ever filtered by expiresAt
+    // at FETCH time — inside attachStatusListener's onDataChange, loadFromRoom,
+    // and seedFromStatusCache. Those only re-run when something actually
+    // changes on the watched Firebase path (a new status posted/deleted) —
+    // never merely because time passed. So a status tile that was valid when
+    // the Status tab was opened stayed in the carousel (media now failing to
+    // load → placeholder) for as long as the fragment sat open with no other
+    // write happening, instead of vanishing the instant its own 24h timer hit.
+    // This sweep self-reschedules to fire exactly when the next entry is due
+    // to expire (not blind fixed-interval polling), so an item disappears
+    // from the carousel within ~1s of its real expiry — same as WhatsApp.
+    private final android.os.Handler statusExpirySweepHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable statusExpirySweepRunnable = this::sweepExpiredStatuses;
     private ValueEventListener statusListener;
     private ValueEventListener seenListener;
     private ValueEventListener highlightsListener;
@@ -272,10 +287,18 @@ public class StatusFragment extends BaseFragment {
 
         com.callx.app.cache.StatusCacheManager.getInstance(requireContext())
             .addObserver(statusCacheObserver);
+
+        // BUG FIX: start the expiry sweep the moment the tab becomes visible —
+        // see field doc above. Cheap no-op pass if statusMap/myStatuses are
+        // still empty (loadFromRoom/loadStatuses are async); it self-corrects
+        // on its next reschedule once real data with real expiresAt values
+        // lands via rebuildStatusAdapter()'s normal callers.
+        statusExpirySweepHandler.post(statusExpirySweepRunnable);
     }
 
     @Override public void onStop() {
         removeListeners();
+        statusExpirySweepHandler.removeCallbacks(statusExpirySweepRunnable);
         if (getContext() != null)
             com.callx.app.cache.StatusCacheManager
                 .getInstance(getContext()).removeObserver(statusCacheObserver);
@@ -543,6 +566,51 @@ public class StatusFragment extends BaseFragment {
             FirebaseUtils.getStatusHighlightsRef(myUid()).removeEventListener(highlightsListener);
             highlightsListener = null;
         }
+    }
+
+    /**
+     * BUG FIX (WhatsApp-level status expiry): removes any status whose own
+     * expiresAt has passed from statusMap/myStatuses right now, rebuilds the
+     * carousel only if something actually changed, then reschedules itself
+     * to fire exactly when the NEXT entry is due to expire — capped to a
+     * sane [5s, 60s] window so it neither busy-polls nor sleeps for hours.
+     * See the field doc on statusExpirySweepHandler for why this is needed
+     * at all (attachStatusListener's filter only re-runs on a real Firebase
+     * write, never merely because time passed).
+     */
+    private void sweepExpiredStatuses() {
+        statusExpirySweepHandler.removeCallbacks(statusExpirySweepRunnable);
+        if (getContext() == null) return;
+        long now = System.currentTimeMillis();
+        boolean changed = false;
+        long nextExpiryDelta = Long.MAX_VALUE;
+
+        for (Iterator<Map.Entry<String, List<StatusItem>>> it = statusMap.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<String, List<StatusItem>> e = it.next();
+            List<StatusItem> items2 = e.getValue();
+            for (Iterator<StatusItem> ii = items2.iterator(); ii.hasNext(); ) {
+                StatusItem item = ii.next();
+                if (item.expiresAt == null) continue;
+                long delta = item.expiresAt - now;
+                if (delta <= 0) { ii.remove(); changed = true; }
+                else if (delta < nextExpiryDelta) nextExpiryDelta = delta;
+            }
+            if (items2.isEmpty()) it.remove();
+        }
+        for (Iterator<StatusItem> ii = myStatuses.iterator(); ii.hasNext(); ) {
+            StatusItem item = ii.next();
+            if (item.expiresAt == null) continue;
+            long delta = item.expiresAt - now;
+            if (delta <= 0) { ii.remove(); changed = true; }
+            else if (delta < nextExpiryDelta) nextExpiryDelta = delta;
+        }
+
+        if (changed) rebuildStatusAdapter();
+
+        long nextRun = nextExpiryDelta == Long.MAX_VALUE
+                ? 60_000L
+                : Math.max(5_000L, Math.min(60_000L, nextExpiryDelta + 1_000L));
+        statusExpirySweepHandler.postDelayed(statusExpirySweepRunnable, nextRun);
     }
 
     private void rebuildStatusAdapter() {
