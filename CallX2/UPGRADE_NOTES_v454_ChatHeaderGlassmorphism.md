@@ -65,3 +65,24 @@ The old <31 bitmap-blur path is kept behind `ENABLE_SOFTWARE_BLUR = false`.
 Tint + gloss are pre-composited into one gradient shader (`GlassImageButton.over()`), so each
 plate is fill + rim (was tint + gloss + rim + ring). The light-mode outer ring is one
 `drawPath` for all header plates. Input pill: fill + rim (+ ring in light mode).
+
+## Perf: shared recording (v454g)
+Header and input bar no longer record the chat content separately. `GlassBackdrop.Shared`
+(one per source view, `fl_chat_backdrop`) records the blurred content into ONE RenderNode at
+most once per frame (deduped by Choreographer frame time). Each host keeps a tiny
+`GlassHostNode` that just replays it shifted to the host's position (re-recorded only when the
+host moves/resizes, e.g. keyboard). Dirty/fling-freeze/animating/safety logic now lives in the
+shared object, so both hosts follow the same rules. Blur edge clamp is now at the screen edge
+instead of the host edge (slightly more accurate near borders).
+
+## Perf: jank auto-disable (v454h)
+While the message list is scrolling/flinging, `GlassBackdrop.Shared` samples frame times via
+`Window.OnFrameMetricsAvailableListener` (API 31+ path only). If >= 40% of the last 90
+scroll frames miss the frame budget (from the display refresh rate), real blur is switched off
+for the rest of the process (`sAutoDisabled`) and header/input bar fall back to the tinted
+frosted fill. It re-arms on the next app start. Tunables: SAMPLE_FRAMES, JANK_PERCENT.
+
+## Perf: light blur while dragging (v454i)
+While the finger is dragging the message list, the blur radius is halved (cheaper GPU pass;
+`GlassRenderNodeBackdrop.setBlur`). When the list settles/idles the full radius is restored
+with one re-record. Fling still freezes the last blur (v454b).
