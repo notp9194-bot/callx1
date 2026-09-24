@@ -499,9 +499,7 @@ final class GlassBackdrop {
     private float prevOffX = Float.NaN, prevOffY = Float.NaN;
     private long lastMoveAt;
     private int moveStreak;
-    private final ViewTreeObserver.OnWindowFocusChangeListener focusListener = hasFocus -> {
-        if (hasFocus) host.invalidate();   // refresh whatever changed while we were skipping
-    };
+    private final ViewTreeObserver.OnWindowFocusChangeListener focusListener;
     /** Something overlapping this host's strip invalidated itself since the last recording. */
     private boolean contentDirty;
     private boolean trailingPosted;
@@ -521,6 +519,9 @@ final class GlassBackdrop {
     GlassBackdrop(View host, int sourceId, float blurDp) {
         this.host = host;
         this.sourceId = sourceId;
+        this.focusListener = hasFocus -> {
+            if (hasFocus) host.invalidate();   // refresh whatever changed while we were skipping
+        };
         this.blurPx = blurDp * host.getResources().getDisplayMetrics().density;
         this.stripPad = Math.round(this.blurPx * 1.5f);
         ActivityManager am = (ActivityManager) host.getContext().getSystemService(Context.ACTIVITY_SERVICE);
