@@ -5,12 +5,7 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.res.Configuration;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.ColorMatrix;
-import android.graphics.ColorMatrixColorFilter;
-import android.graphics.Paint;
-import android.graphics.RectF;
 import android.graphics.RenderNode;
 import android.os.Build;
 import android.os.Handler;
@@ -83,8 +78,8 @@ import java.util.WeakHashMap;
  * whole process any more.
  *
  * Low-end (API < 31 or low-RAM): no blur at all, draw() returns false and the
- * host paints a tinted frosted fill. The old bitmap-blur path stays behind
- * ENABLE_SOFTWARE_BLUR.
+ * host paints a tinted frosted fill. (The old CPU bitmap-blur fallback for API 23-30
+ * was removed — it was permanently disabled and unreachable in practice.)
  *
  * {@code source} must NOT contain any glass host (fl_chat_backdrop =
  * wallpaper + skeleton + message list only).
@@ -92,16 +87,22 @@ import java.util.WeakHashMap;
 final class GlassBackdrop {
 
     static final float SATURATION = 1.5f;
-    /** Android 11 and below: CPU bitmap blur is disabled by default (perf). Flip to re-enable. */
-    private static final boolean ENABLE_SOFTWARE_BLUR = false;
-    private static final float SOFT_SCALE = 1f / 8f;
-    private static final long SOFT_MIN_INTERVAL_MS = 48L;
-    /** Only for sources that can't report invalidations (not a GlassSourceLayout) and the software path. */
+    /** Only for sources that can't report invalidations (not a GlassSourceLayout). */
     private static final long SAFETY_REFRESH_MS = 600L;
     /** Min gap between re-recordings caused purely by content invalidating behind the glass (~20fps). */
     static final long CONTENT_MIN_INTERVAL_MS = 50L;
+    /**
+     * PERF: while the list is actively scrolling/dragging (not idle), content-driven
+     * re-recordings are throttled harder (~11fps instead of ~20fps) — a strip that's a frame
+     * or two stale during motion is imperceptible, but the extra tree-walk + blur cost per
+     * skipped recording is real, and scrolling is exactly when frames are most contested.
+     */
+    static final long CONTENT_MIN_INTERVAL_SCROLLING_MS = 90L;
     /** PERF: no message behind a glass host (only wallpaper) -> skip blur, show tint directly. */
     static final boolean SKIP_BLUR_WHEN_EMPTY = true;
+    /** While a host has nothing behind it, wait this long before freeing its GPU strip/layer —
+     *  avoids alloc/free churn if content flickers in and out right at the boundary. */
+    private static final long NO_CONTENT_RELEASE_DELAY_MS = 300L;
 
     /** Two host moves closer than this are one continuous animation (>= 2 in a row = animating). */
     private static final long MOTION_GAP_MS = 50L;
@@ -130,14 +131,30 @@ final class GlassBackdrop {
     private static int sStepDowns;
     private static int sCleanWindows;
 
-    /** Picks the starting tier once per process from the device's media performance class. */
-    private static void initDeviceTier() {
+    /** Per-app heap class (MB) below which a device is treated as budget hardware at startup. */
+    private static final int LOW_MEMORY_CLASS_MB = 192;
+
+    /**
+     * Picks the starting tier once per process from the device's media performance class and,
+     * for devices that don't declare one, its heap class (memoryClassMb from
+     * ActivityManager#getMemoryClass()). PERF: budget devices (common in the actual install
+     * base — no declared MEDIA_PERFORMANCE_CLASS and a small per-app heap) previously started
+     * straight at MEDIUM blur, which could jank on the very first scroll before the jank
+     * watcher ever got a chance to step it down. They now start at TINT (zero blur cost) and
+     * earn MEDIUM/HIGH the same way TINT already promotes elsewhere in this class, only once
+     * real scrolling shows it's safe.
+     */
+    private static void initDeviceTier(int memoryClassMb) {
         if (sTierInit) return;
         sTierInit = true;
         final int pc = Build.VERSION.SDK_INT >= 31 ? Build.VERSION.MEDIA_PERFORMANCE_CLASS : 0;
-        // Performance-class devices (S/T/U...) start at full quality. Everything else starts at
-        // MEDIUM and earns HIGH after clean scroll windows.
-        sTier = pc >= 31 ? TIER_HIGH : TIER_MEDIUM;
+        if (pc >= 31) {
+            sTier = TIER_HIGH;
+        } else if (memoryClassMb > 0 && memoryClassMb < LOW_MEMORY_CLASS_MB) {
+            sTier = TIER_TINT;
+        } else {
+            sTier = TIER_MEDIUM;
+        }
     }
 
     /** Judges one window of scroll frames. Main thread only. */
@@ -188,6 +205,7 @@ final class GlassBackdrop {
         boolean lightBlur;           // PERF: half-radius blur while the finger is dragging
         Window metricsWindow;
         Window.OnFrameMetricsAvailableListener metricsListener;
+        Context jankCtx;             // captured once; used to (re)start the watcher lazily
         int sampleFrames, jankFrames;
         int seq = 1;                 // bumped whenever the content behind the glass changed
         boolean eventDriven;         // source reports descendant invalidations (no polling needed)
@@ -287,6 +305,18 @@ final class GlassBackdrop {
             @Override
             public void onScrollStateChanged(RecyclerView rv, int newState) {
                 scrolling = newState != RecyclerView.SCROLL_STATE_IDLE;
+                // PERF: the OS delivers an OnFrameMetricsAvailableListener callback for every
+                // single frame the window draws, for as long as it's registered — not just
+                // during scrolling. It used to stay registered for the whole time a chat screen
+                // was open (idle included), which is most of the time. Only jank we can actually
+                // act on happens during a scroll, so the watcher now runs only for that window.
+                if (scrolling) {
+                    if (metricsWindow == null && jankCtx != null) startJankWatch(jankCtx);
+                } else {
+                    stopJankWatch();
+                    sampleFrames = 0;
+                    jankFrames = 0;
+                }
                 boolean light = newState == RecyclerView.SCROLL_STATE_DRAGGING;
                 if (light != lightBlur) {
                     lightBlur = light;
@@ -322,7 +352,7 @@ final class GlassBackdrop {
                     ((GlassSourceLayout) source).setListener(this::onContentInvalidated);
                     eventDriven = Build.VERSION.SDK_INT >= 28;
                 }
-                startJankWatch(user.host.getContext());
+                jankCtx = user.host.getContext();   // watcher starts lazily on first scroll
             }
         }
 
@@ -445,6 +475,7 @@ final class GlassBackdrop {
     private boolean ready;
     /** No message behind this host right now -> tinted fill instead of blur. */
     private boolean noContent;
+    private long noContentSince = -1L;
     /** draw() painted the fallback since the last time the blur was ready (needs a repaint to swap). */
     private boolean fallbackDrawn;
 
@@ -456,7 +487,7 @@ final class GlassBackdrop {
     // API 31+: this host's own strip recording (host rect + blur reach only)
     private GlassRenderNodeBackdrop strip;
     private boolean stripReady;
-    private final int stripPad;                 // blur reach in px (2 sigma) around the host rect
+    private final int stripPad;                 // blur reach in px (1.5 sigma) around the host rect
     private int recSeq = -1;
     private int recTier = -1;                   // quality tier this strip was recorded at
     private int recL = -1, recT = -1, recR = -1, recB = -1;
@@ -468,19 +499,12 @@ final class GlassBackdrop {
     private float prevOffX = Float.NaN, prevOffY = Float.NaN;
     private long lastMoveAt;
     private int moveStreak;
-    private final ViewTreeObserver.OnWindowFocusChangeListener focusListener;
+    private final ViewTreeObserver.OnWindowFocusChangeListener focusListener = hasFocus -> {
+        if (hasFocus) host.invalidate();   // refresh whatever changed while we were skipping
+    };
     /** Something overlapping this host's strip invalidated itself since the last recording. */
     private boolean contentDirty;
-    // API < 31 (ENABLE_SOFTWARE_BLUR only)
-    private Bitmap softBitmap;
-    private Canvas softCanvas;
-    private int[] softPx, softTmp;
-    private long lastSoftAt;
-    private boolean softFailed;
     private boolean trailingPosted;
-    private int softSeq = -1;
-    private final RectF softDst = new RectF();
-    private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
 
     private final Runnable trailingInvalidate = this::onTrailingInvalidate;
 
@@ -496,23 +520,13 @@ final class GlassBackdrop {
 
     GlassBackdrop(View host, int sourceId, float blurDp) {
         this.host = host;
-        // Moved out of the field initializer above: `host` is a blank final assigned right
-        // here, so a lambda referencing it from a field initializer (which runs before this
-        // constructor body) fails javac's definite-assignment check ("host might not have
-        // been initialized") even though it's only ever invoked long after construction.
-        this.focusListener = hasFocus -> {
-            if (hasFocus) this.host.invalidate();   // refresh whatever changed while we were skipping
-        };
         this.sourceId = sourceId;
         this.blurPx = blurDp * host.getResources().getDisplayMetrics().density;
-        this.stripPad = Math.round(this.blurPx * 2f);
+        this.stripPad = Math.round(this.blurPx * 1.5f);
         ActivityManager am = (ActivityManager) host.getContext().getSystemService(Context.ACTIVITY_SERVICE);
         boolean lowRam = am != null && am.isLowRamDevice();
-        this.blurAllowed = !lowRam && (Build.VERSION.SDK_INT >= 31 || ENABLE_SOFTWARE_BLUR);
-        initDeviceTier();
-        ColorMatrix cm = new ColorMatrix();
-        cm.setSaturation(SATURATION);
-        bitmapPaint.setColorFilter(new ColorMatrixColorFilter(cm));
+        this.blurAllowed = !lowRam && Build.VERSION.SDK_INT >= 31;
+        initDeviceTier(am != null ? am.getMemoryClass() : 0);
         refreshTheme();
     }
 
@@ -546,6 +560,7 @@ final class GlassBackdrop {
         }
         ready = false;
         noContent = false;
+        noContentSince = -1L;
         fallbackDrawn = false;
         stripReady = false;
         contentDirty = false;
@@ -594,7 +609,6 @@ final class GlassBackdrop {
         s.source.getLocationInWindow(locSrc);
         final float offX = locHost[0] - locSrc[0];
         final float offY = locHost[1] - locSrc[1];
-        final boolean moved = w != lastW || h != lastH || offX != lastOffX || offY != lastOffY;
 
         // Motion tracking: a host that moves/resizes on 2+ consecutive frames is animating
         // (keyboard spring, growing input bar). Tell every host of this source to hold off.
@@ -608,35 +622,39 @@ final class GlassBackdrop {
 
         // PERF: only wallpaper behind this host -> no recording, no blur, just the tint.
         if (SKIP_BLUR_WHEN_EMPTY && !s.hasContentBehind(offX, offY, offX + w, offY + h)) {
-            noContent = true;
+            if (!noContent) {
+                noContent = true;
+                noContentSince = SystemClock.uptimeMillis();
+            }
             if (ready) {           // was blurred a moment ago: repaint once with the tint
                 ready = false;
                 host.invalidate();
+            }
+            // PERF: after a short grace period, also free this host's GPU-backed strip/layer
+            // instead of just skipping its use — an empty chat (or scrolled to a stretch with
+            // nothing behind the header/input bar) otherwise holds onto a compositing-layer
+            // texture indefinitely for no reason.
+            if (stripReady && SystemClock.uptimeMillis() - noContentSince > NO_CONTENT_RELEASE_DELAY_MS) {
+                stripReady = false;
+                strip = null;
             }
             return;
         }
         if (noContent) {           // a message just slid behind the glass: force a fresh recording
             noContent = false;
+            noContentSince = -1L;
             stripReady = false;
         }
 
-        if (Build.VERSION.SDK_INT >= 31 && host.isHardwareAccelerated()) {
-            if (!updateStrip(s, w, h, offX, offY, tier)) { ready = false; return; }
-            lastW = w; lastH = h; lastOffX = offX; lastOffY = offY;
-            ready = true;
-            if (fallbackDrawn) {   // tint was painted earlier: repaint once with the real blur
-                fallbackDrawn = false;
-                host.invalidate();
-            }
-        } else {
-            final long now = SystemClock.uptimeMillis();
-            final boolean need = softSeq != s.seq || moved || !ready || s.isAnimating()
-                    || now - lastSoftAt > SAFETY_REFRESH_MS;
-            if (s.frozen || !need) return;
-            if (captureSoftware(s.source, w, h, offX, offY)) {
-                softSeq = s.seq;
-                lastW = w; lastH = h; lastOffX = offX; lastOffY = offY;
-            }
+        // blurAllowed guarantees SDK_INT >= 31 whenever update() runs; only isHardwareAccelerated()
+        // can still say no (e.g. a software layer), in which case we just show the tinted fallback.
+        if (!host.isHardwareAccelerated()) { ready = false; return; }
+        if (!updateStrip(s, w, h, offX, offY, tier)) { ready = false; return; }
+        lastW = w; lastH = h; lastOffX = offX; lastOffY = offY;
+        ready = true;
+        if (fallbackDrawn) {   // tint was painted earlier: repaint once with the real blur
+            fallbackDrawn = false;
+            host.invalidate();
         }
     }
 
@@ -675,8 +693,9 @@ final class GlassBackdrop {
         }
 
         final long since = now - lastRecordAt;
+        final long contentInterval = s.scrolling ? CONTENT_MIN_INTERVAL_SCROLLING_MS : CONTENT_MIN_INTERVAL_MS;
         final boolean rectChanged = l != recL || t != recT || r != recR || b != recB;
-        final boolean contentDue = contentDirty && since >= CONTENT_MIN_INTERVAL_MS;
+        final boolean contentDue = contentDirty && since >= contentInterval;
         final boolean safetyDue = !s.eventDriven && since > SAFETY_REFRESH_MS;   // only if we can't observe changes
         final boolean need = !stripReady || rectChanged || recSeq != s.seq || recTier != tier
                 || s.isAnimating() || contentDue || safetyDue;
@@ -687,7 +706,7 @@ final class GlassBackdrop {
                 // Content changed but we're inside the throttle window and no other frame may
                 // follow (e.g. the spinner just stopped): make sure one comes after the gap.
                 trailingPosted = true;
-                host.postDelayed(trailingInvalidate, CONTENT_MIN_INTERVAL_MS - since + 1);
+                host.postDelayed(trailingInvalidate, contentInterval - since + 1);
             }
             return stripReady;
         }
@@ -724,96 +743,16 @@ final class GlassBackdrop {
         return BUSY_NONE;
     }
 
-    private boolean captureSoftware(View src, int w, int h, float offX, float offY) {
-        if (softFailed) return true;
-        long now = SystemClock.uptimeMillis();
-        if (softBitmap != null && now - lastSoftAt < SOFT_MIN_INTERVAL_MS) {
-            if (!trailingPosted) {
-                trailingPosted = true;
-                host.postDelayed(trailingInvalidate, SOFT_MIN_INTERVAL_MS);
-            }
-            return false;   // throttled: stay dirty, capture on the trailing frame
-        }
-        try {
-            int sw = Math.max(2, Math.round(w * SOFT_SCALE));
-            int sh = Math.max(2, Math.round(h * SOFT_SCALE));
-            if (softBitmap == null || softBitmap.getWidth() != sw || softBitmap.getHeight() != sh) {
-                softBitmap = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
-                softCanvas = new Canvas(softBitmap);
-                softPx = new int[sw * sh];
-                softTmp = new int[sw * sh];
-            }
-            softBitmap.eraseColor(baseColor);
-            int save = softCanvas.save();
-            softCanvas.scale(sw / (float) w, sh / (float) h);
-            softCanvas.translate(-offX, -offY);
-            src.draw(softCanvas);
-            softCanvas.restoreToCount(save);
-
-            softBitmap.getPixels(softPx, 0, sw, 0, 0, sw, sh);
-            int r = Math.max(1, Math.round(blurPx * SOFT_SCALE / 1.6f));
-            for (int i = 0; i < 2; i++) {
-                boxBlur(softPx, softTmp, sw, sh, r, true);
-                boxBlur(softTmp, softPx, sw, sh, r, false);
-            }
-            softBitmap.setPixels(softPx, 0, sw, 0, 0, sw, sh);
-            lastSoftAt = now;
-            ready = true;
-            return true;
-        } catch (Throwable t) {
-            // e.g. hardware bitmaps cannot be drawn onto a software canvas
-            softFailed = true;
-            ready = false;
-            softBitmap = null;
-            return true;
-        }
-    }
-
     /** Draws the blurred backdrop covering the whole host. Returns false if unavailable. */
     boolean draw(Canvas canvas) {
         if (!ready) {
             fallbackDrawn = true;
             return false;
         }
-        if (Build.VERSION.SDK_INT >= 31 && strip != null && stripReady
-                && canvas.isHardwareAccelerated()) {
+        if (strip != null && stripReady && canvas.isHardwareAccelerated()) {
             strip.draw(canvas, stripDx, stripDy);
             return true;
         }
-        if (softBitmap != null && !softFailed) {
-            softDst.set(0, 0, host.getWidth(), host.getHeight());
-            canvas.drawBitmap(softBitmap, null, softDst, bitmapPaint);
-            return true;
-        }
         return false;
-    }
-
-    private static int clamp(int v, int max) {
-        return v < 0 ? 0 : (v > max ? max : v);
-    }
-
-    /** Edge-clamped sliding-window box blur, horizontal or vertical. */
-    private static void boxBlur(int[] src, int[] dst, int w, int h, int r, boolean horizontal) {
-        final int div = 2 * r + 1;
-        final int lines = horizontal ? h : w;
-        final int len = horizontal ? w : h;
-        final int lineStride = horizontal ? w : 1;
-        final int step = horizontal ? 1 : w;
-        for (int l = 0; l < lines; l++) {
-            final int base = l * lineStride;
-            int sr = 0, sg = 0, sb = 0;
-            for (int i = -r; i <= r; i++) {
-                int p = src[base + clamp(i, len - 1) * step];
-                sr += (p >> 16) & 255; sg += (p >> 8) & 255; sb += p & 255;
-            }
-            for (int i = 0; i < len; i++) {
-                dst[base + i * step] = 0xFF000000 | ((sr / div) << 16) | ((sg / div) << 8) | (sb / div);
-                int add = src[base + clamp(i + r + 1, len - 1) * step];
-                int rem = src[base + clamp(i - r, len - 1) * step];
-                sr += ((add >> 16) & 255) - ((rem >> 16) & 255);
-                sg += ((add >> 8) & 255) - ((rem >> 8) & 255);
-                sb += (add & 255) - (rem & 255);
-            }
-        }
     }
 }

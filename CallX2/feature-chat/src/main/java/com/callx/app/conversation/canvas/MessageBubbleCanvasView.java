@@ -245,15 +245,6 @@ public class MessageBubbleCanvasView extends View {
 
     static final float CORNER_RADIUS_DP = 18f;
     static final float TAIL_RADIUS_DP    = 4f;
-
-    // GLASSMORPHISM (STATIC, NO LIVE BLUR): a bubble sits inside the very RecyclerView the
-    // header/input glass blurs — it can't blur itself — and there can be a dozen of them
-    // scrolling at once, so a per-bubble live backdrop is out (see GlassBubbleSkin javadoc).
-    // Instead we reuse only the LOOK (fill tint + gloss + rim shaders, GlassCapsuleSkin's
-    // recipe) baked as a static overlay INSIDE this bubble's existing whole-bubble
-    // Picture/RenderNode cache (see onDraw) — it costs nothing beyond what bubbleDrawable
-    // already cost, since it's drawn once per cache miss, not once per frame.
-    static final boolean GLASS_BUBBLE_STYLE = true;
     static final float H_PADDING_DP      = 12f;
     // TELEGRAM-STYLE COMPACT PASS: was 8f. Telegram's bubble text padding
     // reads tighter/denser than WhatsApp's — smaller per-bubble height means
@@ -1718,26 +1709,6 @@ public class MessageBubbleCanvasView extends View {
     }
 
     GradientDrawable bubbleDrawable;
-    // Static frosted-glass overlay drawn on top of bubbleDrawable when GLASS_BUBBLE_STYLE is
-    // on. One instance per recycled view (like the other per-instance Paints in this file);
-    // its own shaders are cached and only rebuilt when this bubble's height or the day/night
-    // mode actually change, not on every draw.
-    private GlassBubbleSkin glassBubbleSkin;
-
-    /**
-     * Corner radii for the glass overlay path. Always uses the normal (non-media) tail
-     * radius: the overlay is a soft gloss/rim decoration, not the bubble's hit/clip shape
-     * (bubbleDrawable underneath still owns that), so the 3dp difference between the normal
-     * and media-tail corner is not worth tracking as a separate field per bubble.
-     */
-    private float[] glassCornerRadii() {
-        float r = CORNER_RADIUS_DP * density;
-        float tail = TAIL_RADIUS_DP * density;
-        return sent
-                ? new float[]{r, r, r, r, tail, tail, r, r}
-                : new float[]{tail, tail, r, r, r, r, r, r};
-    }
-
     // PERF: WhatsApp-level static pre-bake. Only 4 distinct bubble shapes
     // exist app-wide (sent × normal-or-media-tail radius) — every one of
     // them is identical across every message row and every chat screen,
@@ -7459,11 +7430,6 @@ public class MessageBubbleCanvasView extends View {
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);
             bubbleDrawable.draw(canvas);
-            if (GLASS_BUBBLE_STYLE) {
-                if (glassBubbleSkin == null) glassBubbleSkin = new GlassBubbleSkin(density);
-                glassBubbleSkin.draw(canvas, bubbleRect, glassCornerRadii(),
-                        ChatThemeManager.isDarkMode(getContext()));
-            }
         }
 
         if (isPinned) {
