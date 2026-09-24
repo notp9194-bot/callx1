@@ -6,9 +6,16 @@
     android:background="@color/chat_unified_bg">
     <!-- FrameLayout wraps wallpaper + shimmer + RecyclerView + floating bars + FAB -->
     <FrameLayout
-        android:id="@+id/fl_chat_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
+
+        <!-- GLASS BACKDROP SOURCE: only wallpaper + skeleton + message list live in
+             here. The glass header/input bar blur THIS view; it must never contain
+             a glass surface itself (they would reference each other's RenderNodes). -->
+        <FrameLayout
+            android:id="@+id/fl_chat_backdrop"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
 
         <!-- Chat Wallpaper Background Image -->
         <ImageView
@@ -39,6 +46,8 @@
             android:paddingBottom="76dp"
             android:clipToPadding="false"
             android:visibility="gone"/>
+
+        </FrameLayout>
 
         <!-- FIX [P3-4]: Empty chat state — no messages yet.
              PERF: lazily inflated via ViewStub — only needed the first time
@@ -385,7 +394,7 @@
                 android:layout_marginTop="6dp"
                 android:layout_marginBottom="12dp"
                 android:clipChildren="false"
-                android:background="@drawable/bg_chat_input_capsule">
+                app:glassSource="@id/fl_chat_backdrop">
 
                     <!-- Input row — view-once toggle on the left, message
                          field in the middle, attach+camera grouped on the
@@ -524,7 +533,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:glassSource="@id/fl_chat_content"
+            app:glassSource="@id/fl_chat_backdrop"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingTop="8dp"

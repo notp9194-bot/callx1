@@ -5,6 +5,9 @@
     <declare-styleable name="GlassHeaderLayout">
         <attr name="glassSource" format="reference"/>
     </declare-styleable>
+    <declare-styleable name="GlassInputBar">
+        <attr name="glassSource"/>
+    </declare-styleable>
     <!-- GlassImageButton: per-button glass look. -->
     <declare-styleable name="GlassImageButton">
         <!-- Full ARGB tint laid over the blurred backdrop (coloured glass). Unset = neutral white glass. -->
