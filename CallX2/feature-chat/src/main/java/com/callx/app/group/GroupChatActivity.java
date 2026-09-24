@@ -6156,6 +6156,9 @@ public class GroupChatActivity extends AppCompatActivity
                 binding.fabBackToLatest,
                 replyAccent);
 
+        // Glass header: swap the solid bar for the soft scrim (see GlassHeaderLayout).
+        com.callx.app.chat.ui.GlassHeaderLayout.applyScrim(binding.toolbar);
+
         // Icon-bar merge: mic/send are now painted inside the single
         // ChatIconBarView, so the accent is applied via setAccentColor()
         // instead of swapping a GradientDrawable background on separate

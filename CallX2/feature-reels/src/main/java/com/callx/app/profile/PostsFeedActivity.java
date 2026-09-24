@@ -34,7 +34,6 @@ import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.comments.ReelCommentActivity;
 import com.callx.app.cache.PostFeedAvatarBinder;
@@ -1179,21 +1178,6 @@ public class PostsFeedActivity extends AppCompatActivity {
         // post B's, the same trick Instagram's own feed relies on.
         private final RecyclerView.RecycledViewPool photoPagerSharedPool = new RecyclerView.RecycledViewPool();
 
-        // PERF decision: plain solid-colour placeholder + a short Glide
-        // crossfade, deliberately WITHOUT BlurHash and WITHOUT a separate
-        // low-res ("20px") thumb pass. That combo needs zero extra decode,
-        // zero extra network/disk request, and zero extra bitmap beyond the
-        // full image itself — so low-end phones stay smooth while fast-
-        // scrolling this feed. The placeholder is a single shared
-        // ColorDrawable (no per-bind allocation, no decode at all), and the
-        // crossfade only masks the placeholder→image swap, not a hash→thumb→
-        // image chain.
-        private static final int FEED_CROSSFADE_MS = 150;
-        private final android.graphics.drawable.ColorDrawable feedPlaceholderDrawable =
-            new android.graphics.drawable.ColorDrawable(
-                androidx.core.content.ContextCompat.getColor(
-                    PostsFeedActivity.this, com.callx.app.core.R.color.trim_photo_placeholder));
-
         // Capped decode size for carousel pages, reused across every
         // PhotoPagerAdapter instance instead of allocating a fresh
         // RequestOptions per page bind. RGB_565 halves per-pixel memory
@@ -1205,7 +1189,6 @@ public class PostsFeedActivity extends AppCompatActivity {
             .diskCacheStrategy(DiskCacheStrategy.ALL)
             .override(screenWidthPxOrFallback(), screenWidthPxOrFallback())
             .format(DecodeFormat.PREFER_RGB_565)
-            .placeholder(feedPlaceholderDrawable)
             .centerCrop();
 
         // PERF: same reasoning as pagerPhotoOpts above — the single-photo
@@ -1217,7 +1200,6 @@ public class PostsFeedActivity extends AppCompatActivity {
         private final RequestOptions thumbOpts = new RequestOptions()
             .diskCacheStrategy(DiskCacheStrategy.ALL)
             .override(screenWidthPxOrFallback(), screenWidthPxOrFallback())
-            .placeholder(feedPlaceholderDrawable)
             .centerCrop();
 
         // PERF: owner-avatar circleCrop() — shorthand for
@@ -1292,7 +1274,6 @@ public class PostsFeedActivity extends AppCompatActivity {
                 Glide.with(vh.itemView.getContext())
                     .load(urls.get(pos))
                     .apply(pagerPhotoOpts)
-                    .transition(DrawableTransitionOptions.withCrossFade(FEED_CROSSFADE_MS))
                     .into((ImageView) vh.itemView);
             }
 
@@ -1355,7 +1336,6 @@ public class PostsFeedActivity extends AppCompatActivity {
                 Glide.with(h.ivThumb.getContext())
                     .load(thumbUrl)
                     .apply(thumbOpts)
-                    .transition(DrawableTransitionOptions.withCrossFade(FEED_CROSSFADE_MS))
                     .into(h.ivThumb);
             }
 
