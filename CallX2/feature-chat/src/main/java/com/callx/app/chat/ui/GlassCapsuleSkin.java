@@ -17,8 +17,7 @@ final class GlassCapsuleSkin {
     private final float rimWidth;
     private final float ringWidth;
 
-    private final Paint tint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint gloss = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fallback = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -27,7 +26,7 @@ final class GlassCapsuleSkin {
     private final RectF tmp = new RectF();
     private final Path path = new Path();
 
-    private Shader glossShader, rimShader;
+    private Shader fillShader, rimShader;
     private float shaderW = -1f, shaderH = -1f;
     private boolean shaderDark;
 
@@ -64,16 +63,13 @@ final class GlassCapsuleSkin {
         }
         canvas.restoreToCount(save);
 
-        tint.setColor(dark ? 0x2EFFFFFF : 0x99FFFFFF);
-        canvas.drawRoundRect(plate, r, r, tint);
-
         ensureShaders(plate.width(), plate.height(), dark);
         // shaders are built in local (0,0)-based coords; plate starts at rimWidth
         canvas.save();
         canvas.translate(plate.left, plate.top);
         tmp.set(0, 0, plate.width(), plate.height());
-        gloss.setShader(glossShader);
-        canvas.drawRoundRect(tmp, r, r, gloss);
+        fill.setShader(fillShader);
+        canvas.drawRoundRect(tmp, r, r, fill);   // tint + gloss in one call
         rim.setShader(rimShader);
         tmp.inset(rimWidth / 2f, rimWidth / 2f);
         canvas.drawRoundRect(tmp, r - rimWidth / 2f, r - rimWidth / 2f, rim);
@@ -81,10 +77,15 @@ final class GlassCapsuleSkin {
     }
 
     private void ensureShaders(float w, float h, boolean dark) {
-        if (glossShader != null && w == shaderW && h == shaderH && dark == shaderDark) return;
+        if (fillShader != null && w == shaderW && h == shaderH && dark == shaderDark) return;
         shaderW = w; shaderH = h; shaderDark = dark;
-        glossShader = new LinearGradient(0, 0, 0, h,
-                new int[]{ dark ? 0x30FFFFFF : 0x80FFFFFF, 0x08FFFFFF, 0x00FFFFFF, 0x12000000 },
+        final int t = dark ? 0x2EFFFFFF : 0x99FFFFFF;
+        fillShader = new LinearGradient(0, 0, 0, h,
+                new int[]{
+                        GlassImageButton.over(dark ? 0x30FFFFFF : 0x80FFFFFF, t),
+                        GlassImageButton.over(0x08FFFFFF, t),
+                        GlassImageButton.over(0x00FFFFFF, t),
+                        GlassImageButton.over(0x12000000, t) },
                 new float[]{ 0f, 0.35f, 0.6f, 1f }, Shader.TileMode.CLAMP);
         rimShader = new LinearGradient(0, 0, w, h,
                 new int[]{ 0xF2FFFFFF, 0x30FFFFFF, 0x30FFFFFF, 0x8CFFFFFF },

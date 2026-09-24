@@ -1,5 +1,6 @@
 package com.callx.app.chat.ui;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -13,7 +14,10 @@ import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewTreeObserver;
 
+import android.view.ViewGroup;
+
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
 
@@ -40,6 +44,10 @@ import com.callx.app.chat.R;
 final class GlassBackdrop {
 
     static final float SATURATION = 1.5f;
+    /** Android 11 and below: CPU bitmap blur is disabled by default (perf). Flip to re-enable. */
+    private static final boolean ENABLE_SOFTWARE_BLUR = false;
+    /** false = no capture/blur at all; glass falls back to a tinted frosted fill (as cheap as solid). */
+    private final boolean blurAllowed;
     private static final float SOFT_SCALE = 1f / 8f;
     private static final long SOFT_MIN_INTERVAL_MS = 48L;
 
@@ -49,6 +57,42 @@ final class GlassBackdrop {
     private View source;
 
     private boolean enabled = true;
+    // PERF: while the message list is flinging we keep showing the last blur
+    // instead of re-recording/blurring every frame; refreshed once it settles.
+    private boolean frozen;
+    private RecyclerView list;
+
+    // PERF: only re-record/blur when what is behind the glass actually changed
+    // (scroll, item attach/detach, list layout, item animations, host moved/resized),
+    // plus a slow safety refresh for in-place changes (image loads, ticks, reactions).
+    private static final long SAFETY_REFRESH_MS = 600L;
+    private boolean dirty = true;
+    private long lastRecordAt;
+    private int lastW = -1, lastH = -1;
+    private float lastOffX = Float.NaN, lastOffY = Float.NaN;
+
+    private final RecyclerView.OnChildAttachStateChangeListener childWatcher =
+            new RecyclerView.OnChildAttachStateChangeListener() {
+                @Override public void onChildViewAttachedToWindow(View view) { dirty = true; }
+                @Override public void onChildViewDetachedFromWindow(View view) { dirty = true; }
+            };
+    private final View.OnLayoutChangeListener layoutWatcher =
+            (v, l, t, r, b, ol, ot, or, ob) -> dirty = true;
+
+    private final RecyclerView.OnScrollListener flingWatcher = new RecyclerView.OnScrollListener() {
+        @Override
+        public void onScrolled(RecyclerView rv, int dx, int dy) {
+            dirty = true;
+        }
+
+        @Override
+        public void onScrollStateChanged(RecyclerView rv, int newState) {
+            boolean f = newState == RecyclerView.SCROLL_STATE_SETTLING;
+            if (f == frozen) return;
+            frozen = f;
+            if (!f) host.invalidate();   // settled -> pre-draw refreshes the blur once
+        }
+    };
     private boolean dark;
     private int baseColor;
     private boolean ready;
@@ -84,6 +128,9 @@ final class GlassBackdrop {
         this.host = host;
         this.sourceId = sourceId;
         this.blurPx = blurDp * host.getResources().getDisplayMetrics().density;
+        ActivityManager am = (ActivityManager) host.getContext().getSystemService(Context.ACTIVITY_SERVICE);
+        boolean lowRam = am != null && am.isLowRamDevice();
+        this.blurAllowed = !lowRam && (Build.VERSION.SDK_INT >= 31 || ENABLE_SOFTWARE_BLUR);
         ColorMatrix cm = new ColorMatrix();
         cm.setSaturation(SATURATION);
         bitmapPaint.setColorFilter(new ColorMatrixColorFilter(cm));
@@ -99,10 +146,12 @@ final class GlassBackdrop {
         dark = (c.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         baseColor = ContextCompat.getColor(c, R.color.chat_unified_bg) | 0xFF000000;
+        dirty = true;
     }
 
     void attach() {
         refreshTheme();
+        if (!blurAllowed) return;   // frosted-fill only: no pre-draw work at all
         host.getViewTreeObserver().addOnPreDrawListener(preDraw);
     }
 
@@ -110,6 +159,14 @@ final class GlassBackdrop {
         host.getViewTreeObserver().removeOnPreDrawListener(preDraw);
         host.removeCallbacks(trailingInvalidate);
         trailingPosted = false;
+        if (list != null) {
+            list.removeOnScrollListener(flingWatcher);
+            list.removeOnChildAttachStateChangeListener(childWatcher);
+            list.removeOnLayoutChangeListener(layoutWatcher);
+        }
+        list = null;
+        dirty = true;
+        frozen = false;
         source = null;
         ready = false;
     }
@@ -117,12 +174,24 @@ final class GlassBackdrop {
     private View resolveSource() {
         if (source == null && sourceId != View.NO_ID) {
             source = host.getRootView().findViewById(sourceId);
+            if (source instanceof ViewGroup && list == null) {
+                ViewGroup g = (ViewGroup) source;
+                for (int i = 0; i < g.getChildCount(); i++) {
+                    if (g.getChildAt(i) instanceof RecyclerView) {
+                        list = (RecyclerView) g.getChildAt(i);
+                        list.addOnScrollListener(flingWatcher);
+                        list.addOnChildAttachStateChangeListener(childWatcher);
+                        list.addOnLayoutChangeListener(layoutWatcher);
+                        break;
+                    }
+                }
+            }
         }
         return source;
     }
 
     private void update() {
-        if (!enabled || !host.isShown()) return;
+        if (!enabled || frozen || !host.isShown()) return;
         final int w = host.getWidth(), h = host.getHeight();
         if (w <= 0 || h <= 0) return;
         View src = resolveSource();
@@ -133,23 +202,37 @@ final class GlassBackdrop {
         float offX = locHost[0] - locSrc[0];
         float offY = locHost[1] - locSrc[1];
 
+        final long now = SystemClock.uptimeMillis();
+        final boolean moved = w != lastW || h != lastH || offX != lastOffX || offY != lastOffY;
+        final boolean animating = list != null && list.isAnimating();
+        if (!(dirty || moved || animating || !ready || now - lastRecordAt > SAFETY_REFRESH_MS)) {
+            return;   // nothing changed behind the glass: keep the previous blur
+        }
+
+        boolean did;
         if (Build.VERSION.SDK_INT >= 31 && host.isHardwareAccelerated()) {
             if (node == null) node = new GlassRenderNodeBackdrop(blurPx, SATURATION);
             ready = node.record(src, w, h, offX, offY, baseColor);
+            did = true;
         } else {
-            captureSoftware(src, w, h, offX, offY);
+            did = captureSoftware(src, w, h, offX, offY);
+        }
+        if (did) {
+            dirty = false;
+            lastRecordAt = now;
+            lastW = w; lastH = h; lastOffX = offX; lastOffY = offY;
         }
     }
 
-    private void captureSoftware(View src, int w, int h, float offX, float offY) {
-        if (softFailed) return;
+    private boolean captureSoftware(View src, int w, int h, float offX, float offY) {
+        if (softFailed) return true;
         long now = SystemClock.uptimeMillis();
         if (softBitmap != null && now - lastSoftAt < SOFT_MIN_INTERVAL_MS) {
             if (!trailingPosted) {
                 trailingPosted = true;
                 host.postDelayed(trailingInvalidate, SOFT_MIN_INTERVAL_MS);
             }
-            return;
+            return false;   // throttled: stay dirty, capture on the trailing frame
         }
         try {
             int sw = Math.max(2, Math.round(w * SOFT_SCALE));
@@ -176,11 +259,13 @@ final class GlassBackdrop {
             softBitmap.setPixels(softPx, 0, sw, 0, 0, sw, sh);
             lastSoftAt = now;
             ready = true;
+            return true;
         } catch (Throwable t) {
             // e.g. hardware bitmaps cannot be drawn onto a software canvas
             softFailed = true;
             ready = false;
             softBitmap = null;
+            return true;
         }
     }
 

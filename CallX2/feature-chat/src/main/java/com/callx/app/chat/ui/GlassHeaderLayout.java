@@ -48,12 +48,10 @@ public class GlassHeaderLayout extends LinearLayout {
 
     private final Rect tmpRect = new Rect();
     private final RectF rimRect = new RectF();
-    private final RectF ringRect = new RectF();
     private final Path allPlates = new Path();
     private final Matrix shaderMatrix = new Matrix();
 
-    private final Paint tintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint glossPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -86,7 +84,7 @@ public class GlassHeaderLayout extends LinearLayout {
         rimPaint.setStyle(Paint.Style.STROKE);
         rimPaint.setStrokeWidth(rimWidth);
         ringPaint.setStyle(Paint.Style.STROKE);
-        ringPaint.setStrokeWidth(0.8f * d);
+        ringPaint.setStrokeWidth(1.2f * d);
 
         setBackground(buildScrim(backdrop.baseColor()));
     }
@@ -182,16 +180,11 @@ public class GlassHeaderLayout extends LinearLayout {
         }
         if (count == 0) return;
 
-        // 0) faint outer ring so the glass separates from a white background
+        // 0) faint outer ring — ONE stroke call for all plates (inner half is covered by the fill)
         final boolean dark = backdrop.isDark();
         if (!dark) {
             ringPaint.setColor(0x1A0F172A);
-            for (int i = 0; i < count; i++) {
-                ringRect.set(plateRects[i]);
-                ringRect.inset(-0.4f, -0.4f);
-                float rad = plateOwners[i].resolveRadius(plateRects[i]) + 0.4f;
-                canvas.drawRoundRect(ringRect, rad, rad, ringPaint);
-            }
+            canvas.drawPath(allPlates, ringPaint);
         }
 
         // 1) live blurred backdrop, drawn ONCE for all plates
@@ -204,21 +197,18 @@ public class GlassHeaderLayout extends LinearLayout {
         }
         canvas.restoreToCount(save);
 
-        // 2) per-plate tint, gloss, press, rim
+        // 2) per-plate fill (tint+gloss), press, rim
         for (int i = 0; i < count; i++) {
             GlassImageButton g = plateOwners[i];
             RectF r = plateRects[i];
             float rad = g.resolveRadius(r);
             float w = r.width(), h = r.height();
 
-            tintPaint.setColor(g.resolveTint(dark));
-            canvas.drawRoundRect(r, rad, rad, tintPaint);
-
             shaderMatrix.setTranslate(r.left, r.top);
-            android.graphics.Shader gloss = g.glossShader(w, h, dark);
-            gloss.setLocalMatrix(shaderMatrix);
-            glossPaint.setShader(gloss);
-            canvas.drawRoundRect(r, rad, rad, glossPaint);
+            android.graphics.Shader fill = g.fillShader(w, h, dark);
+            fill.setLocalMatrix(shaderMatrix);
+            fillPaint.setShader(fill);
+            canvas.drawRoundRect(r, rad, rad, fillPaint);   // tint + gloss in one call
 
             if (g.isPressed()) {
                 pressPaint.setColor(dark ? 0x33FFFFFF : 0x22000000);

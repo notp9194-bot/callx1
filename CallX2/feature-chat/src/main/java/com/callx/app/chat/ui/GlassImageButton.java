@@ -27,7 +27,7 @@ public class GlassImageButton extends AppCompatImageButton {
 
     private GlassHeaderLayout host;
 
-    private Shader gloss, rim;
+    private Shader fill, rim;
     private float shaderW = -1f, shaderH = -1f;
     private boolean shaderDark;
 
@@ -67,9 +67,21 @@ public class GlassImageButton extends AppCompatImageButton {
         return dark ? 0x26FFFFFF : 0x99FFFFFF;
     }
 
-    Shader glossShader(float w, float h, boolean dark) {
+    /** Tint + gloss pre-composited into ONE gradient => one draw call instead of two. */
+    Shader fillShader(float w, float h, boolean dark) {
         ensureShaders(w, h, dark);
-        return gloss;
+        return fill;
+    }
+
+    /** Alpha-composites {@code top} over {@code bottom} (both non-premultiplied ARGB). */
+    static int over(int top, int bottom) {
+        float sa = (top >>> 24) / 255f, da = (bottom >>> 24) / 255f;
+        float oa = sa + da * (1f - sa);
+        if (oa <= 0f) return 0;
+        int r = Math.round((((top >> 16) & 255) * sa + ((bottom >> 16) & 255) * da * (1f - sa)) / oa);
+        int g = Math.round((((top >> 8) & 255) * sa + ((bottom >> 8) & 255) * da * (1f - sa)) / oa);
+        int b = Math.round(((top & 255) * sa + (bottom & 255) * da * (1f - sa)) / oa);
+        return (Math.round(oa * 255f) << 24) | (r << 16) | (g << 8) | b;
     }
 
     Shader rimShader(float w, float h, boolean dark) {
@@ -78,10 +90,15 @@ public class GlassImageButton extends AppCompatImageButton {
     }
 
     private void ensureShaders(float w, float h, boolean dark) {
-        if (gloss != null && w == shaderW && h == shaderH && dark == shaderDark) return;
+        if (fill != null && w == shaderW && h == shaderH && dark == shaderDark) return;
         shaderW = w; shaderH = h; shaderDark = dark;
-        gloss = new LinearGradient(0, 0, 0, h,
-                new int[]{ dark ? 0x40FFFFFF : 0x8CFFFFFF, 0x0CFFFFFF, 0x00FFFFFF, 0x14000000 },
+        final int t = resolveTint(dark);
+        fill = new LinearGradient(0, 0, 0, h,
+                new int[]{
+                        over(dark ? 0x40FFFFFF : 0x8CFFFFFF, t),
+                        over(0x0CFFFFFF, t),
+                        over(0x00FFFFFF, t),
+                        over(0x14000000, t) },
                 new float[]{ 0f, 0.42f, 0.6f, 1f }, Shader.TileMode.CLAMP);
         rim = new LinearGradient(0, 0, w, h,
                 new int[]{ 0xF2FFFFFF, 0x30FFFFFF, 0x30FFFFFF, 0x8CFFFFFF },
