@@ -468,9 +468,7 @@ final class GlassBackdrop {
     private float prevOffX = Float.NaN, prevOffY = Float.NaN;
     private long lastMoveAt;
     private int moveStreak;
-    private final ViewTreeObserver.OnWindowFocusChangeListener focusListener = hasFocus -> {
-        if (hasFocus) host.invalidate();   // refresh whatever changed while we were skipping
-    };
+    private final ViewTreeObserver.OnWindowFocusChangeListener focusListener;
     /** Something overlapping this host's strip invalidated itself since the last recording. */
     private boolean contentDirty;
     // API < 31 (ENABLE_SOFTWARE_BLUR only)
@@ -498,6 +496,13 @@ final class GlassBackdrop {
 
     GlassBackdrop(View host, int sourceId, float blurDp) {
         this.host = host;
+        // Moved out of the field initializer above: `host` is a blank final assigned right
+        // here, so a lambda referencing it from a field initializer (which runs before this
+        // constructor body) fails javac's definite-assignment check ("host might not have
+        // been initialized") even though it's only ever invoked long after construction.
+        this.focusListener = hasFocus -> {
+            if (hasFocus) this.host.invalidate();   // refresh whatever changed while we were skipping
+        };
         this.sourceId = sourceId;
         this.blurPx = blurDp * host.getResources().getDisplayMetrics().density;
         this.stripPad = Math.round(this.blurPx * 2f);
