@@ -68,10 +68,12 @@ final class GlassBackdrop {
     private final RectF softDst = new RectF();
     private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
 
-    private final Runnable trailingInvalidate = () -> {
+    private final Runnable trailingInvalidate = this::onTrailingInvalidate;
+
+    private void onTrailingInvalidate() {
         trailingPosted = false;
         host.invalidate();
-    };
+    }
 
     private final ViewTreeObserver.OnPreDrawListener preDraw = () -> {
         update();
