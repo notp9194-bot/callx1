@@ -20,6 +20,7 @@ import android.view.View;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.callx.app.chat.ui.IconTintCache;
 import com.callx.app.chat.util.MarkdownFormatter;
 import com.callx.app.utils.ChatThemeManager;
 
@@ -1582,7 +1583,6 @@ public class MessageBubbleCanvasView extends View {
     // per draw for every visible call-entry row). getFontMetrics(FontMetrics)
     // fills these in place instead, so none of the three call sites below
     // allocate anything anymore.
-    private final Paint.FontMetrics callEntryIconFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics callEntryLabelFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics callEntryDotFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics callEntryTimeFmScratch = new Paint.FontMetrics();
@@ -2556,13 +2556,27 @@ public class MessageBubbleCanvasView extends View {
     // ── Reel-seen / Status-seen "watched/seen" system bubbles ──
     boolean isSeenBubble = false;
     boolean isCallEntry = false;
-    String callEntryIcon = "";
+    // PERF/CONSISTENCY FIX: was a raw "📞"/"📹" emoji drawn with drawText().
+    // Emoji glyph shape/weight varies by OEM font, so the call-entry pill
+    // in chat never quite matched the ic_phone/ic_video_call vector icon
+    // shown on the Calls tab and the chat header. Now we draw the same
+    // vector drawable everyone else uses, rasterized once and cached
+    // process-wide via IconTintCache (same pattern as ChatIconBarView) —
+    // see callEntryIconBitmap below.
+    boolean callEntryIsVideo = false;
+    // OPT: guards the IconTintCache.get() call below — first bind is never
+    // a "skip" (callEntryIsVideo defaults to false, same as a real audio
+    // bind, so without this flag a fresh view's first audio-call bind would
+    // wrongly think "unchanged" and leave callEntryIconBitmap null).
+    boolean callEntryIconBound = false;
+    Bitmap callEntryIconBitmap;
+    int callEntryIconSizePx;
     String callEntryLabel = "";
     int callEntryLabelColor = 0xFFFFFFFF;
     String callEntryTime = "";
     final RectF callEntryPillRect = new RectF();
     final Paint callEntryBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final TextPaint callEntryIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    final Paint callEntryIconBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     final TextPaint callEntryLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint callEntryDotPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint callEntryTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -3223,7 +3237,7 @@ public class MessageBubbleCanvasView extends View {
 
         // ── Call-entry pill paints ──
         callEntryBgPaint.setColor(SEEN_STATUS_BG_COLOR);
-        callEntryIconPaint.setTextSize(CALL_ENTRY_ICON_SP * density);
+        callEntryIconSizePx = Math.round(CALL_ENTRY_ICON_SP * density);
         callEntryLabelPaint.setTextSize(CALL_ENTRY_LABEL_SP * density);
         callEntryDotPaint.setColor(CALL_ENTRY_TIME_COLOR);
         callEntryDotPaint.setTextSize(CALL_ENTRY_DOT_SP * density);
@@ -4578,13 +4592,15 @@ public class MessageBubbleCanvasView extends View {
      * legacy bindCallEntryBubble() did — this method just measures/draws
      * whatever strings it's given.
      *
-     * @param icon        "📞" or "📹"
+     * @param isVideo     true = video-call icon (ic_video_call), false = audio-call icon (ic_phone) —
+     *                    same drawables used by the Calls tab and the chat header, so the icon
+     *                    always matches regardless of where it's shown
      * @param label       e.g. "Audio call • 2:30" / "Missed video call"
      * @param labelColor  0xFFFFFFFF normally, red for missed/no-answer
      * @param timeText    formatted "h:mm a" timestamp
      * @param iAmCaller   true = pill aligns to the right (I placed the call)
      */
-    public void bindCallEntry(@Nullable String icon, @Nullable String label,
+    public void bindCallEntry(boolean isVideo, @Nullable String label,
                                int labelColor, @Nullable String timeText, boolean iAmCaller) {
         this.isMedia = false;
         this.isMediaGroup = false;
@@ -4603,7 +4619,23 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGated = false;
         this.mediaDownloading = false;
         this.isCallEntry = true;
-        this.callEntryIcon = icon != null ? icon : "";
+        // OPT: skip the IconTintCache lookup (SparseArray hash + synchronized
+        // block) on rebind when this exact view already holds the right icon
+        // for this isVideo value — common on scroll, where the same
+        // ViewHolder/CanvasView gets rebound to another call-entry of the
+        // same type. Falls through to the real lookup on first bind, on a
+        // type flip (audio<->video), or if the bitmap was ever recycled.
+        boolean iconUnchanged = callEntryIconBound
+                && this.callEntryIsVideo == isVideo
+                && callEntryIconBitmap != null
+                && !callEntryIconBitmap.isRecycled();
+        this.callEntryIsVideo = isVideo;
+        if (!iconUnchanged) {
+            this.callEntryIconBitmap = IconTintCache.get(getContext(),
+                    isVideo ? com.callx.app.core.R.drawable.ic_video_call : com.callx.app.core.R.drawable.ic_phone,
+                    com.callx.app.core.R.color.white, callEntryIconSizePx);
+            this.callEntryIconBound = true;
+        }
         this.callEntryLabel = label != null ? label : "";
         this.callEntryLabelColor = labelColor;
         this.callEntryTime = timeText != null ? timeText : "";
@@ -6494,7 +6526,7 @@ public class MessageBubbleCanvasView extends View {
             float padH = CALL_ENTRY_PAD_H_DP * density;
             float padV = CALL_ENTRY_PAD_V_DP * density;
             float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
-            float iconW  = callEntryIconPaint.measureText(callEntryIcon);
+            float iconW  = callEntryIconBitmap != null ? callEntryIconBitmap.getWidth() : callEntryIconSizePx;
             float labelW = callEntryLabelPaint.measureText(callEntryLabel);
             float dotW   = callEntryDotPaint.measureText(CALL_ENTRY_DOT_TEXT);
             float timeW  = callEntryTimePaint.measureText(callEntryTime);
@@ -6504,15 +6536,14 @@ public class MessageBubbleCanvasView extends View {
             // draw time — onMeasure/onDraw never run concurrently on this
             // view, so sharing them here costs nothing and avoids adding
             // yet another set of fields for the identical paints.
-            callEntryIconPaint.getFontMetrics(callEntryIconFmScratch);
             callEntryLabelPaint.getFontMetrics(callEntryLabelFmScratch);
             callEntryDotPaint.getFontMetrics(callEntryDotFmScratch);
             callEntryTimePaint.getFontMetrics(callEntryTimeFmScratch);
-            Paint.FontMetrics cifm = callEntryIconFmScratch;
             Paint.FontMetrics clfm = callEntryLabelFmScratch;
             Paint.FontMetrics cdfm = callEntryDotFmScratch;
             Paint.FontMetrics ctfm = callEntryTimeFmScratch;
-            float rowH = Math.max(Math.max(cifm.descent - cifm.ascent, clfm.descent - clfm.ascent),
+            float iconH = callEntryIconBitmap != null ? callEntryIconBitmap.getHeight() : callEntryIconSizePx;
+            float rowH = Math.max(Math.max(iconH, clfm.descent - clfm.ascent),
                     Math.max(cdfm.descent - cdfm.ascent, ctfm.descent - ctfm.ascent));
 
             int pillWidth = Math.round(Math.max(CALL_ENTRY_MIN_WIDTH_DP * density, rowContentW + padH * 2));
@@ -7807,6 +7838,24 @@ public class MessageBubbleCanvasView extends View {
     }
 
     /**
+     * Warm-up hook (see MessagePagingAdapter#warmUpRecycledViewPool): builds
+     * both call-entry icon bitmaps (ic_phone / ic_video_call, white tint —
+     * see bindCallEntry) NOW, on the pre-warm frame, via IconTintCache —
+     * same cache bindCallEntry() reads from, so this is a pure warm-up, not
+     * a parallel path. Unlike the group-avatar placeholder this isn't
+     * group-only: call-entry bubbles can appear in any 1:1 or group chat,
+     * so this runs unconditionally. Cheap (two small icons) and idempotent
+     * (IconTintCache itself no-ops on a cache hit).
+     */
+    public static void prewarmCallEntryIcons(Context ctx) {
+        int sizePx = Math.round(CALL_ENTRY_ICON_SP * ctx.getResources().getDisplayMetrics().density);
+        IconTintCache.get(ctx, com.callx.app.core.R.drawable.ic_phone,
+                com.callx.app.core.R.color.white, sizePx);
+        IconTintCache.get(ctx, com.callx.app.core.R.drawable.ic_video_call,
+                com.callx.app.core.R.color.white, sizePx);
+    }
+
+    /**
      * Pre-sets this view's memoized placeholder reference (see
      * groupSenderAvatarPlaceholderBmp) so a view coming straight out of the
      * RecycledViewPool draws its first placeholder with zero lookup work —
@@ -7985,7 +8034,7 @@ public class MessageBubbleCanvasView extends View {
         } else if (isSeenBubble) {
             sb.append("|S").append(seenHasThumb ? '1' : '0').append(seenHasName ? '1' : '0');
         } else if (isCallEntry) {
-            sb.append("|CE").append(callEntryIcon).append('\u0001')
+            sb.append("|CE").append(callEntryIsVideo ? '1' : '0').append('\u0001')
                     .append(callEntryLabel).append('\u0001').append(callEntryTime);
         } else if (isPoll) {
             sb.append("|PL").append(pollQuestion);
@@ -8109,25 +8158,31 @@ public class MessageBubbleCanvasView extends View {
         float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
         float left = callEntryPillRect.left + padH;
 
-        // PERF: 4x getFontMetrics() with no args here = 4 fresh allocations
-        // every single onDraw() for every visible call-entry row (worst of
-        // the 3 leftover sites — this one fires per-frame during a fling
-        // whenever a call-log bubble is on screen). Scratch instances below
-        // are filled in place instead (zero-alloc), same pattern as
-        // drawFooter()'s footerFmScratch.
-        callEntryIconPaint.getFontMetrics(callEntryIconFmScratch);
+        // PERF: getFontMetrics() with no args here would allocate a fresh
+        // FontMetrics object every single onDraw() for every visible
+        // call-entry row (fires per-frame during a fling whenever a
+        // call-log bubble is on screen). Scratch instances below are
+        // filled in place instead (zero-alloc), same pattern as
+        // drawFooter()'s footerFmScratch. The icon itself is no longer
+        // drawn as text — it's a pre-rasterized, process-wide cached
+        // Bitmap (see IconTintCache / callEntryIconBitmap), so there's no
+        // FontMetrics/measureText cost for it at all anymore.
         callEntryLabelPaint.getFontMetrics(callEntryLabelFmScratch);
         callEntryDotPaint.getFontMetrics(callEntryDotFmScratch);
         callEntryTimePaint.getFontMetrics(callEntryTimeFmScratch);
-        Paint.FontMetrics cifm = callEntryIconFmScratch;
         Paint.FontMetrics clfm = callEntryLabelFmScratch;
         Paint.FontMetrics cdfm = callEntryDotFmScratch;
         Paint.FontMetrics ctfm = callEntryTimeFmScratch;
         float rowCenterY = callEntryPillRect.centerY();
 
         float x = left;
-        canvas.drawText(callEntryIcon, x, rowCenterY - (cifm.ascent + cifm.descent) / 2f, callEntryIconPaint);
-        x += callEntryIconPaint.measureText(callEntryIcon) + gap;
+        if (callEntryIconBitmap != null) {
+            float iconTop = rowCenterY - callEntryIconBitmap.getHeight() / 2f;
+            canvas.drawBitmap(callEntryIconBitmap, x, iconTop, callEntryIconBitmapPaint);
+            x += callEntryIconBitmap.getWidth() + gap;
+        } else {
+            x += callEntryIconSizePx + gap;
+        }
         canvas.drawText(callEntryLabel, x, rowCenterY - (clfm.ascent + clfm.descent) / 2f, callEntryLabelPaint);
         x += callEntryLabelPaint.measureText(callEntryLabel);
         canvas.drawText(CALL_ENTRY_DOT_TEXT, x, rowCenterY - (cdfm.ascent + cdfm.descent) / 2f, callEntryDotPaint);

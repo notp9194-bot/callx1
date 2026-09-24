@@ -3130,6 +3130,11 @@ public class MessagePagingAdapter
         // and no holder gets created below — and pre-set it on every
         // received holder we DO create, so the first unresolved avatar of the
         // first scroll draws with no build/lookup cost. 1:1 chat skips this.
+        // Call-entry bubbles (audio/video) can appear in any chat, group or
+        // 1:1 — unlike the avatar placeholder above, not gated on isGroup.
+        // See prewarmCallEntryIcons() javadoc.
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                .prewarmCallEntryIcons(parent.getContext());
         if (isGroup) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                     .prewarmGroupAvatarPlaceholder(parent.getContext());
@@ -5241,7 +5246,6 @@ public class MessagePagingAdapter
             // + ll_call_entry_pill's gravity flip.
             boolean isVideoCall = "video".equals(m.fileName);
             boolean isMissed    = "missed".equals(m.text);
-            String icon = isVideoCall ? "\uD83D\uDCF9" : "\uD83D\uDCDE";
             String label;
             int labelColor;
             if (isMissed) {
@@ -5265,7 +5269,7 @@ public class MessagePagingAdapter
                 labelColor = 0xFFFFFFFF;
             }
             String callTime = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
-            cv.bindCallEntry(icon, label, labelColor, callTime, sent);
+            cv.bindCallEntry(isVideoCall, label, labelColor, callTime, sent);
             cv.setDeletedStyle(false);
         } else if (isMultiMedia) {
             final java.util.List<java.util.Map<String, Object>> items = m.mediaItems;

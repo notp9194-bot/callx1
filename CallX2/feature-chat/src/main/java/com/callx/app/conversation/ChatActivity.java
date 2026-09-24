@@ -802,6 +802,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         mediaController.registerPickers();   // Must happen early
 
         super.onCreate(savedInstanceState);
+        // Re-resolve IconTintCache's night flag from THIS Activity's config before any view inflates
+        // (may differ from Application's under AppCompat night overrides).
+        com.callx.app.chat.ui.IconTintCache.invalidateNightMode();
 
         // PERF FIX (disk-persisted link preview cache): wires up
         // LinkPreviewFetcher's Room-backed disk cache — no-ops after the
@@ -1260,6 +1263,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         int newNightMode = newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         if (newNightMode == lastUiNightMode) return; // some other config change — nothing to re-theme
         lastUiNightMode = newNightMode;
+        // Drop IconTintCache's cached night flag BEFORE anything rebinds.
+        com.callx.app.chat.ui.IconTintCache.invalidateNightMode();
 
         boolean isNight = newNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
 
