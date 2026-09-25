@@ -18,7 +18,6 @@ import com.callx.app.reels.R;
 import com.callx.app.models.ReelModel;
 
 import java.util.List;
-import java.util.Locale;
 
 /**
  * SavedReelsAdapter — 3-column grid of saved reel thumbnails.
@@ -60,13 +59,10 @@ public class SavedReelsAdapter extends RecyclerView.Adapter<SavedReelsAdapter.VH
             h.ivThumb.setImageResource(R.drawable.ic_reels);
         }
 
-        if (reel.duration > 0) {
-            int secs  = (reel.duration / 1000) % 60;
-            int mins  = reel.duration / 60000;
-            h.tvDuration.setText(String.format(Locale.getDefault(), "%d:%02d", mins, secs));
-            h.tvDuration.setVisibility(View.VISIBLE);
-        } else {
-            h.tvDuration.setVisibility(View.GONE);
+        // item_saved_reel.xml no longer has a duration badge (views pill only),
+        // so bind the views count into tv_views_overlay instead of tv_duration.
+        if (h.tvViews != null) {
+            h.tvViews.setText(formatCount(reel.viewsCount));
         }
 
         h.itemView.setOnClickListener(v -> {
@@ -110,13 +106,25 @@ public class SavedReelsAdapter extends RecyclerView.Adapter<SavedReelsAdapter.VH
     @Override
     public int getItemCount() { return reels.size(); }
 
+    private static String formatCount(int n) {
+        if (n >= 1_000_000) return scaled(n, 1_000_000, 'M');
+        if (n >= 1_000)     return scaled(n, 1_000, 'K');
+        return String.valueOf(n);
+    }
+
+    private static String scaled(int n, int unit, char suffix) {
+        int tenths = Math.round(n * 10f / unit);
+        int whole = tenths / 10, frac = tenths % 10;
+        return frac == 0 ? whole + "" + suffix : whole + "." + frac + suffix;
+    }
+
     static class VH extends RecyclerView.ViewHolder {
         ImageView ivThumb;
-        TextView  tvDuration;
+        TextView  tvViews;
         VH(@NonNull View itemView) {
             super(itemView);
             ivThumb    = itemView.findViewById(R.id.iv_thumb);
-            tvDuration = itemView.findViewById(R.id.tv_duration);
+            tvViews    = itemView.findViewById(R.id.tv_views_overlay);
         }
     }
 }
