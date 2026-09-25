@@ -412,16 +412,19 @@ public class MessageBubbleCanvasView extends View {
     static final float GROUP_BADGE_PAD_V_DP  = 1.5f;
     static final int   GROUP_BADGE_BG_ALPHA  = 0x2E; // pill fill = name color @ ~18%
 
-    // ── Group-chat sender avatar (WhatsApp-style, received-only) — a small
-    // circular avatar bottom-aligned to the bubble's start edge, mirrors
-    // iv_sender_avatar in item_message_received.xml (dead in that legacy
-    // layout since it was never bound) and reuses the exact draw-a-Bitmap-
-    // into-an-oval-via-cached-BitmapShader technique SeenBubbleRenderer
-    // already uses for the reel/status-seen avatar, just at a smaller size
-    // and positioned relative to bubbleRect instead of seenCardRect. Shifts
-    // bubbleLeft/maxTextWidth right by AVATAR_SIZE+AVATAR_GAP so the bubble
-    // itself never overlaps the avatar column — same reservation the legacy
-    // XML's ll_bubble-constraintStart_toEndOf-iv_sender_avatar gave it. ──
+    // ── Received-bubble sender avatar (WhatsApp-style) — a small circular
+    // avatar bottom-aligned to the bubble's start edge, mirrors iv_sender_avatar
+    // in item_message_received.xml (dead in that legacy layout since it was
+    // never bound) and reuses the exact draw-a-Bitmap-into-an-oval-via-cached-
+    // BitmapShader technique SeenBubbleRenderer already uses for the reel/
+    // status-seen avatar, just at a smaller size and positioned relative to
+    // bubbleRect instead of seenCardRect. Shifts bubbleLeft/maxTextWidth right
+    // by AVATAR_SIZE+AVATAR_GAP so the bubble itself never overlaps the avatar
+    // column — same reservation the legacy XML's ll_bubble-constraintStart_
+    // toEndOf-iv_sender_avatar gave it. Despite the "Group" naming (kept for
+    // history), this column is purely draw-only plumbing: MessagePagingAdapter
+    // also drives it for 1:1 received bubbles, resolving the bitmap from the
+    // partner avatar (partnerAvatarUrl) instead of a per-member photo. ──
     static final float GROUP_AVATAR_SIZE_DP = 20f;
     static final float GROUP_AVATAR_GAP_DP  = 6f; // gap between avatar and bubble start edge
     static final int   GROUP_AVATAR_PLACEHOLDER_COLOR = 0xFFBDBDBD;

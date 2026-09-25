@@ -753,6 +753,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // avatar is typically an instant memory hit.
                     com.callx.app.cache.ChatAvatarBinder.bind(ChatActivity.this,
                             binding.ivPartnerAvatar, url, 0L, R.drawable.ic_person);
+                    // Bubble avatar (setPartnerAvatarUrl) reuses this exact
+                    // url too — pushes it to any already-bound received rows.
+                    if (pagingAdapter != null) pagingAdapter.setPartnerAvatarUrl(url);
                 }
             }
             updateHeaderStoryRing();
@@ -2724,6 +2727,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
         pagingAdapter.setChatId(chatId);
         pagingAdapter.setPartnerUid(partnerUid);
+        // Seed the bubble-avatar reuse with whatever header avatar url is
+        // already known (intent extras, read in readIntentExtras() before
+        // this runs) — see setPartnerAvatarUrl() doc.
+        pagingAdapter.setPartnerAvatarUrl(
+                (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto);
 
         // Feature 13: View Once — wire adapter listener to controller + viewer launch
         // (Moved here from early onCreate block — pagingAdapter must exist first.)
@@ -2784,6 +2792,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onPin(Message m)                 { getPinController().pinMessage(m); }
             @Override public void onPollVote(Message m, int idx)   { getPollController().castVote(m, idx); }
             @Override public void onPollToggleClose(Message m)    { getPollController().toggleClosed(m); }
+            // 1:1's bubble avatar is the same partner shown in the toolbar
+            // (see setPartnerAvatarUrl) — tapping it mirrors the header
+            // avatar's tap target instead of doing nothing (interface
+            // default is a no-op, which is what GroupChatActivity leaves
+            // it as since a group member's own profile isn't wired here).
+            @Override public void onGroupSenderAvatarClick(Message m) { openAvatarZoom(); }
             @Override public void onPlaybackStateChanged(Message m, boolean playing) {
                 if (playbackPresenceController != null && m != null) {
                     String mid = m.messageId != null ? m.messageId : m.id;

@@ -2014,6 +2014,60 @@ public class MessagePagingAdapter
     public void setPartnerUid(String partnerUid) { this.partnerUid = partnerUid; }
 
     /**
+     * 1:1 chat only — the partner's avatar URL, the exact same URL
+     * ChatActivity's toolbar header binds to ivPartnerAvatar (partnerThumb
+     * falling back to partnerPhoto). Every received bubble's 20dp avatar
+     * column (reuses MessageBubbleCanvasView's group-sender-avatar field
+     * set — see setGroupSenderAvatarVisible()/Shown()/Bitmap() docs, which
+     * are purely rendering, not group-specific) resolves through
+     * ChatAvatarBinder against this SAME url, so it shares the SAME L2/L3
+     * cache entry the header avatar already warmed — no independent
+     * Firebase read, no second Glide target for the same photo.
+     */
+    private String partnerAvatarUrl;
+
+    /**
+     * Call once right after construction (ChatActivity#setupPagingRecyclerView,
+     * from whatever partnerThumb/partnerPhoto are already known) and again
+     * whenever the header avatar URL changes (e.g. fetchPartnerProfileOnce's
+     * late-resolving fallback) — mirrors onMemberPhotosChanged()'s job but for
+     * the single 1:1 partner: re-binds only the on-screen (± buffer) rows
+     * that are currently an avatar run-tail via the cheap PAYLOAD_GROUP_SENDER
+     * path, so a row bound before the avatar URL resolved doesn't sit on the
+     * placeholder circle until scrolled off/on screen. No-op for group chats
+     * (groupMemberPhotos is the equivalent there).
+     */
+    public void setPartnerAvatarUrl(@Nullable String url) {
+        if (isGroup) return;
+        String next = url != null ? url : "";
+        String prev = this.partnerAvatarUrl != null ? this.partnerAvatarUrl : "";
+        if (next.equals(prev)) return;
+        this.partnerAvatarUrl = url;
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return; // not attached yet — first bind reads the fresh field
+        int count = getItemCount();
+        if (count == 0) return;
+        int start = 0;
+        int end = count - 1;
+        RecyclerView.LayoutManager lm = rv.getLayoutManager();
+        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+            androidx.recyclerview.widget.LinearLayoutManager llm =
+                    (androidx.recyclerview.widget.LinearLayoutManager) lm;
+            int first = llm.findFirstVisibleItemPosition();
+            int last = llm.findLastVisibleItemPosition();
+            if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
+            start = Math.max(0, first - MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+            end = Math.min(count - 1, last + MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+        }
+        for (int i = start; i <= end; i++) {
+            Message m = peek(i);
+            if (m == null || m.senderId == null) continue;
+            if (currentUid != null && currentUid.equals(m.senderId)) continue;
+            if (isGroupAvatarRunTail(i, m)) notifyItemChanged(i, PAYLOAD_GROUP_SENDER);
+        }
+    }
+
+    /**
      * Finds a Message in the currently loaded paging snapshot by id.
      * Used by ChatActivity/GroupChatActivity to resolve the message that
      * GalleryReplyBridge points at after a swipe-up-to-reply gesture in
@@ -2376,30 +2430,36 @@ public class MessagePagingAdapter
      */
     private void bindGroupSenderOnly(@NonNull VH h, int position, @NonNull Message m) {
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
-        // Not a canvas row / not a received-group row with the avatar column
-        // reserved (sent, 1:1, broadcast pseudo-label) — nothing to swap.
+        // Not a canvas row / not a received row with the avatar column
+        // reserved (sent, broadcast pseudo-label) — nothing to swap.
         if (cv == null || !cv.isGroupSenderAvatarVisible()) return;
 
         // This payload is also what the observer fires when a neighbor was
         // inserted/removed, so first re-evaluate the parts that depend on
-        // neighbors: the NAME (first bubble of the run) and — below — whether
-        // this row is still the AVATAR tail. Both setters are no-ops when
-        // nothing changed (the photo-changed case), and the name setter
-        // re-measures only when the row's size signature actually changes.
-        if (Boolean.TRUE.equals(m.broadcast) || isGroupNameRunHead(position, m)) {
-            cv.setGroupSender(groupSenderLabel(m), m.senderId);
-            cv.setGroupSenderBadge(Boolean.TRUE.equals(m.broadcast) ? null : groupBadgeFor(m.senderId));
-        } else {
-            cv.clearGroupSender();
+        // neighbors: the NAME (first bubble of the run, group only) and —
+        // below — whether this row is still the AVATAR tail. Both setters
+        // are no-ops when nothing changed (the photo-changed case), and the
+        // name setter re-measures only when the row's size signature
+        // actually changes. 1:1 never shows a sender-name row.
+        if (isGroup) {
+            if (Boolean.TRUE.equals(m.broadcast) || isGroupNameRunHead(position, m)) {
+                cv.setGroupSender(groupSenderLabel(m), m.senderId);
+                cv.setGroupSenderBadge(Boolean.TRUE.equals(m.broadcast) ? null : groupBadgeFor(m.senderId));
+            } else {
+                cv.clearGroupSender();
+            }
+            // Name visibility also drives the tight/full gap above the bubble.
+            applyGroupedSpacing(h, position, m);
         }
-        // Name visibility also drives the tight/full gap above the bubble.
-        applyGroupedSpacing(h, position, m);
 
         final boolean tail = isGroupAvatarRunTail(position, m);
         cv.setGroupSenderAvatarShown(tail);
         if (!tail) return; // avatar now belongs to a later bubble — nothing to load
 
-        final String url = groupMemberPhotos.get(m.senderId);
+        // Group: per-member photo from the live map. 1:1: the single
+        // partner avatar url (see partnerAvatarUrl doc) — same url the
+        // toolbar header already bound, so this is almost always an L2 hit.
+        final String url = isGroup ? groupMemberPhotos.get(m.senderId) : partnerAvatarUrl;
         if (url == null || url.isEmpty()) {
             cv.setGroupSenderAvatarBitmap(null); // photo removed → placeholder
             return;
@@ -2489,17 +2549,18 @@ public class MessagePagingAdapter
         // identity tracking across submitData() calls, including the
         // warm-cache-list → real-Paging-list transition.
 
-        if (isGroup) {
-            // Run-boundary staleness fix: whether a row shows the group
-            // AVATAR depends on the NEXT row (isGroupAvatarRunTail) and
-            // whether it shows the sender NAME depends on the PREVIOUS row
-            // (isGroupNameRunHead), but DiffUtil only rebinds a row whose OWN
-            // content changed. A new same-sender message appended after row
-            // N would leave N drawing an avatar it should now hide (two
-            // avatars in one run); an older page prepended above the oldest
-            // row would leave its name showing under a same-sender message.
-            // Re-evaluate the rows on both sides of every insert/remove
-            // point via the cheap payload path.
+        {
+            // Run-boundary staleness fix: whether a row shows the AVATAR
+            // depends on the NEXT row (isGroupAvatarRunTail) — true for both
+            // group (per-member) and 1:1 (partner) avatars now — and for
+            // group chats whether it shows the sender NAME depends on the
+            // PREVIOUS row (isGroupNameRunHead), but DiffUtil only rebinds a
+            // row whose OWN content changed. A new same-sender message
+            // appended after row N would leave N drawing an avatar it should
+            // now hide (two avatars in one run); an older page prepended
+            // above the oldest row would leave its name showing under a
+            // same-sender message. Re-evaluate the rows on both sides of
+            // every insert/remove point via the cheap payload path.
             registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
                 // Row ABOVE the change point: its NEXT row changed (avatar tail).
                 // Row BELOW it: its PREVIOUS row changed (name run-head) — this
@@ -4116,12 +4177,13 @@ public class MessagePagingAdapter
         return !willShowGroupSenderAvatar(nm);
     }
 
-    /** Mirrors bindCanvasMessage()'s avatar gate (received + group + a
-     *  sender name) AND that the row actually renders on the canvas path. */
+    /** Mirrors bindCanvasMessage()'s avatar gate — received + a sender name
+     *  for group chats; every received row for 1:1 chats (WhatsApp-style
+     *  20dp avatar reusing the header/partner avatar, see partnerAvatarUrl)
+     *  — AND that the row actually renders on the canvas path. */
     private boolean willShowGroupSenderAvatar(@NonNull Message nm) {
-        if (!isGroup) return false;
         if (currentUid != null && currentUid.equals(nm.senderId)) return false;
-        if (nm.senderName == null || nm.senderName.isEmpty()) return false;
+        if (isGroup && (nm.senderName == null || nm.senderName.isEmpty())) return false;
         return viewTypeOf(nm) == TYPE_CANVAS_RECEIVED;
     }
 
@@ -6663,6 +6725,36 @@ public class MessagePagingAdapter
         } else if (!sent && isBroadcastMsg) {
             cv.setGroupSender("\uD83D\uDCE2 Broadcast");
             cv.clearGroupSenderAvatar();
+        } else if (!sent && !isGroup) {
+            // ── 1:1 received bubble — WhatsApp-style 20dp avatar (screenshot
+            // spec), reusing the SAME field set the group path uses on
+            // MessageBubbleCanvasView (setGroupSenderAvatarVisible/Shown/
+            // Bitmap are draw-only plumbing, not group-specific). No sender
+            // name/badge row for 1:1 — only the avatar column. ──
+            cv.clearGroupSender();
+            cv.setGroupSenderAvatarVisible(true);
+            final boolean avatarShown = isGroupAvatarRunTail(position, m);
+            cv.setGroupSenderAvatarShown(avatarShown);
+            if (avatarShown) {
+                if (partnerAvatarUrl != null && !partnerAvatarUrl.isEmpty()) {
+                    // Same peek-then-bind pattern as the group path: an L2
+                    // hit here is guaranteed once the toolbar header has
+                    // bound this exact url via ChatAvatarBinder — i.e. no
+                    // separate network/decode work for the bubble avatar.
+                    final android.graphics.Bitmap l2 =
+                            com.callx.app.cache.ChatAvatarBinder.peekInline(ctx, partnerAvatarUrl);
+                    if (l2 != null) {
+                        cv.setGroupSenderAvatarBitmap(l2);
+                    } else {
+                        com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, partnerAvatarUrl, 0L, resource -> {
+                            if (h.canvasBindToken != myToken) return; // recycled/rebound meanwhile
+                            cv.setGroupSenderAvatarBitmap(resource);
+                        });
+                    }
+                } else {
+                    cv.setGroupSenderAvatarBitmap(null);
+                }
+            }
         } else {
             cv.clearGroupSender();
             cv.clearGroupSenderAvatar();
