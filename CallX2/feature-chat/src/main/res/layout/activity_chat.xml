@@ -9,14 +9,6 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <!-- GLASS BACKDROP SOURCE: only wallpaper + skeleton + message list live in
-             here. The glass header/input bar blur THIS view; it must never contain
-             a glass surface itself (they would reference each other's RenderNodes). -->
-        <com.callx.app.chat.ui.GlassSourceLayout
-            android:id="@+id/fl_chat_backdrop"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent">
-
         <!-- Chat Wallpaper Background Image -->
         <ImageView
             android:id="@+id/iv_chat_wallpaper"
@@ -46,8 +38,6 @@
             android:paddingBottom="76dp"
             android:clipToPadding="false"
             android:visibility="gone"/>
-
-        </com.callx.app.chat.ui.GlassSourceLayout>
 
         <!-- FIX [P3-4]: Empty chat state — no messages yet.
              PERF: lazily inflated via ViewStub — only needed the first time
@@ -394,7 +384,7 @@
                 android:layout_marginTop="6dp"
                 android:layout_marginBottom="12dp"
                 android:clipChildren="false"
-                app:glassSource="@id/fl_chat_backdrop">
+                android:background="@drawable/bg_chat_input_capsule">
 
                     <!-- Input row — view-once toggle on the left, message
                          field in the middle, attach+camera grouped on the
@@ -529,11 +519,11 @@
              as-is since nothing else in this layout references the old
              card id.
              ═══════════════════════════════════════════════════════════ -->
-        <com.callx.app.chat.ui.GlassHeaderLayout
+        <LinearLayout
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:glassSource="@id/fl_chat_backdrop"
+            android:background="@color/chat_unified_bg"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingTop="8dp"
@@ -542,14 +532,13 @@
             android:paddingEnd="12dp">
 
                 <!-- Back button — iOS chevron, no circular ripple/tail bar -->
-                <com.callx.app.chat.ui.GlassImageButton
+                <ImageButton
                     android:id="@+id/btn_back"
-                    android:layout_width="34dp"
-                    android:layout_height="34dp"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
                     android:src="@drawable/ic_chevron_back_ios"
                     android:tint="@color/text_primary"
-                    android:background="@null"
-                    android:padding="6dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Back"/>
 
                 <!-- Avatar + story ring + online dot (clickable to open profile).
@@ -673,85 +662,82 @@
                          once that check comes back true; stays GONE (saving
                          a draw pass every time this screen opens) when the
                          partner has no linked profile for that feature. -->
-                    <com.callx.app.chat.ui.GlassImageButton
+                    <ImageButton
                         android:id="@+id/btn_toolbar_reel"
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:src="@drawable/ic_reels"
                         android:tint="@color/white"
-                        android:background="@null"
-                        app:glassTint="#99DD2A7B"
-                        android:padding="7dp"
+                        android:background="@drawable/bg_social_reel_btn"
+                        android:padding="6dp"
                         android:visibility="gone"
                         android:contentDescription="View Reels Profile"/>
 
                 </LinearLayout>
 
                 <!-- X button — GONE by default, see note above ll_reel_hanging. -->
-                <com.callx.app.chat.ui.GlassImageButton
+                <ImageButton
                     android:id="@+id/btn_toolbar_x"
                     android:layout_width="30dp"
                     android:layout_height="30dp"
                     android:src="@drawable/ic_x_logo"
                     android:tint="@color/white"
-                    android:background="@null"
-                    app:glassTint="#99000000"
-                    android:padding="7dp"
+                    android:background="@drawable/bg_social_x_btn"
+                    android:padding="6dp"
                     android:layout_marginEnd="3dp"
                     android:visibility="gone"
                     android:contentDescription="View X Profile"/>
 
                 <!-- YouTube button — GONE by default, see note above ll_reel_hanging. -->
-                <com.callx.app.chat.ui.GlassImageButton
+                <ImageButton
                     android:id="@+id/btn_toolbar_youtube"
                     android:layout_width="30dp"
                     android:layout_height="30dp"
                     android:src="@drawable/ic_youtube"
                     android:tint="@color/white"
-                    android:background="@null"
-                    app:glassTint="#99FF0000"
-                    android:padding="7dp"
+                    android:background="@drawable/bg_social_youtube_btn"
+                    android:padding="6dp"
                     android:layout_marginEnd="1dp"
                     android:visibility="gone"
                     android:contentDescription="View YouTube Channel"/>
 
                 <!-- Voice call button -->
-                <com.callx.app.chat.ui.GlassImageButton
+                <ImageButton
                     android:id="@+id/btn_toolbar_voice_call"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="5dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="2dp"
                     android:src="@drawable/ic_phone"
                     android:tint="@color/text_primary"
-                    android:background="@null"
-                    android:padding="8dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="10dp"
                     android:contentDescription="Voice call"/>
 
                 <!-- Video call button -->
-                <com.callx.app.chat.ui.GlassImageButton
+                <ImageButton
                     android:id="@+id/btn_toolbar_video_call"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="5dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="2dp"
                     android:src="@drawable/ic_video_call"
                     android:tint="@color/text_primary"
-                    android:background="@null"
-                    android:padding="8dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="9dp"
                     android:contentDescription="Video call"/>
 
                 <!-- More options (3-dot menu) -->
-                <com.callx.app.chat.ui.GlassImageButton
+                <ImageButton
                     android:id="@+id/btn_more_options"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="5dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="2dp"
                     android:src="@drawable/ic_more_vert"
                     android:tint="@color/text_primary"
-                    android:background="@null"
-                    android:padding="6dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="9dp"
                     android:contentDescription="More options"/>
 
-        </com.callx.app.chat.ui.GlassHeaderLayout>
+        </LinearLayout>
 
         <!-- ══════════════════════════════════════════════════════════════
              INSTAGRAM-STYLE PROFILE CARD — big avatar + stats + Subscribe +

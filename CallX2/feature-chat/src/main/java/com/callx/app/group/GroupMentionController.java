@@ -141,6 +141,18 @@ public class GroupMentionController {
         return list;
     }
 
+    /**
+     * Pseudo-uid for the "Everyone" suggestion row — matches WhatsApp's
+     * "Notify everyone" mention. Not a real Firebase member: never written
+     * to any membership map, and insertMention() only ever uses the item's
+     * display NAME to build "@Everyone " text (see insertMentionInternal),
+     * so no uid-shaped code path (member lookup, avatar fetch, permission
+     * check) ever sees this string. Kept here (rather than on
+     * MentionSuggestAdapter, which other screens reuse for non-group
+     * mention lists) so only group chat ever gets this row.
+     */
+    private static final String EVERYONE_UID = "everyone";
+
     private void rebuildItems() {
         if (suggestAdapter == null || memberNames == null) return;
         List<MentionSuggestAdapter.MentionItem> items = new ArrayList<>();
@@ -153,6 +165,12 @@ public class GroupMentionController {
         }
         // Alphabetical
         Collections.sort(items, (a, b) -> a.name.compareToIgnoreCase(b.name));
+        // Feature: @everyone — pinned first, same as WhatsApp's "Notify
+        // everyone" row, ahead of every real member regardless of name.
+        // Needs at least one other member to make sense as a group mention.
+        if (!items.isEmpty()) {
+            items.add(0, new MentionSuggestAdapter.MentionItem(EVERYONE_UID, "Everyone", null));
+        }
         suggestAdapter.setItems(items);
     }
 

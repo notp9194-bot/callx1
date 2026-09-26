@@ -1,9 +1,6 @@
 package com.callx.app.chat.ui;
 
 import android.content.Context;
-import android.content.res.Configuration;
-import android.content.res.TypedArray;
-import android.graphics.Canvas;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,15 +33,7 @@ public final class ChatInputBarContainer extends ViewGroup {
     private final int verticalInsetPx;
     private final int fixedIconSlotPx;
 
-    private static final float GLASS_BLUR_DP = 20f;
-    private static final float GLASS_RADIUS_DP = 28f;
-
     private boolean inputContentVisible = true;
-
-    // Real glassmorphism pill (null when app:glassSource is not set).
-    private GlassBackdrop glassBackdrop;
-    private GlassCapsuleSkin glassSkin;
-    private final float glassRadiusPx;
 
     public ChatInputBarContainer(Context context) {
         this(context, null);
@@ -58,51 +47,6 @@ public final class ChatInputBarContainer extends ViewGroup {
         fixedIconSlotPx = Math.round(FIXED_ICON_SLOT_DP * density);
         setClipChildren(false);
         setClipToPadding(false);
-
-        glassRadiusPx = GLASS_RADIUS_DP * density;
-        int sourceId = NO_ID;
-        if (attrs != null) {
-            TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.GlassInputBar);
-            try {
-                sourceId = a.getResourceId(R.styleable.GlassInputBar_glassSource, NO_ID);
-            } finally {
-                a.recycle();
-            }
-        }
-        if (sourceId != NO_ID) {
-            glassBackdrop = new GlassBackdrop(this, sourceId, GLASS_BLUR_DP);
-            glassSkin = new GlassCapsuleSkin(density);
-            setWillNotDraw(false);
-        }
-    }
-
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        if (glassBackdrop != null) glassBackdrop.attach();
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        if (glassBackdrop != null) glassBackdrop.detach();
-        super.onDetachedFromWindow();
-    }
-
-    @Override
-    protected void onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        if (glassBackdrop != null) {
-            glassBackdrop.refreshTheme();
-            invalidate();
-        }
-    }
-
-    @Override
-    protected void dispatchDraw(Canvas canvas) {
-        if (glassBackdrop != null) {
-            glassSkin.draw(canvas, glassBackdrop, getWidth(), getHeight(), glassRadiusPx);
-        }
-        super.dispatchDraw(canvas);   // controls on top of the glass
     }
 
     /**

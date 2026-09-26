@@ -2011,29 +2011,7 @@ public class MessagePagingAdapter
      *  the current user's own uid for outgoing clips, so it can't be used to
      *  identify "who to reopen" from GlobalVoicePlaybackManager's mini player. */
     private String partnerUid;
-    private Bitmap directPeerAvatarBitmap;
     public void setPartnerUid(String partnerUid) { this.partnerUid = partnerUid; }
-
-    /**
-     * Shares the current chat-header avatar with visible 1:1 Canvas rows.
-     * This setter only passes the existing Bitmap through; it never starts
-     * a Glide or network request.
-     */
-    public void setDirectPeerAvatarBitmap(@Nullable Bitmap bitmap) {
-        if (directPeerAvatarBitmap == bitmap) return;
-        directPeerAvatarBitmap = bitmap;
-        RecyclerView rv = attachedRecyclerView;
-        if (rv == null) return;
-        for (int i = 0; i < rv.getChildCount(); i++) {
-            RecyclerView.ViewHolder raw = rv.getChildViewHolder(rv.getChildAt(i));
-            if (raw instanceof VH) {
-                VH holder = (VH) raw;
-                if (holder.canvasView != null) {
-                    holder.canvasView.setDirectPeerAvatarBitmap(bitmap);
-                }
-            }
-        }
-    }
 
     /**
      * Finds a Message in the currently loaded paging snapshot by id.
@@ -3152,11 +3130,6 @@ public class MessagePagingAdapter
         // and no holder gets created below — and pre-set it on every
         // received holder we DO create, so the first unresolved avatar of the
         // first scroll draws with no build/lookup cost. 1:1 chat skips this.
-        // Call-entry bubbles (audio/video) can appear in any chat, group or
-        // 1:1 — unlike the avatar placeholder above, not gated on isGroup.
-        // See prewarmCallEntryIcons() javadoc.
-        com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                .prewarmCallEntryIcons(parent.getContext());
         if (isGroup) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                     .prewarmGroupAvatarPlaceholder(parent.getContext());
@@ -5108,11 +5081,6 @@ public class MessagePagingAdapter
         final boolean isViewOnceExpiredState = isViewOnceMsg
                 && com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m);
         final boolean isViewOnceWaiting = isViewOnceMsg && !isViewOnceExpiredState && sent;
-        final boolean directReceivedText = !sent && !isGroup && !isDeleted
-                && !isViewOnceMsg && !isSeen && !isCallEntry
-                && !Boolean.TRUE.equals(m.broadcast) && "text".equals(type);
-        cv.setDirectReceivedTextAvatar(directReceivedText);
-        cv.setDirectPeerAvatarBitmap(directPeerAvatarBitmap);
 
         // ── Quick Forward Button — media/link messages pe dikhao ──────────
         // Mirrors the legacy btnQuickForward.setVisibility() rule (see
@@ -5273,6 +5241,7 @@ public class MessagePagingAdapter
             // + ll_call_entry_pill's gravity flip.
             boolean isVideoCall = "video".equals(m.fileName);
             boolean isMissed    = "missed".equals(m.text);
+            String icon = isVideoCall ? "\uD83D\uDCF9" : "\uD83D\uDCDE";
             String label;
             int labelColor;
             if (isMissed) {
@@ -5296,7 +5265,7 @@ public class MessagePagingAdapter
                 labelColor = 0xFFFFFFFF;
             }
             String callTime = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
-            cv.bindCallEntry(isVideoCall, label, labelColor, callTime, sent);
+            cv.bindCallEntry(icon, label, labelColor, callTime, sent);
             cv.setDeletedStyle(false);
         } else if (isMultiMedia) {
             final java.util.List<java.util.Map<String, Object>> items = m.mediaItems;

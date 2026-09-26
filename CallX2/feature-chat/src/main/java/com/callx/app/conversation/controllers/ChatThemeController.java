@@ -44,9 +44,6 @@ public class ChatThemeController {
                 binding.cvInputCapsule,
                 binding.fabBackToLatest,
                 root.findViewById(com.callx.app.chat.R.id.view_reply_accent));
-        // Glass header: replace the solid bar ChatThemeManager just painted
-        // with the soft scrim so the blurred glass buttons show live content.
-        com.callx.app.chat.ui.GlassHeaderLayout.applyScrim(binding.toolbar);
         binding.chatIconBar.setAccentColor(
                 com.callx.app.utils.FollowButtonStyler.primaryColor(delegate.getActivity()));
 

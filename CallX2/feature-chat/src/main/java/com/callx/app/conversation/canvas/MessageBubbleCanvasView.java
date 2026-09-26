@@ -20,7 +20,6 @@ import android.view.View;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import com.callx.app.chat.ui.IconTintCache;
 import com.callx.app.chat.util.MarkdownFormatter;
 import com.callx.app.utils.ChatThemeManager;
 
@@ -425,27 +424,6 @@ public class MessageBubbleCanvasView extends View {
     static final float GROUP_AVATAR_SIZE_DP = 20f;
     static final float GROUP_AVATAR_GAP_DP  = 6f; // gap between avatar and bubble start edge
     static final int   GROUP_AVATAR_PLACEHOLDER_COLOR = 0xFFBDBDBD;
-
-    // Canvas-only direct-chat received-text treatment from the supplied
-    // reference. The avatar bitmap comes from the already-loaded chat header;
-    // this view does not make an avatar request.
-    private static final int DIRECT_RECEIVED_FILL = 0xFFE7F1FF;
-    private static final int DIRECT_RECEIVED_OUTLINE = 0xFF1686F7;
-    private static final float DIRECT_RECEIVED_OUTLINE_DP = 2f;
-    private static final float DIRECT_RECEIVED_JOIN_HALF_DP = 4f;
-    private static final float DIRECT_RECEIVED_CORNER_DP = 24f;
-    private boolean hasDirectReceivedTextAvatar;
-    private Bitmap directPeerAvatarBitmap;
-    private final RectF directPeerAvatarRect = new RectF();
-    private final android.graphics.Path directReceivedBubblePath = new android.graphics.Path();
-    private final android.graphics.Path directPeerAvatarClipPath = new android.graphics.Path();
-    private final Rect directPeerAvatarSrc = new Rect();
-    private final RectF directPeerAvatarDst = new RectF();
-    private final Paint directReceivedFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint directReceivedOutlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint directPeerAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint directPeerAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint directPeerAvatarRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     // ── Reactor avatars on the reaction badge + poll-voters strip (v439). Both
     // use MiniAvatarStrip; sizes are their own so they can be tuned apart. ──
@@ -1604,6 +1582,7 @@ public class MessageBubbleCanvasView extends View {
     // per draw for every visible call-entry row). getFontMetrics(FontMetrics)
     // fills these in place instead, so none of the three call sites below
     // allocate anything anymore.
+    private final Paint.FontMetrics callEntryIconFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics callEntryLabelFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics callEntryDotFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics callEntryTimeFmScratch = new Paint.FontMetrics();
@@ -2577,27 +2556,13 @@ public class MessageBubbleCanvasView extends View {
     // ── Reel-seen / Status-seen "watched/seen" system bubbles ──
     boolean isSeenBubble = false;
     boolean isCallEntry = false;
-    // PERF/CONSISTENCY FIX: was a raw "📞"/"📹" emoji drawn with drawText().
-    // Emoji glyph shape/weight varies by OEM font, so the call-entry pill
-    // in chat never quite matched the ic_phone/ic_video_call vector icon
-    // shown on the Calls tab and the chat header. Now we draw the same
-    // vector drawable everyone else uses, rasterized once and cached
-    // process-wide via IconTintCache (same pattern as ChatIconBarView) —
-    // see callEntryIconBitmap below.
-    boolean callEntryIsVideo = false;
-    // OPT: guards the IconTintCache.get() call below — first bind is never
-    // a "skip" (callEntryIsVideo defaults to false, same as a real audio
-    // bind, so without this flag a fresh view's first audio-call bind would
-    // wrongly think "unchanged" and leave callEntryIconBitmap null).
-    boolean callEntryIconBound = false;
-    Bitmap callEntryIconBitmap;
-    int callEntryIconSizePx;
+    String callEntryIcon = "";
     String callEntryLabel = "";
     int callEntryLabelColor = 0xFFFFFFFF;
     String callEntryTime = "";
     final RectF callEntryPillRect = new RectF();
     final Paint callEntryBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final Paint callEntryIconBitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    final TextPaint callEntryIconPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint callEntryLabelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint callEntryDotPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint callEntryTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -2995,15 +2960,6 @@ public class MessageBubbleCanvasView extends View {
     public MessageBubbleCanvasView(Context ctx, @Nullable android.util.AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
-        directReceivedFillPaint.setColor(DIRECT_RECEIVED_FILL);
-        directReceivedOutlinePaint.setColor(DIRECT_RECEIVED_OUTLINE);
-        directReceivedOutlinePaint.setStyle(Paint.Style.STROKE);
-        directReceivedOutlinePaint.setStrokeWidth(DIRECT_RECEIVED_OUTLINE_DP * density);
-        directReceivedOutlinePaint.setStrokeJoin(Paint.Join.ROUND);
-        directPeerAvatarPlaceholderPaint.setColor(GROUP_AVATAR_PLACEHOLDER_COLOR);
-        directPeerAvatarRingPaint.setColor(DIRECT_RECEIVED_OUTLINE);
-        directPeerAvatarRingPaint.setStyle(Paint.Style.STROKE);
-        directPeerAvatarRingPaint.setStrokeWidth(DIRECT_RECEIVED_OUTLINE_DP * density);
         // PERF ADV: set once here instead of every drawTick() call — see
         // the tickPaint field comment above.
         tickPaint.setStyle(Paint.Style.STROKE);
@@ -3267,7 +3223,7 @@ public class MessageBubbleCanvasView extends View {
 
         // ── Call-entry pill paints ──
         callEntryBgPaint.setColor(SEEN_STATUS_BG_COLOR);
-        callEntryIconSizePx = Math.round(CALL_ENTRY_ICON_SP * density);
+        callEntryIconPaint.setTextSize(CALL_ENTRY_ICON_SP * density);
         callEntryLabelPaint.setTextSize(CALL_ENTRY_LABEL_SP * density);
         callEntryDotPaint.setColor(CALL_ENTRY_TIME_COLOR);
         callEntryDotPaint.setTextSize(CALL_ENTRY_DOT_SP * density);
@@ -4622,15 +4578,13 @@ public class MessageBubbleCanvasView extends View {
      * legacy bindCallEntryBubble() did — this method just measures/draws
      * whatever strings it's given.
      *
-     * @param isVideo     true = video-call icon (ic_video_call), false = audio-call icon (ic_phone) —
-     *                    same drawables used by the Calls tab and the chat header, so the icon
-     *                    always matches regardless of where it's shown
+     * @param icon        "📞" or "📹"
      * @param label       e.g. "Audio call • 2:30" / "Missed video call"
      * @param labelColor  0xFFFFFFFF normally, red for missed/no-answer
      * @param timeText    formatted "h:mm a" timestamp
      * @param iAmCaller   true = pill aligns to the right (I placed the call)
      */
-    public void bindCallEntry(boolean isVideo, @Nullable String label,
+    public void bindCallEntry(@Nullable String icon, @Nullable String label,
                                int labelColor, @Nullable String timeText, boolean iAmCaller) {
         this.isMedia = false;
         this.isMediaGroup = false;
@@ -4649,23 +4603,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGated = false;
         this.mediaDownloading = false;
         this.isCallEntry = true;
-        // OPT: skip the IconTintCache lookup (SparseArray hash + synchronized
-        // block) on rebind when this exact view already holds the right icon
-        // for this isVideo value — common on scroll, where the same
-        // ViewHolder/CanvasView gets rebound to another call-entry of the
-        // same type. Falls through to the real lookup on first bind, on a
-        // type flip (audio<->video), or if the bitmap was ever recycled.
-        boolean iconUnchanged = callEntryIconBound
-                && this.callEntryIsVideo == isVideo
-                && callEntryIconBitmap != null
-                && !callEntryIconBitmap.isRecycled();
-        this.callEntryIsVideo = isVideo;
-        if (!iconUnchanged) {
-            this.callEntryIconBitmap = IconTintCache.get(getContext(),
-                    isVideo ? com.callx.app.core.R.drawable.ic_video_call : com.callx.app.core.R.drawable.ic_phone,
-                    com.callx.app.core.R.color.white, callEntryIconSizePx);
-            this.callEntryIconBound = true;
-        }
+        this.callEntryIcon = icon != null ? icon : "";
         this.callEntryLabel = label != null ? label : "";
         this.callEntryLabelColor = labelColor;
         this.callEntryTime = timeText != null ? timeText : "";
@@ -5576,21 +5514,6 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
-    /** Enables the connected 20dp-avatar style for a received 1:1 text row. */
-    public void setDirectReceivedTextAvatar(boolean enabled) {
-        if (hasDirectReceivedTextAvatar == enabled) return;
-        hasDirectReceivedTextAvatar = enabled;
-        requestLayoutIfSizeChanged();
-        invalidate();
-    }
-
-    /** Draw-only avatar update from ChatActivity's existing header image. */
-    public void setDirectPeerAvatarBitmap(@Nullable Bitmap bitmap) {
-        if (directPeerAvatarBitmap == bitmap) return;
-        directPeerAvatarBitmap = bitmap;
-        invalidate();
-    }
-
     /**
      * Draw-only gate for the avatar circle (see groupSenderAvatarShown doc).
      * false = column stays reserved but nothing is drawn, and any held
@@ -6097,7 +6020,7 @@ public class MessageBubbleCanvasView extends View {
         // maxTextWidth below are sized to actually fit inside
         // parentWidth - avatarColW instead of overflowing off the row's
         // end once bubbleLeft is shifted right by this same amount.
-        int avatarColW = hasGroupSenderAvatar || hasDirectReceivedTextAvatar
+        int avatarColW = hasGroupSenderAvatar
                 ? Math.round((GROUP_AVATAR_SIZE_DP + GROUP_AVATAR_GAP_DP) * density) : 0;
         int maxBubbleWidth = Math.round(parentWidth * MAX_BUBBLE_WIDTH_FRACTION) - avatarColW;
         int hPad = Math.round(H_PADDING_DP * density);
@@ -6571,7 +6494,7 @@ public class MessageBubbleCanvasView extends View {
             float padH = CALL_ENTRY_PAD_H_DP * density;
             float padV = CALL_ENTRY_PAD_V_DP * density;
             float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
-            float iconW  = callEntryIconBitmap != null ? callEntryIconBitmap.getWidth() : callEntryIconSizePx;
+            float iconW  = callEntryIconPaint.measureText(callEntryIcon);
             float labelW = callEntryLabelPaint.measureText(callEntryLabel);
             float dotW   = callEntryDotPaint.measureText(CALL_ENTRY_DOT_TEXT);
             float timeW  = callEntryTimePaint.measureText(callEntryTime);
@@ -6581,14 +6504,15 @@ public class MessageBubbleCanvasView extends View {
             // draw time — onMeasure/onDraw never run concurrently on this
             // view, so sharing them here costs nothing and avoids adding
             // yet another set of fields for the identical paints.
+            callEntryIconPaint.getFontMetrics(callEntryIconFmScratch);
             callEntryLabelPaint.getFontMetrics(callEntryLabelFmScratch);
             callEntryDotPaint.getFontMetrics(callEntryDotFmScratch);
             callEntryTimePaint.getFontMetrics(callEntryTimeFmScratch);
+            Paint.FontMetrics cifm = callEntryIconFmScratch;
             Paint.FontMetrics clfm = callEntryLabelFmScratch;
             Paint.FontMetrics cdfm = callEntryDotFmScratch;
             Paint.FontMetrics ctfm = callEntryTimeFmScratch;
-            float iconH = callEntryIconBitmap != null ? callEntryIconBitmap.getHeight() : callEntryIconSizePx;
-            float rowH = Math.max(Math.max(iconH, clfm.descent - clfm.ascent),
+            float rowH = Math.max(Math.max(cifm.descent - cifm.ascent, clfm.descent - clfm.ascent),
                     Math.max(cdfm.descent - cdfm.ascent, ctfm.descent - ctfm.ascent));
 
             int pillWidth = Math.round(Math.max(CALL_ENTRY_MIN_WIDTH_DP * density, rowContentW + padH * 2));
@@ -7018,12 +6942,6 @@ public class MessageBubbleCanvasView extends View {
             float avatarSize = GROUP_AVATAR_SIZE_DP * density;
             groupSenderAvatarRect.set(edgeMargin, bubbleRect.bottom - avatarSize,
                     edgeMargin + avatarSize, bubbleRect.bottom);
-        }
-        if (hasDirectReceivedTextAvatar) {
-            float avatarSize = GROUP_AVATAR_SIZE_DP * density;
-            float avatarTop = bubbleRect.centerY() - avatarSize / 2f;
-            directPeerAvatarRect.set(edgeMargin, avatarTop,
-                    edgeMargin + avatarSize, avatarTop + avatarSize);
         }
 
         if (isCallEntry) {
@@ -7496,26 +7414,22 @@ public class MessageBubbleCanvasView extends View {
      *  into either a Picture-recording canvas or the real canvas. */
     private void drawBubbleContent(Canvas canvas) {
         if (!isContact && !isLocation && !isReelShare && !isViewOnce && !isSeenBubble && !isCallEntry) {
-            if (hasDirectReceivedTextAvatar) {
-                drawDirectReceivedTextBubble(canvas);
-            } else {
-                // Contact, location, and reel-share cards are bubbleless
-                // (matches WhatsApp/Instagram — the card itself is the full
-                // visual, an extra bubble frame just adds wasted padding, and
-                // for reel-share the bubbleDrawable's own corner/tail shape
-                // doesn't match the card's rounding, so it peeked out from
-                // behind the card's rounded corners — see the reel-share
-                // measure/position blocks above). View-once (own per-variant
-                // solid colour, self-painted), seen-notification, and
-                // call-entry stay bubbleless too — system-style pills/cards,
-                // not regular message content.
-                // File still draws the normal bubble behind it (that was a
-                // genuine missing-background bug fix, unrelated to this one).
-                bubbleDrawable.setBounds(
-                        (int) bubbleRect.left, (int) bubbleRect.top,
-                        (int) bubbleRect.right, (int) bubbleRect.bottom);
-                bubbleDrawable.draw(canvas);
-            }
+            // Contact, location, and reel-share cards are bubbleless
+            // (matches WhatsApp/Instagram — the card itself is the full
+            // visual, an extra bubble frame just adds wasted padding, and
+            // for reel-share the bubbleDrawable's own corner/tail shape
+            // doesn't match the card's rounding, so it peeked out from
+            // behind the card's rounded corners — see the reel-share
+            // measure/position blocks above). View-once (own per-variant
+            // solid colour, self-painted), seen-notification, and
+            // call-entry stay bubbleless too — system-style pills/cards,
+            // not regular message content.
+            // File still draws the normal bubble behind it (that was a
+            // genuine missing-background bug fix, unrelated to this one).
+            bubbleDrawable.setBounds(
+                    (int) bubbleRect.left, (int) bubbleRect.top,
+                    (int) bubbleRect.right, (int) bubbleRect.bottom);
+            bubbleDrawable.draw(canvas);
         }
 
         if (isPinned) {
@@ -7528,9 +7442,6 @@ public class MessageBubbleCanvasView extends View {
 
         if (hasGroupSenderAvatar && groupSenderAvatarShown) {
             drawGroupSenderAvatar(canvas);
-        }
-        if (hasDirectReceivedTextAvatar) {
-            drawDirectPeerAvatar(canvas);
         }
 
         if (hasForwarded) {
@@ -7823,72 +7734,6 @@ public class MessageBubbleCanvasView extends View {
         canvas.drawOval(groupSenderAvatarRect, groupSenderAvatarPaint);
     }
 
-    /**
-     * Paints the connected pale-blue bubble and outline from the supplied
-     * reference. The bridge is part of the same Canvas path as the rounded
-     * bubble, not a separately inflated/XML view.
-     */
-    private void drawDirectReceivedTextBubble(Canvas canvas) {
-        final float left = bubbleRect.left;
-        final float top = bubbleRect.top;
-        final float right = bubbleRect.right;
-        final float bottom = bubbleRect.bottom;
-        final float stroke = DIRECT_RECEIVED_OUTLINE_DP * density;
-        final float radius = Math.min(DIRECT_RECEIVED_CORNER_DP * density,
-                Math.max(12f * density, bubbleRect.height() * 0.38f));
-        final float joinHalf = DIRECT_RECEIVED_JOIN_HALF_DP * density;
-        final float joinX = directPeerAvatarRect.right;
-        final float joinY = directPeerAvatarRect.centerY();
-        final float joinTop = Math.max(top + radius, joinY - joinHalf);
-        final float joinBottom = Math.min(bottom - radius, joinY + joinHalf);
-
-        directReceivedBubblePath.reset();
-        directReceivedBubblePath.moveTo(left + radius, top);
-        directReceivedBubblePath.lineTo(right - radius, top);
-        directReceivedBubblePath.cubicTo(right - radius * 0.45f, top,
-                right, top + radius * 0.45f, right, top + radius);
-        directReceivedBubblePath.lineTo(right, bottom - radius);
-        directReceivedBubblePath.cubicTo(right, bottom - radius * 0.45f,
-                right - radius * 0.45f, bottom, right - radius, bottom);
-        directReceivedBubblePath.lineTo(left + radius, bottom);
-        directReceivedBubblePath.cubicTo(left + radius * 0.45f, bottom,
-                left, bottom - radius * 0.45f, left, bottom - radius);
-        directReceivedBubblePath.lineTo(left, joinBottom);
-        directReceivedBubblePath.cubicTo(left - stroke, joinY + joinHalf,
-                joinX + stroke * 0.9f, joinY + joinHalf, joinX, joinY);
-        directReceivedBubblePath.cubicTo(joinX + stroke * 0.9f, joinY - joinHalf,
-                left - stroke, joinY - joinHalf, left, joinTop);
-        directReceivedBubblePath.lineTo(left, top + radius);
-        directReceivedBubblePath.cubicTo(left, top + radius * 0.45f,
-                left + radius * 0.45f, top, left + radius, top);
-        directReceivedBubblePath.close();
-        canvas.drawPath(directReceivedBubblePath, directReceivedFillPaint);
-        canvas.drawPath(directReceivedBubblePath, directReceivedOutlinePaint);
-    }
-
-    /** Draws the same decoded peer bitmap already visible in the chat header. */
-    private void drawDirectPeerAvatar(Canvas canvas) {
-        final float cx = directPeerAvatarRect.centerX();
-        final float cy = directPeerAvatarRect.centerY();
-        final float radius = directPeerAvatarRect.width() / 2f
-                - DIRECT_RECEIVED_OUTLINE_DP * density / 2f;
-        Bitmap bmp = directPeerAvatarBitmap;
-        if (bmp != null && !bmp.isRecycled()) {
-            directPeerAvatarClipPath.reset();
-            directPeerAvatarClipPath.addCircle(
-                    cx, cy, radius, android.graphics.Path.Direction.CW);
-            canvas.save();
-            canvas.clipPath(directPeerAvatarClipPath);
-            directPeerAvatarSrc.set(0, 0, bmp.getWidth(), bmp.getHeight());
-            directPeerAvatarDst.set(directPeerAvatarRect);
-            canvas.drawBitmap(bmp, directPeerAvatarSrc, directPeerAvatarDst, directPeerAvatarPaint);
-            canvas.restore();
-        } else {
-            canvas.drawCircle(cx, cy, radius, directPeerAvatarPlaceholderPaint);
-        }
-        canvas.drawCircle(cx, cy, radius, directPeerAvatarRingPaint);
-    }
-
     private void drawForwardedLabel(Canvas canvas) {
         // Own row directly below row 1 (pinned/group-sender), left-aligned
         // to the bubble's own left edge — mirrors tv_forwarded's
@@ -7959,24 +7804,6 @@ public class MessageBubbleCanvasView extends View {
     public static void prewarmGroupAvatarPlaceholder(Context ctx) {
         getGroupAvatarPlaceholderBitmap(
                 groupAvatarPlaceholderPx(ctx.getResources().getDisplayMetrics().density));
-    }
-
-    /**
-     * Warm-up hook (see MessagePagingAdapter#warmUpRecycledViewPool): builds
-     * both call-entry icon bitmaps (ic_phone / ic_video_call, white tint —
-     * see bindCallEntry) NOW, on the pre-warm frame, via IconTintCache —
-     * same cache bindCallEntry() reads from, so this is a pure warm-up, not
-     * a parallel path. Unlike the group-avatar placeholder this isn't
-     * group-only: call-entry bubbles can appear in any 1:1 or group chat,
-     * so this runs unconditionally. Cheap (two small icons) and idempotent
-     * (IconTintCache itself no-ops on a cache hit).
-     */
-    public static void prewarmCallEntryIcons(Context ctx) {
-        int sizePx = Math.round(CALL_ENTRY_ICON_SP * ctx.getResources().getDisplayMetrics().density);
-        IconTintCache.get(ctx, com.callx.app.core.R.drawable.ic_phone,
-                com.callx.app.core.R.color.white, sizePx);
-        IconTintCache.get(ctx, com.callx.app.core.R.drawable.ic_video_call,
-                com.callx.app.core.R.color.white, sizePx);
     }
 
     /**
@@ -8104,7 +7931,6 @@ public class MessageBubbleCanvasView extends View {
         sb.append(sent ? '1' : '0').append(isPinned ? 'P' : '_');
         if (hasGroupSender) sb.append("|G").append(groupSenderName);
         if (hasGroupSenderAvatar) sb.append("|GA"); // avatar-column width affects bubbleLeft/maxTextWidth — see onMeasure
-        if (hasDirectReceivedTextAvatar) sb.append("|DA");
         if (hasForwarded) sb.append("|F").append(forwardedText);
         if (hasReply) {
             sb.append("|R").append(replySenderName).append('\u0001').append(replyText)
@@ -8159,7 +7985,7 @@ public class MessageBubbleCanvasView extends View {
         } else if (isSeenBubble) {
             sb.append("|S").append(seenHasThumb ? '1' : '0').append(seenHasName ? '1' : '0');
         } else if (isCallEntry) {
-            sb.append("|CE").append(callEntryIsVideo ? '1' : '0').append('\u0001')
+            sb.append("|CE").append(callEntryIcon).append('\u0001')
                     .append(callEntryLabel).append('\u0001').append(callEntryTime);
         } else if (isPoll) {
             sb.append("|PL").append(pollQuestion);
@@ -8283,31 +8109,25 @@ public class MessageBubbleCanvasView extends View {
         float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
         float left = callEntryPillRect.left + padH;
 
-        // PERF: getFontMetrics() with no args here would allocate a fresh
-        // FontMetrics object every single onDraw() for every visible
-        // call-entry row (fires per-frame during a fling whenever a
-        // call-log bubble is on screen). Scratch instances below are
-        // filled in place instead (zero-alloc), same pattern as
-        // drawFooter()'s footerFmScratch. The icon itself is no longer
-        // drawn as text — it's a pre-rasterized, process-wide cached
-        // Bitmap (see IconTintCache / callEntryIconBitmap), so there's no
-        // FontMetrics/measureText cost for it at all anymore.
+        // PERF: 4x getFontMetrics() with no args here = 4 fresh allocations
+        // every single onDraw() for every visible call-entry row (worst of
+        // the 3 leftover sites — this one fires per-frame during a fling
+        // whenever a call-log bubble is on screen). Scratch instances below
+        // are filled in place instead (zero-alloc), same pattern as
+        // drawFooter()'s footerFmScratch.
+        callEntryIconPaint.getFontMetrics(callEntryIconFmScratch);
         callEntryLabelPaint.getFontMetrics(callEntryLabelFmScratch);
         callEntryDotPaint.getFontMetrics(callEntryDotFmScratch);
         callEntryTimePaint.getFontMetrics(callEntryTimeFmScratch);
+        Paint.FontMetrics cifm = callEntryIconFmScratch;
         Paint.FontMetrics clfm = callEntryLabelFmScratch;
         Paint.FontMetrics cdfm = callEntryDotFmScratch;
         Paint.FontMetrics ctfm = callEntryTimeFmScratch;
         float rowCenterY = callEntryPillRect.centerY();
 
         float x = left;
-        if (callEntryIconBitmap != null) {
-            float iconTop = rowCenterY - callEntryIconBitmap.getHeight() / 2f;
-            canvas.drawBitmap(callEntryIconBitmap, x, iconTop, callEntryIconBitmapPaint);
-            x += callEntryIconBitmap.getWidth() + gap;
-        } else {
-            x += callEntryIconSizePx + gap;
-        }
+        canvas.drawText(callEntryIcon, x, rowCenterY - (cifm.ascent + cifm.descent) / 2f, callEntryIconPaint);
+        x += callEntryIconPaint.measureText(callEntryIcon) + gap;
         canvas.drawText(callEntryLabel, x, rowCenterY - (clfm.ascent + clfm.descent) / 2f, callEntryLabelPaint);
         x += callEntryLabelPaint.measureText(callEntryLabel);
         canvas.drawText(CALL_ENTRY_DOT_TEXT, x, rowCenterY - (cdfm.ascent + cdfm.descent) / 2f, callEntryDotPaint);

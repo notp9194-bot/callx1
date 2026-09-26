@@ -394,8 +394,6 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Re-resolve IconTintCache's night flag from this Activity before any view inflates.
-        com.callx.app.chat.ui.IconTintCache.invalidateNightMode();
 
         // PERF FIX (disk-persisted link preview cache): see ChatActivity's
         // onCreate for the same call — no-ops after the first call per
@@ -886,7 +884,6 @@ public class GroupChatActivity extends AppCompatActivity
         int newNightMode = newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         if (newNightMode == lastUiNightMode) return;
         lastUiNightMode = newNightMode;
-        com.callx.app.chat.ui.IconTintCache.invalidateNightMode();
         boolean isNight = newNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
 
         applyScreenTheme();
@@ -6158,9 +6155,6 @@ public class GroupChatActivity extends AppCompatActivity
                 inputRow,
                 binding.fabBackToLatest,
                 replyAccent);
-
-        // Glass header: swap the solid bar for the soft scrim (see GlassHeaderLayout).
-        com.callx.app.chat.ui.GlassHeaderLayout.applyScrim(binding.toolbar);
 
         // Icon-bar merge: mic/send are now painted inside the single
         // ChatIconBarView, so the accent is applied via setAccentColor()

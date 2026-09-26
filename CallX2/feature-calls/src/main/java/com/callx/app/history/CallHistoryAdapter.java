@@ -232,18 +232,13 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         });
 
         if (h.btnCallBack != null) {
-            // FIX: right-side quick-call icon/action now matches this log entry's
-            // own call type (video log -> video icon + video call-back) instead of
-            // always showing the voice/phone icon regardless of mediaType.
-            h.btnCallBack.setImageResource(isVideo ? R.drawable.ic_video_call : R.drawable.ic_phone);
-            h.btnCallBack.setContentDescription(isVideo ? "Video call" : "Voice call");
             h.btnCallBack.setOnClickListener(v -> {
                 if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
                 Intent i = new Intent(ctx, CallActivity.class);
                 i.putExtra("partnerUid", l.partnerUid);
                 i.putExtra("partnerName", l.partnerName);
                 i.putExtra("isCaller", true);
-                i.putExtra("video", isVideo);
+                i.putExtra("video", false);
                 ctx.startActivity(i);
             });
         }

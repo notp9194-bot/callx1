@@ -51,6 +51,39 @@
         android:resizeableActivity="true"
         android:enableOnBackInvokedCallback="true">
 
+        <!-- PERF FIX (cold start): androidx-startup's default
+             WorkManagerInitializer runs as a ContentProvider#onCreate(),
+             which the OS calls on the MAIN THREAD before CallxApp#onCreate()
+             ever runs — before any of the "moved WorkManager work to a
+             background thread" fixes in CallxApp get a chance to matter.
+             That default initializer calls WorkManager.initialize() itself,
+             synchronously, which opens WorkManager's own Room database
+             (androidx.work.impl.WorkDatabase) on the main thread at process
+             attach time — the exact SQLite-open cost CallxApp's comments
+             already identify as expensive, just paid earlier than anyone
+             backgrounding code in onCreate() could prevent.
+             Removing this meta-data disables ONLY the automatic early
+             init; WorkManager still works exactly the same everywhere else
+             because CallxApp now implements Configuration.Provider (see
+             CallxApp#getWorkManagerConfiguration()) — WorkManager 2.6+'s
+             on-demand initialization then builds the same WorkDatabase
+             lazily, on whichever thread makes the first real
+             WorkManager.getInstance(context) call. Every such call in this
+             app already happens on a background thread (see CallxApp's
+             "app-init-bg" thread) or well after first paint (a user
+             action), so the DB-open cost now lands off the cold-start
+             critical path instead of in front of it. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <!-- FASTEST-OPEN FIX: AuthActivity is NO LONGER the launcher.
              It used to be — meaning EVERY cold start (including the ~99%
              where the user is already logged in) paid the cost of: OS

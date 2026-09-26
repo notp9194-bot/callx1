@@ -34,8 +34,19 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+import androidx.work.Configuration;
 
-public class CallxApp extends Application {
+// PERF FIX (cold start): implementing Configuration.Provider is what lets
+// WorkManager 2.6+ initialize itself ON DEMAND — on whichever thread first
+// calls WorkManager.getInstance(context) — instead of via the default
+// androidx-startup ContentProvider, which runs synchronously on the MAIN
+// THREAD before this class's own onCreate() ever executes (see the
+// matching <provider tools:node="remove"> block in AndroidManifest.xml for
+// the full explanation). Every WorkManager.getInstance()-triggering call in
+// this app already happens off the cold-start critical path (the
+// "app-init-bg" thread below, or a later user action), so this interface
+// is the only piece needed to actually move that cost there too.
+public class CallxApp extends Application implements Configuration.Provider {
 
     private static final String TAG = "CallxApp";
     private static int    sActivityRefs = 0;
@@ -502,6 +513,25 @@ public class CallxApp extends Application {
 
             Log.d(TAG, "Background init complete");
         }, "app-init-bg").start();
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // PERF FIX (cold start): required by Configuration.Provider — this is
+    // what WorkManager 2.6+'s on-demand initialization calls, lazily, on
+    // whichever thread first calls WorkManager.getInstance(context). With
+    // the default androidx-startup WorkManagerInitializer removed (see
+    // AndroidManifest.xml's <provider tools:node="remove"> block), this
+    // method is now the ONLY place WorkManager's Configuration gets built —
+    // and it no longer runs synchronously on the main thread at process
+    // attach, before this class's own onCreate() even starts.
+    // Same DEBUG-only verbosity CallxApp already uses elsewhere (StrictMode
+    // above) — release builds stay quiet, debug builds get WorkManager's
+    // own Logcat output for its schedule()/enqueue() calls above.
+    @Override
+    public Configuration getWorkManagerConfiguration() {
+        return new Configuration.Builder()
+                .setMinimumLoggingLevel(BuildConfig.DEBUG ? Log.DEBUG : Log.ERROR)
+                .build();
     }
 
     // ──────────────────────────────────────────────────────────────
