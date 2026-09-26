@@ -220,6 +220,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Paging 3 ──────────────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
+    private android.view.ViewTreeObserver.OnPreDrawListener partnerAvatarCanvasSyncListener;
     private AdaptiveChatScrollPolicy messageScrollPolicy;
     private int lastAdaptivePrefetchCount = -1;
     private int lastAdaptiveCacheSize = -1;
@@ -753,9 +754,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // avatar is typically an instant memory hit.
                     com.callx.app.cache.ChatAvatarBinder.bind(ChatActivity.this,
                             binding.ivPartnerAvatar, url, 0L, R.drawable.ic_person);
-                    // Bubble avatar (setPartnerAvatarUrl) reuses this exact
-                    // url too — pushes it to any already-bound received rows.
-                    if (pagingAdapter != null) pagingAdapter.setPartnerAvatarUrl(url);
+                    syncPartnerAvatarToMessageCanvas();
                 }
             }
             updateHeaderStoryRing();
@@ -1629,6 +1628,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     protected void onDestroy() {
         chatUiEventBatcher.cancel();
+        removePartnerAvatarCanvasSyncListener();
         super.onDestroy();
         flushDraftSave();
         // PERF ADV: this chat's Canvas ViewHolders may still be parked in
@@ -2689,6 +2689,60 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
     }
 
+    /**
+     * Shares the already-decoded toolbar avatar with the 1:1 Canvas message
+     * rows. Watching the header ImageView's pre-draw handles the async Glide
+     * completion path without issuing a second avatar load.
+     */
+    private void syncPartnerAvatarToMessageCanvas() {
+        if (binding == null || pagingAdapter == null) return;
+        android.graphics.Bitmap bitmap = partnerHeaderBitmap();
+        if (bitmap != null && !bitmap.isRecycled()) {
+            pagingAdapter.setDirectPeerAvatarBitmap(bitmap);
+            removePartnerAvatarCanvasSyncListener();
+            return;
+        }
+        String avatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
+                ? partnerThumb : partnerPhoto;
+        if (avatarUrl == null || avatarUrl.isEmpty()) return;
+        if (partnerAvatarCanvasSyncListener != null) return;
+
+        final ImageView avatarView = binding.ivPartnerAvatar;
+        partnerAvatarCanvasSyncListener = () -> {
+            android.graphics.Bitmap loaded = partnerHeaderBitmap();
+            if (loaded != null && !loaded.isRecycled()) {
+                if (pagingAdapter != null) pagingAdapter.setDirectPeerAvatarBitmap(loaded);
+                removePartnerAvatarCanvasSyncListener();
+            } else if (isFinishing() || isDestroyed()) {
+                removePartnerAvatarCanvasSyncListener();
+            }
+            return true;
+        };
+        android.view.ViewTreeObserver observer = avatarView.getViewTreeObserver();
+        if (observer.isAlive()) {
+            observer.addOnPreDrawListener(partnerAvatarCanvasSyncListener);
+        }
+    }
+
+    @Nullable
+    private android.graphics.Bitmap partnerHeaderBitmap() {
+        if (binding == null || binding.ivPartnerAvatar == null) return null;
+        android.graphics.drawable.Drawable drawable = binding.ivPartnerAvatar.getDrawable();
+        if (drawable instanceof android.graphics.drawable.BitmapDrawable) {
+            return ((android.graphics.drawable.BitmapDrawable) drawable).getBitmap();
+        }
+        return null;
+    }
+
+    private void removePartnerAvatarCanvasSyncListener() {
+        android.view.ViewTreeObserver.OnPreDrawListener listener = partnerAvatarCanvasSyncListener;
+        if (listener == null) return;
+        partnerAvatarCanvasSyncListener = null;
+        if (binding == null || binding.ivPartnerAvatar == null) return;
+        android.view.ViewTreeObserver observer = binding.ivPartnerAvatar.getViewTreeObserver();
+        if (observer.isAlive()) observer.removeOnPreDrawListener(listener);
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // PROFILE CARD — Instagram-style card (avatar, name, Reels/X/YouTube
     // stats, Subscribe, opt-in "View Community") below the header capsule.
@@ -2727,11 +2781,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
         pagingAdapter.setChatId(chatId);
         pagingAdapter.setPartnerUid(partnerUid);
-        // Seed the bubble-avatar reuse with whatever header avatar url is
-        // already known (intent extras, read in readIntentExtras() before
-        // this runs) — see setPartnerAvatarUrl() doc.
-        pagingAdapter.setPartnerAvatarUrl(
-                (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto);
+        syncPartnerAvatarToMessageCanvas();
 
         // Feature 13: View Once — wire adapter listener to controller + viewer launch
         // (Moved here from early onCreate block — pagingAdapter must exist first.)
@@ -2792,12 +2842,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onPin(Message m)                 { getPinController().pinMessage(m); }
             @Override public void onPollVote(Message m, int idx)   { getPollController().castVote(m, idx); }
             @Override public void onPollToggleClose(Message m)    { getPollController().toggleClosed(m); }
-            // 1:1's bubble avatar is the same partner shown in the toolbar
-            // (see setPartnerAvatarUrl) — tapping it mirrors the header
-            // avatar's tap target instead of doing nothing (interface
-            // default is a no-op, which is what GroupChatActivity leaves
-            // it as since a group member's own profile isn't wired here).
-            @Override public void onGroupSenderAvatarClick(Message m) { openAvatarZoom(); }
             @Override public void onPlaybackStateChanged(Message m, boolean playing) {
                 if (playbackPresenceController != null && m != null) {
                     String mid = m.messageId != null ? m.messageId : m.id;

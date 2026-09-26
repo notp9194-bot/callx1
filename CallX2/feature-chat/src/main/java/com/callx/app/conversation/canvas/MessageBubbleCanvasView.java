@@ -412,22 +412,40 @@ public class MessageBubbleCanvasView extends View {
     static final float GROUP_BADGE_PAD_V_DP  = 1.5f;
     static final int   GROUP_BADGE_BG_ALPHA  = 0x2E; // pill fill = name color @ ~18%
 
-    // ── Received-bubble sender avatar (WhatsApp-style) — a small circular
-    // avatar bottom-aligned to the bubble's start edge, mirrors iv_sender_avatar
-    // in item_message_received.xml (dead in that legacy layout since it was
-    // never bound) and reuses the exact draw-a-Bitmap-into-an-oval-via-cached-
-    // BitmapShader technique SeenBubbleRenderer already uses for the reel/
-    // status-seen avatar, just at a smaller size and positioned relative to
-    // bubbleRect instead of seenCardRect. Shifts bubbleLeft/maxTextWidth right
-    // by AVATAR_SIZE+AVATAR_GAP so the bubble itself never overlaps the avatar
-    // column — same reservation the legacy XML's ll_bubble-constraintStart_
-    // toEndOf-iv_sender_avatar gave it. Despite the "Group" naming (kept for
-    // history), this column is purely draw-only plumbing: MessagePagingAdapter
-    // also drives it for 1:1 received bubbles, resolving the bitmap from the
-    // partner avatar (partnerAvatarUrl) instead of a per-member photo. ──
+    // ── Group-chat sender avatar (WhatsApp-style, received-only) — a small
+    // circular avatar bottom-aligned to the bubble's start edge, mirrors
+    // iv_sender_avatar in item_message_received.xml (dead in that legacy
+    // layout since it was never bound) and reuses the exact draw-a-Bitmap-
+    // into-an-oval-via-cached-BitmapShader technique SeenBubbleRenderer
+    // already uses for the reel/status-seen avatar, just at a smaller size
+    // and positioned relative to bubbleRect instead of seenCardRect. Shifts
+    // bubbleLeft/maxTextWidth right by AVATAR_SIZE+AVATAR_GAP so the bubble
+    // itself never overlaps the avatar column — same reservation the legacy
+    // XML's ll_bubble-constraintStart_toEndOf-iv_sender_avatar gave it. ──
     static final float GROUP_AVATAR_SIZE_DP = 20f;
     static final float GROUP_AVATAR_GAP_DP  = 6f; // gap between avatar and bubble start edge
     static final int   GROUP_AVATAR_PLACEHOLDER_COLOR = 0xFFBDBDBD;
+
+    // Canvas-only direct-chat received-text treatment from the supplied
+    // reference. The avatar bitmap comes from the already-loaded chat header;
+    // this view does not make an avatar request.
+    private static final int DIRECT_RECEIVED_FILL = 0xFFE7F1FF;
+    private static final int DIRECT_RECEIVED_OUTLINE = 0xFF1686F7;
+    private static final float DIRECT_RECEIVED_OUTLINE_DP = 2f;
+    private static final float DIRECT_RECEIVED_JOIN_HALF_DP = 4f;
+    private static final float DIRECT_RECEIVED_CORNER_DP = 24f;
+    private boolean hasDirectReceivedTextAvatar;
+    private Bitmap directPeerAvatarBitmap;
+    private final RectF directPeerAvatarRect = new RectF();
+    private final android.graphics.Path directReceivedBubblePath = new android.graphics.Path();
+    private final android.graphics.Path directPeerAvatarClipPath = new android.graphics.Path();
+    private final Rect directPeerAvatarSrc = new Rect();
+    private final RectF directPeerAvatarDst = new RectF();
+    private final Paint directReceivedFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint directReceivedOutlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint directPeerAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint directPeerAvatarPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint directPeerAvatarRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     // ── Reactor avatars on the reaction badge + poll-voters strip (v439). Both
     // use MiniAvatarStrip; sizes are their own so they can be tuned apart. ──
@@ -2977,6 +2995,15 @@ public class MessageBubbleCanvasView extends View {
     public MessageBubbleCanvasView(Context ctx, @Nullable android.util.AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
+        directReceivedFillPaint.setColor(DIRECT_RECEIVED_FILL);
+        directReceivedOutlinePaint.setColor(DIRECT_RECEIVED_OUTLINE);
+        directReceivedOutlinePaint.setStyle(Paint.Style.STROKE);
+        directReceivedOutlinePaint.setStrokeWidth(DIRECT_RECEIVED_OUTLINE_DP * density);
+        directReceivedOutlinePaint.setStrokeJoin(Paint.Join.ROUND);
+        directPeerAvatarPlaceholderPaint.setColor(GROUP_AVATAR_PLACEHOLDER_COLOR);
+        directPeerAvatarRingPaint.setColor(DIRECT_RECEIVED_OUTLINE);
+        directPeerAvatarRingPaint.setStyle(Paint.Style.STROKE);
+        directPeerAvatarRingPaint.setStrokeWidth(DIRECT_RECEIVED_OUTLINE_DP * density);
         // PERF ADV: set once here instead of every drawTick() call — see
         // the tickPaint field comment above.
         tickPaint.setStyle(Paint.Style.STROKE);
@@ -5549,6 +5576,21 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
+    /** Enables the connected 20dp-avatar style for a received 1:1 text row. */
+    public void setDirectReceivedTextAvatar(boolean enabled) {
+        if (hasDirectReceivedTextAvatar == enabled) return;
+        hasDirectReceivedTextAvatar = enabled;
+        requestLayoutIfSizeChanged();
+        invalidate();
+    }
+
+    /** Draw-only avatar update from ChatActivity's existing header image. */
+    public void setDirectPeerAvatarBitmap(@Nullable Bitmap bitmap) {
+        if (directPeerAvatarBitmap == bitmap) return;
+        directPeerAvatarBitmap = bitmap;
+        invalidate();
+    }
+
     /**
      * Draw-only gate for the avatar circle (see groupSenderAvatarShown doc).
      * false = column stays reserved but nothing is drawn, and any held
@@ -6055,7 +6097,7 @@ public class MessageBubbleCanvasView extends View {
         // maxTextWidth below are sized to actually fit inside
         // parentWidth - avatarColW instead of overflowing off the row's
         // end once bubbleLeft is shifted right by this same amount.
-        int avatarColW = hasGroupSenderAvatar
+        int avatarColW = hasGroupSenderAvatar || hasDirectReceivedTextAvatar
                 ? Math.round((GROUP_AVATAR_SIZE_DP + GROUP_AVATAR_GAP_DP) * density) : 0;
         int maxBubbleWidth = Math.round(parentWidth * MAX_BUBBLE_WIDTH_FRACTION) - avatarColW;
         int hPad = Math.round(H_PADDING_DP * density);
@@ -6977,6 +7019,12 @@ public class MessageBubbleCanvasView extends View {
             groupSenderAvatarRect.set(edgeMargin, bubbleRect.bottom - avatarSize,
                     edgeMargin + avatarSize, bubbleRect.bottom);
         }
+        if (hasDirectReceivedTextAvatar) {
+            float avatarSize = GROUP_AVATAR_SIZE_DP * density;
+            float avatarTop = bubbleRect.centerY() - avatarSize / 2f;
+            directPeerAvatarRect.set(edgeMargin, avatarTop,
+                    edgeMargin + avatarSize, avatarTop + avatarSize);
+        }
 
         if (isCallEntry) {
             callEntryPillRect.set(bubbleRect);
@@ -7448,22 +7496,26 @@ public class MessageBubbleCanvasView extends View {
      *  into either a Picture-recording canvas or the real canvas. */
     private void drawBubbleContent(Canvas canvas) {
         if (!isContact && !isLocation && !isReelShare && !isViewOnce && !isSeenBubble && !isCallEntry) {
-            // Contact, location, and reel-share cards are bubbleless
-            // (matches WhatsApp/Instagram — the card itself is the full
-            // visual, an extra bubble frame just adds wasted padding, and
-            // for reel-share the bubbleDrawable's own corner/tail shape
-            // doesn't match the card's rounding, so it peeked out from
-            // behind the card's rounded corners — see the reel-share
-            // measure/position blocks above). View-once (own per-variant
-            // solid colour, self-painted), seen-notification, and
-            // call-entry stay bubbleless too — system-style pills/cards,
-            // not regular message content.
-            // File still draws the normal bubble behind it (that was a
-            // genuine missing-background bug fix, unrelated to this one).
-            bubbleDrawable.setBounds(
-                    (int) bubbleRect.left, (int) bubbleRect.top,
-                    (int) bubbleRect.right, (int) bubbleRect.bottom);
-            bubbleDrawable.draw(canvas);
+            if (hasDirectReceivedTextAvatar) {
+                drawDirectReceivedTextBubble(canvas);
+            } else {
+                // Contact, location, and reel-share cards are bubbleless
+                // (matches WhatsApp/Instagram — the card itself is the full
+                // visual, an extra bubble frame just adds wasted padding, and
+                // for reel-share the bubbleDrawable's own corner/tail shape
+                // doesn't match the card's rounding, so it peeked out from
+                // behind the card's rounded corners — see the reel-share
+                // measure/position blocks above). View-once (own per-variant
+                // solid colour, self-painted), seen-notification, and
+                // call-entry stay bubbleless too — system-style pills/cards,
+                // not regular message content.
+                // File still draws the normal bubble behind it (that was a
+                // genuine missing-background bug fix, unrelated to this one).
+                bubbleDrawable.setBounds(
+                        (int) bubbleRect.left, (int) bubbleRect.top,
+                        (int) bubbleRect.right, (int) bubbleRect.bottom);
+                bubbleDrawable.draw(canvas);
+            }
         }
 
         if (isPinned) {
@@ -7476,6 +7528,9 @@ public class MessageBubbleCanvasView extends View {
 
         if (hasGroupSenderAvatar && groupSenderAvatarShown) {
             drawGroupSenderAvatar(canvas);
+        }
+        if (hasDirectReceivedTextAvatar) {
+            drawDirectPeerAvatar(canvas);
         }
 
         if (hasForwarded) {
@@ -7768,6 +7823,72 @@ public class MessageBubbleCanvasView extends View {
         canvas.drawOval(groupSenderAvatarRect, groupSenderAvatarPaint);
     }
 
+    /**
+     * Paints the connected pale-blue bubble and outline from the supplied
+     * reference. The bridge is part of the same Canvas path as the rounded
+     * bubble, not a separately inflated/XML view.
+     */
+    private void drawDirectReceivedTextBubble(Canvas canvas) {
+        final float left = bubbleRect.left;
+        final float top = bubbleRect.top;
+        final float right = bubbleRect.right;
+        final float bottom = bubbleRect.bottom;
+        final float stroke = DIRECT_RECEIVED_OUTLINE_DP * density;
+        final float radius = Math.min(DIRECT_RECEIVED_CORNER_DP * density,
+                Math.max(12f * density, bubbleRect.height() * 0.38f));
+        final float joinHalf = DIRECT_RECEIVED_JOIN_HALF_DP * density;
+        final float joinX = directPeerAvatarRect.right;
+        final float joinY = directPeerAvatarRect.centerY();
+        final float joinTop = Math.max(top + radius, joinY - joinHalf);
+        final float joinBottom = Math.min(bottom - radius, joinY + joinHalf);
+
+        directReceivedBubblePath.reset();
+        directReceivedBubblePath.moveTo(left + radius, top);
+        directReceivedBubblePath.lineTo(right - radius, top);
+        directReceivedBubblePath.cubicTo(right - radius * 0.45f, top,
+                right, top + radius * 0.45f, right, top + radius);
+        directReceivedBubblePath.lineTo(right, bottom - radius);
+        directReceivedBubblePath.cubicTo(right, bottom - radius * 0.45f,
+                right - radius * 0.45f, bottom, right - radius, bottom);
+        directReceivedBubblePath.lineTo(left + radius, bottom);
+        directReceivedBubblePath.cubicTo(left + radius * 0.45f, bottom,
+                left, bottom - radius * 0.45f, left, bottom - radius);
+        directReceivedBubblePath.lineTo(left, joinBottom);
+        directReceivedBubblePath.cubicTo(left - stroke, joinY + joinHalf,
+                joinX + stroke * 0.9f, joinY + joinHalf, joinX, joinY);
+        directReceivedBubblePath.cubicTo(joinX + stroke * 0.9f, joinY - joinHalf,
+                left - stroke, joinY - joinHalf, left, joinTop);
+        directReceivedBubblePath.lineTo(left, top + radius);
+        directReceivedBubblePath.cubicTo(left, top + radius * 0.45f,
+                left + radius * 0.45f, top, left + radius, top);
+        directReceivedBubblePath.close();
+        canvas.drawPath(directReceivedBubblePath, directReceivedFillPaint);
+        canvas.drawPath(directReceivedBubblePath, directReceivedOutlinePaint);
+    }
+
+    /** Draws the same decoded peer bitmap already visible in the chat header. */
+    private void drawDirectPeerAvatar(Canvas canvas) {
+        final float cx = directPeerAvatarRect.centerX();
+        final float cy = directPeerAvatarRect.centerY();
+        final float radius = directPeerAvatarRect.width() / 2f
+                - DIRECT_RECEIVED_OUTLINE_DP * density / 2f;
+        Bitmap bmp = directPeerAvatarBitmap;
+        if (bmp != null && !bmp.isRecycled()) {
+            directPeerAvatarClipPath.reset();
+            directPeerAvatarClipPath.addCircle(
+                    cx, cy, radius, android.graphics.Path.Direction.CW);
+            canvas.save();
+            canvas.clipPath(directPeerAvatarClipPath);
+            directPeerAvatarSrc.set(0, 0, bmp.getWidth(), bmp.getHeight());
+            directPeerAvatarDst.set(directPeerAvatarRect);
+            canvas.drawBitmap(bmp, directPeerAvatarSrc, directPeerAvatarDst, directPeerAvatarPaint);
+            canvas.restore();
+        } else {
+            canvas.drawCircle(cx, cy, radius, directPeerAvatarPlaceholderPaint);
+        }
+        canvas.drawCircle(cx, cy, radius, directPeerAvatarRingPaint);
+    }
+
     private void drawForwardedLabel(Canvas canvas) {
         // Own row directly below row 1 (pinned/group-sender), left-aligned
         // to the bubble's own left edge — mirrors tv_forwarded's
@@ -7983,6 +8104,7 @@ public class MessageBubbleCanvasView extends View {
         sb.append(sent ? '1' : '0').append(isPinned ? 'P' : '_');
         if (hasGroupSender) sb.append("|G").append(groupSenderName);
         if (hasGroupSenderAvatar) sb.append("|GA"); // avatar-column width affects bubbleLeft/maxTextWidth — see onMeasure
+        if (hasDirectReceivedTextAvatar) sb.append("|DA");
         if (hasForwarded) sb.append("|F").append(forwardedText);
         if (hasReply) {
             sb.append("|R").append(replySenderName).append('\u0001').append(replyText)
