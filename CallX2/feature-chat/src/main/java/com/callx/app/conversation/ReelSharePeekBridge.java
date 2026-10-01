@@ -40,24 +40,45 @@ public final class ReelSharePeekBridge {
             "com.callx.app.profile.ReelPeekPreviewController";
 
     // ── Chat-only size/position tweak ────────────────────────────────────
-    // The shared popup_reel_peek.xml default card (331x475dp, used as-is by
-    // UserReelsActivity's grid and SoundDetailFragment) is NOT used as the
-    // base here anymore. For the chat screen's long-press peek (triggered
-    // by holding a reel-share bubble — see MessageBubbleCanvasView's
-    // onLongPress/onReelPeekPreview) the mini player is sized to exactly match the
-    // reel-share card itself — same width/height, same 9:16 aspect — by
-    // reusing MessageBubbleCanvasView's own card-size constants directly,
-    // instead of independently scaling the shared popup default. This
-    // guarantees the two stay pixel-identical even if the card size ever
-    // changes again. The popup is, instead of the shared centered position,
-    // anchored directly above the reel-share bubble via the controller's
-    // anchorAboveSource flag. Both are passed through the 7-arg show()
-    // overload below; every other screen keeps calling (or falling back to)
-    // the plain 4-arg show(), so this only ever affects the chat screen.
-    private static final float CARD_WIDTH_DP  =
-            com.callx.app.conversation.canvas.MessageBubbleCanvasView.REEL_CARD_WIDTH_DP;
-    private static final float CARD_HEIGHT_DP =
-            com.callx.app.conversation.canvas.MessageBubbleCanvasView.REEL_CARD_HEIGHT_DP;
+    // UX FIX: this used to reuse MessageBubbleCanvasView.REEL_CARD_WIDTH_DP
+    // (165dp) directly, so the "preview" was pixel-identical to the static
+    // inline bubble — too small to actually watch, it just looked like the
+    // same bubble again. Now sized as a fraction of the CURRENT screen
+    // (not a fixed dp), same 9:16 aspect, capped so it never dominates a
+    // small device: width = 50% of screen width, height capped at 60% of
+    // screen height (if 50%-width-at-9:16 would exceed that, shrink to fit
+    // the height cap instead, keeping the aspect ratio). See
+    // computeCardSizePx() below. The popup is, instead of the shared
+    // centered position, anchored directly above the reel-share bubble via
+    // the controller's anchorAboveSource flag. Both are passed through the
+    // 7-arg show() overload below; every other screen keeps calling (or
+    // falling back to) the plain 4-arg show(), so this only ever affects
+    // the chat screen.
+    private static final float WIDTH_FRACTION_OF_SCREEN  = 0.50f;
+    private static final float MAX_HEIGHT_FRACTION_OF_SCREEN = 0.60f;
+    // 9:16 — same aspect as the static reel-share bubble card.
+    private static final float ASPECT_W = 9f;
+    private static final float ASPECT_H = 16f;
+
+    /**
+     * Returns {widthPx, heightPx} for the peek player, sized relative to
+     * the current screen rather than a fixed dp value (see doc above).
+     */
+    private static int[] computeCardSizePx(Context context) {
+        android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        int screenWidthPx  = dm.widthPixels;
+        int screenHeightPx = dm.heightPixels;
+
+        int widthPx  = Math.round(screenWidthPx * WIDTH_FRACTION_OF_SCREEN);
+        int heightPx = Math.round(widthPx * (ASPECT_H / ASPECT_W));
+
+        int maxHeightPx = Math.round(screenHeightPx * MAX_HEIGHT_FRACTION_OF_SCREEN);
+        if (heightPx > maxHeightPx) {
+            heightPx = maxHeightPx;
+            widthPx  = Math.round(heightPx * (ASPECT_W / ASPECT_H));
+        }
+        return new int[]{widthPx, heightPx};
+    }
 
     private static final Map<Activity, Object> CONTROLLERS =
             Collections.synchronizedMap(new WeakHashMap<>());
@@ -131,9 +152,9 @@ public final class ReelSharePeekBridge {
             // present (e.g. an older feature-reels build on the classpath),
             // so the peek still works either way.
             try {
-                float density = sourceView.getContext().getResources().getDisplayMetrics().density;
-                int cardWidthPx  = Math.round(CARD_WIDTH_DP  * density);
-                int videoHeightPx = Math.round(CARD_HEIGHT_DP * density);
+                int[] sizePx = computeCardSizePx(sourceView.getContext());
+                int cardWidthPx   = sizePx[0];
+                int videoHeightPx = sizePx[1];
 
                 Method show7 = controllerType.getMethod(
                         "show", ReelModel.class, List.class, callbackType, View.class,

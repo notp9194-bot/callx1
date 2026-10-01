@@ -638,6 +638,50 @@ public class MessagePagingAdapter
         };
     }
 
+    /**
+     * BUG FIX — "Cannot create BitmapShader for recycled bitmap" crash in
+     * MediaRenderer.draw(). Every *_BITMAP_CACHE.put() call site below used
+     * to store the exact Bitmap object Glide's CustomTarget.onResourceReady()
+     * hands back. That Bitmap isn't ours to keep: it's checked out from
+     * Glide's internal BitmapPool for that one request/target only. The
+     * moment the ViewHolder that requested it gets rebound during a fling
+     * (a new Glide.load().into(sameTarget) fires constantly while
+     * scrolling), Glide is free to reclaim that exact pixel buffer and hand
+     * it to a completely unrelated decode on a background thread — while
+     * our own long-lived, static *_BITMAP_CACHE still holds a strong
+     * reference to the same object and can hand it back as a "pool hit" to
+     * some OTHER bubble many frames later, long after the bind that
+     * originally decoded it is gone. A poolHit can pass the
+     * !bitmap.isRecycled() check at bind time and still get recycled by
+     * Glide a few frames later, mid-scroll, before that bubble's next
+     * onDraw() — exactly the race in the crash log (MediaRenderer.java:166,
+     * building a BitmapShader from a bitmap Glide had already reclaimed).
+     * Storing an independent COPY — one Glide has never seen and will never
+     * touch — makes every cache entry immune to Glide's own pool lifecycle.
+     * The bitmap handed to setMediaBitmap()/cv.set*Bitmap() for the CURRENT
+     * bind still uses Glide's original object, which is safe: a view's
+     * bitmap reference is always fully replaced on its next bind, so a view
+     * never keeps drawing a bitmap after Glide reclaims it — only the
+     * static cache could, which is exactly what this fixes.
+     */
+    private static android.graphics.Bitmap safeCacheCopy(android.graphics.Bitmap src) {
+        if (src == null || src.isRecycled()) return null;
+        try {
+            android.graphics.Bitmap.Config cfg = src.getConfig() != null
+                    ? src.getConfig() : android.graphics.Bitmap.Config.ARGB_8888;
+            return src.copy(cfg, false);
+        } catch (Throwable t) {
+            return null; // OOM/unsupported config on this device — just skip caching this one
+        }
+    }
+
+    /** Copy-then-put wrapper for every media LruCache — see safeCacheCopy() doc above. */
+    private static void putBitmapSafely(android.util.LruCache<String, android.graphics.Bitmap> cache,
+                                         String key, android.graphics.Bitmap resource) {
+        android.graphics.Bitmap copy = safeCacheCopy(resource);
+        if (copy != null && key != null) cache.put(key, copy);
+    }
+
     // Main image/video/reel media surfaces, including local-file and
     // full-media thumbnail decodes.
     private static final android.util.LruCache<String, android.graphics.Bitmap> MEDIA_BITMAP_CACHE =
@@ -2737,7 +2781,7 @@ public class MessagePagingAdapter
         linkPreviewL3(ctx).getAsync(poolKey, bitmap -> {
             if (h.canvasBindToken != fireToken) return; // recycled/rebound while disk read was in flight
             if (bitmap != null && !bitmap.isRecycled()) {
-                LINK_PREVIEW_BITMAP_CACHE.put(poolKey, bitmap);
+                putBitmapSafely(LINK_PREVIEW_BITMAP_CACHE, poolKey, bitmap);
                 if (previewUrl.equals(cv.getTag())) cv.setLinkPreviewThumbBitmap(bitmap);
                 return;
             }
@@ -3786,7 +3830,7 @@ public class MessagePagingAdapter
                         .into(h.prepareBitmapTarget(glide(ctx), TARGET_STATUS_SEEN,
                                 new BitmapReadyCallback() {
                             @Override public void onReady(@NonNull Bitmap resource) {
-                                SEEN_THUMB_BITMAP_CACHE.put(poolKey(thumb, seenThumbPxW, seenThumbPxH), resource);
+                                putBitmapSafely(SEEN_THUMB_BITMAP_CACHE, poolKey(thumb, seenThumbPxW, seenThumbPxH), resource);
                                 dashboardRecordDecoded(ctx, thumb, resource);
                                 if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                                 ivThumb.setImageBitmap(resource);
@@ -3929,7 +3973,7 @@ public class MessagePagingAdapter
                         .into(h.prepareBitmapTarget(glide(ctx), TARGET_REEL_SEEN,
                                 new BitmapReadyCallback() {
                             @Override public void onReady(@NonNull Bitmap resource) {
-                                SEEN_THUMB_BITMAP_CACHE.put(poolKey(thumb, seenThumbPxW, seenThumbPxH), resource);
+                                putBitmapSafely(SEEN_THUMB_BITMAP_CACHE, poolKey(thumb, seenThumbPxW, seenThumbPxH), resource);
                                 if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                                 ivThumb.setImageBitmap(resource);
                             }
@@ -4622,7 +4666,7 @@ public class MessagePagingAdapter
                                         }
                                         // PERF #1: pool the decoded bitmap
                                         if (fullUrl != null && !fullUrl.isEmpty())
-                                            MEDIA_BITMAP_CACHE.put(fullUrl, resource);
+                                            putBitmapSafely(MEDIA_BITMAP_CACHE, fullUrl, resource);
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaBitmap(resource);
                                     }
@@ -5220,7 +5264,7 @@ public class MessagePagingAdapter
                             .into(h.prepareBitmapTarget(glide(ctx), TARGET_CANVAS_SEEN,
                                     new BitmapReadyCallback() {
                                 @Override public void onReady(@NonNull Bitmap resource) {
-                                    SEEN_THUMB_BITMAP_CACHE.put(poolKey(thumbUrl, seenThumbPxW, seenThumbPxH), resource);
+                                    putBitmapSafely(SEEN_THUMB_BITMAP_CACHE, poolKey(thumbUrl, seenThumbPxW, seenThumbPxH), resource);
                                     dashboardRecordDecoded(ctx, thumbUrl, resource);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setSeenThumbBitmap(resource);
@@ -5380,7 +5424,7 @@ public class MessagePagingAdapter
                                 .into(h.prepareBitmapTarget(glide(ctx), TARGET_MEDIA_GRID_BASE + cellIndex,
                                         new BitmapReadyCallback() {
                                     @Override public void onReady(@NonNull Bitmap resource) {
-                                        MEDIA_GRID_BITMAP_CACHE.put(cellPoolKey, resource);
+                                        putBitmapSafely(MEDIA_GRID_BITMAP_CACHE, cellPoolKey, resource);
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaGroupBitmap(cellIndex, resource);
                                     }
@@ -5401,7 +5445,7 @@ public class MessagePagingAdapter
                                 .into(h.prepareBitmapTarget(glide(ctx), TARGET_MEDIA_GRID_BASE + cellIndex,
                                         new BitmapReadyCallback() {
                                     @Override public void onReady(@NonNull Bitmap resource) {
-                                        MEDIA_GRID_BITMAP_CACHE.put(poolKey(finalLoadUrl, gcPx[0], gcPx[1]), resource);
+                                        putBitmapSafely(MEDIA_GRID_BITMAP_CACHE, poolKey(finalLoadUrl, gcPx[0], gcPx[1]), resource);
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaGroupBitmap(cellIndex, resource);
                                     }
@@ -5698,7 +5742,7 @@ public class MessagePagingAdapter
                                             .into(h.prepareBitmapTarget(glide(ctx), TARGET_AUTO_IMAGE,
                                                     new BitmapReadyCallback() {
                                         @Override public void onReady(@NonNull android.graphics.Bitmap resource) {
-                                            MEDIA_BITMAP_CACHE.put(capturedUrl, resource);
+                                            putBitmapSafely(MEDIA_BITMAP_CACHE, capturedUrl, resource);
                                             if (h.canvasBindToken != myToken) return;
                                             cv.setMediaBitmap(resource);
                                         }
@@ -5846,7 +5890,7 @@ public class MessagePagingAdapter
                         .into(h.prepareBitmapTarget(glide(ctx), TARGET_REEL_THUMB,
                                 new BitmapReadyCallback() {
                             @Override public void onReady(@NonNull Bitmap resource) {
-                                MEDIA_BITMAP_CACHE.put(poolKey(finalThumbUrl, cardPx[0], cardPx[1]), resource);
+                                putBitmapSafely(MEDIA_BITMAP_CACHE, poolKey(finalThumbUrl, cardPx[0], cardPx[1]), resource);
                                 dashboardRecordDecoded(ctx, finalThumbUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setReelShareThumbBitmap(resource);
@@ -6015,7 +6059,7 @@ public class MessagePagingAdapter
                                                 com.callx.app.conversation.canvas.MessageBubbleCanvasView
                                                         .cacheAspectRatio(vThumbUrlF, (float) resource.getWidth() / resource.getHeight());
                                             }
-                                            MEDIA_BITMAP_CACHE.put(vThumbUrlF, resource);
+                                            putBitmapSafely(MEDIA_BITMAP_CACHE, vThumbUrlF, resource);
                                             if (h.canvasBindToken != myToken) return;
                                             cv.setMediaBitmap(resource);
                                         }
@@ -6046,7 +6090,7 @@ public class MessagePagingAdapter
                                             .cacheAspectRatio(vThumbUrl, (float) resource.getWidth() / resource.getHeight());
                                 }
                                 // PERF #1: store in pool for scroll-back reuse
-                                MEDIA_BITMAP_CACHE.put(vPoolKey, resource);
+                                putBitmapSafely(MEDIA_BITMAP_CACHE, vPoolKey, resource);
                                 dashboardRecordDecoded(ctx, vPoolKey, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaBitmap(resource);
@@ -6169,7 +6213,7 @@ public class MessagePagingAdapter
                             @Override public void onReady(@NonNull Bitmap resource) {
                                 // PERF: store for scroll-back reuse regardless
                                 // of whether this holder still shows this bubble
-                                LOCATION_BITMAP_CACHE.put(thumbUrl, resource);
+                                putBitmapSafely(LOCATION_BITMAP_CACHE, thumbUrl, resource);
                                 dashboardRecordDecoded(ctx, thumbUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setLocationMapBitmap(resource);
@@ -6251,7 +6295,7 @@ public class MessagePagingAdapter
                             .into(h.prepareBitmapTarget(glide(ctx), TARGET_CANVAS_PRIMARY,
                                     new BitmapReadyCallback() {
                                 @Override public void onReady(@NonNull android.graphics.Bitmap resource) {
-                                    GIF_BITMAP_CACHE.put(gifPoolKey, resource);
+                                    putBitmapSafely(GIF_BITMAP_CACHE, gifPoolKey, resource);
                                     dashboardRecordDecoded(ctx, gifPoolKey, resource);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setGifBitmap(resource);
@@ -6316,7 +6360,7 @@ public class MessagePagingAdapter
                             .into(h.prepareBitmapTarget(glide(ctx), TARGET_CANVAS_PRIMARY,
                                     new BitmapReadyCallback() {
                                 @Override public void onReady(@NonNull android.graphics.Bitmap resource) {
-                                    STICKER_BITMAP_CACHE.put(stickerPoolKey, resource);
+                                    putBitmapSafely(STICKER_BITMAP_CACHE, stickerPoolKey, resource);
                                     dashboardRecordDecoded(ctx, stickerPoolKey, resource);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setStickerBitmap(resource);
@@ -6565,7 +6609,7 @@ public class MessagePagingAdapter
                             .into(h.prepareBitmapTarget(glide(ctx), TARGET_REPLY,
                                     new BitmapReadyCallback() {
                                 @Override public void onReady(@NonNull Bitmap resource) {
-                                    REPLY_THUMB_BITMAP_CACHE.put(poolKey(replyThumbUrl, 88, 88), resource);
+                                    putBitmapSafely(REPLY_THUMB_BITMAP_CACHE, poolKey(replyThumbUrl, 88, 88), resource);
                                     if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
                                     cv.setReply(m.replyToSenderName, m.replyToText, resource);
                                 }
@@ -7059,7 +7103,7 @@ public class MessagePagingAdapter
                                         public boolean onResourceReady(Bitmap resource, Object model,
                                                 com.bumptech.glide.request.target.Target<Bitmap> target,
                                                 com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                                            MEDIA_BITMAP_CACHE.put(localPoolKey, resource);
+                                            putBitmapSafely(MEDIA_BITMAP_CACHE, localPoolKey, resource);
                                             return false;
                                         }
                                     })
@@ -7134,7 +7178,7 @@ public class MessagePagingAdapter
                                     public boolean onResourceReady(Bitmap resource, Object model,
                                             com.bumptech.glide.request.target.Target<Bitmap> target,
                                             com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                                        MEDIA_BITMAP_CACHE.put(imgPoolKey, resource);
+                                        putBitmapSafely(MEDIA_BITMAP_CACHE, imgPoolKey, resource);
                                         return false; // let Glide still deliver it to h.ivImage
                                     }
                                 })
@@ -7193,7 +7237,7 @@ public class MessagePagingAdapter
                                     public boolean onResourceReady(Bitmap resource, Object model,
                                             com.bumptech.glide.request.target.Target<Bitmap> target,
                                             com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                                        MEDIA_BITMAP_CACHE.put(derivedPoolKey, resource);
+                                        putBitmapSafely(MEDIA_BITMAP_CACHE, derivedPoolKey, resource);
                                         return false;
                                     }
                                 })
@@ -10661,7 +10705,7 @@ public class MessagePagingAdapter
                                     .cacheAspectRatio(imageBindAspectCacheKey, (float) resource.getWidth() / resource.getHeight());
                         }
                         if (imageBindPoolKey != null && !imageBindPoolKey.isEmpty()) {
-                            MEDIA_BITMAP_CACHE.put(imageBindPoolKey, resource);
+                            putBitmapSafely(MEDIA_BITMAP_CACHE, imageBindPoolKey, resource);
                             dashboardRecordDecoded(canvasView.getContext(), imageBindPoolKey, resource);
                         }
                         if (canvasBindToken != imageBindFireToken) return; // holder recycled/rebound since this load started
@@ -10695,7 +10739,7 @@ public class MessagePagingAdapter
                     public void onResourceReady(@NonNull android.graphics.Bitmap resource,
                             @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
                         if (linkPreviewPoolKey != null) {
-                            LINK_PREVIEW_BITMAP_CACHE.put(linkPreviewPoolKey, resource);
+                            putBitmapSafely(LINK_PREVIEW_BITMAP_CACHE, linkPreviewPoolKey, resource);
                             if (canvasView != null) {
                                 linkPreviewL3(canvasView.getContext()).put(linkPreviewPoolKey, resource);
                             }

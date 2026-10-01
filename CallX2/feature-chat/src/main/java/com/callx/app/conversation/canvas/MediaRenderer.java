@@ -126,6 +126,20 @@ final class MediaRenderer {
      */
     void draw(Canvas canvas, int hPad, int vPad, boolean spinnerHandledSeparately) {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
+        // BUG FIX: defense-in-depth alongside MessagePagingAdapter's
+        // safeCacheCopy()/putBitmapSafely() — this is the last line of
+        // defense right at the point BitmapShader construction previously
+        // crashed with "Cannot create BitmapShader for recycled bitmap".
+        // Treat a recycled bitmap exactly like no bitmap at all: skip
+        // drawing it (the placeholder/blank bubble background still shows)
+        // instead of crashing the whole draw pass. Also drop the stale
+        // shader cache so a later, valid bitmap for this same view isn't
+        // compared against a recycled one by reference.
+        if (host.mediaBitmap != null && host.mediaBitmap.isRecycled()) {
+            cachedShader = null;
+            cachedShaderBitmap = null;
+            host.mediaBitmap = null;
+        }
         if (host.mediaBitmap != null) {
             // Rounded-corner centerCrop: scale a BitmapShader so the source
             // bitmap fills mediaRect exactly (matching ImageView's
