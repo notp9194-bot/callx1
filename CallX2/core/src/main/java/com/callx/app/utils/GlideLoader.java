@@ -36,10 +36,11 @@ public final class GlideLoader {
             Glide.with(ctx).load(url)
                 .placeholder(placeholderRes)
                 .error(errorRes)
-                .override(720, 720)
+                .override(1080, 1080)   // matches the 1080px avatar upload size
+                .transform(new SquareCenterCrop())   // old non-square avatars → same center square as the circleCrop avatar
                 // PERF: force full disk-cache (source + result) instead of
                 // relying on Glide's AUTOMATIC default. Same URL always
-                // requested at the same 720x720 size here, so this
+                // requested at the same 1080x1080 size here, so this
                 // guarantees a second avatar-zoom open of the same person
                 // is served straight from disk (or memory) with zero
                 // network round-trip.
@@ -68,7 +69,8 @@ public final class GlideLoader {
             Glide.with(ctx).load(url)
                 .placeholder(placeholderDrawable)
                 .error(errorRes)
-                .override(720, 720)
+                .override(1080, 1080)   // matches the 1080px avatar upload size
+                .transform(new SquareCenterCrop())   // old non-square avatars → same center square as the circleCrop avatar
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .into(target);
         } else if (placeholderDrawable != null) {

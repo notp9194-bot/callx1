@@ -290,6 +290,11 @@ public class MainActivity extends AppCompatActivity
             return;
         }
 
+        // Align FirebaseAuth's photo with the app avatar (Google photo is not auto-used).
+        // Delayed + async so it stays off the cold-start critical path.
+        new android.os.Handler(android.os.Looper.getMainLooper())
+                .postDelayed(com.callx.app.utils.AuthPhotoSync::sync, 3000);
+
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         cacheHeaderViews();

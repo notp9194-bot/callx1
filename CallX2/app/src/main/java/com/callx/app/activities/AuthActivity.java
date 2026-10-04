@@ -48,6 +48,7 @@ public class AuthActivity extends AppCompatActivity {
     private Uri pickedAvatarUri = null;
     private ActivityResultLauncher<String> avatarPicker;
     private ActivityResultLauncher<Intent> googleSignInLauncher;
+    private ActivityResultLauncher<Intent> avatarCropLauncher;
     private BiometricLoginManager bioLoginManager;
 
     // ── Rate Limiting ──────────────────────────────────────────────────────
@@ -154,14 +155,22 @@ public class AuthActivity extends AppCompatActivity {
                 }
             });
 
+        // Pick → square crop (only the framed square is uploaded) → preview; upload happens on signup
+        avatarCropLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    String u = result.getData().getStringExtra("media_crop_result_uri");
+                    if (u != null) {
+                        pickedAvatarUri = Uri.parse(u);
+                        Glide.with(this).load(pickedAvatarUri)
+                        .override(720, 720).into(binding.ivAvatarPreview);
+                        binding.tvAvatarHint.setText("Photo selected");
+                    }
+                }
+            });
         avatarPicker = registerForActivityResult(
             new ActivityResultContracts.GetContent(), uri -> {
-                if (uri != null) {
-                    pickedAvatarUri = uri;
-                    Glide.with(this).load(uri)
-                    .override(720, 720).into(binding.ivAvatarPreview);
-                    binding.tvAvatarHint.setText("Photo selected");
-                }
+                if (uri != null) launchAvatarCrop(uri);
             });
 
         binding.tilName.setVisibility(View.GONE);
@@ -475,7 +484,8 @@ public class AuthActivity extends AppCompatActivity {
     private void saveGoogleProfile(FirebaseUser user) {
         String name     = user.getDisplayName() != null ? user.getDisplayName() : "CallX User";
         String email    = user.getEmail()       != null ? user.getEmail()       : "";
-        String photoUrl = user.getPhotoUrl()    != null ? user.getPhotoUrl().toString() : null;
+        // Google photo is NOT auto-saved (Instagram/WhatsApp style): user starts with the
+        // default avatar and adds a photo themselves on the profile-setup screen.
         Map<String, Object> data = new HashMap<>();
         data.put("uid",       user.getUid());
         data.put("email",     email);
@@ -486,11 +496,11 @@ public class AuthActivity extends AppCompatActivity {
         data.put("loginType", "google");
         data.put("about",     "Hey, I'm on CallX!");
         data.put("lastSeen",  System.currentTimeMillis());
-        if (photoUrl != null) data.put("photoUrl", photoUrl);
         FirebaseDatabase.getInstance(Constants.DB_URL)
             .getReference("users").child(user.getUid()).setValue(data)
             .addOnSuccessListener(x -> {
                 saveFcmToken();
+                com.callx.app.utils.AuthPhotoSync.sync();   // no app avatar yet → clears Google photo from Auth
                 Intent i = new Intent(this, ProfileSetupActivity.class);
                 i.putExtra("isNewUser", true);
                 startActivity(i);
@@ -746,6 +756,7 @@ public class AuthActivity extends AppCompatActivity {
                     "Account ready! Verification email bheja gaya. Inbox check karo.",
                     Toast.LENGTH_LONG).show();
                 saveFcmToken();
+                com.callx.app.utils.AuthPhotoSync.sync();
                 // After signup — go to main but show verify banner
                 goToMain();
             })
@@ -753,6 +764,15 @@ public class AuthActivity extends AppCompatActivity {
     }
 
     // ── Utilities ──────────────────────────────────────────────────────────
+    private void launchAvatarCrop(Uri src) {
+        Intent ci = new Intent();
+        ci.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
+        ci.putExtra("media_crop_uri", src.toString());
+        ci.putExtra("media_crop_square_locked", true);
+        ci.putExtra("media_crop_max_output_px", 1080);
+        avatarCropLauncher.launch(ci);
+    }
+
     private void showError(String msg) {
         if (msg == null || msg.isEmpty()) { binding.tvError.setVisibility(View.GONE); return; }
         binding.tvError.setVisibility(View.VISIBLE);

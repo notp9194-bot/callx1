@@ -1,5 +1,7 @@
 package com.callx.app.activities;
 import android.app.Dialog;
+import android.app.Activity;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
@@ -46,6 +48,7 @@ public class ProfileActivity extends AppCompatActivity {
     // which old CDN variants to purge server-side. See that method's doc.
     private String currentThumbUrl = "";
     private ActivityResultLauncher<String> imagePicker;
+    private ActivityResultLauncher<Intent> cropLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,9 +64,17 @@ public class ProfileActivity extends AppCompatActivity {
 
         if (isOwnProfile) {
             // Own profile — edit mode
+            // Pick → square crop (only the framed square is uploaded) → upload
+            cropLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), result -> {
+                    if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                        String u = result.getData().getStringExtra("media_crop_result_uri");
+                        if (u != null) uploadAvatar(Uri.parse(u));
+                    }
+                });
             imagePicker = registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
-                uri -> { if (uri != null) uploadAvatar(uri); });
+                uri -> { if (uri != null) launchAvatarCrop(uri); });
             binding.btnChangeAvatar.setOnClickListener(v -> imagePicker.launch("image/*"));
             binding.btnSave.setOnClickListener(v -> save());
             setupCommunityEntryPoint();
@@ -252,6 +263,15 @@ public class ProfileActivity extends AppCompatActivity {
         }).start();
     }
 
+    private void launchAvatarCrop(Uri src) {
+        Intent ci = new Intent();
+        ci.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
+        ci.putExtra("media_crop_uri", src.toString());
+        ci.putExtra("media_crop_square_locked", true);
+        ci.putExtra("media_crop_max_output_px", 1080);
+        cropLauncher.launch(ci);
+    }
+
     private void uploadAvatar(Uri uri) {
         binding.avatarProgress.setVisibility(View.VISIBLE);
         // Captured BEFORE the new upload overwrites currentPhoto/
@@ -311,6 +331,7 @@ public class ProfileActivity extends AppCompatActivity {
                     currentPhoto = photoUrl;
                     FirebaseUtils.getUserRef(currentUid)
                         .child("photoUrl").setValue(photoUrl);
+                    com.callx.app.utils.AuthPhotoSync.set(photoUrl);   // keep Auth photo = app avatar
                     mirrorAvatarToOtherProfileStores(currentUid, "photoUrl", photoUrl);
                     // Room cache update
                     Executors.newSingleThreadExecutor().execute(() -> {

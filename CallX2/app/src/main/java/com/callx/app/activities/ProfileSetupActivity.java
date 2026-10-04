@@ -28,7 +28,15 @@ public class ProfileSetupActivity extends AppCompatActivity {
     private ActivityProfileSetupBinding binding;
     private Uri pickedAvatarUri = null;
     private ActivityResultLauncher<String> avatarPicker;
+    private ActivityResultLauncher<Intent> cropLauncher;
     private boolean forceMigration = false;
+
+    // Avatar source choice. Default = UNCHANGED (default avatar; nothing is auto-set from Google).
+    // Google-login users can still opt in to their Google photo via the picker dialog.
+    private static final int CHOICE_UNCHANGED = 0, CHOICE_GALLERY = 1, CHOICE_NONE = 2;
+    private int     avatarChoice = CHOICE_UNCHANGED;
+    private String  googlePhotoUrl = null;
+    private boolean googlePhotoLoading = false;
 
     private final android.os.Handler usernameCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingUsernameCheck;
@@ -50,22 +58,36 @@ public class ProfileSetupActivity extends AppCompatActivity {
         if (user != null && user.getDisplayName() != null && !user.getDisplayName().isEmpty()) {
             binding.etName.setText(user.getDisplayName());
         }
+        // Remembered only for the optional "Google photo" choice — NOT shown/saved by default.
         if (user != null && user.getPhotoUrl() != null) {
-            Glide.with(this).load(user.getPhotoUrl()).circleCrop()
-                    .override(240, 240)
-                .into(binding.ivAvatarPreview);
+            googlePhotoUrl = user.getPhotoUrl().toString();
+        }
+        if (isNewUser && !forceMigration) {
+            binding.tvSetupSubtitle.setText("Photo add karo (optional) — dusre log aapko is se dhundh sakte hain");
         }
 
-        avatarPicker = registerForActivityResult(
-            new ActivityResultContracts.GetContent(), uri -> {
-                if (uri != null) {
-                    pickedAvatarUri = uri;
-                    Glide.with(this).load(uri).circleCrop()
-                    .override(240, 240).into(binding.ivAvatarPreview);
+        // Pick → square crop → preview + upload on Save (only the framed square is uploaded)
+        cropLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == android.app.Activity.RESULT_OK && result.getData() != null) {
+                    String u = result.getData().getStringExtra("media_crop_result_uri");
+                    if (u != null) {
+                        pickedAvatarUri = Uri.parse(u);
+                        avatarChoice = CHOICE_GALLERY;   // cropped square (from gallery OR Google photo)
+                        Glide.with(this).load(pickedAvatarUri).circleCrop()
+                            .override(240, 240).into(binding.ivAvatarPreview);
+                    }
                 }
             });
+        avatarPicker = registerForActivityResult(
+            new ActivityResultContracts.GetContent(), uri -> {
+                if (uri != null) launchAvatarCrop(uri);
+            });
 
-        binding.flAvatarPicker.setOnClickListener(v -> avatarPicker.launch("image/*"));
+        binding.flAvatarPicker.setOnClickListener(v -> {
+            if (googlePhotoUrl == null) avatarPicker.launch("image/*");   // email signup: gallery directly
+            else showAvatarChoiceDialog();                                // Google login: let user choose
+        });
 
         binding.etUsername.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -197,6 +219,11 @@ public class ProfileSetupActivity extends AppCompatActivity {
 
         showLoading("Saving...");
 
+        saveWithAvatar(user, name, username, mobile, about);
+    }
+
+    private void saveWithAvatar(FirebaseUser user, String name, String username,
+                                String mobile, String about) {
         if (pickedAvatarUri != null) {
             CloudinaryUploader.uploadAvatar(this, pickedAvatarUri,
                 new CloudinaryUploader.AvatarUploadCallback() {
@@ -208,9 +235,11 @@ public class ProfileSetupActivity extends AppCompatActivity {
                         saveToFirebase(user, name, username, mobile, about, null);
                     }
                 });
+        } else if (!forceMigration && avatarChoice == CHOICE_NONE) {
+            saveToFirebase(user, name, username, mobile, about, "");   // "" = clear photoUrl (default avatar)
         } else {
-            String existingPhoto = user.getPhotoUrl() != null ? user.getPhotoUrl().toString() : null;
-            saveToFirebase(user, name, username, mobile, about, existingPhoto);
+            // Untouched: leave users/{uid}/photoUrl as it is (no Google photo auto-copy)
+            saveToFirebase(user, name, username, mobile, about, null);
         }
     }
 
@@ -257,12 +286,13 @@ public class ProfileSetupActivity extends AppCompatActivity {
             updates.put("callxId", mobile);
         }
         updates.put("about", about.isEmpty() ? "Hey, I'm on CallX!" : about);
-        if (photoUrl != null) updates.put("photoUrl", photoUrl);
+        if (photoUrl != null) updates.put("photoUrl", photoUrl.isEmpty() ? null : photoUrl);   // null value removes the key
 
         FirebaseDatabase.getInstance(Constants.DB_URL)
             .getReference("users").child(user.getUid())
             .updateChildren(updates)
             .addOnSuccessListener(x -> {
+                com.callx.app.utils.AuthPhotoSync.sync();   // Auth photo = app avatar (clears Google photo if none chosen)
                 Toast.makeText(this, "Profile save ho gaya!", Toast.LENGTH_SHORT).show();
                 goToMain();
             })
@@ -273,6 +303,90 @@ public class ProfileSetupActivity extends AppCompatActivity {
         binding.tvError.setVisibility(View.VISIBLE);
         binding.tvError.setTextColor(getResources().getColor(com.callx.app.R.color.action_danger));
         binding.tvError.setText(msg);
+    }
+
+    private void showAvatarChoiceDialog() {
+        String[] items = { "Google photo use karo", "Gallery se choose karo", "Default avatar" };
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Profile photo")
+            .setItems(items, (d, which) -> {
+                if (which == 0) pickGooglePhoto();
+                else if (which == 1) avatarPicker.launch("image/*");
+                else useDefaultAvatar();
+            })
+            .show();
+    }
+
+    private void useDefaultAvatar() {
+        pickedAvatarUri = null;
+        avatarChoice = CHOICE_NONE;
+        binding.ivAvatarPreview.setImageResource(com.callx.app.R.drawable.ic_person);
+    }
+
+    /** Downloads the (upscaled) Google photo, then opens the same square crop screen. */
+    private void pickGooglePhoto() {
+        if (googlePhotoLoading || googlePhotoUrl == null) return;
+        googlePhotoLoading = true;
+        Toast.makeText(this, "Google photo load ho rahi hai…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            java.io.File f = downloadGooglePhoto();
+            runOnUiThread(() -> {
+                googlePhotoLoading = false;
+                if (isFinishing() || isDestroyed()) return;
+                if (f == null) {
+                    Toast.makeText(this, "Google photo load nahi ho payi, gallery try karo", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                launchAvatarCrop(Uri.fromFile(f));
+            });
+        }).start();
+    }
+
+    /** Google gives a tiny (~96px) URL by default; ask for 1024px instead. */
+    private static String upscaleGooglePhotoUrl(String u) {
+        String r = u.replaceAll("=s\\d+(-c)?(?=$|[?&#])", "=s1024-c");
+        r = r.replaceAll("/s\\d+(-c)?/", "/s1024-c/");
+        return r;
+    }
+
+    /** Blocking — call off the main thread. Returns null on any failure. */
+    private java.io.File downloadGooglePhoto() {
+        if (googlePhotoUrl == null) return null;
+        String big = upscaleGooglePhotoUrl(googlePhotoUrl);
+        String[] candidates = big.equals(googlePhotoUrl)
+                ? new String[] { googlePhotoUrl } : new String[] { big, googlePhotoUrl };
+        for (String url : candidates) {
+            java.net.HttpURLConnection c = null;
+            try {
+                c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(15000);
+                if (c.getResponseCode() != 200) continue;
+                java.io.File dir = new java.io.File(getCacheDir(), "media_crop");
+                if (!dir.exists()) dir.mkdirs();
+                java.io.File out = new java.io.File(dir, "google_" + System.currentTimeMillis() + ".jpg");
+                try (java.io.InputStream in = c.getInputStream();
+                     java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                }
+                if (out.length() > 0) return out;
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }
+        return null;
+    }
+
+    private void launchAvatarCrop(Uri src) {
+        Intent ci = new Intent();
+        ci.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
+        ci.putExtra("media_crop_uri", src.toString());
+        ci.putExtra("media_crop_square_locked", true);
+        ci.putExtra("media_crop_max_output_px", 1080);
+        cropLauncher.launch(ci);
     }
 
     private void showLoading(String msg) {

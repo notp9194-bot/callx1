@@ -524,7 +524,7 @@ public class CloudinaryUploader {
 
                 // ── Step 2: Full photo ────────────────────────────────────
                 byte[] fullBytes = MediaCompressor.compressImageWithQuality(
-                    ctx, uri, 800, 85, false);   // 800px, JPEG 85%
+                    ctx, uri, 1080, 85, false);  // 1080px, JPEG 85%
                 if (fullBytes == null || fullBytes.length == 0) {
                     post(cb, null, null, "Full photo compress failed");
                     return;

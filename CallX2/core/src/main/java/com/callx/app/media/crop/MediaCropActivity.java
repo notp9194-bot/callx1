@@ -95,6 +95,13 @@ public class MediaCropActivity extends AppCompatActivity {
     public static final String EXTRA_VIDEO_URI    = "media_crop_video_uri";
     public static final String RESULT_CROPPED_URI = "media_crop_result_uri";
 
+    /** Optional (boolean). true = crop box locked to 1:1 and the aspect chips are hidden
+     *  (used for profile avatars — only the square the user framed gets saved). */
+    public static final String EXTRA_SQUARE_LOCKED  = "media_crop_square_locked";
+    /** Optional (int). If > 0, the cropped still image is downscaled so its longest side
+     *  is at most this many px (never upscaled). 0/absent = full crop resolution (old behaviour). */
+    public static final String EXTRA_MAX_OUTPUT_PX  = "media_crop_max_output_px";
+
     // ── Aspect ratio presets ──────────────────────────────────────────────
     private static final float[] RATIOS = { 0f, 1f, 4f/3f, 3f/4f, 16f/9f, 9f/16f };
     private static final String[] LABELS = { "Free", "1:1", "4:3", "3:4", "16:9", "9:16" };
@@ -116,6 +123,8 @@ public class MediaCropActivity extends AppCompatActivity {
     /** ✅ NEW: true when launched with EXTRA_VIDEO_URI — the crop box is set on a
      *  preview frame but Done re-encodes the whole video instead of saving a still. */
     private boolean isVideoMode = false;
+    private boolean squareLocked = false;
+    private int     maxOutputPx  = 0;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService bgExec = Executors.newSingleThreadExecutor();
 
@@ -140,6 +149,7 @@ public class MediaCropActivity extends AppCompatActivity {
         bindViews();
         setupButtons();
         buildAspectRow();
+        if (!isVideoMode) applyAvatarOptions();
         if (isVideoMode) setupVideoPlayback();   // ✅ NEW
         loadBitmapAsync();
     }
@@ -220,7 +230,7 @@ public class MediaCropActivity extends AppCompatActivity {
         });
 
         btnDone.setOnClickListener(v -> {
-            if (sourceBitmap == null) return;
+            if (!btnDone.isEnabled()) return;   // enabled only once content is loaded (sourceBitmap is nulled after rotate)
             btnDone.setEnabled(false);
             btnDone.setText(isVideoMode ? "Cropping video…" : "Saving…");
             if (isVideoMode) cropVideoAndReturn();
@@ -241,6 +251,22 @@ public class MediaCropActivity extends AppCompatActivity {
                     sourceBitmap = null; // getCroppedBitmap uses cropView's internal bitmap
                 });
             }
+        }
+    }
+
+    /** Square-lock (avatar) + output-size cap, both opt-in via Intent extras. */
+    private void applyAvatarOptions() {
+        maxOutputPx  = Math.max(0, getIntent().getIntExtra(EXTRA_MAX_OUTPUT_PX, 0));
+        squareLocked = getIntent().getBooleanExtra(EXTRA_SQUARE_LOCKED, false);
+        if (!squareLocked) return;
+
+        selectedAspect = 1;                  // index of 1:1 in RATIOS
+        cropView.setAspectRatio(1f);
+        if (tvAspectHint != null) tvAspectHint.setVisibility(View.GONE);
+        if (aspectRow != null) {
+            // chips live inside a HorizontalScrollView — hide the whole strip
+            View strip = (View) aspectRow.getParent();
+            (strip instanceof HorizontalScrollView ? strip : aspectRow).setVisibility(View.GONE);
         }
     }
 
@@ -389,6 +415,28 @@ public class MediaCropActivity extends AppCompatActivity {
                 // getCroppedBitmap uses cropView's internal bitmap + imageMatrix
                 Bitmap cropped = cropView.getCroppedBitmap();
                 if (cropped == null) throw new Exception("Crop region invalid");
+
+                // Avatar mode: guarantee an exact square (rounding can leave 1px diff)
+                if (squareLocked && cropped.getWidth() != cropped.getHeight()) {
+                    int side = Math.min(cropped.getWidth(), cropped.getHeight());
+                    Bitmap sq = Bitmap.createBitmap(cropped,
+                            (cropped.getWidth() - side) / 2,
+                            (cropped.getHeight() - side) / 2, side, side);
+                    if (sq != cropped) cropped.recycle();
+                    cropped = sq;
+                }
+                // Optional output cap (downscale only, never upscale)
+                if (maxOutputPx > 0) {
+                    int longest = Math.max(cropped.getWidth(), cropped.getHeight());
+                    if (longest > maxOutputPx) {
+                        float f = (float) maxOutputPx / longest;
+                        Bitmap scaled = Bitmap.createScaledBitmap(cropped,
+                                Math.max(1, Math.round(cropped.getWidth() * f)),
+                                Math.max(1, Math.round(cropped.getHeight() * f)), true);
+                        if (scaled != cropped) cropped.recycle();
+                        cropped = scaled;
+                    }
+                }
 
                 File dir = new File(getCacheDir(), "media_crop");
                 if (!dir.exists()) dir.mkdirs();

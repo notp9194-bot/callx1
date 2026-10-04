@@ -79,8 +79,8 @@ public class ReelCloudinaryUtils {
                 if (thumbUrl == null) { postErr(cb, "Thumb upload failed"); return; }
                 UI.post(() -> cb.onThumbReady(thumbUrl));
 
-                // Step 2: Full photo (800px, JPEG 85%)
-                byte[] fullBytes = MediaCompressor.compressImageWithQuality(ctx, uri, 800, 85, false);
+                // Step 2: Full photo (1080px, JPEG 85%)
+                byte[] fullBytes = MediaCompressor.compressImageWithQuality(ctx, uri, 1080, 85, false);
                 if (fullBytes == null || fullBytes.length == 0) {
                     postErr(cb, "Full photo compress failed");
                     return;

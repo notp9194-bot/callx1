@@ -52,9 +52,28 @@ public class XEditProfileActivity extends AppCompatActivity {
         registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK && result.getData() != null) {
                 Uri uri = result.getData().getData();
-                if (uri != null) uploadImage(uri, pickingAvatar);
+                if (uri == null) return;
+                if (pickingAvatar) launchAvatarCrop(uri);   // avatar: square crop first
+                else uploadImage(uri, false);
             }
         });
+
+    private final ActivityResultLauncher<Intent> avatarCropLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                String u = result.getData().getStringExtra("media_crop_result_uri");
+                if (u != null) uploadImage(Uri.parse(u), true);
+            }
+        });
+
+    private void launchAvatarCrop(Uri src) {
+        Intent ci = new Intent();
+        ci.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
+        ci.putExtra("media_crop_uri", src.toString());
+        ci.putExtra("media_crop_square_locked", true);
+        ci.putExtra("media_crop_max_output_px", 1080);
+        avatarCropLauncher.launch(ci);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

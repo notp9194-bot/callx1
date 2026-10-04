@@ -54,9 +54,18 @@ public class ReelEditProfileActivity extends AppCompatActivity {
     private String pendingThumb = "", pendingPhoto = "", pendingBanner = "";
     private boolean avatarUploading = false, bannerUploading = false;
 
+    // Pick → square crop (only the framed square is uploaded) → upload
+    private final ActivityResultLauncher<android.content.Intent> avatarCropLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == android.app.Activity.RESULT_OK && result.getData() != null) {
+                String u = result.getData().getStringExtra("media_crop_result_uri");
+                if (u != null) uploadAvatar(Uri.parse(u));
+            }
+        });
+
     private final ActivityResultLauncher<String> avatarPicker =
         registerForActivityResult(new ActivityResultContracts.GetContent(),
-            uri -> { if (uri != null) uploadAvatar(uri); });
+            uri -> { if (uri != null) launchAvatarCrop(uri); });
 
     private final ActivityResultLauncher<String> bannerPicker =
         registerForActivityResult(new ActivityResultContracts.GetContent(),
@@ -149,6 +158,15 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                         "Load error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             });
+    }
+
+    private void launchAvatarCrop(Uri src) {
+        android.content.Intent ci = new android.content.Intent();
+        ci.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
+        ci.putExtra("media_crop_uri", src.toString());
+        ci.putExtra("media_crop_square_locked", true);
+        ci.putExtra("media_crop_max_output_px", 1080);
+        avatarCropLauncher.launch(ci);
     }
 
     private void uploadAvatar(Uri uri) {
