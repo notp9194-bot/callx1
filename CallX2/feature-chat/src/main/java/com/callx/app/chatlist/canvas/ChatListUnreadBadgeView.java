@@ -115,6 +115,17 @@ public class ChatListUnreadBadgeView extends View {
         invalidate();
     }
 
+    /**
+     * Muted chats get a dimmed grey pill (same size — no re-layout) so they read
+     * as "quiet"; unmuted uses the normal green. Only invalidates on a state flip.
+     */
+    public void setMutedStyle(boolean muted) {
+        int c = muted ? 0xFF9AA5B1 : 0xFF4CAF50;
+        if (bgPaint.getColor() == c) return;
+        bgPaint.setColor(c);
+        invalidate();
+    }
+
     /** Returns whether the badge is currently showing (count > 0). */
     public boolean hasCount() { return visible; }
 

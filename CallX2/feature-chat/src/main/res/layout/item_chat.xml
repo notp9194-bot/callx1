@@ -24,7 +24,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="6dp"
-    android:background="@drawable/bg_chat_row">
+    android:background="@drawable/bg_chat_row"
+    android:foreground="@drawable/fg_chat_row_ripple">
 
     <LinearLayout
         android:layout_width="match_parent"

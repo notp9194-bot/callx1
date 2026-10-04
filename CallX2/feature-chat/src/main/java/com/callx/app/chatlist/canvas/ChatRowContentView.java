@@ -4,6 +4,8 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.text.TextPaint;
@@ -48,6 +50,53 @@ public class ChatRowContentView extends View {
     private static final float MSG_SIZE_SP  = 14f;
     private static final float TICK_SIZE_DP = 12f;
     private static final float TICK_GAP_DP  = 4f;
+    /** Vertical breathing room between the name row and the last-message row. */
+    private static final float ROW_GAP_DP   = 4f;
+    /** Pinned-chat icon: drawn at the right end of the message row.
+     *  MUST match ChatListTextPrecompute.PIN_SIZE_DP / PIN_GAP_DP. */
+    private static final float PIN_SIZE_DP  = 14f;
+    private static final float PIN_GAP_DP   = 6f;
+    private static final float PIN_BOX      = 24f; // design grid of PIN_PATH
+    /** Muted-chat icon (bell with slash), drawn left of the pin / at the right end.
+     *  MUST match ChatListTextPrecompute.MUTE_SIZE_DP / MUTE_GAP_DP. */
+    private static final float MUTE_SIZE_DP = 14f;
+    private static final float MUTE_GAP_DP  = 6f;
+
+    /** Shared, read-only push-pin glyph on a 24x24 grid (built once per process). */
+    private static final Path PIN_PATH = buildPinPath();
+
+    /** Shared bell glyph (24x24 grid); the slash is a separate stroke. */
+    private static final Path MUTE_BELL_PATH = buildMuteBellPath();
+
+    private static Path buildMuteBellPath() {
+        Path p = new Path();
+        p.moveTo(5.5f, 17f);
+        p.lineTo(18.5f, 17f);
+        p.lineTo(16.8f, 15f);
+        p.lineTo(16.8f, 10.5f);
+        p.cubicTo(16.8f, 7.4f, 14.8f, 5.6f, 12f, 5.6f);
+        p.cubicTo(9.2f, 5.6f, 7.2f, 7.4f, 7.2f, 10.5f);
+        p.lineTo(7.2f, 15f);
+        p.close();
+        p.addCircle(12f, 19.4f, 1.7f, Path.Direction.CW);
+        return p;
+    }
+
+    private static Path buildPinPath() {
+        Path p = new Path();
+        p.addRoundRect(new RectF(6f, 2f, 18f, 4.6f), 1.3f, 1.3f, Path.Direction.CW); // cap
+        p.moveTo(8.5f, 4.6f);                                                         // body
+        p.lineTo(8.5f, 10f);
+        p.lineTo(5.5f, 13f);
+        p.lineTo(5.5f, 14.8f);
+        p.lineTo(18.5f, 14.8f);
+        p.lineTo(18.5f, 13f);
+        p.lineTo(15.5f, 10f);
+        p.lineTo(15.5f, 4.6f);
+        p.close();
+        p.addRect(11.2f, 14.8f, 12.8f, 22f, Path.Direction.CW);                      // needle
+        return p;
+    }
 
     // ── Row 1: name (left, bold) + time (right, muted) ──────────────────
     private final TextPaint namePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -56,6 +105,19 @@ public class ChatRowContentView extends View {
     private final Paint.FontMetrics fmTime;
     private final int nameRowHeight;
     private final float nameTimeGapPx;
+    private final float rowGapPx;
+    private final float pinSizePx;
+    private final float pinGapPx;
+    private final float pinScale;
+    private final Paint pinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private boolean pinned = false;
+    private final float muteSizePx;
+    private final float muteGapPx;
+    private final float muteScale;
+    private final Paint mutePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint muteSlashPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private boolean muted = false;
+    private float cachedIconsReserved = 0f;
 
     private String rawName = "";
     private String rawTime = "";
@@ -84,6 +146,8 @@ public class ChatRowContentView extends View {
 
     private String rawMsg = "";
     private boolean msgItalic = false;
+    /** Unread rows draw the preview bold — see setMessageText(..., bold). */
+    private boolean msgBold = false;
     private CharSequence ellipsizedMsg = "";
     private int lastMsgEllipsisWidth = -1;
     private boolean msgDirty = true;
@@ -123,6 +187,21 @@ public class ChatRowContentView extends View {
         int timeTextHeight = (int) Math.ceil(fmTime.descent - fmTime.ascent);
         nameRowHeight = Math.max(nameTextHeight, timeTextHeight);
         nameTimeGapPx = 8f * dp;
+        rowGapPx = ROW_GAP_DP * dp;
+        pinSizePx = PIN_SIZE_DP * dp;
+        pinGapPx  = PIN_GAP_DP * dp;
+        pinScale  = pinSizePx / PIN_BOX;
+        pinPaint.setStyle(Paint.Style.FILL);
+        pinPaint.setColor(0xFF94A3B8);
+        muteSizePx = MUTE_SIZE_DP * dp;
+        muteGapPx  = MUTE_GAP_DP * dp;
+        muteScale  = muteSizePx / PIN_BOX;
+        mutePaint.setStyle(Paint.Style.FILL);
+        mutePaint.setColor(0xFF94A3B8);
+        muteSlashPaint.setStyle(Paint.Style.STROKE);
+        muteSlashPaint.setStrokeWidth(2.2f);          // grid units (canvas is scaled)
+        muteSlashPaint.setStrokeCap(Paint.Cap.ROUND);
+        muteSlashPaint.setColor(0xFF94A3B8);
         verifiedBadgeSizePx = 13f * dp;
         verifiedBadgeGapPx = 3f * dp;
 
@@ -197,18 +276,66 @@ public class ChatRowContentView extends View {
     // ── Row 2 setters (identical signatures to ChatListLastMessageView) ─
 
     public void setMessageText(String text, int color, boolean italic) {
+        setMessageText(text, color, italic, false);
+    }
+
+    /**
+     * @param bold true for unread rows — preview is drawn bold so unread chats
+     *             stand out at a glance. Only swaps the cached Typeface on a
+     *             state change (no per-draw allocation).
+     */
+    public void setMessageText(String text, int color, boolean italic, boolean bold) {
         String safe = text == null ? "" : text;
         boolean changed = !safe.equals(rawMsg)
                 || msgPaint.getColor() != color
-                || this.msgItalic != italic;
+                || this.msgItalic != italic
+                || this.msgBold != bold;
         if (!changed) return;
 
         rawMsg = safe;
         this.msgItalic = italic;
+        this.msgBold = bold;
         msgPaint.setColor(color);
-        msgPaint.setTypeface(Typeface.defaultFromStyle(italic ? Typeface.ITALIC : Typeface.NORMAL));
+        int style = (italic ? Typeface.ITALIC : Typeface.NORMAL)
+                | (bold ? Typeface.BOLD : Typeface.NORMAL);
+        msgPaint.setTypeface(Typeface.defaultFromStyle(style));
         msgDirty = true;
         invalidate();
+    }
+
+    /**
+     * Shows/hides the pin icon at the right end of the message row (replaces the
+     * old "📌 " emoji that was prepended to the name). Reserves its width from the
+     * message text so the preview ellipsizes before reaching the icon.
+     */
+    public void setPinned(boolean pinned, int color) {
+        if (this.pinned == pinned && pinPaint.getColor() == color) return;
+        boolean layoutChanged = this.pinned != pinned;
+        this.pinned = pinned;
+        pinPaint.setColor(color);
+        if (layoutChanged) applyIconsReserved();
+        invalidate();
+    }
+
+    /**
+     * Shows/hides the mute (bell-with-slash) icon at the right end of the message
+     * row, left of the pin if both are present. Reserves its width like the pin.
+     */
+    public void setMuted(boolean muted, int color) {
+        if (this.muted == muted && mutePaint.getColor() == color) return;
+        boolean layoutChanged = this.muted != muted;
+        this.muted = muted;
+        mutePaint.setColor(color);
+        muteSlashPaint.setColor(color);
+        if (layoutChanged) applyIconsReserved();
+        invalidate();
+    }
+
+    private void applyIconsReserved() {
+        cachedIconsReserved = (pinned ? (pinSizePx + pinGapPx) : 0f)
+                            + (muted  ? (muteSizePx + muteGapPx) : 0f);
+        availableMsgWidth = Math.max(0, getWidth() - (int) cachedTickReserved - (int) cachedIconsReserved);
+        msgDirty = true;
     }
 
     public void setTicks(int state, int color) {
@@ -219,7 +346,7 @@ public class ChatRowContentView extends View {
         tickColor = color;
         tickPaint.setColor(color);
         cachedTickReserved = computeTickReservedWidth();
-        availableMsgWidth = Math.max(0, getWidth() - (int) cachedTickReserved);
+        availableMsgWidth = Math.max(0, getWidth() - (int) cachedTickReserved - (int) cachedIconsReserved);
         msgDirty = true;
         invalidate();
     }
@@ -243,7 +370,7 @@ public class ChatRowContentView extends View {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int w = MeasureSpec.getSize(widthMeasureSpec);
-        int desiredH = nameRowHeight + msgRowHeight;
+        int desiredH = nameRowHeight + Math.round(rowGapPx) + msgRowHeight;
         setMeasuredDimension(w, resolveSize(desiredH, heightMeasureSpec));
     }
 
@@ -255,11 +382,11 @@ public class ChatRowContentView extends View {
         timeBaseline = nameRowHeight / 2f - (fmTime.ascent + fmTime.descent) / 2f;
 
         // Row 2 sits directly below row 1
-        msgRowTop = nameRowHeight;
+        msgRowTop = nameRowHeight + Math.round(rowGapPx);
         msgBaselineAbs = msgRowTop + msgRowHeight / 2f - (fmMsg.ascent + fmMsg.descent) / 2f;
 
         cachedTickReserved = computeTickReservedWidth();
-        availableMsgWidth = Math.max(0, w - (int) cachedTickReserved);
+        availableMsgWidth = Math.max(0, w - (int) cachedTickReserved - (int) cachedIconsReserved);
         nameDirty = true;
         msgDirty = true;
     }
@@ -278,7 +405,11 @@ public class ChatRowContentView extends View {
 
     private void rebuildMsgEllipsisIfNeeded(int avail) {
         if (!msgDirty && avail == lastMsgEllipsisWidth) return;
-        CharSequence cached = com.callx.app.chatlist.ChatListTextPrecompute
+        // ChatListTextPrecompute measures with the NORMAL-weight paint, so its
+        // entries would be too wide for bold (unread) text and get clipped at
+        // the view edge — for bold rows measure here instead. Runs once per
+        // bind/width change (guarded by msgDirty above), never per frame.
+        CharSequence cached = msgBold ? null : com.callx.app.chatlist.ChatListTextPrecompute
                 .getMessage(rawMsg, avail);
         ellipsizedMsg = (cached != null)
                 ? cached
@@ -316,6 +447,30 @@ public class ChatRowContentView extends View {
         rebuildMsgEllipsisIfNeeded(availableMsgWidth);
         canvas.drawText(ellipsizedMsg, 0, ellipsizedMsg.length(),
                 cachedTickReserved, msgBaselineAbs, msgPaint);
+
+        // ── Mute icon: sits left of the pin (or at the right edge if unpinned) ──
+        if (muted) {
+            float left = w - (pinned ? (pinSizePx + pinGapPx) : 0f) - muteSizePx;
+            float top  = msgRowTop + (msgRowHeight - muteSizePx) / 2f;
+            int save = canvas.save();
+            canvas.translate(left, top);
+            canvas.scale(muteScale, muteScale);
+            canvas.drawPath(MUTE_BELL_PATH, mutePaint);
+            canvas.drawLine(4.5f, 4.5f, 19.5f, 20f, muteSlashPaint);
+            canvas.restoreToCount(save);
+        }
+
+        // ── Pin icon (right end of row 2) — tilted 45°, zero-alloc draw ──
+        if (pinned) {
+            float left = w - pinSizePx;
+            float top  = msgRowTop + (msgRowHeight - pinSizePx) / 2f;
+            int save = canvas.save();
+            canvas.translate(left, top);
+            canvas.rotate(45f, pinSizePx / 2f, pinSizePx / 2f);
+            canvas.scale(pinScale, pinScale);
+            canvas.drawPath(PIN_PATH, pinPaint);
+            canvas.restoreToCount(save);
+        }
     }
 
     private void drawTicks(Canvas canvas, float x, float baselineY) {

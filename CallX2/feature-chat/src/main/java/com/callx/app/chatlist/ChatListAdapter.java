@@ -266,6 +266,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     // PERF FIX: dedicated payload for special-request badge flips — see
     // setSpecialRequestSenders() below.
     private static final String PAYLOAD_SPECIAL = "payload_special";
+    // Partial-bind payload for a chat's mute state flipping (see setMutedUids()).
+    private static final String PAYLOAD_MUTED = "payload_muted";
+    // uids of chats the user muted (muted/{myUid}); private copy, never the caller's live set.
+    private Set<String> mutedUids = new HashSet<>();
 
     // v389 WHATSAPP-LEVEL FIX: applySelectionVisuals()/updateReadStatusTicks()/
     // applyTypingRow() called ctx.getResources().getColor(...) up to 4-5
@@ -280,6 +284,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private int colorTextMuted, colorTextPrimary, colorTextSecondary,
                 colorTickReadBlue, colorStatusTyping;
     private boolean colorsResolved = false;
+    /** Unread accent for the time label — same green as ChatListUnreadBadgeView's pill (0xFF4CAF50). */
+    private static final int COLOR_UNREAD_ACCENT = 0xFF4CAF50;
 
     private void ensureColorsResolved(Context ctx) {
         if (colorsResolved) return;
@@ -376,6 +382,28 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             boolean isSpecial  = newSet.contains(uid);
             if (wasSpecial != isSpecial) {
                 notifyItemChanged(i, PAYLOAD_SPECIAL);
+            }
+        }
+    }
+
+    /**
+     * Updates which chats are muted. Diffs old vs new and only re-binds rows whose
+     * mute state actually flipped (lightweight applySelectionVisuals pass — no
+     * avatar reload, no listener churn). Safe to call with the fragment's live set:
+     * the adapter keeps its own copy.
+     */
+    public void setMutedUids(Set<String> set) {
+        Set<String> newSet = set == null ? new HashSet<>() : new HashSet<>(set);
+        Set<String> oldSet = this.mutedUids;
+        if (oldSet.equals(newSet)) return;
+        this.mutedUids = newSet;
+
+        List<User> list = differ.getCurrentList();
+        for (int i = 0; i < list.size(); i++) {
+            String uid = list.get(i).uid;
+            if (uid == null) continue;
+            if (oldSet.contains(uid) != newSet.contains(uid)) {
+                notifyItemChanged(i, PAYLOAD_MUTED);
             }
         }
     }
@@ -483,7 +511,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // Selection mode / special-badge flip are both a lightweight
         // applySelectionVisuals-only pass — no avatar reload, no listener
         // rebuild, no typing-listener reschedule.
-        if (payloads.contains(PAYLOAD_SELECTION) || payloads.contains(PAYLOAD_SPECIAL)) {
+        if (payloads.contains(PAYLOAD_SELECTION) || payloads.contains(PAYLOAD_SPECIAL)
+                || payloads.contains(PAYLOAD_MUTED)) {
             applySelectionVisuals(h, differ.getCurrentList().get(pos));
             return;
         }
@@ -543,7 +572,12 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // is now a cheap field write instead of 6-7 allocations.
         h.boundUser = u;
 
-        h.nameTimeView.setName((u.localPinned ? "📌 " : "") + (u.name == null ? "User" : u.name));
+        h.nameTimeView.setName(u.name == null ? "User" : u.name);
+        // Pin is now a canvas icon at the right of the message row (was a "📌 "
+        // emoji prefix — ate name width, varied per device, and also made the
+        // name ChatListTextPrecompute key miss for every pinned chat).
+        ensureColorsResolved(h.itemView.getContext());
+        h.nameTimeView.setPinned(u.localPinned, colorTextMuted);
         com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.nameTimeView, h.nameTimeView::setVerified, u.uid);
 
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
@@ -751,21 +785,30 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         boolean selected  = u.uid != null && selectedUids.contains(u.uid);
         boolean isSpecial = u.uid != null && specialRequestSenders.contains(u.uid);
 
+        // Mute: icon at the right of the message row + dimmed unread pill.
+        // Lives here (not in the full-bind-only block) so the PAYLOAD_MUTED
+        // partial bind and the full bind both pick it up.
+        final boolean isMutedChat = u.uid != null && mutedUids.contains(u.uid);
+        h.nameTimeView.setMuted(isMutedChat, colorTextMuted);
+        h.unreadBadgeView.setMutedStyle(isMutedChat);
+
         // v389: colors now read from the cached fields resolved once by
         // ensureColorsResolved() instead of hitting Resources on every bind
         // (was ctx.getResources().getColor(R.color.text_muted) etc. here).
-        h.nameTimeView.setTimeColor(colorTextMuted);
-
         long unread = u.unread == null ? 0 : u.unread;
         int lastMsgColor;
-        if (unread > 0 && !isSelecting) {
+        final boolean hasUnread = unread > 0 && !isSelecting;
+        if (hasUnread) {
             h.unreadBadgeView.setBadgeCount(unread);
             lastMsgColor = colorTextPrimary;
             h.nameTimeView.setNameColor(colorTextPrimary);
+            // Unread: time picks up the badge's green (WhatsApp-style) …
+            h.nameTimeView.setTimeColor(COLOR_UNREAD_ACCENT);
         } else {
             h.unreadBadgeView.setBadgeCount(0);
             lastMsgColor = colorTextSecondary;
             h.nameTimeView.setNameColor(colorTextPrimary);
+            h.nameTimeView.setTimeColor(colorTextMuted);
         }
 
         if (!h.isTypingNow) {
@@ -774,7 +817,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             } else {
                 String preview = ChatListPreviewUtil.buildPreview(
                         u.lastMessageType, u.lastMessage, "Tap karke chat karo");
-                h.lastMessageView.setMessageText(preview, lastMsgColor, false);
+                // … and the preview turns bold (read rows stay regular).
+                h.lastMessageView.setMessageText(preview, lastMsgColor, false, hasUnread);
             }
         }
 

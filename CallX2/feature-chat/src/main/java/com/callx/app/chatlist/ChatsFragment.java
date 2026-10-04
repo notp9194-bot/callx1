@@ -136,6 +136,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private ChildEventListener contactsListener;
     private DatabaseReference specialRequestsRef;
     private ValueEventListener specialRequestsListener;
+    // Move animations stay off for the first moments after the view is created
+    // (instant snapshot → Room → Firebase replay re-sorts the list a few times).
+    private static final long CHAT_ANIMATOR_ARM_DELAY_MS = 1500L;
+    private Runnable armAnimatorRunnable;
+    // Muted chats: ONE listener on muted/{myUid} (same path ChatActivity/UserProfileActivity
+    // write to) feeds the adapter's mute icon — no per-row Firebase reads.
+    private final Set<String> mutedChatUids = ConcurrentHashMap.newKeySet();
+    private DatabaseReference mutedRef;
+    private ValueEventListener mutedListener;
     // v387: true once loadContacts()/loadSpecialRequests() have been
     // attached for this Fragment INSTANCE — see ensureLiveListenersAttached().
     private boolean liveListenersAttached = false;
@@ -304,6 +313,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         // v83: constructor no longer takes a list — submitList() is the write path
         adapter = new ChatListAdapter(this);
+        // View may have been recreated while the live listener survived — re-seed.
+        adapter.setMutedUids(mutedChatUids);
         rv.setAdapter(adapter);
 
         // v95: kick off background XML pre-inflation immediately so, by the
@@ -399,8 +410,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             }
         });
 
-        // v85+: null ItemAnimator — removes all animation overhead
-        rv.setItemAnimator(null);
+        // v85+: was a null ItemAnimator (zero animation overhead) — but pin /
+        // new-message reorders then made rows JUMP. ChatListItemAnimator is
+        // move-only (add/remove/change stay instant), so overhead stays ~zero
+        // while reorders slide smoothly. Armed after the cold-start load
+        // settles so opening the tab never looks like the list is shuffling.
+        final ChatListItemAnimator chatAnimator = new ChatListItemAnimator();
+        rv.setItemAnimator(chatAnimator);
+        armAnimatorRunnable = () -> chatAnimator.setArmed(true);
+        rv.postDelayed(armAnimatorRunnable, CHAT_ANIMATOR_ARM_DELAY_MS);
 
         // v240: match Calls tab feel — rubber-band edge instead of flat glow.
         // Reuses the same factory already proven in ChatActivity/GroupChatActivity.
@@ -1455,6 +1473,29 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             });
     }
 
+    private void loadMutedChats() {
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+        String uid = FirebaseUtils.getCurrentUid();
+        if (uid == null || uid.isEmpty()) return;
+
+        mutedListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snap) {
+                mutedChatUids.clear();
+                for (DataSnapshot c : snap.getChildren()) {
+                    if (c.getKey() != null && Boolean.TRUE.equals(c.getValue(Boolean.class))) {
+                        mutedChatUids.add(c.getKey());
+                    }
+                }
+                // Precompute first so any fallback/cache lookups see the new widths.
+                com.callx.app.chatlist.ChatListTextPrecompute.setMutedUids(mutedChatUids);
+                if (adapter != null) adapter.setMutedUids(mutedChatUids);
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        mutedRef = FirebaseUtils.db().getReference("muted").child(uid);
+        mutedRef.addValueEventListener(mutedListener);
+    }
+
     private void loadSpecialRequests() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         String uid = FirebaseUtils.getCurrentUid();
@@ -1519,6 +1560,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         loadContacts();
         loadSpecialRequests();
+        loadMutedChats();
         liveListenersAttached = true;
     }
 
@@ -1543,6 +1585,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 pendingScrollOffset = firstChild != null ? firstChild.getTop() : 0;
             }
         }
+        if (rvChats != null && armAnimatorRunnable != null) {
+            rvChats.removeCallbacks(armAnimatorRunnable);
+        }
+        armAnimatorRunnable = null;
         rvChats = null;
 
         // v387: Firebase listener detach + pending-delta cleanup MOVED to
@@ -1587,6 +1633,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (specialRequestsRef != null && specialRequestsListener != null) {
             specialRequestsRef.removeEventListener(specialRequestsListener);
             specialRequestsRef = null; specialRequestsListener = null;
+        }
+        if (mutedRef != null && mutedListener != null) {
+            mutedRef.removeEventListener(mutedListener);
+            mutedRef = null; mutedListener = null;
         }
         if (pendingContactsWork != null) {
             mainHandler.removeCallbacks(pendingContactsWork);

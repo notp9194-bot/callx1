@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    fg_chat_row_ripple.xml — press feedback for chat-list rows.
+
+    Used as android:foreground on item_chat.xml's root (NOT the background):
+    the row background is rewritten by ChatListAdapter.applySelectionVisuals()
+    (selection / special-request tint), and a foreground ripple stays
+    independent of that and draws on top of the tint.
+
+    Color = theme's colorControlHighlight (dark-on-light / light-on-dark), so it
+    follows the app's day/night theme with no extra resources. The mask matches
+    bg_chat_row's 16dp corners so the ripple never pokes past the rounded row.
+    Idle cost: a RippleDrawable with no active ripple draws nothing; the press
+    animation itself runs on the RenderThread.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?android:attr/colorControlHighlight">
+    <item android:id="@android:id/mask">
+        <shape android:shape="rectangle">
+            <corners android:radius="16dp"/>
+            <solid android:color="#FFFFFFFF"/>
+        </shape>
+    </item>
+</ripple>

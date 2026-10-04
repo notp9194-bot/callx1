@@ -112,6 +112,20 @@ public final class ChatListTextPrecompute {
     private static final float NAME_TIME_GAP_DP = 8f;   // ChatRowContentView.nameTimeGapPx
     private static final float TICK_SIZE_DP     = 12f;  // ChatRowContentView tick size
     private static final float TICK_GAP_DP      = 4f;   // ChatRowContentView tick gap
+    private static final float PIN_SIZE_DP      = 14f;  // ChatRowContentView pin icon size
+    private static final float PIN_GAP_DP       = 6f;   // ChatRowContentView pin icon gap
+    private static final float MUTE_SIZE_DP     = 14f;  // ChatRowContentView mute icon size
+    private static final float MUTE_GAP_DP      = 6f;   // ChatRowContentView mute icon gap
+
+    /** uids of muted chats (muted/{myUid}) — set by ChatsFragment so pre-computed
+     *  widths account for the mute icon each muted row reserves. Immutable snapshot. */
+    private static volatile java.util.Set<String> sMutedUids = java.util.Collections.emptySet();
+
+    public static void setMutedUids(java.util.Set<String> uids) {
+        sMutedUids = (uids == null || uids.isEmpty())
+                ? java.util.Collections.<String>emptySet()
+                : java.util.Collections.unmodifiableSet(new java.util.HashSet<>(uids));
+    }
     // item_chat.xml: 14dp*2 row padding + 58dp avatar box + 14dp rowContent
     // marginStart + 8dp meta-column marginStart = fixed reserved width before
     // the (variable) badge/call-buttons meta column is subtracted.
@@ -309,7 +323,13 @@ public final class ChatListTextPrecompute {
             float span = "sent".equals(u.lastMessageStatus) ? tickSizePx : tickSizePx * 1.35f;
             tickReservedPx = span + tickGapPx;
         }
-        int msgWidthPx = (int) Math.max(0f, rowWidthPx - tickReservedPx);
+        // Pinned rows draw a pin icon at the right of the message row and
+        // reserve its width (ChatRowContentView.setPinned) — mirror that here.
+        float pinReservedPx = u.localPinned ? (PIN_SIZE_DP + PIN_GAP_DP) * density : 0f;
+        if (u.uid != null && sMutedUids.contains(u.uid)) {
+            pinReservedPx += (MUTE_SIZE_DP + MUTE_GAP_DP) * density;
+        }
+        int msgWidthPx = (int) Math.max(0f, rowWidthPx - tickReservedPx - pinReservedPx);
 
         // ── Name ──────────────────────────────────────────────────────────────
         String name    = u.name != null ? u.name : "User";
