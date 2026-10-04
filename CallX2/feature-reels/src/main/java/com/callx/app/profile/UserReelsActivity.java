@@ -2751,7 +2751,7 @@ public class UserReelsActivity extends AppCompatActivity
                 Glide.with(this).load(photos.get(i))
                     .placeholder(R.drawable.ic_person)
                     .error(R.drawable.ic_person)
-                    .transition(DrawableTransitionOptions.withCrossFade())
+                    .dontAnimate()
                     .circleCrop()
                     .override(240, 240)
                     .into(ivs[i]);
@@ -4226,7 +4226,8 @@ public class UserReelsActivity extends AppCompatActivity
             .diskCacheStrategy(DiskCacheStrategy.ALL)      // source + decoded bitmap permanently cached
             .override(720, 720)                            // HD always — xxxhdpi pe bhi sharp
             .placeholder(R.drawable.ic_person)
-            .transition(DrawableTransitionOptions.withCrossFade())
+            // FIX: CircleImageView + crossFade = blank avatar on first load (TransitionDrawable ko snapshot karta hai); memory-cache hit pe crossfade nahi lagta isliye revisit/refresh pe dikhta tha
+            .dontAnimate()
             .skipMemoryCache(false)                        // memory cache active — revisit pe instant display
             .into(ivAvatar);
     }
@@ -4272,7 +4273,7 @@ public class UserReelsActivity extends AppCompatActivity
                             .load(photo).circleCrop()
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.ic_person)
-                            .transition(DrawableTransitionOptions.withCrossFade())
+                            .dontAnimate()
                             .skipMemoryCache(false)
                             .override(96, 96)
                             .into(ivAnimChat);
@@ -4940,7 +4941,7 @@ public class UserReelsActivity extends AppCompatActivity
                     targetPhoto = url;
                     Glide.with(UserReelsActivity.this).load(url).circleCrop()
                         .override(240, 240)
-                        .transition(DrawableTransitionOptions.withCrossFade())
+                        .dontAnimate()
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
                 // Bio / about
@@ -5127,7 +5128,7 @@ public class UserReelsActivity extends AppCompatActivity
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
                     Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
                         .override(240, 240)
-                        .transition(DrawableTransitionOptions.withCrossFade())
+                        .dontAnimate()
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
 
