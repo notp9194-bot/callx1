@@ -1,6 +1,8 @@
 package com.callx.app.cache;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import com.callx.app.models.StatusItem;
@@ -86,6 +88,7 @@ public class StatusCacheManager {
         if (uid == null) return false;
         List<StatusItem> items = statusMap.get(uid);
         if (items == null || items.isEmpty()) return false;
+        final long now = System.currentTimeMillis();
         Set<String> seen = seenMap.getOrDefault(uid, Collections.emptySet());
         // v46: this uid's latest local optimistic "seen at" mark (0 if never
         // marked locally) — StatusSeenTracker.markSeen() stamps this the
@@ -93,6 +96,9 @@ public class StatusCacheManager {
         // write round-trips back through our listener into `seen` above.
         long locallySeenAt = com.callx.app.utils.StorySeenState.getSeenAt(appContext, uid);
         for (StatusItem item : items) {
+            // FIX: expired story pe ring nahi — cache sirf Firebase event pe
+            // filter hota tha, time guzarne pe nahi.
+            if (!isLive(item, now)) continue;
             if (seen.contains(item.id)) continue;
             // Firebase hasn't confirmed this item as seen yet, but if our
             // local mark covers this item's timestamp, treat it as seen —
@@ -111,14 +117,30 @@ public class StatusCacheManager {
     public boolean hasStatus(String uid) {
         if (uid == null) return false;
         List<StatusItem> items = statusMap.get(uid);
-        return items != null && !items.isEmpty();
+        if (items == null || items.isEmpty()) return false;
+        final long now = System.currentTimeMillis();
+        for (StatusItem item : items) {
+            if (isLive(item, now)) return true;
+        }
+        return false;
+    }
+
+    /** Story abhi bhi active hai? (deleted nahi + expiresAt guzra nahi) */
+    private static boolean isLive(StatusItem item, long now) {
+        if (item == null) return false;
+        if (Boolean.TRUE.equals(item.deleted)) return false;
+        return item.expiresAt == null || item.expiresAt >= now;
     }
 
     /** uid ke saare active StatusItems return karo */
     public List<StatusItem> getStatuses(String uid) {
         if (uid == null) return new ArrayList<>();
         List<StatusItem> items = statusMap.get(uid);
-        return items != null ? items : new ArrayList<>();
+        if (items == null) return new ArrayList<>();
+        final long now = System.currentTimeMillis();
+        List<StatusItem> live = new ArrayList<>(items.size());
+        for (StatusItem item : items) if (isLive(item, now)) live.add(item);
+        return live;
     }
 
     /**
@@ -129,8 +151,10 @@ public class StatusCacheManager {
         List<StatusItem> items = statusMap.get(uid);
         if (items == null || items.isEmpty()) return 0;
         Set<String> seen = seenMap.getOrDefault(uid, Collections.emptySet());
+        final long now = System.currentTimeMillis();
         int count = 0;
         for (StatusItem item : items) {
+            if (!isLive(item, now)) continue;
             if (!seen.contains(item.id)) count++;
         }
         return count;
@@ -138,7 +162,14 @@ public class StatusCacheManager {
 
     /** Saara status map return karo (StatusFragment ke liye) */
     public Map<String, List<StatusItem>> getAllStatuses() {
-        return Collections.unmodifiableMap(statusMap);
+        final long now = System.currentTimeMillis();
+        Map<String, List<StatusItem>> out = new LinkedHashMap<>();
+        for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
+            List<StatusItem> live = new ArrayList<>(e.getValue().size());
+            for (StatusItem item : e.getValue()) if (isLive(item, now)) live.add(item);
+            if (!live.isEmpty()) out.put(e.getKey(), live);
+        }
+        return Collections.unmodifiableMap(out);
     }
 
     /** Seen map return karo (StatusFragment ke liye) */
@@ -157,9 +188,47 @@ public class StatusCacheManager {
     }
 
     private void notifyObservers() {
-        for (StatusDataObserver o : observers) {
+        scheduleNextExpirySweep();
+        for (StatusDataObserver o : new ArrayList<>(observers)) {
             try { o.onStatusDataUpdated(); } catch (Exception ignored) {}
         }
+    }
+
+    // ── Auto expiry sweep ──────────────────────────────────────────────────
+    // FIX: story expire hone pe ring sirf tab hatti jab Firebase me koi write
+    // aata tha. Ab agli expiry ke exact time pe cache khud prune hota hai aur
+    // observers (StoryRingRegistry -> har screen ki ring) ko notify karta hai.
+    private final Handler expiryHandler = new Handler(Looper.getMainLooper());
+    private final Runnable expiryRunnable = this::sweepExpired;
+
+    private void scheduleNextExpirySweep() {
+        expiryHandler.removeCallbacks(expiryRunnable);
+        final long now = System.currentTimeMillis();
+        long next = Long.MAX_VALUE;
+        for (List<StatusItem> items : statusMap.values()) {
+            for (StatusItem item : items) {
+                if (item.expiresAt == null || item.expiresAt < now) continue;
+                if (item.expiresAt < next) next = item.expiresAt;
+            }
+        }
+        if (next == Long.MAX_VALUE) return;
+        long delay = Math.max(1_000L, next - now + 500L);
+        // Handler delay bohot lamba na ho (24h+) — max 10 min me re-evaluate.
+        expiryHandler.postDelayed(expiryRunnable, Math.min(delay, 10 * 60_000L));
+    }
+
+    private void sweepExpired() {
+        final long now = System.currentTimeMillis();
+        boolean changed = false;
+        for (java.util.Iterator<Map.Entry<String, List<StatusItem>>> it = statusMap.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<String, List<StatusItem>> e = it.next();
+            List<StatusItem> items = e.getValue();
+            for (java.util.Iterator<StatusItem> ii = items.iterator(); ii.hasNext(); ) {
+                if (!isLive(ii.next(), now)) { ii.remove(); changed = true; }
+            }
+            if (items.isEmpty()) it.remove();
+        }
+        if (changed) notifyObservers(); else scheduleNextExpirySweep();
     }
 
     // ── Firebase listener management ───────────────────────────────────────
@@ -183,6 +252,7 @@ public class StatusCacheManager {
     }
 
     public void stopListening() {
+        expiryHandler.removeCallbacks(expiryRunnable);
         if (statusListener != null && FirebaseUtils.getStatusRef() != null) {
             FirebaseUtils.getStatusRef().removeEventListener(statusListener);
             statusListener = null;

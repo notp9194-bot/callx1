@@ -5987,6 +5987,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         com.callx.app.cache.StatusCacheManager scm =
                 com.callx.app.cache.StatusCacheManager.getInstance(this);
+        // FIX: header ring ab live — story expire / seen hone pe screen khuli
+        // rehte hue bhi repaint hota hai (pehle sirf open/resume pe hota tha).
+        // Same View ke liye register() callback replace karta hai, to repeat
+        // calls safe hain.
+        com.callx.app.cache.StoryRingRegistry.register(this, ring, this::updateHeaderStoryRing);
         boolean hasUnseen = scm.hasUnseen(partnerUid);
         boolean hasAny = scm.hasStatus(partnerUid);
         int state = hasUnseen ? 2 : (hasAny ? 1 : 0);

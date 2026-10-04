@@ -3397,7 +3397,16 @@ public class HomeFragment extends Fragment
                 if (statusHolder[0] != null) {
                     for (DataSnapshot s : statusHolder[0].getChildren()) {
                         Long ts = s.child("timestamp").getValue(Long.class);
-                        if (ts == null || ts <= cutoff) continue;
+                        // FIX: deleted / expired story pe ring nahi. Pehle sirf
+                        // timestamp>24h cutoff tha — custom expiry (1/3/6/12h)
+                        // ya deleted story pe bhi ring dikhta tha.
+                        if (Boolean.TRUE.equals(s.child("deleted").getValue(Boolean.class))) continue;
+                        Long exp = s.child("expiresAt").getValue(Long.class);
+                        if (exp != null) {
+                            if (exp < System.currentTimeMillis()) continue;
+                        } else if (ts == null || ts <= cutoff) {
+                            continue;
+                        }
                         hasActive = true;
                         if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
                             allSeen = false; // at least one unseen

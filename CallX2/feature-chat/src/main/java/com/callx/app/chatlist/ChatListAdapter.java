@@ -833,6 +833,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             // marks ringUid's story seen — see StoryRingRegistry.
             Runnable refreshRing = () -> {
                 StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+                h.hasStoryNow = scm.hasUnseen(ringUid) || scm.hasStatus(ringUid);
                 if (!ringSelecting && scm.hasUnseen(ringUid)) {
                     h.storyRingView.setState(ChatListStoryRingView.STATE_UNSEEN);
                 } else if (!ringSelecting && scm.hasStatus(ringUid)) {

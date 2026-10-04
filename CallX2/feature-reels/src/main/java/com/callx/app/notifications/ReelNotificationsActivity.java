@@ -1135,6 +1135,9 @@ import com.callx.app.profile.UserReelsActivity;
               avatar.setTag("avatar");
               FrameLayout.LayoutParams avLp = new FrameLayout.LayoutParams(dp(40), dp(40));
               avLp.gravity = android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL;
+              // FIX: ring 46dp, avatar 40dp — dono START pe the, isliye avatar
+              // ring ke left me chipka rehta tha. 3dp margin = ring ke bilkul center me.
+              avLp.setMarginStart(dp(3));
               avatar.setImageResource(R.drawable.ic_person);
               avatarWrap.addView(avatar, avLp);
 
@@ -1283,6 +1286,16 @@ import com.callx.app.profile.UserReelsActivity;
               // photo + "and N others" text; everything else keeps the
               // original single-avatar + story-ring treatment.
               boolean stackMode = item.groupAvatarPhotos != null && item.groupAvatarPhotos.size() > 1;
+              // Ring wale single-avatar mode me avatar ring ke center me (3dp),
+              // stack mode me ring nahi hota to purana flush-left position.
+              if (h.ivAvatar.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+                  FrameLayout.LayoutParams avP = (FrameLayout.LayoutParams) h.ivAvatar.getLayoutParams();
+                  int wantStart = stackMode ? 0 : dp(3);
+                  if (avP.getMarginStart() != wantStart) {
+                      avP.setMarginStart(wantStart);
+                      h.ivAvatar.setLayoutParams(avP);
+                  }
+              }
               if (stackMode) {
                   h.ivStoryRing.setVisibility(View.GONE);
                   com.bumptech.glide.Glide.with(ReelNotificationsActivity.this)

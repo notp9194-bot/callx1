@@ -1075,22 +1075,11 @@ public class MainActivity extends AppCompatActivity
                                     ids.add(idNode.getKey());
                                 seenMap.put(ownerNode.getKey(), ids);
                             }
-                            long cutoff = System.currentTimeMillis()
-                                          - java.util.concurrent.TimeUnit.HOURS.toMillis(24);
-                            int count = 0;
-                            for (DataSnapshot ownerSnap : allStatusSnap.getChildren()) {
-                                String ownerUid = ownerSnap.getKey();
-                                if (uid.equals(ownerUid)) continue; // skip own statuses
-                                java.util.Set<String> seen =
-                                    seenMap.containsKey(ownerUid)
-                                        ? seenMap.get(ownerUid) : new java.util.HashSet<>();
-                                for (DataSnapshot statusItem : ownerSnap.getChildren()) {
-                                    Long ts = statusItem.child("timestamp").getValue(Long.class);
-                                    if (ts == null || ts <= cutoff) continue;
-                                    String sid = statusItem.getKey();
-                                    if (seen == null || !seen.contains(sid)) count++;
-                                }
-                            }
+                            // FIX: snapshot + seenMap yaad rakho taaki story expire
+                            // hone pe bina Firebase write ke badge dobara count ho sake.
+                            lastStatusSnap = allStatusSnap;
+                            lastStatusSeenMap = seenMap;
+                            int count = computeUnseenStatusCount(uid, allStatusSnap, seenMap);
                             setBadge(R.id.nav_status, count);
                             // Also update the header notification ball
                             notifStatusUnread = count;
@@ -1141,7 +1130,66 @@ public class MainActivity extends AppCompatActivity
             .child(uid).addValueEventListener(unreadReelNotifsListener);
     }
 
+    // ── Status badge: expiry-aware count ───────────────────────────────────
+    private DataSnapshot lastStatusSnap;
+    private java.util.Map<String, java.util.Set<String>> lastStatusSeenMap;
+    private final android.os.Handler statusBadgeHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable statusBadgeRecount = new Runnable() {
+        @Override public void run() {
+            String u = badgeListenersUid;
+            if (u == null || lastStatusSnap == null || lastStatusSeenMap == null) return;
+            int c = computeUnseenStatusCount(u, lastStatusSnap, lastStatusSeenMap);
+            setBadge(R.id.nav_status, c);
+            notifStatusUnread = c;
+            updateNotifBadge();
+        }
+    };
+
+    /**
+     * Unseen story count (own stories skip). Ek story tabhi count hoti hai jab:
+     *  - deleted nahi ho
+     *  - expiresAt guzra na ho (expiresAt na ho to 24h timestamp fallback)
+     *  - statusSeen me na ho
+     * Saath hi agli expiry pe recount schedule karta hai.
+     */
+    private int computeUnseenStatusCount(String myUid, DataSnapshot allStatusSnap,
+                                         java.util.Map<String, java.util.Set<String>> seenMap) {
+        final long now = System.currentTimeMillis();
+        final long cutoff = now - java.util.concurrent.TimeUnit.HOURS.toMillis(24);
+        long nextExpiry = Long.MAX_VALUE;
+        int count = 0;
+        for (DataSnapshot ownerSnap : allStatusSnap.getChildren()) {
+            String ownerUid = ownerSnap.getKey();
+            if (myUid.equals(ownerUid)) continue; // skip own statuses
+            java.util.Set<String> seen = seenMap.get(ownerUid);
+            for (DataSnapshot st : ownerSnap.getChildren()) {
+                if (Boolean.TRUE.equals(st.child("deleted").getValue(Boolean.class))) continue;
+                Long exp = st.child("expiresAt").getValue(Long.class);
+                Long ts  = st.child("timestamp").getValue(Long.class);
+                if (exp != null) {
+                    if (exp < now) continue;
+                    if (exp < nextExpiry) nextExpiry = exp;
+                } else {
+                    if (ts == null || ts <= cutoff) continue;
+                    long fallbackExp = ts + java.util.concurrent.TimeUnit.HOURS.toMillis(24);
+                    if (fallbackExp < nextExpiry) nextExpiry = fallbackExp;
+                }
+                if (seen == null || !seen.contains(st.getKey())) count++;
+            }
+        }
+        statusBadgeHandler.removeCallbacks(statusBadgeRecount);
+        if (nextExpiry != Long.MAX_VALUE) {
+            long delay = Math.max(1_000L, nextExpiry - now + 500L);
+            statusBadgeHandler.postDelayed(statusBadgeRecount, Math.min(delay, 10 * 60_000L));
+        }
+        return count;
+    }
+
     private void detachBadgeListeners() {
+        statusBadgeHandler.removeCallbacks(statusBadgeRecount);
+        lastStatusSnap = null;
+        lastStatusSeenMap = null;
         String uid = badgeListenersUid;
         if (uid != null) {
             if (unreadChatsListener != null) {
