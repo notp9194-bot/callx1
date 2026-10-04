@@ -265,6 +265,14 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
         updates.put("reels/users/" + myUid, profile);
         updates.put("reels/handles/" + handle, myUid);
 
+        // SAHI-APPROACH FIX: mirror name+photo into the canonical chat node
+        // too (see ReelEditProfileActivity's matching fix for the full
+        // reasoning) — covers the case where the user picks a different
+        // name/photo during first-time Reels setup than what chat already
+        // has, not just later edits.
+        if (!name.isEmpty())     updates.put("users/" + myUid + "/name", name);
+        if (!pendingPhoto.isEmpty()) updates.put("users/" + myUid + "/photoUrl", pendingPhoto);
+
         com.google.firebase.database.FirebaseDatabase.getInstance(
             com.callx.app.utils.Constants.DB_URL)
             .getReference()

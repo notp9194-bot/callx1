@@ -194,6 +194,42 @@ public class ProfileActivity extends AppCompatActivity {
      * BlurHash string, and patches it onto both Firebase copies of this
      * user's profile.
      */
+    /**
+     * SAHI-APPROACH FIX (reverse direction): ReelEditProfileActivity/
+     * ReelProfileSetupActivity and XProfileManager already mirror name+
+     * photo INTO users/{uid} on their own saves (see those files). This is
+     * the other half — chat's own "name" edit (this screen) mirroring OUT
+     * to reels/users/{uid} and x/users/{uid}, so a chat-side rename doesn't
+     * leave a stale name sitting in Reels/X either. Same flat-leaf-path
+     * technique as the fixes above (never a nested-object set), so this
+     * can't wipe any sibling field in either node. YouTube's
+     * youtube/channels/{uid} is deliberately NOT included — a channel name
+     * is a real, independent brand choice on YouTube itself, not an alias
+     * for your chat name, so syncing it would be wrong, not just risky.
+     */
+    private static void mirrorNameToOtherProfileStores(String uid, String name) {
+        if (uid == null || uid.isEmpty() || name == null || name.isEmpty()) return;
+        com.google.firebase.database.DatabaseReference root =
+            com.google.firebase.database.FirebaseDatabase.getInstance().getReference();
+        root.child("reels/users").child(uid).child("displayName").setValue(name);
+        root.child("x/users").child(uid).child("name").setValue(name);
+    }
+
+    /**
+     * Same reverse-direction mirror as mirrorNameToOtherProfileStores(),
+     * for the avatar (thumb/full) instead of the name — called from both
+     * onThumbReady() and onFullReady() below with the field that just
+     * changed. field is "thumbUrl" or "photoUrl" in both reels/users and
+     * x/users, matching the names already used in users/{uid} itself.
+     */
+    private static void mirrorAvatarToOtherProfileStores(String uid, String field, String url) {
+        if (uid == null || uid.isEmpty() || url == null || url.isEmpty()) return;
+        com.google.firebase.database.DatabaseReference root =
+            com.google.firebase.database.FirebaseDatabase.getInstance().getReference();
+        root.child("reels/users").child(uid).child(field).setValue(url);
+        root.child("x/users").child(uid).child(field).setValue(url);
+    }
+
     private static void generateAndAttachAvatarBlurHash(android.content.Context appCtx, String uid, String thumbUrl) {
         if (uid == null || uid.isEmpty() || thumbUrl == null || thumbUrl.isEmpty()) return;
         new Thread(() -> {
@@ -242,6 +278,7 @@ public class ProfileActivity extends AppCompatActivity {
                         .child("thumbUrl").setValue(thumbUrl);
                     FirebaseUtils.getUserRef(currentUid)
                         .child("avatarVersion").setValue(currentAvatarVersion);
+                    mirrorAvatarToOtherProfileStores(currentUid, "thumbUrl", thumbUrl);
                     // Room cache update
                     long newVersion = currentAvatarVersion;
                     Executors.newSingleThreadExecutor().execute(() -> {
@@ -274,6 +311,7 @@ public class ProfileActivity extends AppCompatActivity {
                     currentPhoto = photoUrl;
                     FirebaseUtils.getUserRef(currentUid)
                         .child("photoUrl").setValue(photoUrl);
+                    mirrorAvatarToOtherProfileStores(currentUid, "photoUrl", photoUrl);
                     // Room cache update
                     Executors.newSingleThreadExecutor().execute(() -> {
                         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
@@ -346,6 +384,7 @@ public class ProfileActivity extends AppCompatActivity {
         FirebaseAuth.getInstance().getCurrentUser()
             .updateProfile(new UserProfileChangeRequest.Builder()
                 .setDisplayName(name).build());
+        mirrorNameToOtherProfileStores(currentUid, name);
         Toast.makeText(this, "Profile saved", Toast.LENGTH_SHORT).show();
         finish();
     }

@@ -137,6 +137,23 @@ public class XProfileManager {
     private static void writeProfileThenReleaseOldHandle(String uid, XProfile profile,
             String prevHandle, String newHandle, SaveCallback cb) {
         Map<String, Object> updates = profile.toProfileMap();
+        // SAHI-APPROACH FIX: same reasoning as ReelEditProfileActivity's
+        // matching fix — mirror just the name into the canonical chat node
+        // (users/{uid}) so chat doesn't keep showing a stale name after an
+        // X profile edit. X doesn't have its own photo-edit UI in this
+        // codebase yet (photoUrl/thumbUrl aren't in toProfileMap() at all —
+        // see XProfile.java), so there's no photo drift to fix here.
+        // NOTE: xUserRef(uid) is already scoped to "x/users/{uid}" (see
+        // XFirebaseUtils.root() = getReference("x")) — a key like
+        // "users/{uid}/name" inside THIS updateChildren() would land at
+        // "x/users/{uid}/users/{uid}/name", not the chat node. So the
+        // mirror has to be its own separate write against the true DB
+        // root, not folded into this map.
+        if (profile.name != null && !profile.name.isEmpty()) {
+            com.google.firebase.database.FirebaseDatabase.getInstance(Constants.DB_URL)
+                .getReference("users").child(uid).child("name")
+                .setValue(profile.name);
+        }
         XFirebaseUtils.xUserRef(uid).updateChildren(updates)
             .addOnSuccessListener(v -> {
                 if (!newHandle.equals(prevHandle) && !prevHandle.isEmpty()) {

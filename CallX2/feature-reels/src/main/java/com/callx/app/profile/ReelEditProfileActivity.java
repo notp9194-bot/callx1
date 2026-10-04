@@ -297,6 +297,20 @@ public class ReelEditProfileActivity extends AppCompatActivity {
         rootUpdates.put(base + "bannerUrl",         pendingBanner);
         rootUpdates.put(base + "updatedAt",         System.currentTimeMillis());
 
+        // SAHI-APPROACH FIX (scoped — see class doc above for the 4 separate
+        // profile stores this app still has): don't attempt a full
+        // unification here — that would mean rewriting every read call site
+        // across feature-x/feature-reels too, unverifiable without a
+        // compiler in this environment. Instead, mirror just name+photo
+        // into the CANONICAL chat node (users/{uid}) on every save, so the
+        // one user-visible symptom — chat still showing the OLD name/photo
+        // after someone edits their Reels profile — stops happening. Flat
+        // per-leaf paths again (not a nested object set at "users/{uid}"),
+        // so this can never wipe unrelated chat-only fields (status, fcmToken,
+        // etc.) the way the old reels/users/{uid} bug (see comment above) did.
+        if (!name.isEmpty())        rootUpdates.put("users/" + myUid + "/name", name);
+        if (!pendingPhoto.isEmpty()) rootUpdates.put("users/" + myUid + "/photoUrl", pendingPhoto);
+
         // If handle changed: update handle index too
         if (!handle.equals(currentHandle)) {
             // Remove old handle index
