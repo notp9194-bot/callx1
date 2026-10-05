@@ -37,7 +37,7 @@ import java.util.List;
  *  - Bookmarks accessible from overflow → opens CommunityBookmarksActivity
  *  - Discover link for unauthenticated / non-member view
  */
-public class CommunityActivity extends AppCompatActivity {
+public class CommunityActivity extends AppCompatActivity implements CommunityFeedFragment.ComposeHost {
 
     public static final String EXTRA_COMMUNITY_ID = "communityId";
 
@@ -359,9 +359,23 @@ public class CommunityActivity extends AppCompatActivity {
     }
 
     private void openComposer() {
+        openComposer(false);
+    }
+
+    // ── CommunityFeedFragment.ComposeHost ──
+    /** FAB jab dikh raha ho wahi "post kar sakta hai" ka single source of truth (private-community gate). */
+    @Override
+    public boolean canCompose() {
+        return fabCompose != null && fabCompose.getVisibility() == View.VISIBLE;
+    }
+
+    /** `announcement` = true => composer me "Announcement" checkbox pehle se checked (sirf admin/owner ko dikhta hai). */
+    @Override
+    public void openComposer(boolean announcement) {
         boolean canAnnounce = CommunityRole.isAdminOrOwner(myRole);
         startActivity(new Intent(this, CommunityPostComposerActivity.class)
                 .putExtra(CommunityPostComposerActivity.EXTRA_COMMUNITY_ID, communityId)
-                .putExtra(CommunityPostComposerActivity.EXTRA_CAN_ANNOUNCE, canAnnounce));
+                .putExtra(CommunityPostComposerActivity.EXTRA_CAN_ANNOUNCE, canAnnounce)
+                .putExtra(CommunityPostComposerActivity.EXTRA_IS_ANNOUNCEMENT, announcement && canAnnounce));
     }
 }

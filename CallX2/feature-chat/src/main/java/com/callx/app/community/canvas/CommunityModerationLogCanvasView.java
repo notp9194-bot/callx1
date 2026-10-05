@@ -123,6 +123,8 @@ public class CommunityModerationLogCanvasView extends View {
             case "approve_join": return "Approved Join";
             case "reject_join":  return "Rejected Join";
             case "report_post":  return "Reported Post";
+            case "pin_post":     return "Pinned Post";
+            case "unpin_post":   return "Unpinned Post";
             default:             return action;
         }
     }
@@ -135,6 +137,8 @@ public class CommunityModerationLogCanvasView extends View {
             case "delete_post":
             case "report_post":  return Color.parseColor("#FF9800");
             case "make_admin":
+            case "pin_post":
+            case "unpin_post":
             case "approve_join": return Color.parseColor("#2196F3");
             case "unban":
             case "unmute":       return Color.parseColor("#4CAF50");

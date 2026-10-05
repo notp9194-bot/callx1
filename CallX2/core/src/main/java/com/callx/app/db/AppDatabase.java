@@ -83,7 +83,7 @@ import com.callx.app.db.entity.*;
         // ThumbHashCacheEntity's class doc.
         ThumbHashCacheEntity.class
     },
-    version = 73,
+    version = 74,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -1121,6 +1121,15 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    // v74: community_posts.editedAt — post edit timestamp ("edited" label). NOT NULL DEFAULT 0 =>
+    // purani rows "kabhi edit nahi hui" ban jaati hain, backfill ki zarurat nahi.
+    static final Migration MIGRATION_73_74 = new Migration(73, 74) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE community_posts ADD COLUMN editedAt INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1190,7 +1199,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_66_67, MIGRATION_67_68,
                                     MIGRATION_68_69, MIGRATION_69_70,
                                     MIGRATION_70_71, MIGRATION_71_72,
-                                    MIGRATION_72_73)
+                                    MIGRATION_72_73, MIGRATION_73_74)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

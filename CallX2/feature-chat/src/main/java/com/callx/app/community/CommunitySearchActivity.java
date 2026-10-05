@@ -21,6 +21,8 @@ import com.google.android.material.tabs.TabLayoutMediator;
 public class CommunitySearchActivity extends AppCompatActivity {
 
     public static final String EXTRA_COMMUNITY_ID = "communityId";
+    /** Optional: search screen is query ke saath khule (jaise feed se #hashtag tap). */
+    public static final String EXTRA_QUERY = "query";
 
     private String communityId;
     private SearchView searchView;
@@ -85,6 +87,12 @@ public class CommunitySearchActivity extends AppCompatActivity {
                 return true;
             }
         });
+
+        String initialQuery = getIntent().getStringExtra(EXTRA_QUERY);
+        if (initialQuery != null && !initialQuery.trim().isEmpty()) {
+            searchView.setIconified(false);
+            searchView.setQuery(initialQuery, false); // listener forwardQuery() khud chala dega
+        }
     }
 
     private void forwardQuery(String query) {

@@ -62,6 +62,9 @@ public class CommunityPostEntity {
     public long bookmarkCount;        // saves/bookmarks
     public long shareCount;           // shares out
 
+    // v74: post edit hua to kab (0 = kabhi edit nahi) — card par "edited" label
+    public long editedAt;
+
     public CommunityPostEntity() {
         this.syncedAt = System.currentTimeMillis();
     }

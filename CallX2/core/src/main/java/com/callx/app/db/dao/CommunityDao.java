@@ -94,10 +94,10 @@ public interface CommunityDao {
     // from any member re-queries and re-diffs the whole history on every
     // tap. Capping with LIMIT keeps that cost constant no matter how big
     // the community's history has grown.
-    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 0 ORDER BY createdAt DESC LIMIT :limit")
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 0 ORDER BY pinned DESC, createdAt DESC LIMIT :limit")
     LiveData<List<CommunityPostEntity>> observeFeedWindowed(String communityId, int limit);
 
-    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 1 ORDER BY createdAt DESC LIMIT :limit")
+    @Query("SELECT * FROM community_posts WHERE communityId = :communityId AND isAnnouncement = 1 ORDER BY pinned DESC, createdAt DESC LIMIT :limit")
     LiveData<List<CommunityPostEntity>> observeAnnouncementsWindowed(String communityId, int limit);
 
     /** PERF: keyset ("load older") pagination for posts already cached
@@ -128,6 +128,13 @@ public interface CommunityDao {
     /** v31: cache the current user's own reaction on a post */
     @Query("UPDATE community_posts SET myReactionType = :reactionType WHERE id = :postId")
     void updateMyReaction(String postId, String reactionType);
+
+    /** Pinned posts feed me sabse upar (windowed queries me `pinned DESC` order). */
+    @Query("UPDATE community_posts SET pinned = :pinned WHERE id = :postId")
+    void updatePostPinned(String postId, boolean pinned);
+
+    @Query("UPDATE community_posts SET text = :text, editedAt = :editedAt WHERE id = :postId")
+    void updatePostText(String postId, String text, long editedAt);
 
     @Query("DELETE FROM community_posts WHERE id = :postId")
     void deletePost(String postId);

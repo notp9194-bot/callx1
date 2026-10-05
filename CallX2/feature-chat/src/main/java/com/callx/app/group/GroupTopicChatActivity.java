@@ -360,27 +360,105 @@ public class GroupTopicChatActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    // ── Simple inline adapter ─────────────────────────────────────────────
-    private class TopicMessageAdapter extends RecyclerView.Adapter<TopicMessageAdapter.VH> {
-        private static final int VIEW_SENT = 0, VIEW_RECV = 1;
+    // ── Inline adapter ────────────────────────────────────────────────────
+    // Text + deleted messages MessageBubbleCanvasView (Canvas) se render hote
+    // hain — 1:1/group chat jaisa hi bubble. Baaki types (topic chat me abhi
+    // sirf text bhejte hain, par purane/unknown data ke liye) XML fallback.
+    private class TopicMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        private static final int VIEW_SENT = 0, VIEW_RECV = 1,
+                VIEW_CANVAS_SENT = 2, VIEW_CANVAS_RECV = 3;
         private final String myUid;
         TopicMessageAdapter(String uid) { myUid = uid; }
 
+        private boolean isSentByMe(Message m) {
+            return myUid.equals(m.senderId) && !Boolean.TRUE.equals(m.isAnonymous);
+        }
+
+        private boolean isCanvasEligible(Message m) {
+            if (Boolean.TRUE.equals(m.deleted)) return true;
+            return m.type == null || "text".equals(m.type);
+        }
+
         @Override public int getItemViewType(int pos) {
-            String sid = messages.get(pos).senderId;
-            return myUid.equals(sid) && !(Boolean.TRUE.equals(messages.get(pos).isAnonymous)) ? VIEW_SENT : VIEW_RECV;
+            Message m = messages.get(pos);
+            boolean sent = isSentByMe(m);
+            if (isCanvasEligible(m)) return sent ? VIEW_CANVAS_SENT : VIEW_CANVAS_RECV;
+            return sent ? VIEW_SENT : VIEW_RECV;
         }
 
         @NonNull @Override
-        public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            if (viewType == VIEW_CANVAS_SENT || viewType == VIEW_CANVAS_RECV) {
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView cv =
+                        new com.callx.app.conversation.canvas.MessageBubbleCanvasView(parent.getContext());
+                cv.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT,
+                        RecyclerView.LayoutParams.WRAP_CONTENT));
+                cv.setSaveEnabled(false);
+                return new CanvasVH(cv);
+            }
             int layout = viewType == VIEW_SENT
                     ? R.layout.item_message_sent : R.layout.item_message_received;
             View v = LayoutInflater.from(parent.getContext()).inflate(layout, parent, false);
             return new VH(v);
         }
 
-        @Override public void onBindViewHolder(@NonNull VH h, int pos) { h.bind(messages.get(pos)); }
+        @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
+            Message m = messages.get(pos);
+            if (h instanceof CanvasVH) ((CanvasVH) h).bind(m);
+            else ((VH) h).bind(m);
+        }
+
         @Override public int getItemCount() { return messages.size(); }
+
+        private String timeOf(Message m) {
+            if (m.timestamp == null || m.timestamp <= 0) return "";
+            return new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                    .format(new java.util.Date(m.timestamp));
+        }
+
+        class CanvasVH extends RecyclerView.ViewHolder {
+            final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv;
+            CanvasVH(com.callx.app.conversation.canvas.MessageBubbleCanvasView v) {
+                super(v);
+                cv = v;
+            }
+            void bind(Message m) {
+                final boolean sent = isSentByMe(m);
+                final boolean deleted = Boolean.TRUE.equals(m.deleted);
+                final boolean isRead = "read".equals(m.status);
+                final boolean isDelivered = isRead || "delivered".equals(m.status);
+                String timeStr = timeOf(m);
+                if (Boolean.TRUE.equals(m.edited)) timeStr = timeStr + "  \u270F\uFE0F edited";
+                cv.setEdited(Boolean.TRUE.equals(m.edited) && !deleted);
+
+                String text;
+                if (deleted) {
+                    text = sent ? "You deleted this message" : "This message was deleted";
+                } else {
+                    text = m.text != null ? m.text : "";
+                    if (com.callx.app.utils.SpoilerTextHelper.hasSpoiler(text)) {
+                        text = com.callx.app.utils.SpoilerTextHelper.stripMarkers(text);
+                    }
+                }
+                cv.bind(text, timeStr, sent, isRead, isDelivered);
+                cv.setDeletedStyle(deleted);
+                cv.setQuickForwardVisible(false);
+                cv.setTextExpanded(false);
+                cv.setReadMoreListener(null);
+
+                // Sender name: sirf received bubbles pe (sent pe clear — recycled view).
+                cv.setGroupSenderAvatarVisible(false);
+                if (sent) {
+                    cv.clearGroupSender();
+                } else {
+                    boolean anon = Boolean.TRUE.equals(m.isAnonymous);
+                    String name = anon ? "Anonymous" : m.senderName;
+                    // Anonymous ke liye uid pass nahi — color se identity leak na ho.
+                    cv.setGroupSender(name, anon ? null : m.senderId);
+                }
+            }
+        }
 
         class VH extends RecyclerView.ViewHolder {
             TextView tvText, tvSender, tvTime;
@@ -393,12 +471,11 @@ public class GroupTopicChatActivity extends AppCompatActivity {
             void bind(Message m) {
                 if (tvText   != null) tvText.setText(m.text);
                 if (tvSender != null) {
-                    tvSender.setText(m.isAnonymous ? "Anonymous" : m.senderName);
+                    tvSender.setText(Boolean.TRUE.equals(m.isAnonymous) ? "Anonymous" : m.senderName);
                     tvSender.setVisibility(View.VISIBLE);
                 }
                 if (tvTime != null && m.timestamp != null && m.timestamp > 0) {
-                    tvTime.setText(new java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                            .format(new java.util.Date(m.timestamp)));
+                    tvTime.setText(timeOf(m));
                 }
             }
         }

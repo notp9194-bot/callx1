@@ -23,6 +23,12 @@ public interface OnPostClickListener {
     default void onOptionsClick() {}
     /** Tapped an @mention span inside the post text at the given uid, if resolvable. */
     default void onMentionClick(String rawMention) {}
+    /** Post text me link (http/https/www/domain) tap hua. */
+    default void onLinkClick(String url) {}
+    /** Post text me #hashtag tap hua (leading '#' ke saath). */
+    default void onHashtagClick(String hashtag) {}
+    /** "Read more"/"Show less" toggle hua — view khud expand/collapse karta hai; host state yaad rakh sakta hai. */
+    default void onTextExpandToggled(boolean expanded) {}
     /** Tapped the single media card (image/video). */
     default void onMediaClick() {}
     /** Tapped cell `index` inside a multi-image media group grid. */

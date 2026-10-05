@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/swipe_refresh"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -17,7 +18,14 @@
             android:clipToPadding="false"
             android:paddingBottom="72dp"/>
 
-        <!-- Empty state -->
+        <!-- Loading skeleton: pehli sync/cached data aane tak -->
+        <com.callx.app.community.canvas.CommunityFeedSkeletonView
+            android:id="@+id/skeleton_feed"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"/>
+
+        <!-- Empty state: icon + title + subtitle + (role-gated) create button -->
         <LinearLayout
             android:id="@+id/empty_feed"
             android:layout_width="match_parent"
@@ -27,10 +35,19 @@
             android:padding="32dp"
             android:visibility="gone">
 
+            <ImageView
+                android:id="@+id/iv_empty_icon"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:importantForAccessibility="no"
+                android:alpha="0.7"
+                android:src="@drawable/ic_empty_feed"/>
+
             <TextView
                 android:id="@+id/tv_empty_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
                 android:text="No posts yet"
                 android:textSize="18sp"
                 android:textStyle="bold"
@@ -41,10 +58,23 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:maxWidth="280dp"
                 android:text="Be the first to post in this community"
                 android:textSize="14sp"
                 android:textColor="@color/text_muted"
                 android:gravity="center"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_empty_create"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:minWidth="160dp"
+                android:text="Create post"
+                android:textColor="@color/text_on_primary"
+                app:backgroundTint="@color/brand_primary"
+                app:cornerRadius="24dp"
+                android:visibility="gone"/>
 
         </LinearLayout>
 

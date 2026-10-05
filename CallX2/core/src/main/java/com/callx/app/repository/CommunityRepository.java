@@ -887,17 +887,34 @@ public class CommunityRepository {
     }
 
     public void syncRecentPosts(String communityId, boolean announcements) {
+        syncRecentPosts(communityId, announcements, null);
+    }
+
+    /**
+     * Pull-to-refresh: same sync, par `done` (main thread) tab fire hota hai jab Room me insert
+     * ho chuka ho ya Firebase ne error diya. Pehle koi completion signal nahi tha.
+     */
+    public void syncRecentPosts(String communityId, boolean announcements, @Nullable SimpleCallback done) {
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
         communitiesRef().child(communityId).child("posts")
                 .orderByChild("isAnnouncement").equalTo(announcements)
                 .limitToLast(PAGE_SIZE)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@Nullable DataSnapshot s) {
-                        if (s == null) return;
+                        if (s == null) {
+                            if (done != null) main.post(() -> done.onComplete(false, "No data"));
+                            return;
+                        }
                         List<CommunityPostEntity> list = new ArrayList<>();
                         for (DataSnapshot ps : s.getChildren()) list.add(parsePost(communityId, ps));
-                        mExecutor.execute(() -> mDao.insertPosts(list));
+                        mExecutor.execute(() -> {
+                            mDao.insertPosts(list);
+                            if (done != null) main.post(() -> done.onComplete(true, null));
+                        });
                     }
-                    @Override public void onCancelled(@Nullable DatabaseError e) {}
+                    @Override public void onCancelled(@Nullable DatabaseError e) {
+                        if (done != null) main.post(() -> done.onComplete(false, e != null ? e.getMessage() : "Cancelled"));
+                    }
                 });
     }
 
@@ -913,6 +930,30 @@ public class CommunityRepository {
                                     String authorPhoto, String text, @Nullable String mediaUrl,
                                     @Nullable String mediaType, boolean isAnnouncement,
                                     @Nullable CommunityPoll poll, long scheduledOriginMs, SimpleCallback cb) {
+        createPostInternal(communityId, authorUid, authorName, authorPhoto, text, mediaUrl, mediaType,
+                isAnnouncement, poll, scheduledOriginMs, null, null, cb);
+    }
+
+    /** JSON string array ("[\"a\",\"b\"]") -> List<String>; invalid/empty -> empty list. */
+    private static List<String> jsonStringList(@Nullable String json) {
+        List<String> out = new ArrayList<>();
+        if (json == null || json.isEmpty()) return out;
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                String v = arr.optString(i, "");
+                if (v != null && !v.isEmpty() && !"null".equals(v)) out.add(v);
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+
+    private void createPostInternal(String communityId, String authorUid, String authorName,
+                                    String authorPhoto, String text, @Nullable String mediaUrl,
+                                    @Nullable String mediaType, boolean isAnnouncement,
+                                    @Nullable CommunityPoll poll, long scheduledOriginMs,
+                                    @Nullable String mediaUrlsJson, @Nullable String mediaTypesJson,
+                                    SimpleCallback cb) {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
         Map<String, Object> data = new HashMap<>();
@@ -924,6 +965,14 @@ public class CommunityRepository {
         data.put("pinned", false);
         data.put("likeCount", 0L); data.put("commentCount", 0L);
         data.put("createdAt", now);
+        // FIX: multi-photo post — pehle mediaUrlsJson/mediaTypesJson kahin save nahi hota tha
+        // (sirf pehli image jaati thi), to feed grid ke paas data hi nahi tha.
+        final List<String> groupUrls = jsonStringList(mediaUrlsJson);
+        if (groupUrls.size() >= 2) {
+            data.put("mediaUrls", groupUrls);
+            List<String> gt = jsonStringList(mediaTypesJson);
+            if (!gt.isEmpty()) data.put("mediaTypes", gt);
+        }
         if (scheduledOriginMs > 0) data.put("scheduledAt", scheduledOriginMs);
         if (poll != null) {
             Map<String, Object> pollMap = new HashMap<>();
@@ -952,6 +1001,10 @@ public class CommunityRepository {
                     post.text = text; post.mediaUrl = mediaUrl; post.mediaType = mediaType;
                     post.isAnnouncement = isAnnouncement; post.createdAt = now;
                     post.scheduledAt = scheduledOriginMs;
+                    if (groupUrls.size() >= 2) {
+                        post.mediaUrlsJson = mediaUrlsJson;
+                        post.mediaTypesJson = mediaTypesJson;
+                    }
                     if (poll != null) post.pollJson = poll.toJson();
                     mExecutor.execute(() -> {
                         mDao.insertPost(post);
@@ -967,9 +1020,20 @@ public class CommunityRepository {
                                        @Nullable String mediaType, boolean isAnnouncement,
                                        @Nullable CommunityPoll poll, List<String> mentionedUids,
                                        SimpleCallback cb) {
+        createPostWithMentions(communityId, authorUid, authorName, authorPhoto, text, mediaUrl,
+                mediaType, isAnnouncement, poll, mentionedUids, null, null, cb);
+    }
+
+    public void createPostWithMentions(String communityId, String authorUid, String authorName,
+                                       String authorPhoto, String text, @Nullable String mediaUrl,
+                                       @Nullable String mediaType, boolean isAnnouncement,
+                                       @Nullable CommunityPoll poll, List<String> mentionedUids,
+                                       @Nullable String mediaUrlsJson, @Nullable String mediaTypesJson,
+                                       SimpleCallback cb) {
         // Same as createPost but also dispatches mention notifications
         createPostInternal(communityId, authorUid, authorName, authorPhoto, text,
-                mediaUrl, mediaType, isAnnouncement, poll, 0L, (success, error) -> {
+                mediaUrl, mediaType, isAnnouncement, poll, 0L, mediaUrlsJson, mediaTypesJson,
+                (success, error) -> {
                     if (success && mentionedUids != null) {
                         for (String uid : mentionedUids) {
                             if (!uid.equals(authorUid)) {
@@ -1466,6 +1530,18 @@ public class CommunityRepository {
         return m;
     }
 
+    /** Firebase list node -> JSON array string, ya null agar khali. */
+    @Nullable
+    private static String childStringsToJson(DataSnapshot node) {
+        if (node == null || !node.exists()) return null;
+        org.json.JSONArray arr = new org.json.JSONArray();
+        for (DataSnapshot c : node.getChildren()) {
+            String v = c.getValue(String.class);
+            if (v != null && !v.isEmpty()) arr.put(v);
+        }
+        return arr.length() > 0 ? arr.toString() : null;
+    }
+
     private CommunityPostEntity parsePost(String communityId, DataSnapshot s) {
         CommunityPostEntity p = new CommunityPostEntity();
         p.id          = s.getKey();
@@ -1480,6 +1556,10 @@ public class CommunityRepository {
         p.isAnnouncement = announcement != null && announcement;
         Boolean pinned = s.child("pinned").getValue(Boolean.class);
         p.pinned   = pinned != null && pinned;
+        p.editedAt = longOrZero(s.child("editedAt"));
+        // Multi-photo post: Firebase list -> JSON array string (entity format)
+        p.mediaUrlsJson  = childStringsToJson(s.child("mediaUrls"));
+        p.mediaTypesJson = childStringsToJson(s.child("mediaTypes"));
         p.likeCount    = longOrZero(s.child("likeCount"));
         p.commentCount = longOrZero(s.child("commentCount"));
         p.createdAt    = longOrZero(s.child("createdAt"));
@@ -1558,6 +1638,42 @@ public class CommunityRepository {
     public void incrementPostShareCount(String communityId, String postId) {
         communitiesRef().child(communityId).child("posts").child(postId)
                 .child("shareCount")
+                .setValue(com.google.firebase.database.ServerValue.increment(1L));
+    }
+
+    /** Admin/owner: post pin ya unpin. Firebase + local Room dono update, moderation log me entry. */
+    public void setPostPinned(String communityId, String postId, boolean pinned,
+                              String adminUid, @Nullable String adminName, SimpleCallback cb) {
+        communitiesRef().child(communityId).child("posts").child(postId).child("pinned")
+                .setValue(pinned, (err, ref) -> {
+                    if (err != null) { if (cb != null) cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> {
+                        mDao.updatePostPinned(postId, pinned);
+                        logModerationAction(communityId, adminUid, adminName, null, null,
+                                pinned ? "pin_post" : "unpin_post", null, postId);
+                    });
+                    if (cb != null) cb.onComplete(true, null);
+                });
+    }
+
+    /** Author: post ka text edit. Firebase + local Room update. */
+    public void editPostText(String communityId, String postId, String newText, SimpleCallback cb) {
+        final long editedAt = System.currentTimeMillis();
+        Map<String, Object> upd = new HashMap<>();
+        upd.put("text", newText != null ? newText : "");
+        upd.put("editedAt", editedAt);
+        communitiesRef().child(communityId).child("posts").child(postId)
+                .updateChildren(upd, (err, ref) -> {
+                    if (err != null) { if (cb != null) cb.onComplete(false, err.getMessage()); return; }
+                    mExecutor.execute(() -> mDao.updatePostText(postId, newText != null ? newText : "", editedAt));
+                    if (cb != null) cb.onComplete(true, null);
+                });
+    }
+
+    /** Unique member view counter (caller dedupe karta hai — ek user, ek post, ek baar). */
+    public void incrementPostViewCount(String communityId, String postId) {
+        communitiesRef().child(communityId).child("posts").child(postId)
+                .child("viewCount")
                 .setValue(com.google.firebase.database.ServerValue.increment(1L));
     }
 
@@ -1665,7 +1781,8 @@ public class CommunityRepository {
             }
         }
         createPostWithMentions(communityId, authorUid, authorName, authorPhoto, text,
-                mediaUrl, mediaType, isAnnouncement, null, mentionedUids, cb);
+                mediaUrl, mediaType, isAnnouncement, null, mentionedUids,
+                mediaUrlsJson, mediaTypesJson, cb);
     }
 
 

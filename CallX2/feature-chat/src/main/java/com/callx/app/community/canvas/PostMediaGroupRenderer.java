@@ -30,6 +30,7 @@ final class PostMediaGroupRenderer {
     final List<RectF> cellRects = new ArrayList<>();
     private int lastCount = -1;
     private float lastWidth = -1f;
+    private float lastLeft = Float.NaN, lastTop = Float.NaN;
 
     PostMediaGroupRenderer(CommunityPostCanvasView host) {
         this.host = host;
@@ -38,12 +39,18 @@ final class PostMediaGroupRenderer {
     /** Lays out cellRects for `count` items within [left, right] starting at `top`. Returns bottom y. */
     float layout(float left, float top, float right, int count) {
         float width = right - left;
-        if (count == lastCount && width == lastWidth && !cellRects.isEmpty()) {
+        // FIX: cache ab left/top bhi dekhta hai. Pehle sirf count+width the, to recycled
+        // card (alag text height => alag top) purani y-position pe grid draw karta tha.
+        if (count == lastCount && width == lastWidth && left == lastLeft && top == lastTop
+                && !cellRects.isEmpty()) {
             float bottom = 0f;
             for (RectF r : cellRects) bottom = Math.max(bottom, r.bottom);
             return bottom;
         }
         cellRects.clear();
+        // Rects absolute coords me hain — clip Path / BitmapShader cache bhi invalid.
+        java.util.Arrays.fill(host.mediaGroupClipW, -1f);
+        java.util.Arrays.fill(host.mediaGroupShaderBitmap, null);
         float gap = host.mediaGroupGap;
         float height = host.mediaGroupHeight;
 
@@ -71,6 +78,8 @@ final class PostMediaGroupRenderer {
         }
         lastCount = count;
         lastWidth = width;
+        lastLeft = left;
+        lastTop = top;
         float bottom = 0f;
         for (RectF r : cellRects) bottom = Math.max(bottom, r.bottom);
         return bottom;

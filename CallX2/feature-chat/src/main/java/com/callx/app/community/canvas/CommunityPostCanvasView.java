@@ -188,6 +188,97 @@ public class CommunityPostCanvasView extends View {
 
     private OnPostClickListener listener;
 
+    // ── Read more ──
+    boolean textExpanded;
+
+    /** Adapter bind ke baad expand state set karta hai (recycle me state bachane ke liye). */
+    public void setTextExpanded(boolean expanded) {
+        if (textExpanded == expanded) return;
+        textExpanded = expanded;
+        requestLayout();
+        invalidate();
+    }
+
+    // ── Pressed feedback ──
+    // FIX: pehle card/like/comment tap par koi visual feedback nahi tha. Ab touch-down par
+    // (tap-timeout ke baad, taaki scroll shuru hote hi flash na ho) hit region par halka overlay.
+    private Paint pressedPaint;
+    private final RectF pressedRect = new RectF();
+    private float pressedRadius;
+    private boolean pressedValid, pressedShown;
+    private static final int PRESSED_ALPHA_CARD = 0x14;   // ~8%
+    private static final int PRESSED_ALPHA_SMALL = 0x2A;  // ~16% (icons / avatar / media)
+    private final Runnable showPressedRunnable = () -> {
+        if (pressedValid && !pressedShown) { pressedShown = true; invalidate(); }
+    };
+    private final Runnable clearPressedRunnable = this::clearPressed;
+
+    private void clearPressed() {
+        removeCallbacks(showPressedRunnable);
+        removeCallbacks(clearPressedRunnable);
+        if (pressedShown) invalidate();
+        pressedValid = false;
+        pressedShown = false;
+    }
+
+    /** Touch-down point ke hisaab se highlight rect + radius chuno. */
+    private void classifyPressedTarget(float x, float y) {
+        pressedValid = false;
+        if (x < cardLeft || x > cardRight) return;
+        final float pad = 6 * density;
+        if (optionsButtonRect.contains(x, y)) { setPressedCircle(optionsButtonRect, pad); return; }
+        if (avatarRect.contains(x, y))        { setPressedCircle(avatarRect, 2 * density); return; }
+        if (hasMedia && mediaRect.contains(x, y)) {
+            setPressedRect(mediaRect, 8 * density, PRESSED_ALPHA_SMALL, 0f);
+            return;
+        }
+        if (hasMediaGroup) {
+            int cell = postMediaGroupRenderer.hitTestCell(x, y);
+            if (cell >= 0 && cell < postMediaGroupRenderer.cellRects.size()) {
+                setPressedRect(postMediaGroupRenderer.cellRects.get(cell), 8 * density, PRESSED_ALPHA_SMALL, 0f);
+                return;
+            }
+        }
+        // Read more label: apna color-label hi feedback hai, card overlay mat lagao.
+        if (postText != null && !postText.isEmpty() && postTextRenderer.isCollapsible()
+                && y >= textTop && y <= textTop + textHeight
+                && postTextRenderer.readMoreHit(x - (cardLeft + cardPadding), y - textTop)) {
+            return;
+        }
+        // Mention / link / hashtag par bhi card overlay nahi — token ka apna colour hi cue hai.
+        if (postText != null && !postText.isEmpty() && y >= textTop && y <= textTop + textHeight
+                && postTextRenderer.tokenAt(x - (cardLeft + cardPadding), y - textTop) != null) {
+            return;
+        }
+        int region = engagementBarRenderer.hitTest(x, y);
+        if (region != EngagementBarRenderer.REGION_NONE) {
+            RectF r = region == EngagementBarRenderer.REGION_LIKE ? likeIconRect
+                    : region == EngagementBarRenderer.REGION_COMMENT ? commentIconRect
+                    : region == EngagementBarRenderer.REGION_SHARE ? shareIconRect : bookmarkIconRect;
+            setPressedCircle(r, 8 * density);
+            return;
+        }
+        // Default: poora card.
+        pressedRect.set(cardLeft, 0, cardRight, getHeight());
+        pressedRadius = cardCornerRadius;
+        pressedPaint.setAlpha(PRESSED_ALPHA_CARD);
+        pressedValid = true;
+    }
+
+    private void setPressedCircle(RectF r, float pad) {
+        pressedRect.set(r.left - pad, r.top - pad, r.right + pad, r.bottom + pad);
+        pressedRadius = Math.min(pressedRect.width(), pressedRect.height()) / 2f;
+        pressedPaint.setAlpha(PRESSED_ALPHA_SMALL);
+        pressedValid = true;
+    }
+
+    private void setPressedRect(RectF r, float radius, int alpha, float pad) {
+        pressedRect.set(r.left - pad, r.top - pad, r.right + pad, r.bottom + pad);
+        pressedRadius = radius;
+        pressedPaint.setAlpha(alpha);
+        pressedValid = true;
+    }
+
     // ── Touch state ──
     private float downX, downY;
     private long downTime;
@@ -255,6 +346,10 @@ public class CommunityPostCanvasView extends View {
         announcementBadgePaint.setTextSize(11 * density);
         announcementBadgePaint.setColor(colorPrimary);
         announcementBadgePaint.setTypeface(Typeface.DEFAULT_BOLD);
+
+        pressedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        pressedPaint.setStyle(Paint.Style.FILL);
+        pressedPaint.setColor(textPrimary); // dark/light dono theme me kaam kare; alpha runtime pe
 
         authorNamePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         authorNamePaint.setTextSize(14 * density);
@@ -380,12 +475,23 @@ public class CommunityPostCanvasView extends View {
 
     /** Main bind entry — sets all draw state from the entity and requests re-layout. */
     public void bind(CommunityPostEntity post, boolean isAdminOrOwner, String currentUid) {
+        bind(post, isAdminOrOwner, currentUid,
+                com.callx.app.community.CommunityBookmarksActivity
+                        .isBookmarked(getContext(), post.communityId, post.id));
+    }
+
+    /** Bind with caller-supplied bookmark state (adapter caches it — no prefs read per bind). */
+    public void bind(CommunityPostEntity post, boolean isAdminOrOwner, String currentUid,
+                     boolean bookmarked) {
         currentPostId = post.id;
         authorName = post.authorName != null ? post.authorName : "Member";
         timestampText = post.createdAt > 0
                 ? android.text.format.DateUtils.getRelativeTimeSpanString(post.createdAt,
                 System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString() : "";
+        // Edit hui post: time ke saath " · edited" (header me timestamp line, layout nahi badalta).
+        if (post.editedAt > 0 && !timestampText.isEmpty()) timestampText = timestampText + " \u00B7 edited";
         postText = post.text;
+        clearPressed();
         hasPinned = post.pinned;
         hasAnnouncement = post.isAnnouncement;
         boolean isAuthor = currentUid != null && currentUid.equals(post.authorUid);
@@ -405,8 +511,7 @@ public class CommunityPostCanvasView extends View {
         reactionCounts = CommunityReaction.fromJson(post.reactionCountsJson);
         hasReactions = reactionCounts != null && !reactionCounts.isEmpty();
         myReacted    = post.myReactionType != null && !post.myReactionType.isEmpty();
-        isBookmarked = com.callx.app.community.CommunityBookmarksActivity
-                           .isBookmarked(getContext(), post.communityId, post.id);
+        isBookmarked = bookmarked;
 
         long totalReactions = CommunityReaction.totalCount(post.reactionCountsJson);
         long displayLikes = totalReactions > 0 ? totalReactions : post.likeCount;
@@ -419,6 +524,13 @@ public class CommunityPostCanvasView extends View {
         mediaShaderBitmap = null;
         mediaShaderCache = null;
         requestLayout();
+        invalidateEngagementBar();
+    }
+
+    /** Partial update — sirf bookmark glyph (engagement bar) repaint hota hai. */
+    public void setBookmarked(boolean bookmarked) {
+        if (isBookmarked == bookmarked) return;
+        isBookmarked = bookmarked;
         invalidateEngagementBar();
     }
 
@@ -457,6 +569,18 @@ public class CommunityPostCanvasView extends View {
         java.util.Arrays.fill(mediaGroupShaderBitmap, null);
         java.util.Arrays.fill(mediaGroupShaderCache, null);
         requestLayout();
+        invalidate();
+    }
+
+    /** Multi-image grid: ek cell ka bitmap aane par set karo (bindMediaGroup() ke baad).
+     *  Stale post / out-of-range index ignore hota hai. */
+    public void setMediaGroupBitmap(String forPostId, int index, @Nullable Bitmap bmp) {
+        if (!java.util.Objects.equals(forPostId, currentPostId)) return;
+        if (!hasMediaGroup || mediaGroupBitmaps == null
+                || index < 0 || index >= mediaGroupBitmaps.size() || index >= 4) return;
+        mediaGroupBitmaps.set(index, bmp);
+        mediaGroupShaderBitmap[index] = null;
+        mediaGroupShaderCache[index] = null;
         invalidate();
     }
 
@@ -600,6 +724,10 @@ public class CommunityPostCanvasView extends View {
         }
 
         engagementBarRenderer.draw(canvas);
+
+        if (pressedShown && pressedValid) {
+            canvas.drawRoundRect(pressedRect, pressedRadius, pressedRadius, pressedPaint);
+        }
     }
 
     @Override
@@ -610,24 +738,37 @@ public class CommunityPostCanvasView extends View {
                 downY = event.getY();
                 downTime = System.currentTimeMillis();
                 longPressFired = false;
+                clearPressed();
+                classifyPressedTarget(downX, downY);
+                if (pressedValid) {
+                    postDelayed(showPressedRunnable, android.view.ViewConfiguration.getTapTimeout());
+                }
                 postDelayed(longPressRunnable, LONG_PRESS_MS);
                 return true;
             case MotionEvent.ACTION_MOVE: {
                 float slop = TAP_SLOP_DP * density;
                 if (Math.abs(event.getX() - downX) > slop || Math.abs(event.getY() - downY) > slop) {
                     removeCallbacks(longPressRunnable);
+                    clearPressed(); // scroll / drag — feedback hata do
                 }
                 return true;
             }
             case MotionEvent.ACTION_UP: {
                 removeCallbacks(longPressRunnable);
+                removeCallbacks(showPressedRunnable);
                 if (!longPressFired) {
+                    // Chhota tap bhi dikhna chahiye: turant dikhao, ~110ms baad hatao.
+                    if (pressedValid && !pressedShown) { pressedShown = true; invalidate(); }
+                    if (pressedValid) postDelayed(clearPressedRunnable, 110L);
                     handleTap(event.getX(), event.getY());
+                } else {
+                    clearPressed();
                 }
                 return true;
             }
             case MotionEvent.ACTION_CANCEL:
                 removeCallbacks(longPressRunnable);
+                clearPressed();
                 return true;
         }
         return super.onTouchEvent(event);
@@ -635,6 +776,7 @@ public class CommunityPostCanvasView extends View {
 
     private void handleLongPress() {
         longPressFired = true;
+        clearPressed();
         if (listener == null) return;
         if (downX < cardLeft || downX > cardRight) return; // outside the bubble
         if (likeIconRect.contains(downX, downY)) {
@@ -648,7 +790,9 @@ public class CommunityPostCanvasView extends View {
         if (listener == null) return;
         if (x < cardLeft || x > cardRight) return; // tap landed in the outer margin, not the bubble
 
-        if (canModify && optionsButtonRect.contains(x, y)) {
+        // FIX: options (3-dot) ab sabko — pehle sirf author/admin ko dikhta tha, to normal
+        // member Report/Copy tak pahunch hi nahi sakta tha.
+        if (optionsButtonRect.contains(x, y)) {
             listener.onOptionsClick();
             return;
         }
@@ -680,9 +824,22 @@ public class CommunityPostCanvasView extends View {
             }
         }
         if (postText != null && !postText.isEmpty() && y >= textTop && y <= textTop + textHeight) {
-            String mention = postTextRenderer.mentionAt(x - cardPadding, y - textTop);
-            if (mention != null) {
-                listener.onMentionClick(mention);
+            final float textLeft = cardLeft + cardPadding;
+            if (postTextRenderer.readMoreHit(x - textLeft, y - textTop)) {
+                setTextExpanded(!textExpanded);
+                listener.onTextExpandToggled(textExpanded);
+                return;
+            }
+            // FIX: pehle x - cardPadding tha, text asal me cardLeft + cardPadding se shuru hota
+            // hai — card left-aligned (margin) hone par mention tap offset se miss hota tha.
+            PostTextRenderer.Token token = postTextRenderer.tokenAt(x - textLeft, y - textTop);
+            if (token != null) {
+                switch (token.type) {
+                    case PostTextRenderer.TOKEN_MENTION: listener.onMentionClick(token.text); break;
+                    case PostTextRenderer.TOKEN_LINK:    listener.onLinkClick(token.text);    break;
+                    case PostTextRenderer.TOKEN_HASHTAG: listener.onHashtagClick(token.text); break;
+                    default: break;
+                }
                 return;
             }
         }
@@ -715,6 +872,7 @@ public class CommunityPostCanvasView extends View {
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         removeCallbacks(longPressRunnable);
+        clearPressed();
     }
 
     // ── Partial dirty-rect invalidation ──────────────────────────────────────────

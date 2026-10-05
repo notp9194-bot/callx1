@@ -69,7 +69,7 @@ final class AuthorHeaderRenderer {
         host.avatarRect.set(bubbleLeft, headerTop, bubbleLeft + avatarSize, headerTop + avatarSize);
 
         float textX = host.avatarRect.right + host.avatarTextGap;
-        showOptions = host.canModify;
+        showOptions = true; // sabko menu (Copy/Report); Edit/Pin/Delete adapter role se filter karta hai
         float optionsW = showOptions ? host.optionsButtonSize : 0f;
         float textMaxW = Math.max(1f, host.cardRight() - host.cardPadding - textX - optionsW
                 - (showOptions ? host.avatarTextGap : 0f));
