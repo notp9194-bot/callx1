@@ -1567,6 +1567,9 @@ public class MessagePagingAdapter
 
     // ── Fields ────────────────────────────────────────────────────
     private final String currentUid;
+    /** false => Reply/Edit hidden in the long-press menu (admins-only group, non-admin viewer). */
+    private boolean replyEnabled = true;
+    public void setReplyEnabled(boolean enabled) { this.replyEnabled = enabled; }
     private final boolean isGroup;
     /**
      * uid -> photoUrl for the group's current members — the SAME
@@ -9501,7 +9504,7 @@ public class MessagePagingAdapter
         boolean isOwnMsg     = currentUid != null && currentUid.equals(m.senderId);
         boolean isTextMsg    = m.text != null && !m.text.trim().isEmpty()
                                && (m.type == null || "text".equals(m.type));
-        boolean canEdit      = isOwnMsg && isTextMsg;
+        boolean canEdit      = isOwnMsg && isTextMsg && replyEnabled;
         boolean isStarred    = Boolean.TRUE.equals(m.starred);
 
         boolean isPinned = Boolean.TRUE.equals(m.pinned);
@@ -9519,7 +9522,7 @@ public class MessagePagingAdapter
         }
 
         java.util.List<String> optList = new java.util.ArrayList<>();
-        optList.add("Reply");
+        if (replyEnabled) optList.add("Reply");
         optList.add("Copy");
         if (isTextMsg) optList.add("Translate");
         optList.add(isStarred ? "Unstar" : "Star");

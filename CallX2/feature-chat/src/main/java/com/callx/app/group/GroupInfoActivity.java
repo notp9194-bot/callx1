@@ -63,6 +63,10 @@ public class GroupInfoActivity extends AppCompatActivity {
     private ImageButton btnChangeIcon, btnEditName;
     private TextView tvGroupName, tvGroupDesc, tvCreatedAt;
     private TextView tvInviteLink, tvMemberCount, tvDNDStatus;
+    private EditText etMemberSearch;
+    private boolean creatorByField = false, creatorByRole = false;
+    private String memberQuery = "";
+    private static final int MEMBER_SEARCH_MIN = 6; // search bar shows from this many members
     private EditText etDescEdit;
     private View cardDescEdit;
     private View btnSaveDesc;
@@ -88,6 +92,7 @@ public class GroupInfoActivity extends AppCompatActivity {
     // groups that never set it — same restrictive behavior as before this
     // fix existed, so no existing group's permissions loosen silently.
     private boolean adminAddOnlySetting = true;
+    private boolean editInfoAllMembers = false; // groupSettings/editPermission == "all"
 
     // Adapters
     private GroupMemberAdapter memberAdapter;
@@ -154,6 +159,18 @@ public class GroupInfoActivity extends AppCompatActivity {
         tvCreatedAt     = findViewById(R.id.tv_created_at);
         tvInviteLink    = findViewById(R.id.tv_invite_link);
         tvMemberCount   = findViewById(R.id.tv_member_count);
+        if (tvMemberCount != null) tvMemberCount.setText("Loading members…");
+        etMemberSearch  = findViewById(R.id.et_member_search);
+        if (etMemberSearch != null) {
+            etMemberSearch.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
+                @Override public void onTextChanged(CharSequence c, int a, int b, int d) {}
+                @Override public void afterTextChanged(android.text.Editable e) {
+                    memberQuery = e == null ? "" : e.toString().trim();
+                    sortAndUpdateMembers();
+                }
+            });
+        }
         etDescEdit      = findViewById(R.id.et_desc_edit);
         cardDescEdit    = findViewById(R.id.card_desc_edit);
         btnSaveDesc     = findViewById(R.id.btn_save_desc);
@@ -458,6 +475,8 @@ public class GroupInfoActivity extends AppCompatActivity {
                 // Check if current user is admin
                 boolean adminByMap  = g.admins   != null && g.admins.containsKey(currentUid);
                 boolean adminByField = currentUid.equals(g.adminUid);
+                creatorByField = adminByField;
+                refreshCreatorFlag();
                 setAdminMode(adminByMap || adminByField);
 
                 // v18 IMPROVEMENT 3: Room mein update karo for next offline visit
@@ -480,11 +499,21 @@ public class GroupInfoActivity extends AppCompatActivity {
         FirebaseUtils.getGroupsRef().child(groupId).addValueEventListener(groupListener);
     }
 
+    private void refreshCreatorFlag() {
+        if (memberAdapter != null) memberAdapter.setIsCreator(creatorByField || creatorByRole);
+    }
+
+    private boolean isCreatorNow() { return creatorByField || creatorByRole; }
+
+    private String roleOf(String uid) {
+        for (GroupMemberAdapter.MemberItem m : members)
+            if (uid != null && uid.equals(m.uid)) return m.role;
+        return null;
+    }
+
     private void setAdminMode(boolean admin) {
         isAdmin = admin;
-        btnChangeIcon.setVisibility(admin ? View.VISIBLE : View.GONE);
-        btnEditName.setVisibility(admin ? View.VISIBLE : View.GONE);
-        cardDescEdit.setVisibility(admin ? View.VISIBLE : View.GONE);
+        refreshEditInfoVisibility();
         refreshAddMemberVisibility();
         btnResetLink.setVisibility(admin ? View.VISIBLE : View.GONE);
         btnDeleteGroup.setVisibility(admin ? View.VISIBLE : View.GONE);
@@ -541,6 +570,13 @@ public class GroupInfoActivity extends AppCompatActivity {
      * setAdminMode() and listenGroupSettings() resolve independently/async,
      * so both call this to converge on the right state.
      */
+    private void refreshEditInfoVisibility() {
+        boolean can = isAdmin || editInfoAllMembers;
+        if (btnChangeIcon != null) btnChangeIcon.setVisibility(can ? View.VISIBLE : View.GONE);
+        if (btnEditName != null)   btnEditName.setVisibility(can ? View.VISIBLE : View.GONE);
+        if (cardDescEdit != null)  cardDescEdit.setVisibility(can ? View.VISIBLE : View.GONE);
+    }
+
     private void refreshAddMemberVisibility() {
         if (btnAddMember == null) return;
         boolean canAdd = isAdmin || !adminAddOnlySetting;
@@ -553,7 +589,9 @@ public class GroupInfoActivity extends AppCompatActivity {
                 // Stored as "1"/"0" strings — see GroupSettingsActivity#saveGroupSetting.
                 String v = snap.child("adminAddOnly").getValue(String.class);
                 adminAddOnlySetting = !"0".equals(v);
+                editInfoAllMembers = "all".equals(snap.child("editPermission").getValue(String.class));
                 refreshAddMemberVisibility();
+                refreshEditInfoVisibility();
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -575,6 +613,9 @@ public class GroupInfoActivity extends AppCompatActivity {
     // ONE submitList() (diffed off the main thread by AsyncListDiffer —
     // see GroupMemberAdapter v4) after the LAST fetch lands.
     private int membersLoadToken = 0;
+    // false until the first member batch lands, so the header shows "Loading members…"
+    // instead of a misleading "0 members" while per-user fetches are in flight.
+    private boolean membersLoaded = false;
 
     private void listenMembers() {
         membersListener = new ValueEventListener() {
@@ -591,6 +632,7 @@ public class GroupInfoActivity extends AppCompatActivity {
 
                 if (memberUids.isEmpty()) {
                     members.clear();
+                    membersLoaded = true;
                     sortAndUpdateMembers();
                     return;
                 }
@@ -644,6 +686,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                             if (remaining.decrementAndGet() == 0 && token == membersLoadToken) {
                                 members.clear();
                                 members.addAll(resolved.values());
+                                membersLoaded = true;
                                 sortAndUpdateMembers();
                             }
                         }
@@ -658,18 +701,52 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     private void sortAndUpdateMembers() {
-        // Sort: creator/admin first, then by name
+        // Order: You, creator, admins, online members, then everyone else (by name).
         members.sort((a, b) -> {
-            int ra = "admin".equals(a.role) || "creator".equals(a.role) ? 0 : 1;
-            int rb = "admin".equals(b.role) || "creator".equals(b.role) ? 0 : 1;
+            int ra = memberRank(a), rb = memberRank(b);
             if (ra != rb) return ra - rb;
-            return a.name.compareToIgnoreCase(b.name);
+            String na = a.name != null ? a.name : "", nb = b.name != null ? b.name : "";
+            return na.compareToIgnoreCase(nb);
         });
-        tvMemberCount.setText(members.size() + " member" + (members.size() == 1 ? "" : "s"));
+
+        creatorByRole = "creator".equals(roleOf(currentUid));
+        refreshCreatorFlag();
+
+        // Search bar only for bigger groups (or while a query is active)
+        if (etMemberSearch != null) {
+            boolean show = members.size() >= MEMBER_SEARCH_MIN || !memberQuery.isEmpty();
+            etMemberSearch.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+
+        List<GroupMemberAdapter.MemberItem> shown = members;
+        if (!membersLoaded) {
+            tvMemberCount.setText("Loading members…");
+        } else if (members.isEmpty()) {
+            tvMemberCount.setText("No members");
+        } else if (!memberQuery.isEmpty()) {
+            String q = memberQuery.toLowerCase(Locale.getDefault());
+            shown = new ArrayList<>();
+            for (GroupMemberAdapter.MemberItem m : members) {
+                if (m.name != null && m.name.toLowerCase(Locale.getDefault()).contains(q)) shown.add(m);
+            }
+            tvMemberCount.setText(shown.isEmpty()
+                    ? "No members found"
+                    : shown.size() + " of " + members.size() + " members");
+        } else {
+            tvMemberCount.setText(members.size() + " member" + (members.size() == 1 ? "" : "s"));
+        }
         // AsyncListDiffer diffs old vs new off the main thread — one call
         // for the whole batch, instead of one notifyDataSetChanged() per
         // member (see listenMembers()'s doc above).
-        memberAdapter.submitList(members);
+        memberAdapter.submitList(shown);
+    }
+
+    /** 0 = me, 1 = creator, 2 = admin, 3 = online member, 4 = other member. */
+    private int memberRank(GroupMemberAdapter.MemberItem m) {
+        if (currentUid != null && currentUid.equals(m.uid)) return 0;
+        if ("creator".equals(m.role)) return 1;
+        if ("admin".equals(m.role))   return 2;
+        return m.online ? 3 : 4;
     }
 
     // ── Firebase: Media messages listener ─────────────────────────────────
@@ -729,9 +806,21 @@ public class GroupInfoActivity extends AppCompatActivity {
 
     // ── Member action handler ─────────────────────────────────────────────
     private void handleMemberAction(String uid, String action) {
-        if (!isAdmin && !"view_profile".equals(action)) {
+        if (!isAdmin && !"view_profile".equals(action) && !"message".equals(action)) {
             Toast.makeText(this, "Admin permissions required", Toast.LENGTH_SHORT).show();
             return;
+        }
+        // Admin-vs-admin rule: only the creator can revoke/remove an admin; nobody touches the creator.
+        if ("make_admin".equals(action) || "revoke_admin".equals(action) || "remove".equals(action)) {
+            String targetRole = roleOf(uid);
+            if ("creator".equals(targetRole)) {
+                Toast.makeText(this, "The group creator can't be changed", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if ("admin".equals(targetRole) && !isCreatorNow()) {
+                Toast.makeText(this, "Only the group creator can manage admins", Toast.LENGTH_SHORT).show();
+                return;
+            }
         }
         switch (action) {
             case "view_profile":
@@ -755,12 +844,21 @@ public class GroupInfoActivity extends AppCompatActivity {
     private void openMemberProfile(String uid) {
         for (GroupMemberAdapter.MemberItem m : members) {
             if (uid.equals(m.uid)) {
-                Intent i = new Intent(this, ChatActivity.class);
-                i.putExtra("partnerUid",   m.uid);
-                i.putExtra("partnerName",  m.name);
-                i.putExtra("partnerPhoto", m.photoUrl != null ? m.photoUrl : "");
-                i.putExtra("partnerThumb", m.thumbUrl != null ? m.thumbUrl : "");
-                startActivity(i);
+                try {
+                    Intent i;
+                    if (uid.equals(currentUid)) {
+                        // Own row -> own profile screen (edit profile)
+                        i = new Intent().setClassName(this, "com.callx.app.activities.ProfileActivity");
+                    } else {
+                        i = new Intent().setClassName(this, "com.callx.app.activities.UserProfileActivity");
+                        i.putExtra("uid",   m.uid);
+                        i.putExtra("name",  m.name  != null ? m.name  : "");
+                        i.putExtra("photo", m.photoUrl != null ? m.photoUrl : "");
+                    }
+                    startActivity(i);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Profile unavailable", Toast.LENGTH_SHORT).show();
+                }
                 return;
             }
         }
@@ -789,7 +887,7 @@ public class GroupInfoActivity extends AppCompatActivity {
         FirebaseUtils.getGroupMembersRef(groupId).child(uid).child("role").setValue(role);
         if ("admin".equals(role)) {
             FirebaseUtils.getGroupsRef().child(groupId).child("admins").child(uid).setValue(true);
-            Toast.makeText(this, "Made admin 👑", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Made admin", Toast.LENGTH_SHORT).show();
             postSystemMessage(finalName + " is now an admin");
             postAuditLog("promote_admin", finalName);
         } else {

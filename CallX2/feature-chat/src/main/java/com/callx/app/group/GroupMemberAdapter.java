@@ -137,6 +137,7 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
     private final String             currentUid;
     private final OnMemberActionListener listener;
     private boolean isAdmin = false;
+    private boolean isCreator = false;
 
     public GroupMemberAdapter(List<MemberItem> items, String currentUid,
                               OnMemberActionListener listener) {
@@ -159,6 +160,11 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         // bound row visuals, so (unlike the old notifyDataSetChanged() here)
         // no rebind is needed at all.
         this.isAdmin = admin;
+    }
+
+    /** Only the group creator may revoke an admin or remove another admin. */
+    public void setIsCreator(boolean creator) {
+        this.isCreator = creator;
     }
 
     @Override
@@ -220,14 +226,20 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         // GroupInfoActivity's whole member list is refetched.
         ChatAvatarBinder.bind(ctx, h.ivAvatar, avatarUrl, resolveAvatarVersion(ctx, m.uid, m.avatarVersion), R.drawable.ic_person);
 
-        // Options menu
-        h.btnOptions.setOnClickListener(v -> {
+        // Options menu (3-dot tap + row long-press open the same menu)
+        final View.OnClickListener openOptions = v -> {
             if (isMe) {
                 // My own row: only profile info
                 listener.onAction(m.uid, "view_profile");
                 return;
             }
             showMemberOptionsMenu(ctx, m);
+        };
+        h.btnOptions.setOnClickListener(openOptions);
+        h.itemView.setOnLongClickListener(v -> {
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            openOptions.onClick(v);
+            return true;
         });
 
         // Row click = view profile
@@ -255,20 +267,75 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         labels.add("View Profile"); actions.add("view_profile");
 
         if (isAdmin && !"creator".equals(m.role)) {
-            if ("admin".equals(m.role)) {
+            boolean targetIsAdmin = "admin".equals(m.role);
+            // Admin-vs-admin rule: only the creator can touch another admin.
+            if (!targetIsAdmin) {
+                labels.add("Make Admin"); actions.add("make_admin");
+                labels.add("Remove from Group"); actions.add("remove");
+            } else if (isCreator) {
                 labels.add("Revoke Admin"); actions.add("revoke_admin");
-            } else {
-                labels.add("Make Admin 👑"); actions.add("make_admin");
+                labels.add("Remove from Group"); actions.add("remove");
             }
-            labels.add("Remove from Group"); actions.add("remove");
         }
 
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(ctx)
+        final float d = ctx.getResources().getDisplayMetrics().density;
+        LinearLayout list = new LinearLayout(ctx);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(0, (int) (8 * d), 0, (int) (8 * d));
+
+        TypedValueHolder tv = new TypedValueHolder(ctx);
+        final AlertDialog[] dialogRef = new AlertDialog[1];
+
+        for (int i = 0; i < labels.size(); i++) {
+            final String action = actions.get(i);
+            boolean destructive = "remove".equals(action);
+
+            // Divider before the destructive action, separating it from the rest.
+            if (destructive) {
+                View line = new View(ctx);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, (int) d));
+                lp.topMargin = (int) (4 * d);
+                lp.bottomMargin = (int) (4 * d);
+                line.setLayoutParams(lp);
+                line.setBackgroundColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.divider));
+                list.addView(line);
+            }
+
+            TextView row = new TextView(ctx);
+            row.setText(labels.get(i));
+            row.setTextSize(16f);
+            row.setTextColor(destructive
+                    ? androidx.core.content.ContextCompat.getColor(ctx, R.color.member_menu_destructive)
+                    : androidx.core.content.ContextCompat.getColor(ctx, R.color.text_primary));
+            row.setPadding((int) (24 * d), (int) (14 * d), (int) (24 * d), (int) (14 * d));
+            row.setBackgroundResource(tv.selectableItemBackground);
+            row.setClickable(true);
+            row.setFocusable(true);
+            row.setOnClickListener(v -> {
+                if (dialogRef[0] != null) dialogRef[0].dismiss();
+                listener.onAction(m.uid, action);
+            });
+            list.addView(row, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(ctx)
                 .setTitle(m.name)
-                .setItems(labels.toArray(new String[0]), (d, which) ->
-                        listener.onAction(m.uid, actions.get(which)))
-                .create());
+                .setView(list)
+                .create();
+        dialogRef[0] = dialog;
+        com.callx.app.utils.AlertDialogStyler.showRounded(dialog);
+    }
+
+    /** Resolves ?attr/selectableItemBackground once for the programmatic menu rows. */
+    private static final class TypedValueHolder {
+        final int selectableItemBackground;
+        TypedValueHolder(Context ctx) {
+            android.util.TypedValue out = new android.util.TypedValue();
+            ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, out, true);
+            selectableItemBackground = out.resourceId;
+        }
     }
 
     @Override public int getItemCount() { return differ.getCurrentList().size(); }
@@ -329,13 +396,41 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         ChatAvatarBinder.prefetch(ctx, avatarSource(ctx), fromIndex, velocityPxPerMs);
     }
 
+    /** "just now" / "1 min ago" / "1 hour ago" / "yesterday at 3:45 PM" / "12 Sep". */
     private static String formatLastSeen(long ts) {
-        long diff = System.currentTimeMillis() - ts;
-        if (diff < 60_000) return "just now";
-        if (diff < 3_600_000) return (diff / 60_000) + " min ago";
-        if (diff < 86_400_000) return (diff / 3_600_000) + " hours ago";
-        SimpleDateFormat sdf = new SimpleDateFormat("dd MMM", Locale.getDefault());
-        return sdf.format(new Date(ts));
+        long now  = System.currentTimeMillis();
+        long diff = now - ts;
+        if (diff < 60_000) return "just now"; // also covers small clock skew (negative diff)
+
+        if (diff < 3_600_000) {
+            long mins = diff / 60_000;
+            return mins + (mins == 1 ? " min ago" : " mins ago");
+        }
+
+        Calendar then = Calendar.getInstance();
+        then.setTimeInMillis(ts);
+        Calendar today = Calendar.getInstance();
+        today.setTimeInMillis(now);
+
+        if (isSameDay(then, today)) {
+            long hrs = diff / 3_600_000;
+            return hrs + (hrs == 1 ? " hour ago" : " hours ago");
+        }
+
+        Calendar yesterday = Calendar.getInstance();
+        yesterday.setTimeInMillis(now);
+        yesterday.add(Calendar.DAY_OF_YEAR, -1);
+        if (isSameDay(then, yesterday)) {
+            return "yesterday at " + new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(ts));
+        }
+
+        String pattern = then.get(Calendar.YEAR) == today.get(Calendar.YEAR) ? "dd MMM" : "dd MMM yyyy";
+        return new SimpleDateFormat(pattern, Locale.getDefault()).format(new Date(ts));
+    }
+
+    private static boolean isSameDay(Calendar a, Calendar b) {
+        return a.get(Calendar.YEAR) == b.get(Calendar.YEAR)
+            && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
     }
 
     static class VH extends RecyclerView.ViewHolder {

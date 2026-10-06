@@ -466,6 +466,30 @@
                         android:paddingTop="8dp"
                         android:paddingBottom="4dp"/>
 
+                    <!-- Member search (shown only for larger groups) -->
+                    <EditText
+                        android:id="@+id/et_member_search"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="12dp"
+                        android:layout_marginEnd="12dp"
+                        android:layout_marginBottom="6dp"
+                        android:background="@drawable/bg_search_field"
+                        android:drawableStart="@drawable/ic_search"
+                        android:drawablePadding="8dp"
+                        android:drawableTint="@color/text_muted"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:hint="Search members"
+                        android:textColorHint="@color/text_muted"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp"
+                        android:inputType="textPersonName"
+                        android:imeOptions="actionSearch"
+                        android:maxLines="1"
+                        android:singleLine="true"
+                        android:visibility="gone"/>
+
                     <!-- Members RecyclerView (not scrollable — inside NestedScrollView) -->
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rv_members"

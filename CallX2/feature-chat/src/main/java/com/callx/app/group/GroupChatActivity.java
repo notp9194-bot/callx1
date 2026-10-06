@@ -224,6 +224,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── State ──────────────────────────────────────────────────────────────
     private boolean isAdmin    = false;
+    private boolean editInfoAllMembers = false; // groupSettings/editPermission == "all"
     private boolean adminStatusResolved = false; // avoids lock-bar flash for admins
     private boolean isRecording = false;
     private final Map<String, String> memberNames = new HashMap<>();
@@ -1139,9 +1140,11 @@ public class GroupChatActivity extends AppCompatActivity
             m.add(0, R.id.menu_starred,              3, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             m.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             m.add(0, R.id.action_chat_privacy,       5, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            if (canEditGroupInfo()) {
+                m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
+            }
             if (isAdmin) {
                 m.add(0, R.id.menu_admin_panel, 6, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-                m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
                 m.add(0, R.id.menu_bot_settings, 8, "🤖 Bot Commands").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
             }
             m.add(0, R.id.action_export_chat, 9, "📤 Export Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
@@ -2548,6 +2551,8 @@ public class GroupChatActivity extends AppCompatActivity
                         // see sendPermissionAdminsOnly field doc above.
                         String sendPerm = snap.child("sendPermission").getValue(String.class);
                         sendPermissionAdminsOnly = "admins".equals(sendPerm);
+                        editInfoAllMembers = "all".equals(snap.child("editPermission").getValue(String.class));
+                        invalidateOptionsMenu();
                         updateInputLockState();
                     }
                     @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
@@ -2566,6 +2571,8 @@ public class GroupChatActivity extends AppCompatActivity
     private void updateInputLockState() {
         if (binding == null) return;
         boolean locked = adminStatusResolved && sendPermissionAdminsOnly && !isAdmin;
+        if (pagingAdapter != null) pagingAdapter.setReplyEnabled(!locked);
+        if (locked) { replyingTo = null; if (replyBarView != null) replyBarView.setVisibility(View.GONE); }
         // The real input bar on this screen is the capsule in activity_chat.xml.
         binding.cvInputCapsule.setVisibility(locked ? View.GONE : View.VISIBLE);
 
@@ -2962,6 +2969,7 @@ public class GroupChatActivity extends AppCompatActivity
     // ─────────────────────────────────────────────────────────────────────
 
     private void startReply(Message m) {
+        if (sendPermissionAdminsOnly && !isAdmin) return;
         replyingTo = m;
         if (!ensureReplyBarViews()) return;
         replyBarView.setVisibility(View.VISIBLE);
@@ -4580,6 +4588,8 @@ public class GroupChatActivity extends AppCompatActivity
                 Toast.LENGTH_SHORT).show();
     }
 
+    private boolean canEditGroupInfo() { return isAdmin || editInfoAllMembers; }
+
     private void renameGroup() {
         EditText et = new EditText(this);
         et.setText(groupName);
@@ -4591,9 +4601,19 @@ public class GroupChatActivity extends AppCompatActivity
                 .setView(et)
                 .setPositiveButton("Save", (d, w) -> {
                     String newName = et.getText().toString().trim();
-                    if (newName.isEmpty()) return;
+                    if (newName.isEmpty() || newName.equals(groupName)) return;
                     groupName = newName;
                     FirebaseUtils.getGroupsRef().child(groupId).child("name").setValue(newName);
+                    String who = currentName != null && !currentName.isEmpty() ? currentName : "Someone";
+                    com.google.firebase.database.DatabaseReference sysRef = groupMessagesRef.push();
+                    Map<String, Object> sys = new java.util.HashMap<>();
+                    sys.put("id", sysRef.getKey());
+                    sys.put("senderId", "system");
+                    sys.put("senderName", "System");
+                    sys.put("text", who + " changed the group name to \"" + newName + "\"");
+                    sys.put("type", "system");
+                    sys.put("timestamp", System.currentTimeMillis());
+                    sysRef.setValue(sys);
                     if (getSupportActionBar() != null) getSupportActionBar().setTitle(newName);
                 })
                 .setNegativeButton("Cancel", null).create(),
@@ -6043,6 +6063,8 @@ public class GroupChatActivity extends AppCompatActivity
         if (isAdmin) {
             menu.add(0, R.id.menu_admin_panel, 4, "👑 Admin Panel")
                     .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        }
+        if (canEditGroupInfo()) {
             menu.add(0, R.id.menu_rename, 5, "✏ Rename Group")
                     .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         }
@@ -6081,7 +6103,7 @@ public class GroupChatActivity extends AppCompatActivity
             return true;
         }
         if (id == R.id.menu_admin_panel) { if (isAdmin) showAdminPanel(); return true; }
-        if (id == R.id.menu_rename)      { if (isAdmin) renameGroup(); return true; }
+        if (id == R.id.menu_rename)      { if (canEditGroupInfo()) renameGroup(); return true; }
         if (id == R.id.menu_bot_settings && isAdmin) {
             Intent botI = new Intent(this, com.callx.app.bots.BotSettingsActivity.class);
             botI.putExtra(com.callx.app.bots.BotSettingsActivity.EXTRA_GROUP_ID,   groupId);
