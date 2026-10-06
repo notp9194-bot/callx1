@@ -14,7 +14,7 @@ import androidx.core.content.ContextCompat;
 import com.callx.app.reels.R;
 
 /**
- * Lightweight thread connector for a reply row: a 2dp vertical trunk on the
+ * Lightweight thread connector for a reply row: a 1dp vertical trunk on the
  * left that branches into a small curved arrow (the "↳") pointing at the reply
  * avatar.
  *
@@ -37,7 +37,7 @@ public class ReplyConnectorView extends View {
     private final Path  path  = new Path();
     private final RectF arc   = new RectF();
 
-    private final float stroke;   // 2dp line
+    private final float stroke;   // 1dp line
     private final float radius;   // curve radius (8dp)
     private final float curveY;   // y of the horizontal arm = reply avatar centre
     private final float arm;      // horizontal arm length incl. arrow head (20dp)
@@ -50,7 +50,7 @@ public class ReplyConnectorView extends View {
     public ReplyConnectorView(Context c, @Nullable AttributeSet a) {
         super(c, a);
         float d = getResources().getDisplayMetrics().density;
-        stroke = 2f * d;
+        stroke = 1f * d;
         radius = 8f * d;
         curveY = 23f * d;   // avatar marginTop 10 (row spacing 8 + 2) + half of 26dp avatar
         arm    = 20f * d;
@@ -73,7 +73,9 @@ public class ReplyConnectorView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
-        final float x = stroke / 2f;
+        // Trunk centre fixed at 1dp (not stroke/2) so it stays on the same x as
+        // the parent trunk (30dp from the row edge) whatever the stroke width is.
+        final float x = 1f * getResources().getDisplayMetrics().density;
         final float h = getHeight();
         final float endX = Math.min(x + arm, getWidth() - stroke);
 

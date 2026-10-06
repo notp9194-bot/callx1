@@ -35,3 +35,7 @@ stroke is a union (no darker dots where segments overlap).
 - feature-reels/src/main/res/layout/item_reel_reply.xml
 - feature-reels/src/main/res/layout/item_reel_comment.xml
 - feature-reels/src/main/res/values/colors.xml, values-night/colors.xml
+
+## Follow-up: 1dp stroke
+Trunk, curve, arm and arrow head are now 1dp (was 2dp); parent `view_thread_trunk`
+is 1dp too. Connector trunk x is fixed at 1dp so it stays aligned with the parent trunk.

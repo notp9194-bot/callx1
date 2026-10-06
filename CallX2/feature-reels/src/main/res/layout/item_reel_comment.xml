@@ -82,13 +82,13 @@
 
         </FrameLayout>
 
-            <!-- Parent trunk: 2dp line from just under the avatar to the replies
+            <!-- Parent trunk: 1dp line from just under the avatar to the replies
                  container. Shown/hidden by ReplyThreadContainer together with the
-                 replies. Centre = 12dp padding + 17dp + 1dp = 30dp, the same x as
+                 replies. Centre = 12dp padding + 17.5dp + 0.5dp = 30dp, the same x as
                  the reply connector trunk (container marginStart 29dp + 1dp). -->
             <View
                 android:id="@+id/view_thread_trunk"
-                android:layout_width="2dp"
+                android:layout_width="1dp"
                 android:layout_height="0dp"
                 android:layout_weight="1"
                 android:layout_gravity="center_horizontal"
