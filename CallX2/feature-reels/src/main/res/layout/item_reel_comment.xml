@@ -237,22 +237,28 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center_horizontal"
-            android:layout_marginStart="8dp">
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="-6dp"
+            android:layout_marginEnd="-6dp">
 
+            <!-- 44dp tap target; 17dp padding => 10dp icon (50% of the old 20dp),
+                 thin-stroke ic_comment_heart. Tint/contentDescription are driven
+                 from code (ReelCommentsAdapter.applyHeartState). -->
             <ImageButton
                 android:id="@+id/btn_like_comment"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/ic_heart"
-            android:tint="#FF416C"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_comment_heart"
+                android:scaleType="fitCenter"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Like comment"
-                android:padding="6dp"/>
+                android:padding="17dp"/>
 
             <TextView
                 android:id="@+id/tv_likes_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="-11dp"
                 android:text=""
                 android:textSize="10sp"
                 android:textColor="@color/text_muted"

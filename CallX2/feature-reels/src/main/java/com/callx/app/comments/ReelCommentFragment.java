@@ -2035,7 +2035,8 @@ public class ReelCommentFragment extends Fragment {
             return;
         }
 
-        boolean currentlyLiked = comment.isLikedBy(myUid);
+        final boolean currentlyLiked = comment.isLikedBy(myUid);
+        final int prevCount = comment.likesCount;
         DatabaseReference commentRef = FirebaseUtils.getReelCommentsRef(reelId)
             .child(comment.commentId);
 
@@ -2049,8 +2050,22 @@ public class ReelCommentFragment extends Fragment {
         comment.likesCount = Math.max(0, comment.likesCount + (currentlyLiked ? -1 : 1));
         if (adapter != null) adapter.notifyLikeChanged(comment.commentId);
 
+        // Roll back the optimistic flip (once) if either write is rejected —
+        // otherwise the heart would stay lit for a like that never saved.
+        final boolean[] reverted = {false};
+        final Runnable revert = () -> {
+            if (reverted[0]) return;
+            reverted[0] = true;
+            if (comment.likedBy == null) comment.likedBy = new HashMap<>();
+            if (currentlyLiked) comment.likedBy.put(myUid, true);
+            else comment.likedBy.remove(myUid);
+            comment.likesCount = prevCount;
+            if (adapter != null && isAdded()) adapter.notifyLikeChanged(comment.commentId);
+        };
+
         commentRef.child("likedBy").child(myUid)
-            .setValue(currentlyLiked ? null : true);
+            .setValue(currentlyLiked ? null : true,
+                (err, ref) -> { if (err != null) revert.run(); });
 
         commentRef.child("likesCount").runTransaction(new Transaction.Handler() {
             @NonNull @Override
@@ -2061,7 +2076,14 @@ public class ReelCommentFragment extends Fragment {
                 return Transaction.success(d);
             }
             @Override public void onComplete(@Nullable DatabaseError e,
-                                             boolean b, @Nullable DataSnapshot s) {}
+                                             boolean b, @Nullable DataSnapshot s) {
+                if (e != null) {
+                    revert.run();
+                    // Keep likedBy consistent with the (failed) count update.
+                    commentRef.child("likedBy").child(myUid)
+                        .setValue(currentlyLiked ? true : null);
+                }
+            }
         });
 
         if (!currentlyLiked && !comment.uid.equals(myUid)) {
@@ -2340,15 +2362,11 @@ public class ReelCommentFragment extends Fragment {
 
             if (ivAvatar != null) bindReplyAvatar(ivAvatar, r.uid, r.ownerPhoto);
 
-            boolean liked = r.isLikedBy(myUid);
-            if (tvLikes != null)
-                tvLikes.setText(r.likesCount > 0 ? String.valueOf(r.likesCount) : "");
+            ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
+                r.isLikedBy(myUid), r.likesCount, false, "reply");
             if (btnLike != null) {
-                btnLike.setImageResource(liked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-                btnLike.setColorFilter(liked
-                    ? getResources().getColor(android.R.color.holo_red_light)
-                    : getResources().getColor(android.R.color.darker_gray));
-                btnLike.setOnClickListener(v2 -> toggleReplyLike(r, parent, container, tvToggle));
+                btnLike.setOnClickListener(v2 ->
+                    toggleReplyLike(r, parent, container, tvToggle, btnLike, tvLikes));
             }
 
             if (btnReplyTo != null) {
@@ -2484,18 +2502,45 @@ public class ReelCommentFragment extends Fragment {
     // ── Reply like ────────────────────────────────────────────────────────────
 
     private void toggleReplyLike(ReelReply reply, ReelComment parent,
-                                 LinearLayout container, TextView tvToggle) {
+                                 LinearLayout container, TextView tvToggle,
+                                 @Nullable ImageButton btnLike, @Nullable TextView tvLikes) {
         if (myUid.isEmpty()) {
             Toast.makeText(requireContext(), "Please login to like", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        boolean currentlyLiked = reply.isLikedBy(myUid);
+        final boolean currentlyLiked = reply.isLikedBy(myUid);
+        final int prevCount = reply.likesCount;
         DatabaseReference replyRef = FirebaseDatabase.getInstance(Constants.DB_URL)
             .getReference("reelCommentReplies")
             .child(reelId).child(parent.commentId).child(reply.replyId);
 
-        replyRef.child("likedBy").child(myUid).setValue(currentlyLiked ? null : true);
+        // Optimistic local flip — heart + count update instantly (with the
+        // same pop animation as top-level comments) instead of waiting for
+        // the Firebase round trip + full replies reload.
+        if (reply.likedBy == null) reply.likedBy = new HashMap<>();
+        if (currentlyLiked) reply.likedBy.remove(myUid);
+        else reply.likedBy.put(myUid, true);
+        reply.likesCount = Math.max(0, prevCount + (currentlyLiked ? -1 : 1));
+        ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
+            !currentlyLiked, reply.likesCount, true, "reply");
+
+        // Roll back the optimistic flip (once) if either write is rejected.
+        final boolean[] reverted = {false};
+        final Runnable revert = () -> {
+            if (reverted[0]) return;
+            reverted[0] = true;
+            if (currentlyLiked) reply.likedBy.put(myUid, true);
+            else reply.likedBy.remove(myUid);
+            reply.likesCount = prevCount;
+            if (isAdded()) {
+                ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
+                    currentlyLiked, prevCount, true, "reply");
+            }
+        };
+
+        replyRef.child("likedBy").child(myUid).setValue(currentlyLiked ? null : true,
+            (err, ref) -> { if (err != null) revert.run(); });
 
         replyRef.child("likesCount").runTransaction(new Transaction.Handler() {
             @NonNull @Override
@@ -2507,6 +2552,12 @@ public class ReelCommentFragment extends Fragment {
             }
             @Override public void onComplete(@Nullable DatabaseError e,
                                              boolean b, @Nullable DataSnapshot s) {
+                if (e != null) {
+                    revert.run();
+                    // Keep likedBy consistent with the (failed) count update.
+                    replyRef.child("likedBy").child(myUid)
+                        .setValue(currentlyLiked ? true : null);
+                }
                 if (isAdded()) loadRepliesInto(parent, container, tvToggle);
             }
         });

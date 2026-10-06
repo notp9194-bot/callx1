@@ -296,21 +296,15 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         if (!payloads.isEmpty() && payloads.contains(PAYLOAD_LIKE)) {
             ReelComment c = items().get(position);
             h.boundComment = c;
-            bindLikeState(h, c);
+            bindLikeState(h, c, true);
             return;
         }
         super.onBindViewHolder(h, position, payloads);
     }
 
-    private void bindLikeState(VH h, ReelComment c) {
-        Context ctx = h.itemView.getContext();
-        boolean liked = c.isLikedBy(myUid);
-        h.tvLikes.setText(c.likesCount > 0 ? formatCount(c.likesCount) : "");
-        h.btnLike.setImageResource(liked
-            ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-        h.btnLike.setColorFilter(liked
-            ? ctx.getResources().getColor(android.R.color.holo_red_light)
-            : ctx.getResources().getColor(android.R.color.darker_gray));
+    private void bindLikeState(VH h, ReelComment c, boolean animate) {
+        applyHeartState(h.btnLike, h.tvLikes, c.isLikedBy(myUid),
+            c.likesCount, animate, "comment");
     }
 
     @Override
@@ -450,7 +444,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
 
         // ── Like button ─────────────────────────────────────────────────
-        bindLikeState(h, c);
+        bindLikeState(h, c, false);
 
         // ── Reply count ─────────────────────────────────────────────────
         if (c.replyCount > 0) {
@@ -486,10 +480,13 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
     /** Called by VH's single, reused GestureDetector on a confirmed double-tap. */
     private void onDoubleTapLike(VH h, ReelComment c) {
-        bounceLikeButton(h.btnLike);
-        if (listener != null && !c.isLikedBy(myUid)) {
-            listener.onLikeComment(c, h.getAdapterPosition());
+        if (c.isLikedBy(myUid)) {
+            // Already liked: double-tap never un-likes (IG parity) — just pulse.
+            bounceLikeButton(h.btnLike);
+            return;
         }
+        // The like toggle triggers the animated PAYLOAD_LIKE rebind itself.
+        if (listener != null) listener.onLikeComment(c, h.getAdapterPosition());
     }
 
     /** Quick scale-up/scale-down pulse on the heart icon — visual feedback
@@ -498,7 +495,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
      *  "999" stays raw, "1K"/"1.2K" from 1,000, "3M"/"3.4M" from 1,000,000.
      *  Truncates (not rounds) the decimal and drops a trailing ".0", same
      *  as Instagram's own counter. */
-    private static String formatCount(int count) {
+    public static String formatCount(int count) {
         if (count < 1000) return String.valueOf(count);
         if (count < 1_000_000) return abbreviate(count / 1000.0, "K");
         return abbreviate(count / 1_000_000.0, "M");
@@ -512,19 +509,82 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         return s + suffix;
     }
 
+    /** Brand heart color — same as the heart drawable / "Liked by creator" text. */
+    public static final int HEART_LIKED_COLOR = 0xFFFF416C;
+
+    /**
+     * Single source of truth for the heart icon + count, shared by comment
+     * rows and inline reply rows so both look and behave identically:
+     * brand-pink filled heart when liked, theme-aware muted outline when not,
+     * abbreviated count, state-aware contentDescription, and (when
+     * {@code animate} and the state really flipped) a pop on the heart plus
+     * a small slide/fade on the count. Non-animated binds reset any
+     * half-finished animation so recycled rows never show a stale scale.
+     */
+    public static void applyHeartState(ImageButton btn, TextView tvCount,
+                                       boolean liked, int likesCount,
+                                       boolean animate, String noun) {
+        if (btn == null) return;
+        Context ctx = btn.getContext();
+        Object prev = btn.getTag();
+        boolean flipped = prev instanceof Boolean && ((Boolean) prev) != liked;
+        btn.setTag(liked);
+
+        btn.setImageResource(liked ? R.drawable.ic_comment_heart_filled : R.drawable.ic_comment_heart);
+        btn.setColorFilter(liked
+            ? HEART_LIKED_COLOR
+            : androidx.core.content.ContextCompat.getColor(ctx, R.color.text_muted));
+        btn.setContentDescription((liked ? "Unlike " : "Like ") + noun);
+
+        String countText = likesCount > 0 ? formatCount(likesCount) : "";
+        boolean countChanged = tvCount != null
+            && !countText.contentEquals(tvCount.getText());
+        if (tvCount != null) tvCount.setText(countText);
+
+        if (animate && flipped) {
+            popHeart(btn, liked);
+            if (tvCount != null && countChanged && !countText.isEmpty()) {
+                popCount(tvCount, liked);
+            }
+        } else {
+            btn.animate().cancel();
+            btn.setScaleX(1f);
+            btn.setScaleY(1f);
+            if (tvCount != null) {
+                tvCount.animate().cancel();
+                tvCount.setAlpha(1f);
+                tvCount.setTranslationY(0f);
+            }
+        }
+    }
+
+    private static void popHeart(View v, boolean liked) {
+        v.animate().cancel();
+        if (liked) {
+            v.setScaleX(0.6f);
+            v.setScaleY(0.6f);
+            v.animate().scaleX(1.2f).scaleY(1.2f).setDuration(120)
+                .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f)
+                    .setDuration(110).start())
+                .start();
+        } else {
+            v.setScaleX(0.85f);
+            v.setScaleY(0.85f);
+            v.animate().scaleX(1f).scaleY(1f).setDuration(100).start();
+        }
+    }
+
+    private static void popCount(TextView t, boolean up) {
+        t.animate().cancel();
+        float d = t.getResources().getDisplayMetrics().density * 6f;
+        t.setAlpha(0f);
+        t.setTranslationY(up ? d : -d);
+        t.animate().alpha(1f).translationY(0f).setDuration(160).start();
+    }
+
     private static void bounceLikeButton(ImageButton btnLike) {
         if (btnLike == null) return;
-        btnLike.animate().cancel();
-        btnLike.setScaleX(0.6f);
-        btnLike.setScaleY(0.6f);
-        btnLike.animate()
-            .scaleX(1.15f).scaleY(1.15f)
-            .setDuration(140)
-            .withEndAction(() -> btnLike.animate()
-                .scaleX(1f).scaleY(1f)
-                .setDuration(120)
-                .start())
-            .start();
+        popHeart(btnLike, true);
     }
 
     @Override

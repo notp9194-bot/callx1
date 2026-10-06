@@ -125,22 +125,27 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:layout_marginStart="6dp">
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="-7dp"
+        android:layout_marginEnd="-7dp">
 
+        <!-- 40dp tap target; 16dp padding => 8dp icon (50% of the old 16dp),
+             thin-stroke ic_comment_heart. -->
         <ImageButton
             android:id="@+id/btn_like_reply"
-            android:layout_width="26dp"
-            android:layout_height="26dp"
-            android:src="@drawable/ic_heart"
-            android:tint="#FF416C"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_comment_heart"
+            android:scaleType="fitCenter"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like reply"
-            android:padding="5dp"/>
+            android:padding="16dp"/>
 
         <TextView
             android:id="@+id/tv_likes_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="-11dp"
             android:text=""
             android:textSize="9sp"
             android:textColor="@color/text_muted"
