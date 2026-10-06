@@ -451,6 +451,9 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         h.containerReplies.animate().cancel();
         h.containerReplies.setAlpha(1f);
         h.containerReplies.setTranslationY(0f);
+        if (h.containerReplies instanceof ReplyThreadContainer) {
+            ((ReplyThreadContainer) h.containerReplies).resetTrunkAnim();
+        }
         if (c.replyCount > 0) {
             h.tvViewReplies.setVisibility(View.VISIBLE);
             boolean expanded = h.containerReplies.getVisibility() == View.VISIBLE;

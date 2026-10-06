@@ -82,4 +82,9 @@
     <color name="trim_tooltip_text">#FFFFFF</color>
 
     <color name="x_logo_tint">#FFFFFF</color>
+
+    <!-- Reel comment reply-thread line + curved arrow (ReplyConnectorView and
+         the parent trunk in item_reel_comment.xml). Separate from text_muted so
+         it stays visible in dark mode. Dark: lighter neutral at 60% alpha - text_muted is #555555 in app/core night, which is nearly invisible on #121212. -->
+    <color name="thread_line">#99A1A7B3</color>
 </resources>

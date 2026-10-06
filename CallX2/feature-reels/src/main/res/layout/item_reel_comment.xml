@@ -42,13 +42,22 @@
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
         android:paddingTop="10dp"
-        android:paddingBottom="8dp">
+        android:paddingBottom="0dp">
+
+        <!-- Avatar column: avatar (+ story ring) on top, then the thread trunk
+             that fills the rest of the row height down to the replies
+             container. The row has NO bottom padding (padding would clip the
+             trunk 8dp short); that 8dp is the body column's marginBottom. -->
+        <LinearLayout
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="10dp"
+            android:orientation="vertical">
 
         <!-- Avatar with Story Ring (Instagram-parity size: 32dp avatar / 36dp ring) -->
         <FrameLayout
             android:layout_width="36dp"
             android:layout_height="36dp"
-            android:layout_marginEnd="10dp"
             android:layout_marginTop="2dp">
 
             <ImageView
@@ -73,11 +82,28 @@
 
         </FrameLayout>
 
-        <!-- Comment body -->
+            <!-- Parent trunk: 2dp line from just under the avatar to the replies
+                 container. Shown/hidden by ReplyThreadContainer together with the
+                 replies. Centre = 12dp padding + 17dp + 1dp = 30dp, the same x as
+                 the reply connector trunk (container marginStart 29dp + 1dp). -->
+            <View
+                android:id="@+id/view_thread_trunk"
+                android:layout_width="2dp"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="4dp"
+                android:background="@color/thread_line"
+                android:importantForAccessibility="no"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- Comment body (marginBottom 8dp = the old row bottom padding) -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginBottom="8dp"
             android:orientation="vertical">
 
             <!-- Name + time + edited -->
@@ -261,7 +287,7 @@
          trunk can start exactly under the parent avatar centre (12dp padding
          + 18dp = 30dp; trunk is 2dp so marginStart = 29dp). Reply avatar then
          lands at ~57dp, aligned with the parent's text column. -->
-    <LinearLayout
+    <com.callx.app.comments.ReplyThreadContainer
         android:id="@+id/container_replies"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

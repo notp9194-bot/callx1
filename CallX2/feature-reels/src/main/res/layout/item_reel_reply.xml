@@ -4,36 +4,39 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:paddingStart="0dp"
-    android:paddingEnd="4dp"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp">
+    android:paddingEnd="4dp">
+
+    <!-- NO vertical padding on this row on purpose: padding clips child
+         drawing, so the trunk would stop 8dp short of the row edge and leave
+         a gap between consecutive replies. The 8dp top/bottom spacing lives
+         in the avatar / body / like-column margins below, and the connector
+         spans the row's full height (match_parent, no margins). -->
 
     <!-- Thread connector: thin 2dp trunk + curved arrow into the avatar.
-         Negative vertical margins cancel the row's 8dp padding so the trunk
-         is continuous between consecutive replies. -->
+         24dp wide: arm is 20dp so the arrow tip lands ~3dp from the avatar. -->
     <com.callx.app.comments.ReplyConnectorView
         android:id="@+id/reply_connector"
-        android:layout_width="28dp"
-        android:layout_height="match_parent"
-        android:layout_marginTop="-8dp"
-        android:layout_marginBottom="-8dp"/>
+        android:layout_width="24dp"
+        android:layout_height="match_parent"/>
 
     <ImageView
         android:id="@+id/iv_avatar"
         android:layout_width="26dp"
         android:layout_height="26dp"
         android:layout_marginEnd="8dp"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="10dp"
         android:scaleType="centerCrop"
         android:background="@drawable/bg_comment_avatar_circle"
         android:clipToOutline="true"
         android:src="@drawable/ic_person"/>
 
-    <!-- Reply body -->
+    <!-- Reply body (8dp top/bottom = the row spacing that used to be padding) -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
         android:orientation="vertical">
 
         <LinearLayout
@@ -136,7 +139,7 @@
         android:orientation="vertical"
         android:gravity="center_horizontal"
         android:layout_marginStart="6dp"
-        android:layout_marginTop="-7dp"
+        android:layout_marginTop="1dp"
         android:layout_marginEnd="-7dp">
 
         <!-- 40dp tap target; 13dp padding => 14dp icon,

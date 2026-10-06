@@ -116,4 +116,9 @@
          other premium/CTA accents in this file (e.g. view_all_reels_stroke)
          stay fixed regardless of theme. -->
     <color name="premium_badge_gold">#FFC947</color>
+
+    <!-- Reel comment reply-thread line + curved arrow (ReplyConnectorView and
+         the parent trunk in item_reel_comment.xml). Separate from text_muted so
+         it stays visible in dark mode. Light: text_muted hue (#94A3B8) at 60% alpha. -->
+    <color name="thread_line">#9994A3B8</color>
 </resources>

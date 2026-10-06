@@ -2335,6 +2335,13 @@ public class ReelCommentFragment extends Fragment {
 
     private static final long REPLY_ANIM_MS = 160L;
 
+    /** The parent-row trunk that belongs to this replies container (or null). */
+    @Nullable
+    private static View replyTrunk(LinearLayout container) {
+        return container instanceof ReplyThreadContainer
+            ? ((ReplyThreadContainer) container).getTrunk() : null;
+    }
+
     /** Short slide-down + fade-in. Only alpha/translationY (GPU-cheap). */
     private void expandReplies(LinearLayout container) {
         float dy = 8f * container.getResources().getDisplayMetrics().density;
@@ -2343,22 +2350,36 @@ public class ReelCommentFragment extends Fragment {
         container.setTranslationY(-dy);
         container.animate().alpha(1f).translationY(0f)
             .setDuration(REPLY_ANIM_MS).start();
+        // Parent trunk fades in with the replies (alpha only; it is vertical,
+        // so a slide would not be visible anyway).
+        View trunk = replyTrunk(container);
+        if (trunk != null) {
+            trunk.animate().cancel();
+            trunk.setAlpha(0f);
+            trunk.animate().alpha(1f).setDuration(REPLY_ANIM_MS).start();
+        }
     }
 
     /** Short fade + slide-up, then really hide and free the row views. */
     private void collapseReplies(LinearLayout container) {
         float dy = 6f * container.getResources().getDisplayMetrics().density;
         container.animate().cancel();
+        final View trunk = replyTrunk(container);
+        if (trunk != null) {
+            trunk.animate().cancel();
+            trunk.animate().alpha(0f).setDuration(REPLY_ANIM_MS).start();
+        }
         container.animate().alpha(0f).translationY(-dy)
             .setDuration(REPLY_ANIM_MS)
             .withEndAction(() -> {
                 // Guard: the row may have been recycled/rebound mid-animation
                 // (adapter resets alpha to 1) — never wipe someone else's replies.
                 if (container.getAlpha() > 0.05f) return;
-                container.setVisibility(View.GONE);
+                container.setVisibility(View.GONE);   // also hides the trunk
                 container.removeAllViews();
                 container.setAlpha(1f);
                 container.setTranslationY(0f);
+                if (trunk != null) trunk.setAlpha(1f);
             }).start();
     }
 
