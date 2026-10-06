@@ -9,12 +9,16 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.text.Layout;
+import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.View;
 
 import androidx.annotation.Nullable;
+
+import com.callx.app.utils.ChatThemeManager;
 
 /**
  * DateSeparatorCanvasView — Canvas-rendered replacement for
@@ -32,8 +36,11 @@ import androidx.annotation.Nullable;
  * outer top/bottom padding — all baked in as constants below since the
  * chip's look never varies at runtime (only the label text changes).
  *
+ * Long labels wrap onto multiple centered lines (chip max ~85% of the row
+ * width) and the chip follows the light/dark theme, like WhatsApp.
+ *
  * Feature 8: this row is also reused (via MessagePagingAdapter's
- * TYPE_DATE_SEPARATOR routing for "system" join/leave rows) to show a
+ * TYPE_DATE_SEPARATOR routing for every "system" row) to show a
  * small circular avatar to the left of the text — e.g. "🖼 Priya joined
  * the group". Purely additive: {@link #setAvatar(Bitmap)} is null for
  * every plain date/security-event chip, which draws exactly as before.
@@ -45,7 +52,16 @@ public class DateSeparatorCanvasView extends View {
     private static final float CHIP_PAD_V_DP = 3f;
     private static final float CHIP_RADIUS_DP = 10f;
     private static final float TEXT_SP = 11f;
-    private static final int CHIP_COLOR = 0xFF3A3A4A;
+    // Dark theme: solid #3A3A4A + white text (unchanged). Light theme: soft
+    // white pill + muted slate text, like WhatsApp's light system chips.
+    private static final int CHIP_COLOR_DARK = 0xFF3A3A4A;
+    private static final int TEXT_COLOR_DARK = Color.WHITE;
+    private static final int CHIP_COLOR_LIGHT = 0xF2FFFFFF;
+    private static final int TEXT_COLOR_LIGHT = 0xFF54656F;
+    // Long system lines (e.g. "X changed this group's settings to allow only
+    // admins to send messages") wrap onto extra lines instead of running off
+    // screen; the chip never grows wider than this share of the row.
+    private static final float MAX_CHIP_WIDTH_FRACTION = 0.85f;
     // Feature 8: avatar circle diameter + gap before the label text.
     private static final float AVATAR_DIAMETER_DP = 16f;
     private static final float AVATAR_GAP_DP = 5f;
@@ -61,7 +77,12 @@ public class DateSeparatorCanvasView extends View {
     private int outerPadVPx, chipPadHPx, chipPadVPx, chipRadiusPx;
     private int avatarDiameterPx, avatarGapPx;
     private String label = "";
-    private float textWidth = 0f;
+    // Wrapped label. Rebuilt only when the label or available width changes.
+    @Nullable private StaticLayout textLayout;
+    private int layoutWidthPx = -1;
+    private float textWidth = 0f;   // widest wrapped line, px
+    private float textHeight = 0f;  // total wrapped height, px
+    private boolean darkTheme = true;
 
     @Nullable private Bitmap avatarBitmap;
     private BitmapShader avatarShader;
@@ -81,13 +102,12 @@ public class DateSeparatorCanvasView extends View {
         avatarGapPx = Math.round(AVATAR_GAP_DP * density);
 
         chipPaint.setStyle(Paint.Style.FILL);
-        chipPaint.setColor(CHIP_COLOR);
 
-        textPaint.setColor(Color.WHITE);
         textPaint.setFakeBoldText(true);
         textPaint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, TEXT_SP,
                 getResources().getDisplayMetrics()));
         textPaint.getFontMetrics(fontMetrics);
+        applyTheme();
 
         avatarPaint.setStyle(Paint.Style.FILL);
 
@@ -102,7 +122,8 @@ public class DateSeparatorCanvasView extends View {
         String next = text != null ? text : "";
         if (next.equals(label)) return;
         label = next;
-        textWidth = textPaint.measureText(label);
+        textLayout = null; // rebuilt in onMeasure for the current width
+        layoutWidthPx = -1;
         requestLayout();
         invalidate();
     }
@@ -120,15 +141,61 @@ public class DateSeparatorCanvasView extends View {
         invalidate();
     }
 
-    private float chipTextHeight() {
-        return (float) Math.ceil(fontMetrics.descent - fontMetrics.ascent) + chipPadVPx * 2f;
+    /** Picks chip/text colours for the current light/dark mode. */
+    private void applyTheme() {
+        darkTheme = ChatThemeManager.isDarkMode(getContext());
+        chipPaint.setColor(darkTheme ? CHIP_COLOR_DARK : CHIP_COLOR_LIGHT);
+        textPaint.setColor(darkTheme ? TEXT_COLOR_DARK : TEXT_COLOR_LIGHT);
+    }
+
+    @Override
+    protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyTheme();
+        invalidate();
+    }
+
+    /** Width available to the wrapped text for a row of {@code viewWidth} px. */
+    private int textMaxWidth(int viewWidth) {
+        float avatarSpace = avatarBitmap != null ? avatarDiameterPx + avatarGapPx : 0f;
+        int w = Math.round(viewWidth * MAX_CHIP_WIDTH_FRACTION - chipPadHPx * 2f - avatarSpace);
+        return Math.max(w, 1);
+    }
+
+    /** (Re)builds the wrapped layout when the label or available width changed. */
+    private void ensureLayout(int viewWidth) {
+        int maxW = textMaxWidth(viewWidth);
+        if (textLayout != null && layoutWidthPx == maxW) return;
+        layoutWidthPx = maxW;
+        if (label.isEmpty()) {
+            textLayout = null;
+            textWidth = 0f;
+            textHeight = 0f;
+            return;
+        }
+        StaticLayout.Builder b = StaticLayout.Builder.obtain(label, 0, label.length(), textPaint, maxW)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .setIncludePad(false);
+        textLayout = b.build();
+        float widest = 0f;
+        for (int i = 0; i < textLayout.getLineCount(); i++) {
+            widest = Math.max(widest, textLayout.getLineWidth(i));
+        }
+        textWidth = widest;
+        textHeight = textLayout.getHeight();
+    }
+
+    private float chipHeightPx() {
+        float textBlock = (float) Math.ceil(textHeight) + chipPadVPx * 2f;
+        float avatarBlock = avatarBitmap != null ? avatarDiameterPx + chipPadVPx * 2f : 0f;
+        return Math.max(textBlock, avatarBlock);
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int chipHeight = Math.round(Math.max(chipTextHeight(), avatarBitmap != null ? avatarDiameterPx + chipPadVPx * 2f : 0));
-        int height = outerPadVPx + chipHeight + outerPadVPx;
         int width = View.MeasureSpec.getSize(widthMeasureSpec);
+        ensureLayout(width);
+        int height = outerPadVPx + Math.round(chipHeightPx()) + outerPadVPx;
         setMeasuredDimension(width, resolveSize(height, heightMeasureSpec));
     }
 
@@ -136,13 +203,15 @@ public class DateSeparatorCanvasView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (label.isEmpty()) return;
+        ensureLayout(getWidth());
+        if (textLayout == null) return;
 
         boolean hasAvatar = avatarBitmap != null;
         float avatarSpace = hasAvatar ? avatarDiameterPx + avatarGapPx : 0f;
 
         int viewWidth = getWidth();
         float chipWidth = textWidth + chipPadHPx * 2f + avatarSpace;
-        float chipHeight = Math.max(chipTextHeight(), hasAvatar ? avatarDiameterPx + chipPadVPx * 2f : 0f);
+        float chipHeight = chipHeightPx();
         float left = (viewWidth - chipWidth) / 2f;
         float top = outerPadVPx;
 
@@ -156,9 +225,17 @@ public class DateSeparatorCanvasView extends View {
             drawAvatar(canvas);
         }
 
-        float textLeft = left + chipPadHPx + avatarSpace;
-        float baseline = top + (chipHeight - (fontMetrics.descent - fontMetrics.ascent)) / 2f - fontMetrics.ascent;
-        canvas.drawText(label, textLeft, baseline, textPaint);
+        // Wrapped text block is centered inside the chip's text area (right of
+        // the avatar). The layout is textMaxWidth wide and ALIGN_CENTER, so
+        // shift it so the widest line sits exactly between the chip paddings.
+        float textAreaLeft = left + chipPadHPx + avatarSpace;
+        float textAreaWidth = textWidth;
+        float layoutLeft = textAreaLeft + (textAreaWidth - layoutWidthPx) / 2f;
+        float layoutTop = top + (chipHeight - textHeight) / 2f;
+        int save = canvas.save();
+        canvas.translate(layoutLeft, layoutTop);
+        textLayout.draw(canvas);
+        canvas.restoreToCount(save);
     }
 
     /** Center-cropped circular blit of {@link #avatarBitmap} into {@link #avatarRect}, cached BitmapShader. */

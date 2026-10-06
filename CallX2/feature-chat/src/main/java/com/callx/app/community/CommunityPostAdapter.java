@@ -62,6 +62,10 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         default void onMediaCellClicked(CommunityPostEntity post, int index) { onMediaClicked(post); }
         /** Tapped the reaction count/summary — opens the "who reacted" detail sheet. */
         default void onReactionsDetail(CommunityPostEntity post) {}
+        /** Tapped a web link inside post text. Default no-op. */
+        default void onLinkClick(String url) {}
+        /** Tapped a #hashtag inside post text. Default no-op. */
+        default void onHashtagClick(String hashtag) {}
     }
 
     private static final DiffUtil.ItemCallback<CommunityPostEntity> DIFF =

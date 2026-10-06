@@ -49,3 +49,7 @@ storage. The admin UI records and audits trust cases, but a real refund or KYC
 decision must be connected to the payment provider before it can move real
 money. Likewise, exact Firebase Storage usage requires a trusted scheduled
 aggregate in `storageMetrics/totalBytes`.
+## Group system rows — WhatsApp-style chip (v-next)
+- MessagePagingAdapter: EVERY `type:"system"` row (settings/rename/icon/admin/add) now renders as the centered chip (TYPE_DATE_SEPARATOR), not a left "System" bubble. Avatar only when `eventUid`+`eventPhoto` exist (join/leave). System rows are not selectable.
+- DateSeparatorCanvasView: label wraps with StaticLayout (chip max 85% of row width), light/dark theme colours via ChatThemeManager.isDarkMode.
+- GroupSettingsActivity.postSettingsAudit(label, sentence): natural WhatsApp wording, e.g. "X changed this group's settings to allow only admins to send messages". Audit log still stores the raw label.

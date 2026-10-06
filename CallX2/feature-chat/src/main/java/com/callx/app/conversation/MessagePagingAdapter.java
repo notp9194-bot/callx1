@@ -2475,7 +2475,7 @@ public class MessagePagingAdapter
             // rows) instead of the outgoing message the user actually
             // selected. Filter these out defensively at the source.
             if ("date_separator".equals(m.type) || "security_event".equals(m.type)) continue;
-            if ("system".equals(m.type) && m.eventUid != null && !m.eventUid.isEmpty()) continue;
+            if ("system".equals(m.type)) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && selectedMessageIds.contains(id)) result.add(m);
         }
@@ -2892,10 +2892,11 @@ public class MessagePagingAdapter
         // joined/left — m.eventUid set at post time) reuses the same
         // standalone pill-chip rendering, now with a small avatar of that
         // member drawn next to the text (see DateSeparatorCanvasView#setAvatar).
-        // Every other "system" row (rename, icon change, admin promote,
-        // add/remove — no eventUid) is untouched and keeps falling through
-        // to the legacy bubble path exactly as before.
-        if ("system".equals(m.type) && m.eventUid != null && !m.eventUid.isEmpty()) return TYPE_DATE_SEPARATOR;
+        // WhatsApp-style: EVERY "system" row (rename, icon change, admin
+        // promote, settings change, add/remove — with or without eventUid)
+        // is a centered chip, never a left-side "System" bubble. Rows with
+        // no eventUid simply draw no avatar.
+        if ("system".equals(m.type)) return TYPE_DATE_SEPARATOR;
         // status_seen / reel_seen — now rendered on Canvas (always the
         // "received" shape, left-aligned) instead of item_status_seen_
         // bubble.xml / item_reel_seen_bubble.xml. TYPE_STATUS_SEEN/
@@ -3597,10 +3598,10 @@ public class MessagePagingAdapter
         }
         // ── SYSTEM (join/leave) — same chip row, now with a small avatar of
         // the member the row is about (see viewTypeOf's Feature 8 comment). ──
-        if ("system".equals(m.type) && m.eventUid != null && !m.eventUid.isEmpty()) {
+        if ("system".equals(m.type)) {
             if (h.dateSeparatorView != null) {
                 h.dateSeparatorView.setLabel(m.text);
-                String photo = m.eventPhoto;
+                String photo = (m.eventUid != null && !m.eventUid.isEmpty()) ? m.eventPhoto : null;
                 // v446: L2 hit → set the avatar inline (no stale-clear pass, no tag String concat, no lambda).
                 // Tag reset to null so an older in-flight async load for a previous row is ignored.
                 if (photo != null && !photo.isEmpty()) {

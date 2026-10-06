@@ -224,6 +224,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── State ──────────────────────────────────────────────────────────────
     private boolean isAdmin    = false;
+    private boolean adminStatusResolved = false; // avoids lock-bar flash for admins
     private boolean isRecording = false;
     private final Map<String, String> memberNames = new HashMap<>();
     private final Map<String, String> memberRoles = new HashMap<>();
@@ -869,6 +870,8 @@ public class GroupChatActivity extends AppCompatActivity
         // RejectedExecutionException.
         attachMediaExecutor.shutdownNow();
 
+        if (groupSettingsRef != null && groupSettingsListener != null)
+            groupSettingsRef.removeEventListener(groupSettingsListener);
         super.onDestroy();
     }
 
@@ -2524,9 +2527,12 @@ public class GroupChatActivity extends AppCompatActivity
      * Load group-level admin settings (slow mode, anonymous posting) once on open.
      * Called from onCreate after groupId is confirmed.
      */
+    private com.google.firebase.database.DatabaseReference groupSettingsRef;
+    private com.google.firebase.database.ValueEventListener groupSettingsListener;
+
     private void loadGroupAdminSettings() {
-        FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings")
-                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+        groupSettingsRef = FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings");
+        groupSettingsListener = new com.google.firebase.database.ValueEventListener() {
                     @Override
                     public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
                         // Slow mode
@@ -2545,7 +2551,8 @@ public class GroupChatActivity extends AppCompatActivity
                         updateInputLockState();
                     }
                     @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
-                });
+        };
+        groupSettingsRef.addValueEventListener(groupSettingsListener);
     }
 
     /**
@@ -2557,17 +2564,27 @@ public class GroupChatActivity extends AppCompatActivity
      * independently/async, so both call this to converge on the right state.
      */
     private void updateInputLockState() {
-        boolean locked = sendPermissionAdminsOnly && !isAdmin;
-        View inputBar = findViewById(R.id.layout_input_bar);
-        if (inputBar != null) inputBar.setVisibility(locked ? View.GONE : View.VISIBLE);
+        if (binding == null) return;
+        boolean locked = adminStatusResolved && sendPermissionAdminsOnly && !isAdmin;
+        // The real input bar on this screen is the capsule in activity_chat.xml.
+        binding.cvInputCapsule.setVisibility(locked ? View.GONE : View.VISIBLE);
 
         View lockBanner = findViewById(R.id.layout_send_locked_banner);
-        if (lockBanner == null) {
-            // Layout may not have the banner id wired up yet on this screen
-            // size/variant — degrade gracefully to just hiding the input bar.
-            return;
+        if (lockBanner != null) lockBanner.setVisibility(locked ? View.VISIBLE : View.GONE);
+
+        if (locked) {
+            // Drop keyboard/focus and any pending reply/mention UI tied to the input.
+            try {
+                binding.etMessage.clearFocus();
+                android.view.inputmethod.InputMethodManager imm =
+                        (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                if (imm != null) imm.hideSoftInputFromWindow(binding.etMessage.getWindowToken(), 0);
+            } catch (Exception ignored) {}
+            View anonBtn = findViewById(R.id.btn_post_anonymous);
+            if (anonBtn != null) anonBtn.setVisibility(View.GONE);
+        } else {
+            updateAnonButtonVisibility();
         }
-        lockBanner.setVisibility(locked ? View.VISIBLE : View.GONE);
     }
 
     private void updateAnonButtonVisibility() {
@@ -4502,6 +4519,7 @@ public class GroupChatActivity extends AppCompatActivity
                 .addValueEventListener(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
                         isAdmin = "admin".equals(s.getValue(String.class));
+                        adminStatusResolved = true;
                         invalidateOptionsMenu();
                         updateInputLockState();
                     }

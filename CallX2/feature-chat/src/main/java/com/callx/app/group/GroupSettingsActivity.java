@@ -320,7 +320,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
             if (!isAdmin) { swAnonymousPosting.setChecked(!checked); return; }
             saveGroupSetting("anonymousPostingEnabled", checked ? "true" : "false");
             Toast.makeText(this, checked ? "Anonymous posting enabled" : "Anonymous posting disabled", Toast.LENGTH_SHORT).show();
-            if (firebaseSettingsLoaded) postSettingsAudit("Anonymous posting: " + (checked ? "On" : "Off"));
+            if (firebaseSettingsLoaded) postSettingsAudit("Anonymous posting: " + (checked ? "On" : "Off"), checked ? "turned on anonymous posting in this group" : "turned off anonymous posting in this group");
         });
 
         swTopicsEnabled.setOnCheckedChangeListener((btn, checked) -> {
@@ -333,19 +333,19 @@ public class GroupSettingsActivity extends AppCompatActivity {
             // saw the real value — Topics button visibility never updated.
             FirebaseUtils.getGroupsRef().child(groupId).child("topicsEnabled").setValue(checked);
             Toast.makeText(this, checked ? "Topics enabled" : "Topics disabled", Toast.LENGTH_SHORT).show();
-            if (topicsLoaded) postSettingsAudit("Topics: " + (checked ? "On" : "Off"));
+            if (topicsLoaded) postSettingsAudit("Topics: " + (checked ? "On" : "Off"), checked ? "turned on topics in this group" : "turned off topics in this group");
         });
 
         swApprovalRequired.setOnCheckedChangeListener((btn, checked) -> {
             if (!isAdmin) { swApprovalRequired.setChecked(!checked); return; }
             saveGroupSetting("approvalRequired", checked ? "1" : "0");
-            if (firebaseSettingsLoaded) postSettingsAudit("Approval required to join: " + (checked ? "On" : "Off"));
+            if (firebaseSettingsLoaded) postSettingsAudit("Approval required to join: " + (checked ? "On" : "Off"), checked ? "turned on admin approval to join this group" : "turned off admin approval to join this group");
         });
 
         swAdminAddOnly.setOnCheckedChangeListener((btn, checked) -> {
             if (!isAdmin) { swAdminAddOnly.setChecked(!checked); return; }
             saveGroupSetting("adminAddOnly", checked ? "1" : "0");
-            if (firebaseSettingsLoaded) postSettingsAudit("Only admins can add members: " + (checked ? "On" : "Off"));
+            if (firebaseSettingsLoaded) postSettingsAudit("Only admins can add members: " + (checked ? "On" : "Off"), checked ? "changed this group's settings to allow only admins to add members" : "changed this group's settings to allow all members to add members");
         });
     }
 
@@ -611,7 +611,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     if (s < 0) s = 0;
                     tvSendPerm.setText(opts[s]);
                     saveGroupSetting("sendPermission", s == 1 ? "admins" : "all");
-                    postSettingsAudit("Who can send messages: " + opts[s]);
+                    postSettingsAudit("Who can send messages: " + opts[s], s == 1 ? "changed this group's settings to allow only admins to send messages" : "changed this group's settings to allow all members to send messages");
                     Toast.makeText(this, "Permission updated", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -635,7 +635,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     if (s < 0) s = 1;
                     tvEditPerm.setText(opts[s]);
                     saveGroupSetting("editPermission", s == 0 ? "all" : "admins");
-                    postSettingsAudit("Who can edit group info: " + opts[s]);
+                    postSettingsAudit("Who can edit group info: " + opts[s], s == 1 ? "changed the settings so only admins can edit the group settings" : "changed the settings so all members can edit the group settings");
                     Toast.makeText(this, "Permission updated", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -826,7 +826,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     updateSlowModeStatus();
                     String msg = currentSlowModeSecs == 0 ? "Slow mode disabled"
                             : "Slow mode: " + labels[sel[0]];
-                    postSettingsAudit("Slow mode: " + labels[sel[0]]);
+                    postSettingsAudit("Slow mode: " + labels[sel[0]], currentSlowModeSecs == 0 ? "turned off slow mode in this group" : "set slow mode to " + labels[sel[0]] + " in this group");
                     Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -856,8 +856,22 @@ public class GroupSettingsActivity extends AppCompatActivity {
     // for why (programmatic setChecked() during initial load fires the
     // listener too, and that isn't a real change).
     private void postSettingsAudit(String label) {
+        postSettingsAudit(label, null);
+    }
+
+    /**
+     * @param sentence WhatsApp-style natural phrase appended after the admin's
+     *                 name (e.g. "changed this group's settings to allow only
+     *                 admins to send messages"). Null falls back to the old
+     *                 "changed group settings: label" wording. The structured
+     *                 audit-log entry always keeps the raw {@code label}.
+     */
+    private void postSettingsAudit(String label, @androidx.annotation.Nullable String sentence) {
         String name = FirebaseUtils.getCurrentName();
-        String text = (name != null ? name : "An admin") + " changed group settings: " + label;
+        String who = (name != null && !name.isEmpty()) ? name : "An admin";
+        String text = (sentence != null && !sentence.isEmpty())
+                ? who + " " + sentence
+                : who + " changed group settings: " + label;
 
         DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
         Map<String, Object> sys = new HashMap<>();

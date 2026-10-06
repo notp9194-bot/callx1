@@ -462,6 +462,25 @@
                         android:layout_height="wrap_content"/>
             </com.callx.app.chat.ui.ChatInputBarContainer>
 
+            <!-- "Only admins can send messages" bar — WhatsApp-style. Replaces the
+                 input capsule in a group whose Send Messages permission is
+                 Admins Only when the viewer isn't an admin. Toggled by
+                 GroupChatActivity#updateInputLockState(). -->
+            <TextView
+                android:id="@+id/layout_send_locked_banner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/surface_input"
+                android:gravity="center"
+                android:paddingTop="16dp"
+                android:paddingBottom="16dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="Only admins can send messages"
+                android:textColor="@color/text_muted"
+                android:textSize="14sp"
+                android:visibility="gone"/>
+
         </LinearLayout>
 
         <!-- ═══════════════════════════════════════════════════════════════
