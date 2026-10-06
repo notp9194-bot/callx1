@@ -447,6 +447,10 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         bindLikeState(h, c, false);
 
         // ── Reply count ─────────────────────────────────────────────────
+        // Recycled row may carry a half-finished expand/collapse animation.
+        h.containerReplies.animate().cancel();
+        h.containerReplies.setAlpha(1f);
+        h.containerReplies.setTranslationY(0f);
         if (c.replyCount > 0) {
             h.tvViewReplies.setVisibility(View.VISIBLE);
             boolean expanded = h.containerReplies.getVisibility() == View.VISIBLE;

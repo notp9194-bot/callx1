@@ -722,10 +722,9 @@ public class ReelCommentFragment extends Fragment {
             public void onViewReplies(ReelComment comment,
                                       LinearLayout container, TextView tvToggle) {
                 if (container.getVisibility() == View.VISIBLE) {
-                    container.setVisibility(View.GONE);
-                    container.removeAllViews();
                     tvToggle.setText("View " + comment.replyCount
                         + (comment.replyCount == 1 ? " reply" : " replies"));
+                    collapseReplies(container);
                 } else {
                     tvToggle.setText("Loading…");
                     loadRepliesInto(comment, container, tvToggle);
@@ -1904,6 +1903,7 @@ public class ReelCommentFragment extends Fragment {
             View row = buildReplyRow(local, parent, activeRepliesContainer, activeRepliesToggle);
             if (row != null) {
                 activeRepliesContainer.addView(row);
+                updateReplyConnectors(activeRepliesContainer);
                 activeRepliesContainer.setVisibility(View.VISIBLE);
                 activeRepliesToggle.setText("Hide replies");
             }
@@ -2276,6 +2276,7 @@ public class ReelCommentFragment extends Fragment {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot snapshot) {
                     if (!isAdded()) return;
+                    final boolean wasVisible = container.getVisibility() == View.VISIBLE;
                     container.removeAllViews();
                     int count = 0;
                     java.util.Set<String> confirmedIds = new java.util.HashSet<>();
@@ -2304,14 +2305,61 @@ public class ReelCommentFragment extends Fragment {
                             if (row != null) { container.addView(row); count++; }
                         }
                     }
+                    updateReplyConnectors(container);
                     container.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
                     tvToggle.setText(count > 0 ? "Hide replies" : "No replies yet");
+                    // Short slide+fade only on a fresh expand — not on a
+                    // refresh of an already-open thread (avoids flicker).
+                    if (count > 0 && !wasVisible) expandReplies(container);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     tvToggle.setText("View " + parent.replyCount
                         + (parent.replyCount == 1 ? " reply" : " replies"));
                 }
             });
+    }
+
+    // ── Reply thread visuals (trunk + ↳ connector, expand/collapse) ──────────
+
+    /** Marks the last reply so its trunk stops at the curve; all others
+     *  keep the line running down to the next reply. */
+    private static void updateReplyConnectors(LinearLayout container) {
+        int n = container.getChildCount();
+        for (int i = 0; i < n; i++) {
+            View c = container.getChildAt(i).findViewById(R.id.reply_connector);
+            if (c instanceof ReplyConnectorView) {
+                ((ReplyConnectorView) c).setLast(i == n - 1);
+            }
+        }
+    }
+
+    private static final long REPLY_ANIM_MS = 160L;
+
+    /** Short slide-down + fade-in. Only alpha/translationY (GPU-cheap). */
+    private void expandReplies(LinearLayout container) {
+        float dy = 8f * container.getResources().getDisplayMetrics().density;
+        container.animate().cancel();
+        container.setAlpha(0f);
+        container.setTranslationY(-dy);
+        container.animate().alpha(1f).translationY(0f)
+            .setDuration(REPLY_ANIM_MS).start();
+    }
+
+    /** Short fade + slide-up, then really hide and free the row views. */
+    private void collapseReplies(LinearLayout container) {
+        float dy = 6f * container.getResources().getDisplayMetrics().density;
+        container.animate().cancel();
+        container.animate().alpha(0f).translationY(-dy)
+            .setDuration(REPLY_ANIM_MS)
+            .withEndAction(() -> {
+                // Guard: the row may have been recycled/rebound mid-animation
+                // (adapter resets alpha to 1) — never wipe someone else's replies.
+                if (container.getAlpha() > 0.05f) return;
+                container.setVisibility(View.GONE);
+                container.removeAllViews();
+                container.setAlpha(1f);
+                container.setTranslationY(0f);
+            }).start();
     }
 
     /** Builds a fully interactive reply row — avatar, like (with count),

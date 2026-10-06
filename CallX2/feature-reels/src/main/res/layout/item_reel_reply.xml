@@ -3,10 +3,20 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingStart="4dp"
+    android:paddingStart="0dp"
     android:paddingEnd="4dp"
     android:paddingTop="8dp"
     android:paddingBottom="8dp">
+
+    <!-- Thread connector: thin 2dp trunk + curved arrow into the avatar.
+         Negative vertical margins cancel the row's 8dp padding so the trunk
+         is continuous between consecutive replies. -->
+    <com.callx.app.comments.ReplyConnectorView
+        android:id="@+id/reply_connector"
+        android:layout_width="28dp"
+        android:layout_height="match_parent"
+        android:layout_marginTop="-8dp"
+        android:layout_marginBottom="-8dp"/>
 
     <ImageView
         android:id="@+id/iv_avatar"
@@ -129,7 +139,7 @@
         android:layout_marginTop="-7dp"
         android:layout_marginEnd="-7dp">
 
-        <!-- 40dp tap target; 16dp padding => 8dp icon (50% of the old 16dp),
+        <!-- 40dp tap target; 13dp padding => 14dp icon,
              thin-stroke ic_comment_heart. -->
         <ImageButton
             android:id="@+id/btn_like_reply"
@@ -139,7 +149,7 @@
             android:scaleType="fitCenter"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like reply"
-            android:padding="16dp"/>
+            android:padding="13dp"/>
 
         <TextView
             android:id="@+id/tv_likes_count"
@@ -147,7 +157,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="-11dp"
             android:text=""
-            android:textSize="9sp"
+            android:textSize="10sp"
             android:textColor="@color/text_muted"
             android:gravity="center"/>
     </LinearLayout>
