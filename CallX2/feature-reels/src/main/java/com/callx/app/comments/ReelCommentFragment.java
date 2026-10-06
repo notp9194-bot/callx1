@@ -921,10 +921,31 @@ public class ReelCommentFragment extends Fragment {
         ItemTouchHelper.SimpleCallback callback = new ItemTouchHelper.SimpleCallback(
                 0, ItemTouchHelper.RIGHT) {
 
-            private final int maxSwipePx = dpToPx(72);
-            /** True once this drag has crossed the full swipe distance —
-             *  read in clearView() when the finger lifts. */
-            private boolean triggered = false;
+            // Distances: reply arms at 56dp of finger travel (was 72dp); the row
+            // itself never visually goes past 72dp (rubber-band after 56dp).
+            private final int triggerPx   = dpToPx(56);
+            private final int maxVisualPx = dpToPx(72);
+            // Quick flick: arms with a short drag if the finger was fast.
+            private final int   flingMinDx  = dpToPx(28);
+            private final float flingMinVel = dpToPx(600);   // px/s
+            private final int lockPx   = dpToPx(8);
+            private final int iconCx   = dpToPx(28);
+            private final int chipBase = dpToPx(13);
+            private final int chipGrow = dpToPx(5);
+            private final int iconSmall = dpToPx(17);
+            private final int iconBig   = dpToPx(20);
+
+            // PERF: built once, reused every frame (was: new Paint +
+            // getColor + getDrawable().mutate() on EVERY onChildDraw call).
+            private android.graphics.Paint chipPaint;
+            private android.graphics.drawable.Drawable icon;
+
+            // Gesture state
+            private boolean dragging, armed, fired, parentLocked;
+            private ReelComment dragComment;
+            private RecyclerView.ViewHolder dragVh;   // ignore other rows still recovering
+            private float lastRawDx, velocity;
+            private long lastT;
 
             @Override
             public boolean onMove(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder vh,
@@ -933,87 +954,144 @@ public class ReelCommentFragment extends Fragment {
             }
 
             // Deliberately unreachable (>1): the row must never actually be
-            // "swiped away" by ItemTouchHelper's own dismiss animation —
-            // we only use the drag distance as a gesture signal and always
-            // let the row spring back via clearView()'s default recovery.
+            // "swiped away" by ItemTouchHelper - we only use the drag
+            // distance as a gesture signal and always let the row spring back.
             @Override
             public float getSwipeThreshold(@NonNull RecyclerView.ViewHolder vh) { return 2f; }
 
+            // Also disable the velocity path: a fast fling used to bypass the
+            // threshold above and really dismiss the row (onSwiped is a no-op,
+            // so it would have stayed off-screen). Flicks are handled by us.
+            @Override
+            public float getSwipeEscapeVelocity(float defaultValue) { return Float.MAX_VALUE; }
+
+            // Faster spring-back (default is ~250ms+, scaled by distance).
+            @Override
+            public long getAnimationDuration(@NonNull RecyclerView r, int animationType,
+                                              float animateDx, float animateDy) {
+                return 120L;
+            }
+
             @Override
             public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) { /* unused */ }
+
+            /** Row translation for a raw finger distance: 1:1 up to the
+             *  trigger, then heavy resistance, hard-capped at maxVisualPx. */
+            private float visualDx(float dX) {
+                if (dX <= 0f) return 0f;
+                if (dX <= triggerPx) return dX;
+                return Math.min(maxVisualPx, triggerPx + (dX - triggerPx) * 0.25f);
+            }
+
+            private void ensureDrawObjects(Context ctx) {
+                if (chipPaint == null) {
+                    chipPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                    chipPaint.setColor(androidx.core.content.ContextCompat.getColor(
+                        ctx, R.color.brand_primary));
+                }
+                if (icon == null) {
+                    android.graphics.drawable.Drawable d =
+                        androidx.core.content.ContextCompat.getDrawable(ctx, R.drawable.ic_reply);
+                    if (d != null) {
+                        icon = d.mutate();
+                        icon.setTint(Color.WHITE);
+                    }
+                }
+            }
+
+            /** Finger lifted: fire the reply NOW (not after the spring-back). */
+            private void onRelease(@NonNull RecyclerView r, @NonNull View item) {
+                dragging = false;
+                if (parentLocked && r.getParent() != null) {
+                    r.getParent().requestDisallowInterceptTouchEvent(false);
+                }
+                parentLocked = false;
+                boolean fling = !armed && lastRawDx >= flingMinDx && velocity >= flingMinVel;
+                if ((armed || fling) && !fired && dragComment != null) {
+                    fired = true;
+                    if (fling) item.performHapticFeedback(
+                        android.view.HapticFeedbackConstants.CLOCK_TICK);
+                    final ReelComment fc = dragComment;
+                    // post(): we may be inside a draw pass; startReply changes
+                    // visibility/focus. Next frame is ~16ms, not ~300ms.
+                    r.post(() -> { if (isAdded()) startReply(fc); });
+                }
+            }
 
             @Override
             public void onChildDraw(@NonNull Canvas c, @NonNull RecyclerView r,
                                      @NonNull RecyclerView.ViewHolder vh, float dX, float dY,
                                      int actionState, boolean isCurrentlyActive) {
-                if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE) {
-                    float clamped = Math.max(0f, Math.min(dX, maxSwipePx));
-                    float progress = clamped / maxSwipePx;
-                    boolean nowTriggered = progress >= 1f;
+                if (actionState != ItemTouchHelper.ACTION_STATE_SWIPE) {
+                    super.onChildDraw(c, r, vh, dX, dY, actionState, isCurrentlyActive);
+                    return;
+                }
+                final View item = vh.itemView;
 
-                    // Haptic "tick" fires exactly once, right as the drag
-                    // crosses the commit threshold — not every frame — so
-                    // releasing feels like confirming a deliberate action,
-                    // the same cue Telegram/iOS Mail give on their swipe
-                    // actions, instead of the gesture just silently working.
-                    if (nowTriggered && !triggered) {
-                        vh.itemView.performHapticFeedback(
+                if (isCurrentlyActive) {
+                    if (!dragging) {
+                        dragging = true; armed = false; fired = false; dragVh = vh;
+                        velocity = 0f; lastRawDx = 0f; lastT = 0L;
+                        int pos = vh.getAdapterPosition();
+                        dragComment = (pos != RecyclerView.NO_POSITION && adapter != null)
+                            ? adapter.getComment(pos) : null;
+                    }
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (lastT != 0L && now > lastT) {
+                        float v = (dX - lastRawDx) * 1000f / (now - lastT);
+                        velocity = 0.5f * velocity + 0.5f * v;
+                    }
+                    lastRawDx = dX; lastT = now;
+
+                    // Once it is clearly a horizontal swipe, stop parents
+                    // (bottom sheet / pager) from stealing the gesture.
+                    if (!parentLocked && dX > lockPx && r.getParent() != null) {
+                        r.getParent().requestDisallowInterceptTouchEvent(true);
+                        parentLocked = true;
+                    }
+
+                    boolean nowArmed = dX >= triggerPx;
+                    // Haptic tick exactly once, as the drag crosses the threshold.
+                    if (nowArmed && !armed) {
+                        item.performHapticFeedback(
                             android.view.HapticFeedbackConstants.CLOCK_TICK);
                     }
-                    triggered = nowTriggered;
-
-                    View item = vh.itemView;
-                    if (progress > 0.05f) {
-                        int cx = item.getLeft() + dpToPx(28);
-                        int cy = item.getTop() + item.getHeight() / 2;
-
-                        // Circular brand-tinted chip behind the icon — grows
-                        // and solidifies to full opacity as the gesture
-                        // arms, then the icon itself pops slightly larger,
-                        // so there's a clear "this is about to fire" signal
-                        // before the user even lifts their finger.
-                        float chipProgress = Math.min(1f, progress * 1.3f);
-                        int chipRadius = (int) (dpToPx(13) + dpToPx(5) * chipProgress);
-                        android.graphics.Paint chipPaint =
-                            new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                        chipPaint.setColor(androidx.core.content.ContextCompat.getColor(
-                            requireContext(), R.color.brand_primary));
-                        chipPaint.setAlpha(triggered ? 255 : (int) (170 * chipProgress));
-                        c.drawCircle(cx, cy, chipRadius, chipPaint);
-
-                        android.graphics.drawable.Drawable icon =
-                            androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.ic_reply);
-                        if (icon != null) {
-                            android.graphics.drawable.Drawable tinted = icon.mutate();
-                            tinted.setTint(Color.WHITE);
-                            tinted.setAlpha((int) (255 * Math.min(1f, progress * 1.6f)));
-                            int iconSize = triggered ? dpToPx(20) : dpToPx(17);
-                            tinted.setBounds(cx - iconSize / 2, cy - iconSize / 2,
-                                              cx + iconSize / 2, cy + iconSize / 2);
-                            tinted.draw(c);
-                        }
-                    }
-                    super.onChildDraw(c, r, vh, clamped, dY, actionState, isCurrentlyActive);
-                } else {
-                    super.onChildDraw(c, r, vh, dX, dY, actionState, isCurrentlyActive);
+                    armed = nowArmed;
+                } else if (dragging && vh == dragVh) {
+                    // First non-active frame after the finger lifted.
+                    onRelease(r, item);
                 }
+
+                float rawClamped = Math.max(0f, dX);
+                float progress = Math.min(1f, rawClamped / triggerPx);
+                boolean triggered = isCurrentlyActive ? armed : fired;
+
+                if (progress > 0.05f) {
+                    ensureDrawObjects(r.getContext());
+                    int cx = item.getLeft() + iconCx;
+                    int cy = item.getTop() + item.getHeight() / 2;
+                    float chipProgress = Math.min(1f, progress * 1.3f);
+                    chipPaint.setAlpha(triggered ? 255 : (int) (170 * chipProgress));
+                    c.drawCircle(cx, cy, chipBase + chipGrow * chipProgress, chipPaint);
+                    if (icon != null) {
+                        int sz = triggered ? iconBig : iconSmall;
+                        icon.setAlpha((int) (255 * Math.min(1f, progress * 1.6f)));
+                        icon.setBounds(cx - sz / 2, cy - sz / 2, cx + sz / 2, cy + sz / 2);
+                        icon.draw(c);
+                    }
+                }
+                super.onChildDraw(c, r, vh, visualDx(dX), dY, actionState, isCurrentlyActive);
             }
 
             @Override
             public void clearView(@NonNull RecyclerView r, @NonNull RecyclerView.ViewHolder vh) {
                 super.clearView(r, vh);
-                if (!triggered) return;
-                triggered = false;
-                int pos = vh.getAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION || adapter == null) return;
-                ReelComment c = adapter.getComment(pos);
-                // Posted rather than called inline: clearView() fires while
-                // the row's spring-back animation/touch handling is still
-                // wrapping up, and starting the reply (focus + keyboard)
-                // synchronously here was landing too early on some devices
-                // — the keyboard just never opened. Posting lets this frame
-                // finish first.
-                if (c != null) { ReelComment fc = c; r.post(() -> startReply(fc)); }
+                // Fallback: no non-active frame was drawn before the view cleared.
+                if (dragging && vh == dragVh) onRelease(r, vh.itemView);
+                if (vh != dragVh && dragVh != null) return;   // another row cleared; keep current drag state
+                dragVh = null;
+                armed = false; fired = false; dragComment = null;
+                velocity = 0f; lastRawDx = 0f; lastT = 0L;
             }
         };
         new ItemTouchHelper(callback).attachToRecyclerView(rv);
