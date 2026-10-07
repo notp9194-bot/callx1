@@ -11,7 +11,11 @@ import android.graphics.Outline;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.view.ViewOutlineProvider;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -49,6 +53,8 @@ import com.callx.app.player.AdaptiveStreamingManager;
 import com.callx.app.player.NetworkQualityMonitor;
 import com.callx.app.player.ReelABREngine;
 import com.callx.app.player.ReelABRSettingsActivity;
+import com.callx.app.player.ReelAudioFocusHelper;
+import com.callx.app.player.ReelAudioPolicy;
 import com.callx.app.player.ReelOfflineManager;
 import com.callx.app.player.ReelLoopSeekHelper;
 import com.callx.app.reels.R;
@@ -190,6 +196,42 @@ public class ReelPlayerController {
     private static final long STALL_FREE_UPGRADE_MS = 20_000; // 20s stall-free → try upgrade
     /** BUGFIX: guards against retry loops when a codec-forced URL fails to play — see onPlayerError. */
     private boolean codecFallbackAttempted = false;
+    /** True between tryCodecFallback() scheduling its rebuild and that rebuild running — both
+     *  error callbacks (ABR + controller listener) fire for one failure; the second must not
+     *  show the error UI while the fallback retry is still pending. */
+    private boolean codecFallbackInFlight = false;
+
+    // ── Load-error state ("Couldn't load — tap to retry") ────────────────────
+    private static final int  MAX_AUTO_RETRIES   = 3;
+    private static final long AUTO_RETRY_DELAY_MS = 700L;
+    private static final long RETRY_THROTTLE_MS   = 700L;
+    private View     errorView;
+    private TextView errorTitle;
+    private TextView errorHint;
+    private boolean  errorShown = false;
+    private int      autoRetryCount = 0;
+    private long     lastRetryMs = 0;
+    private NetworkQualityMonitor.NetworkQualityListener errorNetListener;
+
+    // ── Slow-network buffering hint + automatic quality step-down ────────────
+    private static final long BUFFERING_HINT_DELAY_MS      = 2_500L; // spinner is immediate; hint after this
+    private static final long BUFFERING_DOWNGRADE_STEP_MS  = 6_000L; // continuous buffering before each step down
+    private static final int  BUFFERING_MAX_DOWNGRADE_STEPS = 3;
+    private TextView bufferingHint;
+    private int      bufferingDowngradeSteps = 0;
+    private final Runnable bufferingHintRunnable      = this::onBufferingHintTick;
+    private final Runnable bufferingDowngradeRunnable = this::onBufferingDowngradeTick;
+
+    // ── Audio focus / other-app audio ────────────────────────────────────────
+    /** True when another app's music was playing as this reel started, so the reel starts muted
+     *  instead of taking audio focus (Instagram behaviour). Cleared when the user taps unmute. */
+    private boolean autoMutedForOtherAudio = false;
+    /** User explicitly toggled mute on this reel — stop re-deciding auto-mute on later startPlayback(). */
+    private boolean userAudioOverride = false;
+    /** Whether this controller is currently counted in ReelAudioPolicy's own-audible tally. */
+    private boolean ownAudibleRegistered = false;
+    private ReelAudioFocusHelper photoFocus;
+    private boolean photoDucked = false;
 
     /** Optional reference to the feed preloader — synced when cap changes */
     private com.callx.app.cache.ReelVideoPreloader preloader;
@@ -334,7 +376,7 @@ public class ReelPlayerController {
      */
     public void setForceMuted(boolean muted) {
         forceMuted = muted;
-        if (player != null) player.setVolume((isMuted || forceMuted) ? 0f : 1f);
+        applyAudibility();
     }
     public int       getDockStatusBarHeightPx() { return dockStatusBarHeightPx; }
     public int       getSpeedIndex() { return speedIndex; }
@@ -484,6 +526,7 @@ public class ReelPlayerController {
 
         firstFrameRendered = false;
         isUserPaused = false; // fresh reel — never starts in a "user paused" state
+        hideLoadError();      // a (re)prepare supersedes any previous error overlay
 
         // Progressive loading: show thumbnail instantly while video buffers
         if (ivThumb != null && reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
@@ -574,6 +617,7 @@ public class ReelPlayerController {
                 // Offline and not cached — show error state, skip playback
                 Log.w(TAG, "Reel unavailable offline and not cached: " + reel.reelId);
                 if (ivThumb != null) ivThumb.setVisibility(View.VISIBLE);
+                showLoadError(null); // offline variant + auto-retry when the network returns
                 return;
             }
         }
@@ -610,8 +654,7 @@ public class ReelPlayerController {
                     if (!delegate.isAdded()) return;
                     Log.e(TAG, "Playback error: " + e.getMessage());
                     if (tryCodecFallback()) return; // retrying — leave buffering UI as-is
-                    progressBuffering.setVisibility(View.GONE);
-                    ivThumb.setVisibility(View.VISIBLE);
+                    showLoadError(e);
                 }
             };
 
@@ -671,6 +714,7 @@ public class ReelPlayerController {
                  * handoff point. An 80ms alpha crossfade masks the one-frame
                  * surface handoff without delaying playback.
                  */
+                onPlaybackRecovered();
                 revealThumbnailAfterFirstFrame();
             }
 
@@ -689,8 +733,10 @@ public class ReelPlayerController {
                     // QoE: track stall start time
                     if (qoeStallBeginMs == 0) qoeStallBeginMs = System.currentTimeMillis();
                     qoeStallFreeStartMs = 0;
+                    scheduleBufferingWatch();
                 } else {
                     progressBuffering.setVisibility(View.GONE);
+                    cancelBufferingWatch();
 
                     // ROOT FIX (v14): was `delegate.isCurrentlyVisible()` only.
                     // While chat-docked, isCurrentlyVisible() is ALWAYS false
@@ -777,6 +823,7 @@ public class ReelPlayerController {
                 if (!delegate.isAdded()) return;
                 if (playing) {
                     progressBuffering.setVisibility(View.GONE);
+                    cancelBufferingWatch();
                     // Any resumed playback (tap-resume, or just genuinely
                     // still playing) means we're no longer in a user-paused
                     // state — clear it so a later transient false blip
@@ -784,8 +831,10 @@ public class ReelPlayerController {
                     isUserPaused = false;
                 }
                 if (btnMute != null) {
-                    btnMute.setVisibility(playing ? View.GONE : View.VISIBLE);
+                    // Stay visible while auto-muted for another app's audio so the user can unmute directly.
+                    btnMute.setVisibility((playing && !autoMutedForOtherAudio) ? View.GONE : View.VISIBLE);
                 }
+                syncOwnAudible();
                 // BUG FIX: only forward to the bottom-nav/top-bar visibility
                 // bridge when this reflects a genuine user-initiated pause
                 // (isUserPaused, set exclusively by togglePlayPause() — the
@@ -848,8 +897,7 @@ public class ReelPlayerController {
                 if (!delegate.isAdded()) return;
                 Log.e(TAG, "Player error: " + error.getMessage());
                 if (tryCodecFallback()) return; // retrying with plain URL — don't show error state yet
-                progressBuffering.setVisibility(View.GONE);
-                ivThumb.setVisibility(View.VISIBLE);
+                showLoadError(error);
             }
         };
         player.addListener(controllerListener);
@@ -907,11 +955,16 @@ public class ReelPlayerController {
             if (ivThumb != null) ivThumb.setVisibility(View.GONE);
             delegate.startPhotoSlideshow();
             delegate.startDiscAnimation();
+            decideAutoMuteForOtherAudio();
+            applyAudibility();
             resumePhotoAudio();   // ✅ FIX: start/resume background music for photo reels
             return;
         }
 
         if (reel.videoUrl == null || reel.videoUrl.isEmpty()) return;
+
+        // Swiping back onto a reel that failed earlier: try again instead of showing a dead player.
+        if (errorShown && player != null) { retryPlayback(false); return; }
 
         if (player == null) preparePlayerSilently();
 
@@ -957,7 +1010,8 @@ public class ReelPlayerController {
             return;
         }
 
-        player.setVolume((isMuted || forceMuted) ? 0f : 1f);
+        decideAutoMuteForOtherAudio();
+        applyAudibility();
 
         if (player.getPlaybackState() == Player.STATE_READY) {
             progressBuffering.setVisibility(View.GONE);
@@ -965,6 +1019,10 @@ public class ReelPlayerController {
         }
 
         player.play();
+        syncOwnAudible();
+        // Reel became visible while already stuck buffering (prewarm never finished) — the
+        // BUFFERING state callback fired earlier, off-screen, so start the watch now.
+        if (player.getPlaybackState() == Player.STATE_BUFFERING) scheduleBufferingWatch();
     }
 
     public void pausePlayback() {
@@ -975,6 +1033,7 @@ public class ReelPlayerController {
         if (player != null) player.pause();
         stopProgressTracking();
         delegate.stopDiscAnimation();
+        syncOwnAudible();
     }
 
     /** True if the video is actively playing right now (not paused/ended). Video-mode only —
@@ -1079,15 +1138,19 @@ public class ReelPlayerController {
     }
 
     public void toggleMute() {
-        isMuted = !isMuted;
-        if (player != null) player.setVolume((isMuted || forceMuted) ? 0f : 1f);
-        // ✅ FIX: also mute/unmute the photo slideshow background audio player
-        if (photoAudioPlayer != null) {
-            try { photoAudioPlayer.setVolume((isMuted || forceMuted) ? 0f : 1f, (isMuted || forceMuted) ? 0f : 1f); }
-            catch (Exception ignored) {}
+        userAudioOverride = true;
+        if (autoMutedForOtherAudio && !forceMuted) {
+            // Tap on an auto-muted reel means "unmute" — this is where the reel takes audio focus.
+            autoMutedForOtherAudio = false;
+            isMuted = false;
+        } else {
+            isMuted = !isMuted;
         }
-        if (btnMute != null) btnMute.setImageResource(
-            isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+        // Video volume + focus, photo-slideshow music volume + focus, icon.
+        applyAudibility();
+        if (btnMute != null && player != null && player.isPlaying()) {
+            btnMute.setVisibility(autoMutedForOtherAudio ? View.VISIBLE : View.GONE);
+        }
     }
 
     public void cycleSpeed() {
@@ -1254,12 +1317,14 @@ public class ReelPlayerController {
         // starting a fresh prepareAsync() from zero.
         if (photoAudioPlayer != null && photoAudioPrewarmed) {
             try {
-                photoAudioPlayer.setVolume((isMuted || forceMuted) ? 0f : 1f, (isMuted || forceMuted) ? 0f : 1f);
+                if (!acquirePhotoFocusIfAudible()) return; // call in progress etc. — stay silent
+                photoAudioPlayer.setVolume(photoVolume(), photoVolume());
                 if (startMs > 0) photoAudioPlayer.seekTo(startMs);
                 photoAudioPlayer.setLooping(!hasTrim);
                 photoAudioPlayer.start();
                 photoAudioStarted = true;
                 if (hasTrim) schedulePhotoAudioLoop(startMs, endMs);
+                syncOwnAudible();
                 return;
             } catch (Exception e) {
                 releasePhotoAudio(); // fall through to a fresh build below
@@ -1274,12 +1339,14 @@ public class ReelPlayerController {
             photoAudioPlayer.setOnPreparedListener(mp -> {
                 if (photoAudioPlayer == null) return;
                 try {
-                    mp.setVolume((isMuted || forceMuted) ? 0f : 1f, (isMuted || forceMuted) ? 0f : 1f);
+                    if (!acquirePhotoFocusIfAudible()) return; // call in progress etc. — stay silent
+                    mp.setVolume(photoVolume(), photoVolume());
                     if (startMs > 0) mp.seekTo(startMs);
                     mp.setLooping(!hasTrim);   // loop whole track when no trim
                     mp.start();
                     photoAudioStarted = true;
                     if (hasTrim) schedulePhotoAudioLoop(startMs, endMs);
+                    syncOwnAudible();
                 } catch (Exception ignored) {}
             });
             photoAudioPlayer.setOnErrorListener((mp, what, extra) -> {
@@ -1315,8 +1382,10 @@ public class ReelPlayerController {
             final boolean hasTrim = (endMs > startMs && endMs > 0);
 
             if (!photoAudioPlayer.isPlaying()) {
+                if (!acquirePhotoFocusIfAudible()) return;
                 photoAudioPlayer.start();
             }
+            syncOwnAudible();
             if (hasTrim) {
                 // Re-schedule loop from current position
                 int currentPos = photoAudioPlayer.getCurrentPosition();
@@ -1336,6 +1405,14 @@ public class ReelPlayerController {
 
     /** Pauses photo audio and cancels any pending loop runnable. */
     private void pausePhotoAudio() {
+        pausePhotoAudioKeepFocus();
+        if (photoFocus != null) photoFocus.abandon(); // deliberate pause / leaving the reel
+        syncOwnAudible();
+    }
+
+    /** Pause without giving up focus — used when focus was lost transiently (call) so the
+     *  regain callback can still resume the music. */
+    private void pausePhotoAudioKeepFocus() {
         cancelPhotoAudioLoop();
         if (photoAudioPlayer != null) {
             try {
@@ -1384,6 +1461,9 @@ public class ReelPlayerController {
         }
         photoAudioPrewarmed = false;
         photoAudioStarted   = false;
+        photoDucked = false;
+        if (photoFocus != null) photoFocus.abandon();
+        syncOwnAudible();
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1602,6 +1682,401 @@ public class ReelPlayerController {
         delegate.requireContext().startActivity(intent);
     }
 
+    // ── Audio: mute state, audio focus, other-app audio ───────────────────────
+
+    /** Silent for any reason: user mute, licensed-catalog force-mute, or auto-mute for another app's audio. */
+    private boolean effectiveMuted() {
+        return isMuted || forceMuted || autoMutedForOtherAudio;
+    }
+
+    /**
+     * Single place that applies the effective mute state: video volume, ExoPlayer audio focus
+     * (ON only while audible — a muted reel must never pause the user's music, see
+     * ReelAudioPolicy), photo-slideshow music, mute icon and the own-audible tally.
+     */
+    private void applyAudibility() {
+        boolean audible = !effectiveMuted();
+        if (player != null) {
+            player.setVolume(audible ? 1f : 0f);
+            ReelAudioPolicy.setFocusEnabled(player, audible);
+        }
+        applyPhotoAudibility();
+        if (btnMute != null) {
+            btnMute.setImageResource(audible ? R.drawable.ic_volume_on : R.drawable.ic_volume_off);
+        }
+        syncOwnAudible();
+    }
+
+    /**
+     * Instagram-style: if another app's music is playing when this reel becomes active, start
+     * muted instead of taking focus (which would stop their music). The user's unmute tap
+     * (toggleMute) is what takes focus. Decided per activation until the user touches mute.
+     */
+    private void decideAutoMuteForOtherAudio() {
+        if (userAudioOverride || forceMuted || isMuted) return;
+        Context c = delegate.getContext();
+        if (c == null) return;
+        autoMutedForOtherAudio = ReelAudioPolicy.isOtherAudioActive(c);
+    }
+
+    /** True while this reel is genuinely producing sound (video or photo music, unmuted). */
+    private boolean isOwnAudiblePlaying() {
+        if (effectiveMuted()) return false;
+        if (player != null && player.isPlaying()) return true;
+        if (photoAudioPlayer != null && photoAudioStarted) {
+            try { return photoAudioPlayer.isPlaying(); } catch (Exception ignored) {}
+        }
+        return false;
+    }
+
+    /** Keeps ReelAudioPolicy's tally in step so isMusicActive() isn't mistaken for another app. */
+    private void syncOwnAudible() {
+        boolean now = isOwnAudiblePlaying();
+        if (now == ownAudibleRegistered) return;
+        ownAudibleRegistered = now;
+        ReelAudioPolicy.setOwnAudible(now);
+    }
+
+    private float photoVolume() {
+        return effectiveMuted() ? 0f : (photoDucked ? 0.3f : 1f);
+    }
+
+    private void ensurePhotoFocus() {
+        if (photoFocus != null) return;
+        Context c = delegate.getContext();
+        if (c == null) return;
+        photoFocus = new ReelAudioFocusHelper(c, new ReelAudioFocusHelper.Listener() {
+            @Override public void onFocusLost() { pausePhotoAudioKeepFocus(); syncOwnAudible(); }
+            @Override public void onFocusRegained() {
+                if (delegate.isAdded() && delegate.isCurrentlyVisible()) resumePhotoAudio();
+            }
+            @Override public void onDuck(boolean ducked) {
+                photoDucked = ducked;
+                if (photoAudioPlayer == null) return;
+                try { photoAudioPlayer.setVolume(photoVolume(), photoVolume()); } catch (Exception ignored) {}
+            }
+        });
+    }
+
+    /** Takes focus for the photo music when audible. False = denied (e.g. phone call) → don't start. */
+    private boolean acquirePhotoFocusIfAudible() {
+        if (effectiveMuted()) return true;
+        ensurePhotoFocus();
+        return photoFocus == null || photoFocus.request();
+    }
+
+    /** Mute/unmute while the photo music is already running. */
+    private void applyPhotoAudibility() {
+        if (photoAudioPlayer == null) return;
+        try {
+            photoAudioPlayer.setVolume(photoVolume(), photoVolume());
+            if (effectiveMuted()) {
+                if (photoFocus != null) photoFocus.abandon();
+            } else if (photoAudioStarted && !acquirePhotoFocusIfAudible()) {
+                photoAudioPlayer.pause();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    // ── Slow network: buffering hint + automatic quality step-down ────────────
+
+    /** True while this visible reel is wanting to play but starved for data. */
+    private boolean isBufferingNow() {
+        return delegate.isAdded() && player != null
+            && player.getPlaybackState() == Player.STATE_BUFFERING
+            && player.getPlayWhenReady()
+            && delegate.isCurrentlyVisible();
+    }
+
+    /**
+     * Called when buffering starts. The spinner already appears immediately; this arms (1) a
+     * "Slow connection…" hint after BUFFERING_HINT_DELAY_MS and (2) a quality step-down after
+     * BUFFERING_DOWNGRADE_STEP_MS of CONTINUOUS buffering. The existing stall-count / ABR paths
+     * only react to repeated stalls, so one long stall (e.g. stuck at startup on 2G) never
+     * lowered quality before this.
+     */
+    private void scheduleBufferingWatch() {
+        if (!delegate.isCurrentlyVisible()) return;
+        progressHandler.removeCallbacks(bufferingHintRunnable);
+        progressHandler.removeCallbacks(bufferingDowngradeRunnable);
+        bufferingDowngradeSteps = 0;
+        progressHandler.postDelayed(bufferingHintRunnable, BUFFERING_HINT_DELAY_MS);
+        progressHandler.postDelayed(bufferingDowngradeRunnable, BUFFERING_DOWNGRADE_STEP_MS);
+    }
+
+    private void cancelBufferingWatch() {
+        progressHandler.removeCallbacks(bufferingHintRunnable);
+        progressHandler.removeCallbacks(bufferingDowngradeRunnable);
+        bufferingDowngradeSteps = 0;
+        if (bufferingHint != null) bufferingHint.setVisibility(View.GONE);
+    }
+
+    private void onBufferingHintTick() {
+        if (isBufferingNow()) showBufferingHint(R.string.reel_slow_connection);
+    }
+
+    private void onBufferingDowngradeTick() {
+        if (!isBufferingNow()) return;
+        if (!userManualCap && downgradeForSlowBuffering()) {
+            showBufferingHint(R.string.reel_slow_connection_lowering);
+        }
+        // Still buffering after the step (or nothing left to lower) — keep stepping, bounded.
+        if (++bufferingDowngradeSteps < BUFFERING_MAX_DOWNGRADE_STEPS) {
+            progressHandler.postDelayed(bufferingDowngradeRunnable, BUFFERING_DOWNGRADE_STEP_MS);
+        }
+    }
+
+    /** One step down; 360p→240p is allowed here (downgradeQuality() floors at 360p). */
+    private boolean downgradeForSlowBuffering() {
+        AdaptiveStreamingManager.QualityCap before = currentCap;
+        switch (currentCap) {
+            case Q360P:
+                currentCap = AdaptiveStreamingManager.QualityCap.Q240P;
+                stallCount = 0;
+                qoeDowngrades++;
+                switchToQuality(currentCap, "(slow network)");
+                break;
+            case Q240P:
+            case Q144P:
+                return false; // already at the floor
+            default:
+                downgradeQuality();
+                break;
+        }
+        return currentCap != before;
+    }
+
+    private void showBufferingHint(int textRes) {
+        ensureBufferingHint();
+        if (bufferingHint == null) return;
+        bufferingHint.setText(textRes);
+        bufferingHint.setVisibility(View.VISIBLE);
+    }
+
+    /** Built in code like the error card; sits just under the centre spinner. */
+    private void ensureBufferingHint() {
+        if (bufferingHint != null || rootView == null) return;
+        Context ctx = rootView.getContext();
+        float d = ctx.getResources().getDisplayMetrics().density;
+        TextView tv = new TextView(ctx);
+        tv.setTextColor(0xFFFFFFFF);
+        tv.setTextSize(13f);
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding((int) (14 * d), (int) (7 * d), (int) (14 * d), (int) (7 * d));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0x99000000);
+        bg.setCornerRadius(18 * d);
+        tv.setBackground(bg);
+        tv.setClickable(false);
+        tv.setVisibility(View.GONE);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        lp.topMargin = (int) (84 * d); // below the 48dp spinner
+        ViewGroup host = (ivThumb != null && ivThumb.getParent() instanceof FrameLayout)
+            ? (ViewGroup) ivThumb.getParent()
+            : (rootView instanceof FrameLayout ? (ViewGroup) rootView : null);
+        if (host == null) return;
+        int idx = (ivThumb != null && ivThumb.getParent() == host) ? host.indexOfChild(ivThumb) + 1 : host.getChildCount();
+        host.addView(tv, idx, lp);
+        bufferingHint = tv;
+    }
+
+    // ── Load error: "Couldn't load — tap to retry" + auto-retry on reconnect ──
+
+    private boolean isOnline(Context ctx) {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return true;
+            android.net.Network n = cm.getActiveNetwork();
+            if (n == null) return false;
+            NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+            return nc != null && nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    /** Built in code (no layout change); sits above the thumbnail, below every control. */
+    private void ensureErrorView() {
+        if (errorView != null || rootView == null) return;
+        Context ctx = rootView.getContext();
+        float d = ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        int padH = (int) (24 * d), padV = (int) (18 * d);
+        box.setPadding(padH, padV, padH, padV);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0x99000000);
+        bg.setCornerRadius(20 * d);
+        box.setBackground(bg);
+
+        ImageView icon = new ImageView(ctx);
+        icon.setImageResource(R.drawable.ic_reel_retry);
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        box.addView(icon, new LinearLayout.LayoutParams((int) (36 * d), (int) (36 * d)));
+
+        errorTitle = new TextView(ctx);
+        errorTitle.setTextColor(0xFFFFFFFF);
+        errorTitle.setTextSize(15f);
+        errorTitle.setTypeface(errorTitle.getTypeface(), android.graphics.Typeface.BOLD);
+        errorTitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = (int) (8 * d);
+        box.addView(errorTitle, tlp);
+
+        errorHint = new TextView(ctx);
+        errorHint.setTextColor(0xCCFFFFFF);
+        errorHint.setTextSize(13f);
+        errorHint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.topMargin = (int) (2 * d);
+        box.addView(errorHint, hlp);
+
+        box.setClickable(true);
+        box.setFocusable(true);
+        box.setOnClickListener(v -> retryPlayback(true));
+        box.setVisibility(View.GONE);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        lp.leftMargin = lp.rightMargin = (int) (32 * d);
+
+        ViewGroup host = (ivThumb != null && ivThumb.getParent() instanceof FrameLayout)
+            ? (ViewGroup) ivThumb.getParent()
+            : (rootView instanceof FrameLayout ? (ViewGroup) rootView : null);
+        if (host == null) return;
+        int idx = (ivThumb != null && ivThumb.getParent() == host) ? host.indexOfChild(ivThumb) + 1 : host.getChildCount();
+        host.addView(box, idx, lp);
+        errorView = box;
+    }
+
+    /**
+     * Called once codec fallback (if any) has also failed. Shows the thumbnail + "Couldn't load
+     * this reel — tap to retry" and, when the failure looks network-related (or the reel simply
+     * isn't available offline — pass null), auto-retries up to MAX_AUTO_RETRIES times when the
+     * connection returns.
+     */
+    private void showLoadError(PlaybackException e) {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        Context ctx = delegate.getContext();
+        if (progressBuffering != null) progressBuffering.setVisibility(View.GONE);
+        if (ivThumb != null) {
+            ivThumb.animate().cancel();
+            ivThumb.setAlpha(1f);
+            ivThumb.setVisibility(View.VISIBLE);
+        }
+        stopProgressTracking();
+        cancelBufferingWatch();
+        // No auto quality switching on a dead player — retry rebuilds it and re-registers.
+        unregisterNetworkQualityListener();
+
+        ensureErrorView();
+        if (errorView == null) return;
+
+        boolean offline = !isOnline(ctx);
+        boolean networkRelated = offline || e == null
+            || e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+            || e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+            || e.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+            || e.errorCode == PlaybackException.ERROR_CODE_TIMEOUT;
+
+        errorTitle.setText(offline ? R.string.reel_no_internet : R.string.reel_load_failed);
+        errorHint.setText(offline ? R.string.reel_retry_when_online : R.string.reel_tap_retry);
+        errorView.setContentDescription(errorTitle.getText() + ". " + errorHint.getText());
+
+        if (!errorShown) {
+            errorShown = true;
+            errorView.animate().cancel();
+            errorView.setAlpha(0f);
+            errorView.setVisibility(View.VISIBLE);
+            errorView.animate().alpha(1f).setDuration(180L).start();
+        }
+        if (networkRelated) registerErrorNetListener(ctx);
+    }
+
+    private void hideLoadError() {
+        unregisterErrorNetListener();
+        if (!errorShown) return;
+        errorShown = false;
+        if (errorView != null) {
+            errorView.animate().cancel();
+            errorView.setVisibility(View.GONE);
+        }
+    }
+
+    /** First decoded frame arrived — whatever failed before has recovered. */
+    private void onPlaybackRecovered() {
+        autoRetryCount = 0;
+        hideLoadError();
+    }
+
+    private NetworkQualityMonitor errorNetMonitor;
+
+    private void registerErrorNetListener(Context ctx) {
+        if (errorNetListener != null) return;
+        errorNetMonitor = NetworkQualityMonitor.get(ctx);
+        errorNetMonitor.startMonitoring();
+        errorNetListener = q -> progressHandler.postDelayed(() -> {
+            // Posted (not run inline) so removing the listener never happens mid-dispatch.
+            if (!errorShown || q == NetworkQualityMonitor.Quality.NONE) return;
+            if (autoRetryCount >= MAX_AUTO_RETRIES) return;
+            autoRetryCount++;
+            retryPlayback(false);
+        }, AUTO_RETRY_DELAY_MS);
+        errorNetMonitor.addListener(errorNetListener);
+    }
+
+    private void unregisterErrorNetListener() {
+        if (errorNetListener != null && errorNetMonitor != null) {
+            errorNetMonitor.removeListener(errorNetListener);
+        }
+        errorNetListener = null;
+    }
+
+    /**
+     * Rebuilds this reel's player from scratch (fresh pool instance, same resume position) and
+     * restarts playback if the reel is the visible one. manual=true (user tap) also resets the
+     * auto-retry budget.
+     */
+    private void retryPlayback(boolean manual) {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastRetryMs < RETRY_THROTTLE_MS) return;
+        lastRetryMs = now;
+        if (manual) autoRetryCount = 0;
+
+        boolean shouldPlay = delegate.isCurrentlyVisible() || (player != null && player.getPlayWhenReady());
+        long resumePos = player != null ? Math.max(0L, player.getCurrentPosition()) : 0L;
+
+        teardownPlayerForRetry();
+        preparePlayerSilently(); // also clears the error overlay
+        if (player == null) return; // still unavailable (offline + not cached) — error state re-shown there
+        if (resumePos > 0) player.seekTo(resumePos);
+        if (shouldPlay) startPlayback();
+    }
+
+    private void teardownPlayerForRetry() {
+        stopProgressTracking();
+        cancelBufferingWatch();
+        unregisterNetworkQualityListener();
+        if (loopSeekHelper != null) { loopSeekHelper.detach(); loopSeekHelper = null; }
+        if (abrEngine != null && abrSession != null) { abrEngine.detach(abrSession); abrSession = null; }
+        if (player != null) {
+            Context c = delegate.getContext();
+            if (c != null) {
+                com.callx.app.player.ExoPlayerPool.get(c).release(player);
+            } else {
+                try { player.release(); } catch (Exception ignored) {}
+            }
+            player = null;
+        }
+        syncOwnAudible();
+    }
+
     /**
      * BUGFIX: called from both player-error paths. If this reel's stream URL
      * was codec-transformed (vc_h265/vc_av01) and hasn't already been retried,
@@ -1613,12 +2088,15 @@ public class ReelPlayerController {
      * @return true if a retry was kicked off (caller should not show error UI yet)
      */
     private boolean tryCodecFallback() {
+        if (codecFallbackInFlight) return true;   // retry already scheduled by the other error callback
         if (codecFallbackAttempted) return false;
         if (com.callx.app.utils.CodecSupport.isDisabledForSession()) return false; // already plain — real failure
         codecFallbackAttempted = true;
+        codecFallbackInFlight = true;
         com.callx.app.utils.CodecSupport.disableForSession();
         Log.w(TAG, "Retrying playback without forced codec transform");
         progressHandler.post(() -> {
+            codecFallbackInFlight = false;
             if (!delegate.isAdded() || delegate.getContext() == null) return;
             // Same isPlaying()-during-stall pitfall as switchToQuality() — use
             // playWhenReady (play intent) instead, since a player mid-error
@@ -1631,8 +2109,9 @@ public class ReelPlayerController {
             }
             preparePlayerSilently();
             if (player != null && wasPlaying) {
-                player.setVolume((isMuted || forceMuted) ? 0f : 1f);
+                applyAudibility();
                 player.play();
+                syncOwnAudible();
             }
         });
         return true;
@@ -1640,6 +2119,9 @@ public class ReelPlayerController {
 
     public void releasePlayer() {
         codecFallbackAttempted = false; // next reel gets its own fresh fallback attempt
+        codecFallbackInFlight = false;
+        hideLoadError();
+        cancelBufferingWatch();
         stopProgressTracking();
         unregisterNetworkQualityListener();
         delegate.stopPhotoSlideshow();
@@ -1689,6 +2171,7 @@ public class ReelPlayerController {
             }
             player = null;
         }
+        syncOwnAudible();
         // v5: Detach ABR engine session before player release
         if (abrEngine != null && abrSession != null) {
             abrEngine.detach(abrSession);
@@ -1877,7 +2360,7 @@ public class ReelPlayerController {
         player = AdaptiveStreamingManager.get(ctx).buildPlayer(url, cap, null);
         playerView.setPlayer(player);
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
-        player.setVolume((isMuted || forceMuted) ? 0f : 1f);
+        applyAudibility();
         player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
         applyCaptionsPreference();
         player.seekTo(resumePos);

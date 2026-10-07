@@ -126,6 +126,11 @@ public class ReelCommentNotifWorker extends Worker {
             db.getReference("reelNotifQueue")
               .child(ownerUid).child(type + "s").child(cid + "_" + now).setValue(queue);
 
+            // Like notifications are once per (liker, comment): remember it only AFTER it
+            // really went out, so a like cancelled before sending (see cancelLike) can
+            // still notify later, while like/unlike/like spam after sending cannot.
+            if (TYPE_LIKE.equals(type)) markLikeSent(getApplicationContext(), reelId, cid, commenterUid);
+
             return Result.success();
 
         } catch (Exception e) {
@@ -149,11 +154,60 @@ public class ReelCommentNotifWorker extends Worker {
             replierUid, replierName, replyId, replyText);
     }
 
-    /** Enqueue a like notification to the comment author. */
+    // ── Like notification dedupe ──────────────────────────────────────────
+    private static final String LIKE_PREFS = "reel_like_notif_sent";
+    private static final long   LIKE_SENT_TTL_MS = 7L * 24 * 60 * 60 * 1000;
+    private static final int    LIKE_PREFS_MAX   = 500;
+
+    private static String likeKey(String reelId, String commentId, String likerUid) {
+        return reelId + "|" + commentId + "|" + likerUid;
+    }
+
+    /** Unique-work name for one liker + one comment (the old name had no liker, so a
+     *  second person's like was silently dropped while the first was still queued). */
+    private static String likeWorkName(String reelId, String commentId, String likerUid) {
+        return "like_notif_" + reelId + "_" + commentId + "_" + likerUid;
+    }
+
+    private static void markLikeSent(Context ctx, String reelId, String commentId, String likerUid) {
+        try {
+            android.content.SharedPreferences sp =
+                ctx.getSharedPreferences(LIKE_PREFS, Context.MODE_PRIVATE);
+            android.content.SharedPreferences.Editor ed = sp.edit();
+            long now = System.currentTimeMillis();
+            if (sp.getAll().size() >= LIKE_PREFS_MAX) {
+                for (Map.Entry<String, ?> e : sp.getAll().entrySet()) {
+                    Object v = e.getValue();
+                    if (!(v instanceof Long) || now - (Long) v > LIKE_SENT_TTL_MS) ed.remove(e.getKey());
+                }
+            }
+            ed.putLong(likeKey(reelId, commentId, likerUid), now).apply();
+        } catch (Exception ignored) {}
+    }
+
+    private static boolean likeAlreadySent(Context ctx, String reelId, String commentId, String likerUid) {
+        try {
+            long t = ctx.getSharedPreferences(LIKE_PREFS, Context.MODE_PRIVATE)
+                .getLong(likeKey(reelId, commentId, likerUid), 0L);
+            return t != 0L && System.currentTimeMillis() - t < LIKE_SENT_TTL_MS;
+        } catch (Exception e) { return false; }
+    }
+
+    /** Enqueue a like notification to the comment author. Deduped: at most one queued job
+     *  per (liker, comment), and nothing at all if this liker already notified for it. */
     public static void enqueueLike(Context ctx, String reelId, String commentOwnerUid,
                                    String likerUid, String likerName, String commentId) {
+        if (ctx == null || likerUid == null || commentId == null) return;
+        if (likeAlreadySent(ctx.getApplicationContext(), reelId, commentId, likerUid)) return;
         enqueueInternal(ctx, TYPE_LIKE, reelId, commentOwnerUid,
             likerUid, likerName, commentId, "");
+    }
+
+    /** Called on unlike: drops the queued notification if it has not been sent yet. */
+    public static void cancelLike(Context ctx, String reelId, String likerUid, String commentId) {
+        if (ctx == null || reelId == null || likerUid == null || commentId == null) return;
+        WorkManager.getInstance(ctx.getApplicationContext())
+            .cancelUniqueWork(likeWorkName(reelId, commentId, likerUid));
     }
 
     /** Enqueue a mention notification to a tagged user. */
@@ -187,8 +241,11 @@ public class ReelCommentNotifWorker extends Worker {
             .addTag("reel_notif_" + type + "_" + reelId)
             .build();
 
+        final String workName = TYPE_LIKE.equals(type)
+            ? likeWorkName(reelId, commentId, actorUid)
+            : type + "_notif_" + reelId + "_" + commentId + "_" + ownerUid;
         WorkManager.getInstance(ctx).enqueueUniqueWork(
-            type + "_notif_" + reelId + "_" + commentId + "_" + ownerUid,
+            workName,
             androidx.work.ExistingWorkPolicy.KEEP,
             req);
     }

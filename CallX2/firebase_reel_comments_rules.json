@@ -36,6 +36,11 @@
             ".validate": "newData.isBoolean()"
           },
 
+          "creatorLiked": {
+            "_comment": "v471: set together with the like by the REEL OWNER only (multi-path update). Drives the 'liked by creator' badge without downloading likedBy.",
+            ".write": "auth != null && root.child('reels').child($reelId).child('uid').val() === auth.uid",
+            ".validate": "newData.isBoolean()"
+          },
           "likesCount": {
             ".write": "auth != null",
             ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -84,6 +89,10 @@
             "editedAt": {
               ".write": "auth != null && data.parent().child('uid').val() === auth.uid && data.exists()"
             },
+            "creatorLiked": {
+              ".write": "auth != null && root.child('reels').child($reelId).child('uid').val() === auth.uid",
+              ".validate": "newData.isBoolean()"
+            },
             "likesCount": {
               ".write": "auth != null",
               ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -94,6 +103,19 @@
                 ".validate": "newData.isBoolean() || !newData.exists()"
               }
             }
+          }
+        }
+      }
+    },
+
+    "userCommentLikes": {
+      "_comment": "v471: 'did I like it' markers, moved OUT of the comment nodes. userCommentLikes/{me}/{reelId}/{commentOrReplyId} = true. Private to the owner; one small read per comment-sheet open.",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$reelId": {
+          "$itemId": {
+            ".validate": "newData.isBoolean()"
           }
         }
       }

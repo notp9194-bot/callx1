@@ -149,19 +149,11 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                     && java.util.Objects.equals(a.imageUrl, b.imageUrl)
                     && java.util.Objects.equals(a.ownerName, b.ownerName)
                     && java.util.Objects.equals(a.ownerPhoto, b.ownerPhoto)
-                    && mapSignature(a.likedBy).equals(mapSignature(b.likedBy))
-                    && mapSignature(a.reactions).equals(mapSignature(b.reactions));
-            }
-
-            /** Cheap order-independent signature for likedBy/reactions maps,
-             *  good enough to detect "did this map actually change". */
-            private String mapSignature(Map<String, ?> m) {
-                if (m == null || m.isEmpty()) return "";
-                List<String> keys = new ArrayList<>(m.keySet());
-                Collections.sort(keys);
-                StringBuilder sb = new StringBuilder();
-                for (String k : keys) sb.append(k).append('=').append(m.get(k)).append(';');
-                return sb.toString();
+                    // PERF: likes are just (count, my-like, creator-like) now — no per-compare
+                    // String building. Reactions: Map.equals() iterates, allocates nothing.
+                    && a.likedByMe == b.likedByMe
+                    && a.creatorLiked == b.creatorLiked
+                    && java.util.Objects.equals(a.reactions, b.reactions);
             }
         });
 
@@ -195,7 +187,8 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     // ── Data ops ──────────────────────────────────────────────────────────
 
     public void setComments(List<ReelComment> list) {
-        differ.submitList(list != null ? new ArrayList<>(list) : new ArrayList<>());
+        // PERF: callers (applyFilterAndSortNow / disk-cache paint) always hand over a fresh list, so no second copy here
+        differ.submitList(list != null ? list : new ArrayList<>());
         // Batch-warm the verified-badge cache for this comment page before rows bind.
         if (list != null) {
             List<String> uids = new ArrayList<>(list.size());
@@ -303,7 +296,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     }
 
     private void bindLikeState(VH h, ReelComment c, boolean animate) {
-        applyHeartState(h.btnLike, h.tvLikes, c.isLikedBy(myUid),
+        applyHeartState(h.btnLike, h.tvLikes, c.likedByMe,
             c.likesCount, animate, "comment");
     }
 
@@ -436,7 +429,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         // ── "Liked by creator" badge ────────────────────────────────────
         if (h.tvCreatorLiked != null) {
-            boolean likedByCreator = !reelOwnerUid.isEmpty() && c.isLikedBy(reelOwnerUid);
+            boolean likedByCreator = c.creatorLiked;
             h.tvCreatorLiked.setVisibility(likedByCreator ? View.VISIBLE : View.GONE);
         }
 
@@ -489,7 +482,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
     /** Called by VH's single, reused GestureDetector on a confirmed double-tap. */
     private void onDoubleTapLike(VH h, ReelComment c) {
-        if (c.isLikedBy(myUid)) {
+        if (c.likedByMe) {
             // Already liked: double-tap never un-likes (IG parity) — just pulse.
             bounceLikeButton(h.btnLike);
             return;

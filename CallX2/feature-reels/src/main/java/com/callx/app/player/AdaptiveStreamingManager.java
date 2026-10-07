@@ -292,10 +292,13 @@ public class AdaptiveStreamingManager {
         DefaultTrackSelector trackSelector = buildTrackSelector(QualityCap.AUTO);
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(appCtx)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
+        // Low-end phones (<=128MB heap class / isLowRamDevice): smaller forward buffer and no
+        // back buffer — each player's allocator holds bitrate x buffer seconds of heap.
+        boolean lowEnd = ReelDeviceTier.isLowEnd(appCtx);
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
-            .setBufferDurationsMs(5_000, 12_000, 800, 2_000)
+            .setBufferDurationsMs(5_000, lowEnd ? 8_000 : 12_000, 800, 2_000)
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(3_000, true)
+            .setBackBuffer(lowEnd ? 0 : 3_000, true)
             .build();
         // PERF (render thread priority boost): pooled players get the same
         // boosted shared playback looper as buildPlayer() — see
@@ -307,6 +310,11 @@ public class AdaptiveStreamingManager {
             .setBandwidthMeter(bandwidthMeter)
             .setLoadControl(loadControl)
             .setHandleAudioBecomingNoisy(true)
+            // Audio attributes set, focus handling OFF: ExoPlayer requests focus on
+            // any play() even at volume 0, so a muted/prewarmed reel would pause the
+            // user's music. ReelPlayerController enables focus per player only while
+            // the reel is audible — see ReelAudioPolicy.
+            .setAudioAttributes(ReelAudioPolicy.ATTRS, /* handleAudioFocus= */ false)
             .setPlaybackLooper(sharedBoostedPlaybackLooper())
             .build();
         player.setVolume(0f);

@@ -251,6 +251,26 @@ public class ReelCommentFragment extends Fragment {
     private static final String MORE_ROW_TAG    = "reply_more_row";
     private final Map<String, java.util.List<ReelReply>> repliesCache = new HashMap<>();
     private final Map<String, Integer> repliesShown = new HashMap<>();
+    // PERF: replies are now paged on the SERVER (orderByKey + limitToFirst), not just in the UI.
+    // repliesCache holds only what has been fetched so far (+ local pending rows).
+    /** parentId → key of the last server reply fetched (cursor for startAfter). */
+    private final Map<String, String>  repliesCursor  = new HashMap<>();
+    /** parentId → true while the server still has replies beyond the cursor. */
+    private final Map<String, Boolean> repliesHasMore = new HashMap<>();
+    /** parentIds with a "view more" fetch in flight (blocks double taps). */
+    private final Set<String> repliesLoadingMore = new HashSet<>();
+    private final Map<String, Integer> repliesMoreToken = new HashMap<>();
+    /** Replies this user posted this session (already confirmed). A paged refresh may not
+     *  include them (they are the newest keys), so they are merged back at the end. */
+    private final Map<String, java.util.List<ReelReply>> sessionPostedReplies = new HashMap<>();
+
+    // ── Likes live OUTSIDE the comment nodes now ─────────────────────────
+    // userCommentLikes/{me}/{reelId}/{commentOrReplyId} = true. One small read per sheet
+    // open replaces downloading every liker of every comment.
+    private final Set<String> myLikedIds = new HashSet<>();
+    /** ids toggled locally this session — the initial load must not override them. */
+    private final Set<String> myLikesTouched = new HashSet<>();
+    private boolean myLikesReady = false;
 
     // ── @mention autocomplete state ─────────────────────────────────────────
     /** lowercase display-name → full candidate (uid + name + avatar url),
@@ -309,8 +329,11 @@ public class ReelCommentFragment extends Fragment {
     private static final long REFRESH_DEBOUNCE_MS = 60;
     private final Runnable refreshRunnable = () -> {
         refreshQueued = false;
-        applyFilterAndSort();
-        saveCommentsToDiskCache();
+        // this.-qualified: these fields are declared further down (no forward-reference error)
+        refreshHandler.removeCallbacks(this.applyRunnable);
+        this.applyQueued = false;
+        applyFilterAndSortNow();
+        scheduleCacheSave();
         if (pendingAutoScroll) {
             pendingAutoScroll = false;
             autoScrollIfAtTop();
@@ -483,6 +506,7 @@ public class ReelCommentFragment extends Fragment {
         captionOwnerAvatar = b.getString(ARG_OWNER_AVATAR, "");
 
         readCurrentUser();
+        loadMyLikes();
         bindViews(v);
         bindCaptionHeader(v);
         setupAdapter();
@@ -554,6 +578,13 @@ public class ReelCommentFragment extends Fragment {
         // (otherwise the Snackbar dies with the view and the delete is lost).
         for (String k : new ArrayList<>(pendingDeletes.keySet())) commitPendingDelete(k);
         saveDraft();
+        if (cacheSaveQueued) {                       // flush the throttled write before the handler is wiped
+            refreshHandler.removeCallbacks(cacheSaveRunnable);
+            cacheSaveQueued = false;
+            saveCommentsToDiskCache();
+        }
+        applyQueued = false;
+        replyRowPool.clear();
         if (skeletonComments != null) skeletonComments.stop();
         if (ivMyAvatar != null && getContext() != null) {
             try { ReelCommentAvatarBinder.cancel(getContext(), ivMyAvatar); } catch (Exception ignored) {}
@@ -804,6 +835,10 @@ public class ReelCommentFragment extends Fragment {
                     tvToggle.setText(ReelCommentsAdapter.repliesToggleLabel(tvToggle.getContext(), comment.replyCount));
                     repliesCache.remove(comment.commentId);
                     repliesShown.remove(comment.commentId);
+                    repliesCursor.remove(comment.commentId);
+                    repliesHasMore.remove(comment.commentId);
+                    repliesLoadingMore.remove(comment.commentId);
+                    repliesMoreToken.remove(comment.commentId);
                     collapseReplies(container);
                 } else {
                     tvToggle.setText(R.string.reel_c_loading);
@@ -1187,7 +1222,7 @@ public class ReelCommentFragment extends Fragment {
             if (sortByTop) {
                 sortByTop = false;
                 updateSortChipUI();
-                applyFilterAndSort();
+                applyFilterAndSortNow();
             }
         });
 
@@ -1195,7 +1230,7 @@ public class ReelCommentFragment extends Fragment {
             if (!sortByTop) {
                 sortByTop = true;
                 updateSortChipUI();
-                applyFilterAndSort();
+                applyFilterAndSortNow();
             }
         });
     }
@@ -1228,7 +1263,7 @@ public class ReelCommentFragment extends Fragment {
             } else {
                 searchQuery = "";
                 if (etSearch != null) etSearch.setText("");
-                applyFilterAndSort();
+                applyFilterAndSortNow();
             }
         });
 
@@ -1238,7 +1273,7 @@ public class ReelCommentFragment extends Fragment {
                 searchQuery  = "";
                 if (layoutSearch != null) layoutSearch.setVisibility(View.GONE);
                 if (etSearch    != null) etSearch.setText("");
-                applyFilterAndSort();
+                applyFilterAndSortNow();
             });
         }
 
@@ -1247,7 +1282,7 @@ public class ReelCommentFragment extends Fragment {
                 @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
                 @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
                     searchQuery = s.toString().trim().toLowerCase();
-                    applyFilterAndSort();
+                    applyFilterAndSortNow();
                 }
                 @Override public void afterTextChanged(Editable s) {}
             });
@@ -1684,8 +1719,27 @@ public class ReelCommentFragment extends Fragment {
         anim.start();
     }
 
+    // PERF: direct callers (send-state flips, blocklist listener, older-page, first-page
+    // resolve, retry) used to each run a full filter+copy+sort+diff synchronously, even
+    // several times in the same frame. applyFilterAndSort() now only QUEUES one run on the
+    // next looper turn (any number of calls in the same turn = one run). User-driven paths
+    // that must feel instant (sort chips, search typing, posting, Undo) call
+    // applyFilterAndSortNow() directly.
+    private boolean applyQueued = false;
+    private final Runnable applyRunnable = () -> {
+        applyQueued = false;
+        if (isAdded() && adapter != null) applyFilterAndSortNow();
+    };
+
     private void applyFilterAndSort() {
-        List<ReelComment> filtered = new ArrayList<>();
+        if (applyQueued) return;
+        applyQueued = true;
+        refreshHandler.post(applyRunnable);
+    }
+
+    private void applyFilterAndSortNow() {
+        if (adapter == null) return;
+        List<ReelComment> filtered = new ArrayList<>(allComments.size());
 
         for (ReelComment c : allComments) {
             if (c.uid != null && blockedUids.contains(c.uid)) continue; // blocked user's comment, hide it
@@ -1763,7 +1817,49 @@ public class ReelCommentFragment extends Fragment {
      *  rows actually get persisted. */
     private void saveCommentsToDiskCache() {
         if (reelId.isEmpty() || !searchQuery.isEmpty() || !isAdded()) return;
+        // PERF: skip the DB clear+insert entirely when nothing the cache stores has changed
+        // (most refreshes are a no-op echo of our own like/send-state flip).
+        int sig = commentsSignature();
+        if (cacheSigValid && sig == lastCacheSig) return;
+        lastCacheSig = sig;
+        cacheSigValid = true;
         ReelCommentCacheManager.savePage(requireContext(), reelId, allComments);
+    }
+
+    // PERF: trailing throttle — a burst of refreshes (likes, typing echo, paging) costs at most
+    // one disk write per CACHE_SAVE_THROTTLE_MS instead of one per refresh.
+    private static final long CACHE_SAVE_THROTTLE_MS = 500L;
+    private boolean cacheSaveQueued = false;
+    private boolean cacheSigValid   = false;
+    private int     lastCacheSig    = 0;
+    private final Runnable cacheSaveRunnable = () -> {
+        cacheSaveQueued = false;
+        saveCommentsToDiskCache();
+    };
+
+    private void scheduleCacheSave() {
+        if (cacheSaveQueued) return;          // one is already pending - it will see the latest data
+        cacheSaveQueued = true;
+        refreshHandler.postDelayed(cacheSaveRunnable, CACHE_SAVE_THROTTLE_MS);
+    }
+
+    /** Order-sensitive hash of exactly the fields ReelCommentCacheManager persists (no allocation). */
+    private int commentsSignature() {
+        int h = 1;
+        for (ReelComment c : allComments) {
+            if (c.sendState != null) continue;
+            h = 31 * h + (c.commentId == null ? 0 : c.commentId.hashCode());
+            h = 31 * h + c.likesCount;
+            h = 31 * h + c.replyCount;
+            h = 31 * h + (c.isPinned ? 1 : 0) + (c.isEdited ? 2 : 0)
+                       + (c.likedByMe ? 4 : 0) + (c.creatorLiked ? 8 : 0);
+            h = 31 * h + (c.text == null ? 0 : c.text.hashCode());
+            h = 31 * h + (c.ownerName == null ? 0 : c.ownerName.hashCode());
+            h = 31 * h + (c.ownerPhoto == null ? 0 : c.ownerPhoto.hashCode());
+            h = 31 * h + (c.imageUrl == null ? 0 : c.imageUrl.hashCode());
+            h = 31 * h + (c.reactions == null ? 0 : c.reactions.hashCode());
+        }
+        return h;
     }
 
     /** BUG FIX: pagination was purely scroll-delta-triggered (see the
@@ -1913,10 +2009,81 @@ public class ReelCommentFragment extends Fragment {
             ReelComment c = s.getValue(ReelComment.class);
             if (c == null) return null;
             if (c.commentId == null) c.commentId = s.getKey() != null ? s.getKey() : "";
+            normalizeCommentLikes(c);
             return c;
         } catch (Exception e) {
             return null;
         }
+    }
+
+    // ── Likes: my-like set + legacy folding ──────────────────────────────
+
+    private void loadMyLikes() {
+        if (myUid.isEmpty() || reelId.isEmpty()) { myLikesReady = true; return; }
+        CommentLikeWriter.myLikesRef(myUid, reelId)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAdded()) return;
+                    for (DataSnapshot ch : snap.getChildren()) {
+                        String id = ch.getKey();
+                        if (id == null || myLikesTouched.contains(id)) continue;
+                        if (Boolean.TRUE.equals(ch.getValue(Boolean.class))) myLikedIds.add(id);
+                    }
+                    myLikesReady = true;
+                    reapplyMyLikes();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    // Rules not deployed / offline: fall back to legacy likedBy + per-tap check.
+                    myLikesReady = true;
+                }
+            });
+    }
+
+    /** Marks already-parsed comments liked once the my-likes set arrives (partial rebind only). */
+    private void reapplyMyLikes() {
+        if (myLikedIds.isEmpty()) return;
+        for (ReelComment c : allComments) {
+            if (c.commentId != null && !c.likedByMe && myLikedIds.contains(c.commentId)) {
+                c.likedByMe = true;
+                if (adapter != null) adapter.notifyLikeChanged(c.commentId);
+            }
+        }
+        for (java.util.List<ReelReply> l : repliesCache.values()) {
+            for (ReelReply r : l) {
+                if (r.replyId != null && !r.likedByMe && myLikedIds.contains(r.replyId)) r.likedByMe = true;
+            }
+        }
+    }
+
+    /** Folds the legacy likedBy map (old data) + my-likes set into the two flags the UI uses,
+     *  then drops the map so it is never held in memory / compared / cached. */
+    private void normalizeCommentLikes(ReelComment c) {
+        Map<String, Boolean> lb = c.likedBy;
+        boolean legacyMe = lb != null && !myUid.isEmpty() && Boolean.TRUE.equals(lb.get(myUid));
+        if (lb != null && !reelUid.isEmpty() && Boolean.TRUE.equals(lb.get(reelUid))) c.creatorLiked = true;
+        c.likedByMe = legacyMe || (c.commentId != null && myLikedIds.contains(c.commentId));
+        c.likedBy = null;
+    }
+
+    private void normalizeReplyLikes(ReelReply r) {
+        Map<String, Boolean> lb = r.likedBy;
+        boolean legacyMe = lb != null && !myUid.isEmpty() && Boolean.TRUE.equals(lb.get(myUid));
+        if (lb != null && !reelUid.isEmpty() && Boolean.TRUE.equals(lb.get(reelUid))) r.creatorLiked = true;
+        r.likedByMe = legacyMe || (r.replyId != null && myLikedIds.contains(r.replyId));
+        r.likedBy = null;
+    }
+
+    /** A blind ServerValue.increment must never double-count: if the my-likes set has not
+     *  loaded yet and the item looks un-liked, confirm the marker once before toggling. */
+    private void resolveMyLike(String itemId, boolean looksLiked,
+                               java.util.function.Consumer<Boolean> done) {
+        if (myLikesReady || looksLiked) { done.accept(looksLiked); return; }
+        CommentLikeWriter.myLikesRef(myUid, reelId).child(itemId).get()
+            .addOnCompleteListener(t -> {
+                boolean liked = t.isSuccessful()
+                    && Boolean.TRUE.equals(t.getResult().getValue(Boolean.class));
+                done.accept(liked);
+            });
     }
 
     private void autoScrollIfAtTop() {
@@ -2116,7 +2283,7 @@ public class ReelCommentFragment extends Fragment {
         loadedCommentIds.add(key); // dup guard: our own onChildAdded echo will skip this id
         allComments.add(local);
         pendingAutoScroll = true;
-        applyFilterAndSort();
+        applyFilterAndSortNow();
 
         clearInput();
         clearDraft();
@@ -2235,14 +2402,14 @@ public class ReelCommentFragment extends Fragment {
         // list, without needing a live RecyclerView for replies.
         if (parent.commentId.equals(activeRepliesParentId)
                 && activeRepliesContainer != null && activeRepliesToggle != null) {
-            // The new reply goes at the END of the thread, so if older replies
-            // are still hidden behind "View N more", show them all first.
-            if (hasMoreRow(activeRepliesContainer)) {
-                revealAllReplies(parent, activeRepliesContainer, activeRepliesToggle);
-            }
+            // PERF: do NOT fetch the rest of the thread just to append one reply. If more
+            // replies exist on the server the new row goes right above "View N more".
             View row = buildReplyRow(local, parent, activeRepliesContainer, activeRepliesToggle);
             if (row != null) {
-                activeRepliesContainer.addView(row);
+                int at = hasMoreRow(activeRepliesContainer)
+                    ? activeRepliesContainer.getChildCount() - 1
+                    : activeRepliesContainer.getChildCount();
+                activeRepliesContainer.addView(row, at);
                 java.util.List<ReelReply> cached = repliesCache.get(parent.commentId);
                 if (cached != null) {
                     cached.add(local);
@@ -2290,6 +2457,7 @@ public class ReelCommentFragment extends Fragment {
                     local.sendState = null; // confirmed sent
                     java.util.List<ReelReply> pending = pendingRepliesByParent.get(parent.commentId);
                     if (pending != null) pending.remove(local);
+                    sessionPostedReplies.computeIfAbsent(parent.commentId, k -> new java.util.ArrayList<>()).add(local);
 
                     FirebaseUtils.getReelCommentsRef(reelId)
                         .child(parent.commentId).child("replyCount")
@@ -2383,65 +2551,56 @@ public class ReelCommentFragment extends Fragment {
             Toast.makeText(requireContext(), getString(R.string.reel_c_login_to_like), Toast.LENGTH_SHORT).show();
             return;
         }
+        resolveMyLike(comment.commentId, comment.likedByMe, liked -> {
+            if (!isAdded()) return;
+            if (liked != comment.likedByMe) {      // server already had my like: just sync the heart
+                comment.likedByMe = liked;
+                if (liked) myLikedIds.add(comment.commentId); else myLikedIds.remove(comment.commentId);
+                if (adapter != null) adapter.notifyLikeChanged(comment.commentId);
+                return;
+            }
+            applyCommentLike(comment);
+        });
+    }
 
-        final boolean currentlyLiked = comment.isLikedBy(myUid);
+    private void applyCommentLike(ReelComment comment) {
+        final boolean currentlyLiked = comment.likedByMe;
+        final boolean prevCreator = comment.creatorLiked;
+        final boolean iAmReelOwner = myUid.equals(reelUid);
         final int prevCount = comment.likesCount;
+        final String id = comment.commentId;
         // Tap-time haptic (covers the heart button AND double-tap-to-like,
         // both route through here). Rolled back below with a reject buzz.
         CommentHaptics.like(getView(), !currentlyLiked);
-        DatabaseReference commentRef = FirebaseUtils.getReelCommentsRef(reelId)
-            .child(comment.commentId);
 
-        // Optimistic local flip — the heart/count update instantly instead
-        // of waiting on the Firebase round trip; onChildChanged reconciles
-        // the real value moments later (a same-value re-render is a no-op
-        // once AsyncListDiffer sees the content is identical).
-        if (comment.likedBy == null) comment.likedBy = new HashMap<>();
-        if (currentlyLiked) comment.likedBy.remove(myUid);
-        else comment.likedBy.put(myUid, true);
+        // Optimistic local flip — heart/count update instantly; the live listener's
+        // onChildChanged reconciles the real count moments later.
+        myLikesTouched.add(id);
+        comment.likedByMe = !currentlyLiked;
+        if (comment.likedByMe) myLikedIds.add(id); else myLikedIds.remove(id);
+        if (iAmReelOwner) comment.creatorLiked = comment.likedByMe;
         comment.likesCount = Math.max(0, comment.likesCount + (currentlyLiked ? -1 : 1));
-        if (adapter != null) adapter.notifyLikeChanged(comment.commentId);
+        if (adapter != null) adapter.notifyLikeChanged(id);
 
-        // Roll back the optimistic flip (once) if either write is rejected —
-        // otherwise the heart would stay lit for a like that never saved.
-        final boolean[] reverted = {false};
-        final Runnable revert = () -> {
-            if (reverted[0]) return;
-            reverted[0] = true;
-            if (comment.likedBy == null) comment.likedBy = new HashMap<>();
-            if (currentlyLiked) comment.likedBy.put(myUid, true);
-            else comment.likedBy.remove(myUid);
-            comment.likesCount = prevCount;
-            if (adapter != null && isAdded()) adapter.notifyLikeChanged(comment.commentId);
-            if (isAdded()) CommentHaptics.reject(getView());
-        };
+        // ONE atomic multi-path write (count + my-like marker + creator flag); the old
+        // code did a likedBy set AND a likesCount transaction = 2 round trips.
+        CommentLikeWriter.write(CommentLikeWriter.commentPath(reelId, id), reelId, id, myUid,
+            !currentlyLiked, iAmReelOwner, () -> {
+                comment.likedByMe = currentlyLiked;
+                if (currentlyLiked) myLikedIds.add(id); else myLikedIds.remove(id);
+                comment.creatorLiked = prevCreator;
+                comment.likesCount = prevCount;
+                if (adapter != null && isAdded()) adapter.notifyLikeChanged(id);
+                if (isAdded()) CommentHaptics.reject(getView());
+            });
 
-        commentRef.child("likedBy").child(myUid)
-            .setValue(currentlyLiked ? null : true,
-                (err, ref) -> { if (err != null) revert.run(); });
-
-        commentRef.child("likesCount").runTransaction(new Transaction.Handler() {
-            @NonNull @Override
-            public Transaction.Result doTransaction(@NonNull MutableData d) {
-                Integer v = d.getValue(Integer.class);
-                int cur = v != null ? v : 0;
-                d.setValue(Math.max(0, currentlyLiked ? cur - 1 : cur + 1));
-                return Transaction.success(d);
+        if (comment.uid != null && !comment.uid.equals(myUid)) {
+            if (!currentlyLiked) {
+                ReelCommentNotifWorker.enqueueLike(
+                    requireContext(), reelId, comment.uid, myUid, myName, id);
+            } else {
+                ReelCommentNotifWorker.cancelLike(requireContext(), reelId, myUid, id);
             }
-            @Override public void onComplete(@Nullable DatabaseError e,
-                                             boolean b, @Nullable DataSnapshot s) {
-                if (e != null) {
-                    revert.run();
-                    // Keep likedBy consistent with the (failed) count update.
-                    commentRef.child("likedBy").child(myUid)
-                        .setValue(currentlyLiked ? true : null);
-                }
-            }
-        });
-
-        if (!currentlyLiked && !comment.uid.equals(myUid)) {
-            ReelCommentNotifWorker.enqueueLike(
-                requireContext(), reelId, comment.uid, myUid, myName, comment.commentId);
         }
     }
 
@@ -2624,6 +2783,101 @@ public class ReelCommentFragment extends Fragment {
         if (btnAttachPhoto != null) btnAttachPhoto.setVisibility(View.VISIBLE);
     }
 
+    // ── Reply row pool (PERF) ───────────────────────────────────────────
+    // Reply rows used to be inflated from XML on every expand / refresh / "view more" page and
+    // thrown away on collapse. Rows detached from a thread now go back into this small pool and
+    // are re-bound by buildReplyRow(); reset in releaseReplyRow() so nothing leaks between rows.
+    private static final int REPLY_ROW_POOL_MAX = 16;
+    private final java.util.ArrayDeque<View> replyRowPool = new java.util.ArrayDeque<>();
+
+    private static final class ReplyRowDefaults {
+        boolean clickable, longClickable;
+        int timeColor;
+    }
+    private final java.util.WeakHashMap<View, ReplyRowDefaults> replyRowDefaults = new java.util.WeakHashMap<>();
+
+    private View obtainReplyRow(LinearLayout container) {
+        View pooled = replyRowPool.pollFirst();
+        if (pooled != null) return pooled;
+        View v = LayoutInflater.from(requireContext())
+            .inflate(R.layout.item_reel_reply, container, false);
+        ReplyRowDefaults d = new ReplyRowDefaults();
+        d.clickable     = v.isClickable();
+        d.longClickable = v.isLongClickable();
+        TextView tt = v.findViewById(R.id.tv_time);
+        d.timeColor = tt != null ? tt.getCurrentTextColor() : 0;
+        replyRowDefaults.put(v, d);
+        return v;
+    }
+
+    /** Empties a replies container, sending its reply rows (not the "view more" row) to the pool. */
+    private void recycleReplyRows(LinearLayout container) {
+        for (int i = container.getChildCount() - 1; i >= 0; i--) {
+            View c = container.getChildAt(i);
+            if (c.getTag(R.id.reel_reply_row_id) != null) releaseReplyRow(c);
+        }
+        container.removeAllViews();
+    }
+
+    /** Resets every piece of per-bind state buildReplyRow() can set, then pools the row. */
+    private void releaseReplyRow(View v) {
+        ReplyRowDefaults d = replyRowDefaults.get(v);
+        if (d == null || replyRowPool.size() >= REPLY_ROW_POOL_MAX) return;
+        v.animate().cancel();
+        v.setAlpha(1f);
+        v.setOnClickListener(null);
+        v.setOnLongClickListener(null);
+        v.setClickable(d.clickable);
+        v.setLongClickable(d.longClickable);
+        v.setTag(R.id.reel_reply_row_id, null);
+        android.widget.ImageView iv = v.findViewById(R.id.iv_avatar);
+        if (iv != null) {
+            try { Glide.with(iv.getContext()).clear(iv); } catch (Exception ignored) {}
+            iv.setTag(R.id.tag_avatar_uid, null);
+        }
+        View like = v.findViewById(R.id.btn_like_reply);
+        if (like != null) {
+            like.animate().cancel();
+            like.setScaleX(1f); like.setScaleY(1f);
+            like.setOnClickListener(null);
+            like.setTag(null);                      // applyHeartState keys its pop animation off this
+        }
+        View cnt = v.findViewById(R.id.tv_likes_count);
+        if (cnt != null) { cnt.animate().cancel(); cnt.setScaleX(1f); cnt.setScaleY(1f); }
+        View rep = v.findViewById(R.id.btn_reply);
+        if (rep != null) rep.setOnClickListener(null);
+        TextView tt = v.findViewById(R.id.tv_time);
+        if (tt != null) tt.setTextColor(d.timeColor);
+        replyRowPool.addLast(v);
+    }
+
+    private DatabaseReference repliesRefFor(ReelComment parent) {
+        return FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("reelCommentReplies").child(reelId).child(parent.commentId);
+    }
+
+    /** Parses one reply for display; null = skip (empty / blocked author). */
+    @Nullable
+    private ReelReply parseReplyForDisplay(DataSnapshot s) {
+        try {
+            ReelReply r = s.getValue(ReelReply.class);
+            if (r == null || TextUtils.isEmpty(r.text)) return null;
+            if (r.uid != null && blockedUids.contains(r.uid)) return null; // blocked user's reply, hide it
+            if (r.replyId == null) r.replyId = s.getKey();
+            normalizeReplyLikes(r);
+            return r;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private int moreRemaining(ReelComment parent, int loaded) {
+        return Math.max(1, parent.replyCount - loaded);
+    }
+
+    /** (Re)loads the thread's first page from the SERVER: only as many rows as are/should be
+     *  visible (REPLIES_INITIAL, or what the user had already opened) + 1 to learn whether more
+     *  exist. A 500-reply thread now costs ~4 rows, not 500. */
     private void loadRepliesInto(ReelComment parent,
                                  LinearLayout container, TextView tvToggle) {
         // Remember this as the "active" replies UI so a reply posted while
@@ -2642,30 +2896,32 @@ public class ReelCommentFragment extends Fragment {
             if (t != null && t == loadToken) onRepliesLoadFailed(parent, container, tvToggle);
         }, isOnlineNow() ? LOAD_TIMEOUT_ONLINE_MS : LOAD_TIMEOUT_OFFLINE_MS);
 
-        FirebaseDatabase.getInstance(Constants.DB_URL)
-            .getReference("reelCommentReplies")
-            .child(reelId)
-            .child(parent.commentId)
+        Integer openBefore = repliesShown.get(parent.commentId);
+        final int fetch = Math.max(REPLIES_INITIAL, openBefore != null ? openBefore : 0);
+
+        repliesRefFor(parent).orderByKey().limitToFirst(fetch + 1)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot snapshot) {
                     if (!isAdded()) return;
                     repliesLoadToken.remove(parent.commentId);
                     final boolean wasVisible = container.getVisibility() == View.VISIBLE;
-                    container.removeAllViews();
+                    recycleReplyRows(container);
                     final java.util.List<ReelReply> list = new java.util.ArrayList<>();
                     java.util.Set<String> confirmedIds = new java.util.HashSet<>();
+                    int seen = 0;
+                    String lastKey = null;
+                    boolean more = false;
                     for (DataSnapshot s : snapshot.getChildren()) {
-                        try {
-                            ReelReply r = s.getValue(ReelReply.class);
-                            if (r == null || TextUtils.isEmpty(r.text)) continue;
-                            if (r.uid != null && blockedUids.contains(r.uid)) continue; // blocked user's reply, hide it
-                            if (r.replyId == null) r.replyId = s.getKey();
-                            confirmedIds.add(r.replyId);
-                            if (pendingDeletes.containsKey("r:" + r.replyId)) continue; // waiting out Undo
-                            registerMentionCandidate(r.uid, r.ownerName, r.ownerPhoto);
-                            list.add(r);
-                        } catch (Exception ignored) {}
+                        if (seen >= fetch) { more = true; break; }   // the +1 probe row
+                        seen++;
+                        lastKey = s.getKey();
+                        ReelReply r = parseReplyForDisplay(s);
+                        if (r == null) continue;
+                        confirmedIds.add(r.replyId);
+                        if (pendingDeletes.containsKey("r:" + r.replyId)) continue; // waiting out Undo
+                        registerMentionCandidate(r.uid, r.ownerName, r.ownerPhoto);
+                        list.add(r);
                     }
                     // Merge in still-pending (sending/failed) local replies for
                     // this parent that Firebase hasn't confirmed yet — without
@@ -2677,24 +2933,34 @@ public class ReelCommentFragment extends Fragment {
                         for (ReelReply r : new java.util.ArrayList<>(pending)) {
                             if (confirmedIds.contains(r.replyId)) continue;
                             if (pendingDeletes.containsKey("r:" + r.replyId)) continue;
+                            confirmedIds.add(r.replyId);
                             list.add(r);
                         }
                     }
-                    // Render only the first page; keep the pages the user
-                    // already opened when this is a refresh (like / edit /
-                    // delete rebuild the container from scratch).
+                    // Replies I posted this session are the NEWEST keys, so a paged read of
+                    // a long thread does not contain them — keep them visible.
+                    java.util.List<ReelReply> mine = sessionPostedReplies.get(parent.commentId);
+                    if (mine != null) {
+                        for (ReelReply r : mine) {
+                            if (confirmedIds.contains(r.replyId)) continue;
+                            if (pendingDeletes.containsKey("r:" + r.replyId)) continue;
+                            confirmedIds.add(r.replyId);
+                            list.add(r);
+                        }
+                    }
                     final int count = list.size();
                     repliesCache.put(parent.commentId, list);
-                    int shown = Math.min(count, Math.max(REPLIES_INITIAL,
-                        repliesShown.containsKey(parent.commentId)
-                            ? repliesShown.get(parent.commentId) : 0));
-                    for (int i = 0; i < shown; i++) {
+                    repliesShown.put(parent.commentId, count);
+                    if (lastKey != null) repliesCursor.put(parent.commentId, lastKey);
+                    else repliesCursor.remove(parent.commentId);
+                    repliesHasMore.put(parent.commentId, more);
+                    for (int i = 0; i < count; i++) {
                         View row = buildReplyRow(list.get(i), parent, container, tvToggle);
                         if (row != null) container.addView(row);
                     }
-                    repliesShown.put(parent.commentId, shown);
-                    if (shown < count) {
-                        container.addView(buildMoreRow(parent, container, tvToggle, count - shown));
+                    if (more) {
+                        container.addView(buildMoreRow(parent, container, tvToggle,
+                            moreRemaining(parent, count)));
                     }
                     updateReplyConnectors(container);
                     container.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
@@ -2730,29 +2996,81 @@ public class ReelCommentFragment extends Fragment {
         return row;
     }
 
-    /** Appends the next page of cached replies (no network, no rebuild). */
+    /** Fetches the NEXT page from the server (startAfter cursor, REPLIES_STEP rows) and appends
+     *  it — no rebuild of the rows already on screen. */
     private void showMoreReplies(ReelComment parent, LinearLayout container,
                                  TextView tvToggle, int step) {
-        java.util.List<ReelReply> list = repliesCache.get(parent.commentId);
-        if (list == null) return;                       // collapsed meanwhile
-        if (hasMoreRow(container)) container.removeViewAt(container.getChildCount() - 1);
-        Integer s = repliesShown.get(parent.commentId);
-        int shown = s == null ? 0 : s;
-        int next  = (int) Math.min((long) list.size(), (long) shown + step);
-        for (int i = shown; i < next; i++) {
-            View row = buildReplyRow(list.get(i), parent, container, tvToggle);
-            if (row != null) container.addView(row);
-        }
-        repliesShown.put(parent.commentId, next);
-        if (next < list.size()) {
-            container.addView(buildMoreRow(parent, container, tvToggle, list.size() - next));
-        }
-        updateReplyConnectors(container);
-    }
+        final String id = parent.commentId;
+        final java.util.List<ReelReply> cur0 = repliesCache.get(id);
+        final String cursor = repliesCursor.get(id);
+        if (cur0 == null || cursor == null || !Boolean.TRUE.equals(repliesHasMore.get(id))) return;
+        if (!repliesLoadingMore.add(id)) return;               // a fetch is already running
 
-    private void revealAllReplies(ReelComment parent, LinearLayout container, TextView tvToggle) {
-        java.util.List<ReelReply> list = repliesCache.get(parent.commentId);
-        if (list != null) showMoreReplies(parent, container, tvToggle, list.size());
+        final TextView moreTv = hasMoreRow(container)
+            ? (TextView) container.getChildAt(container.getChildCount() - 1)
+                .findViewById(R.id.tv_reply_more) : null;
+        final int rem = moreRemaining(parent, cur0.size());
+        if (moreTv != null) { moreTv.setEnabled(false); moreTv.setText(R.string.reel_c_loading); }
+
+        final int token = ++repliesLoadSeq;
+        repliesMoreToken.put(id, token);
+        final Runnable restore = () -> {
+            repliesLoadingMore.remove(id);
+            repliesMoreToken.remove(id);
+            if (moreTv != null) {
+                moreTv.setEnabled(true);
+                moreTv.setText(moreTv.getResources().getQuantityString(
+                    R.plurals.reel_c_view_more_replies, rem, rem));
+            }
+        };
+        refreshHandler.postDelayed(() -> {
+            Integer t = repliesMoreToken.get(id);
+            if (t != null && t == token) restore.run();         // offline: never answered
+        }, isOnlineNow() ? LOAD_TIMEOUT_ONLINE_MS : LOAD_TIMEOUT_OFFLINE_MS);
+
+        repliesRefFor(parent).orderByKey().startAfter(cursor).limitToFirst(step + 1)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
+                    Integer t = repliesMoreToken.get(id);
+                    if (t == null || t != token) return;         // timed out / collapsed meanwhile
+                    repliesMoreToken.remove(id);
+                    repliesLoadingMore.remove(id);
+                    java.util.List<ReelReply> cur = repliesCache.get(id);
+                    if (!isAdded() || cur == null) return;       // thread collapsed
+                    if (hasMoreRow(container)) container.removeViewAt(container.getChildCount() - 1);
+
+                    java.util.Set<String> have = new java.util.HashSet<>();
+                    for (ReelReply r : cur) have.add(r.replyId);
+                    int seen = 0;
+                    String lastKey = cursor;
+                    boolean more = false;
+                    for (DataSnapshot sn : snapshot.getChildren()) {
+                        if (seen >= step) { more = true; break; }
+                        seen++;
+                        lastKey = sn.getKey();
+                        ReelReply r = parseReplyForDisplay(sn);
+                        if (r == null || have.contains(r.replyId)) continue;   // blocked / already shown
+                        if (pendingDeletes.containsKey("r:" + r.replyId)) continue;
+                        registerMentionCandidate(r.uid, r.ownerName, r.ownerPhoto);
+                        cur.add(r);
+                        have.add(r.replyId);
+                        View row = buildReplyRow(r, parent, container, tvToggle);
+                        if (row != null) container.addView(row);
+                    }
+                    repliesCursor.put(id, lastKey);
+                    repliesHasMore.put(id, more);
+                    repliesShown.put(id, cur.size());
+                    if (more) {
+                        container.addView(buildMoreRow(parent, container, tvToggle,
+                            moreRemaining(parent, cur.size())));
+                    }
+                    updateReplyConnectors(container);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    Integer t = repliesMoreToken.get(id);
+                    if (t != null && t == token && isAdded()) restore.run();
+                }
+            });
     }
 
     // ── Reply thread visuals (trunk + ↳ connector, expand/collapse) ──────────
@@ -2812,7 +3130,7 @@ public class ReelCommentFragment extends Fragment {
                 // (adapter resets alpha to 1) — never wipe someone else's replies.
                 if (container.getAlpha() > 0.05f) return;
                 container.setVisibility(View.GONE);   // also hides the trunk
-                container.removeAllViews();
+                recycleReplyRows(container);
                 container.setAlpha(1f);
                 container.setTranslationY(0f);
                 if (trunk != null) trunk.setAlpha(1f);
@@ -2827,8 +3145,7 @@ public class ReelCommentFragment extends Fragment {
     private View buildReplyRow(ReelReply r, ReelComment parent,
                                LinearLayout container, TextView tvToggle) {
         try {
-            View v = LayoutInflater.from(requireContext())
-                .inflate(R.layout.item_reel_reply, container, false);
+            View v = obtainReplyRow(container);
             v.setTag(R.id.reel_reply_row_id, r.replyId);
 
             android.widget.ImageView ivAvatar = v.findViewById(R.id.iv_avatar);
@@ -2854,7 +3171,7 @@ public class ReelCommentFragment extends Fragment {
                     !reelUid.isEmpty() && reelUid.equals(r.uid) ? View.VISIBLE : View.GONE);
             }
             if (tvCreatorLiked != null) {
-                boolean likedByCreator = !reelUid.isEmpty() && r.isLikedBy(reelUid);
+                boolean likedByCreator = r.creatorLiked;
                 tvCreatorLiked.setVisibility(likedByCreator ? View.VISIBLE : View.GONE);
             }
 
@@ -2870,7 +3187,7 @@ public class ReelCommentFragment extends Fragment {
             if (ivAvatar != null) bindReplyAvatar(ivAvatar, r.uid, r.ownerPhoto);
 
             ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
-                r.isLikedBy(myUid), r.likesCount, false, "reply");
+                r.likedByMe, r.likesCount, false, "reply");
             if (btnLike != null) {
                 btnLike.setOnClickListener(v2 ->
                     toggleReplyLike(r, parent, container, tvToggle, btnLike, tvLikes));
@@ -3016,78 +3333,59 @@ public class ReelCommentFragment extends Fragment {
             Toast.makeText(requireContext(), getString(R.string.reel_c_login_to_like), Toast.LENGTH_SHORT).show();
             return;
         }
+        resolveMyLike(reply.replyId, reply.likedByMe, liked -> {
+            if (!isAdded()) return;
+            if (liked != reply.likedByMe) {
+                reply.likedByMe = liked;
+                if (liked) myLikedIds.add(reply.replyId); else myLikedIds.remove(reply.replyId);
+                ReelCommentsAdapter.applyHeartState(btnLike, tvLikes, liked, reply.likesCount, false, "reply");
+                return;
+            }
+            applyReplyLike(reply, parent, btnLike, tvLikes);
+        });
+    }
 
-        final boolean currentlyLiked = reply.isLikedBy(myUid);
+    private void applyReplyLike(ReelReply reply, ReelComment parent,
+                                @Nullable ImageButton btnLike, @Nullable TextView tvLikes) {
+        final boolean currentlyLiked = reply.likedByMe;
+        final boolean prevCreator = reply.creatorLiked;
+        final boolean iAmReelOwner = myUid.equals(reelUid);
         final int prevCount = reply.likesCount;
+        final String id = reply.replyId;
         CommentHaptics.like(btnLike != null ? btnLike : getView(), !currentlyLiked);
-        DatabaseReference replyRef = FirebaseDatabase.getInstance(Constants.DB_URL)
-            .getReference("reelCommentReplies")
-            .child(reelId).child(parent.commentId).child(reply.replyId);
 
-        // Optimistic local flip — heart + count update instantly (with the
-        // same pop animation as top-level comments) instead of waiting for
-        // the Firebase round trip + full replies reload.
-        if (reply.likedBy == null) reply.likedBy = new HashMap<>();
-        if (currentlyLiked) reply.likedBy.remove(myUid);
-        else reply.likedBy.put(myUid, true);
+        // Optimistic flip — heart + count update instantly (same pop animation as comments).
+        // The rows hold the same ReelReply objects as repliesCache, so this IS the cached
+        // state: no refetch, no rebuild (v470).
+        myLikesTouched.add(id);
+        reply.likedByMe = !currentlyLiked;
+        if (reply.likedByMe) myLikedIds.add(id); else myLikedIds.remove(id);
+        if (iAmReelOwner) reply.creatorLiked = reply.likedByMe;
         reply.likesCount = Math.max(0, prevCount + (currentlyLiked ? -1 : 1));
         ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
-            !currentlyLiked, reply.likesCount, true, "reply");
+            reply.likedByMe, reply.likesCount, true, "reply");
 
-        // Roll back the optimistic flip (once) if either write is rejected.
-        final boolean[] reverted = {false};
-        final Runnable revert = () -> {
-            if (reverted[0]) return;
-            reverted[0] = true;
-            if (currentlyLiked) reply.likedBy.put(myUid, true);
-            else reply.likedBy.remove(myUid);
-            reply.likesCount = prevCount;
-            if (isAdded()) {
-                ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
-                    currentlyLiked, prevCount, true, "reply");
-                CommentHaptics.reject(btnLike != null ? btnLike : getView());
-            }
-        };
-
-        replyRef.child("likedBy").child(myUid).setValue(currentlyLiked ? null : true,
-            (err, ref) -> { if (err != null) revert.run(); });
-
-        replyRef.child("likesCount").runTransaction(new Transaction.Handler() {
-            @NonNull @Override
-            public Transaction.Result doTransaction(@NonNull MutableData d) {
-                Integer v = d.getValue(Integer.class);
-                int cur = v != null ? v : 0;
-                d.setValue(Math.max(0, currentlyLiked ? cur - 1 : cur + 1));
-                return Transaction.success(d);
-            }
-            @Override public void onComplete(@Nullable DatabaseError e,
-                                             boolean b, @Nullable DataSnapshot s) {
-                if (e != null) {
-                    revert.run();
-                    // Keep likedBy consistent with the (failed) count update.
-                    replyRef.child("likedBy").child(myUid)
-                        .setValue(currentlyLiked ? true : null);
+        // ONE atomic multi-path write instead of likedBy.setValue + likesCount transaction.
+        CommentLikeWriter.write(CommentLikeWriter.replyPath(reelId, parent.commentId, id),
+            reelId, id, myUid, !currentlyLiked, iAmReelOwner, () -> {
+                reply.likedByMe = currentlyLiked;
+                if (currentlyLiked) myLikedIds.add(id); else myLikedIds.remove(id);
+                reply.creatorLiked = prevCreator;
+                reply.likesCount = prevCount;
+                if (isAdded()) {
+                    ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
+                        currentlyLiked, prevCount, true, "reply");
+                    CommentHaptics.reject(btnLike != null ? btnLike : getView());
                 }
-                // PERF: no loadRepliesInto() here any more. It re-downloaded the WHOLE
-                // thread and removeAllViews()+re-inflated every row just to confirm a
-                // like the UI already shows (the rows hold the same ReelReply objects
-                // as repliesCache, so the optimistic flip IS the cached state; a
-                // failure was already rolled back by revert). Only reconcile the count
-                // in place if other people's likes made the server value differ.
-                if (e == null && s != null && isAdded()) {
-                    Integer server = s.getValue(Integer.class);
-                    if (server != null && server != reply.likesCount) {
-                        reply.likesCount = server;
-                        ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
-                            reply.isLikedBy(myUid), server, false, "reply");
-                    }
-                }
-            }
-        });
+            });
 
-        if (!currentlyLiked && !reply.uid.equals(myUid)) {
-            ReelCommentNotifWorker.enqueueLike(
-                requireContext(), reelId, reply.uid, myUid, myName, reply.replyId);
+        if (reply.uid != null && !reply.uid.equals(myUid)) {
+            if (!currentlyLiked) {
+                ReelCommentNotifWorker.enqueueLike(
+                    requireContext(), reelId, reply.uid, myUid, myName, id);
+            } else {
+                ReelCommentNotifWorker.cancelLike(requireContext(), reelId, myUid, id);
+            }
         }
     }
 
@@ -3170,6 +3468,8 @@ public class ReelCommentFragment extends Fragment {
 
     private void deleteReply(ReelReply reply, ReelComment parent,
                              LinearLayout container, TextView tvToggle) {
+        java.util.List<ReelReply> mine = sessionPostedReplies.get(parent.commentId);
+        if (mine != null) mine.removeIf(x -> reply.replyId != null && reply.replyId.equals(x.replyId));
         try {
             FirebaseDatabase.getInstance(Constants.DB_URL)
                 .getReference("reelCommentReplies")
@@ -3305,9 +3605,9 @@ public class ReelCommentFragment extends Fragment {
 
     private void deleteCommentWithUndo(ReelComment comment) {
         showUndoSnackbar(R.string.reel_c_comment_deleted, "c:" + comment.commentId,
-            this::applyFilterAndSort,                 // Undo: bring it back
+            this::applyFilterAndSortNow,              // Undo: bring it back
             () -> deleteComment(comment));            // timeout: real delete
-        applyFilterAndSort();                         // hide now
+        applyFilterAndSortNow();                      // hide now
     }
 
     private void deleteReplyWithUndo(ReelReply reply, ReelComment parent,
@@ -3334,6 +3634,7 @@ public class ReelCommentFragment extends Fragment {
         }
         if (row == null) return;
         container.removeView(row);
+        releaseReplyRow(row);
 
         boolean empty;
         java.util.List<ReelReply> list = repliesCache.get(parent.commentId);
@@ -3346,13 +3647,8 @@ public class ReelCommentFragment extends Fragment {
                     break;
                 }
             }
-            if (hasMoreRow(container)) container.removeViewAt(container.getChildCount() - 1);
-            Integer s = repliesShown.get(parent.commentId);
-            int shown = s == null ? 0 : s;
-            if (shown < list.size()) {
-                container.addView(buildMoreRow(parent, container, tvToggle, list.size() - shown));
-            }
-            empty = list.isEmpty();
+            // the "View N more" row (if any) stays as is — it is driven by the server cursor
+            empty = list.isEmpty() && !Boolean.TRUE.equals(repliesHasMore.get(parent.commentId));
         } else {
             empty = true;
             for (int i = 0; i < container.getChildCount(); i++) {

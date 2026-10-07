@@ -22,8 +22,12 @@ public class ReelReply {
     public String text;
     public long   timestamp;
     public int    likesCount;
-    /** uid → true for every user who liked this reply. */
+    /** LEGACY ONLY — see ReelComment#likedBy. Folded into likedByMe/creatorLiked at parse time. */
     public Map<String, Boolean> likedBy;
+    /** Local-only: did the current user like this reply (userCommentLikes/{me}/{reelId}/{replyId}). */
+    public transient boolean likedByMe;
+    /** Persisted flag: the reel owner liked this reply. */
+    public boolean creatorLiked;
 
     /** Set when this reply is itself tagging another reply's author
      *  (i.e. user tapped "Reply" on a reply, not the top-level comment).
@@ -60,7 +64,7 @@ public class ReelReply {
         this.text            = text;
         this.timestamp       = timestamp;
         this.likesCount      = 0;
-        this.likedBy         = new HashMap<>();
+        this.likedBy         = null;
         this.isEdited        = false;
     }
 

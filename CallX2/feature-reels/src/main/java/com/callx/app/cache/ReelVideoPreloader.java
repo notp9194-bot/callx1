@@ -245,6 +245,13 @@ public class ReelVideoPreloader {
 
     /** Bytes to preload based on network quality */
     private long networkBytes(NetworkQualityMonitor.Quality q) {
+        long bytes = networkBytesRaw(q);
+        // Low-end phones: cap per-reel preload at 2MB (less disk/CPU work during fast swipes).
+        return com.callx.app.player.ReelDeviceTier.isLowEnd(mContext)
+            ? Math.min(bytes, 2 * 1024 * 1024L) : bytes;
+    }
+
+    private long networkBytesRaw(NetworkQualityMonitor.Quality q) {
         switch (q) {
             case WIFI:
             case ETHERNET:

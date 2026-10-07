@@ -18,8 +18,17 @@ public class ReelComment {
     public long   timestamp;
     public int    likesCount;
     public int    replyCount;
-    /** uid → true for every user who liked this comment. */
+    /** LEGACY ONLY. Old comments still carry a uid→true map here; new likes are
+     *  NOT written into the comment node any more (that forced every viewer to
+     *  download all likers of every comment). The UI layer reads this once at
+     *  parse time, folds it into {@link #likedByMe}/{@link #creatorLiked} and nulls it. */
     public Map<String, Boolean> likedBy;
+    /** Local-only (transient → ignored by Firebase mapper): did the current user like
+     *  this comment? Source: userCommentLikes/{me}/{reelId}/{commentId} (+ legacy likedBy). */
+    public transient boolean likedByMe;
+    /** Persisted flag: the reel owner liked this comment (drives the "liked by creator"
+     *  badge). Written together with the like in one multi-path update. */
+    public boolean creatorLiked;
     /** Denormalized copy of users/{uid}/avatarVersion at the moment this
      *  comment was posted — lets ReelCommentAvatarBinder append the same
      *  &v=&lt;avatarVersion&gt; cache-bust param AvatarUrlBuilder gives every
@@ -70,7 +79,7 @@ public class ReelComment {
         this.timestamp  = timestamp;
         this.likesCount = 0;
         this.replyCount = 0;
-        this.likedBy    = new HashMap<>();
+        this.likedBy    = null;
         this.reactions  = new HashMap<>();
         this.isPinned   = false;
         this.isEdited   = false;

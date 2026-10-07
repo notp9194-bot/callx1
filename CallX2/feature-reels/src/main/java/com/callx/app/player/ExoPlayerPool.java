@@ -59,6 +59,27 @@ public final class ExoPlayerPool {
 
     private ExoPlayerPool(Context ctx) {
         appCtx = ctx.getApplicationContext();
+        // Self-registered so the pool trims itself under real memory pressure (the old doc
+        // mentioned a TRIM_MEMORY_CRITICAL hook but nothing was wired). UI_HIDDEN (20) fires on
+        // every backgrounding and is deliberately ignored.
+        appCtx.registerComponentCallbacks(new android.content.ComponentCallbacks2() {
+            @Override public void onTrimMemory(int level) {
+                if (level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+                        || level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+                    trimIdle();
+                }
+            }
+            @Override public void onConfigurationChanged(android.content.res.Configuration c) {}
+            @Override public void onLowMemory() { trimIdle(); }
+        });
+    }
+
+    /** Hard-releases only the idle (pooled, not in-use) instances — never a playing/prewarmed reel. */
+    public synchronized void trimIdle() {
+        if (pooled.isEmpty()) return;
+        for (ExoPlayer p : pooled) hardRelease(p);
+        Log.d(TAG, "trimIdle: released " + pooled.size() + " idle instance(s) under memory pressure");
+        pooled.clear();
     }
 
     public static ExoPlayerPool get(Context ctx) {
@@ -115,6 +136,8 @@ public final class ExoPlayerPool {
             player.clearMediaItems();
             player.setVolume(0f);
             player.setPlayWhenReady(false);
+            // Next acquirer starts silent and focus-free (see ReelAudioPolicy).
+            ReelAudioPolicy.setFocusEnabled(player, false);
         } catch (Exception e) {
             Log.w(TAG, "release: reset failed, hard-releasing instead: " + e.getMessage());
             hardRelease(player);

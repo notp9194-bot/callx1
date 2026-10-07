@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reel player load-error overlay strings. -->
+<resources>
+    <string name="reel_load_failed">Couldn\'t load this reel</string>
+    <string name="reel_tap_retry">Tap to retry</string>
+    <string name="reel_no_internet">No internet connection</string>
+    <string name="reel_retry_when_online">We\'ll retry when you\'re back online · Tap to retry</string>
+    <string name="reel_slow_connection">Slow connection…</string>
+    <string name="reel_slow_connection_lowering">Slow connection · lowering quality</string>
+</resources>

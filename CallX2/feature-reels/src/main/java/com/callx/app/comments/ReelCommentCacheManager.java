@@ -55,12 +55,29 @@ final class ReelCommentCacheManager {
     private ReelCommentCacheManager() {}
 
     /** Fire-and-forget: replaces the cached window for this reel. */
+    private static String currentUid() {
+        try {
+            com.google.firebase.auth.FirebaseUser u =
+                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+            return u != null && u.getUid() != null ? u.getUid() : "";
+        } catch (Exception e) { return ""; }
+    }
+
+    private static String encodeLikeFlags(ReelComment c, String myUid) {
+        if (!c.likedByMe && !c.creatorLiked) return null;
+        Map<String, Boolean> m = new HashMap<>(2);
+        if (c.likedByMe && !myUid.isEmpty()) m.put("me:" + myUid, true);
+        if (c.creatorLiked) m.put("creator", true);
+        return m.isEmpty() ? null : GSON.toJson(m);
+    }
+
     static void savePage(Context ctx, String reelId, List<ReelComment> comments) {
         if (reelId == null || reelId.isEmpty() || comments == null || comments.isEmpty()) return;
         Context appCtx = ctx.getApplicationContext();
         // Snapshot on the caller's thread — allComments is mutated on the
         // main thread only, so this copy is safe to hand off to IO.
         List<ReelComment> snapshot = new ArrayList<>(comments);
+        final String myUid = currentUid();
         IO.execute(() -> {
             try {
                 AppDatabase db = AppDatabase.getInstance(appCtx);
@@ -85,7 +102,11 @@ final class ReelCommentCacheManager {
                     e.isPinned      = c.isPinned;
                     e.isEdited      = c.isEdited;
                     e.editedAt      = c.editedAt;
-                    e.likedByJson   = c.likedBy   != null ? GSON.toJson(c.likedBy)   : null;
+                    // likedByJson column is reused (no Room migration): it now holds only the
+                    // two flags the UI needs, {"me:<uid>":true,"creator":true}, instead of the
+                    // full liker map. "me:<uid>" is account-scoped so a different login never
+                    // inherits someone else's heart.
+                    e.likedByJson   = encodeLikeFlags(c, myUid);
                     e.reactionsJson = c.reactions != null ? GSON.toJson(c.reactions) : null;
                     e.mentionsJson  = c.mentions  != null ? GSON.toJson(c.mentions)  : null;
                     e.sortOrder     = order++;
@@ -114,6 +135,7 @@ final class ReelCommentCacheManager {
     /** Synchronous read — call only from a background thread. */
     private static List<ReelComment> loadPageBlocking(Context ctx, String reelId) {
         List<ReelComment> out = new ArrayList<>();
+        final String myUid = currentUid();
         try {
             AppDatabase db = AppDatabase.getInstance(ctx.getApplicationContext());
             List<ReelCommentCacheEntity> rows = db.reelCommentCacheDao().getPage(reelId, MAX_CACHE_SIZE);
@@ -133,10 +155,14 @@ final class ReelCommentCacheManager {
                 c.isEdited      = e.isEdited;
                 c.editedAt      = e.editedAt;
                 try {
-                    c.likedBy = e.likedByJson != null
-                        ? GSON.<Map<String, Boolean>>fromJson(e.likedByJson, MAP_BOOL_TYPE)
-                        : new HashMap<>();
-                } catch (Exception ex) { c.likedBy = new HashMap<>(); }
+                    Map<String, Boolean> flags = e.likedByJson != null
+                        ? GSON.<Map<String, Boolean>>fromJson(e.likedByJson, MAP_BOOL_TYPE) : null;
+                    if (flags != null) {
+                        c.likedByMe    = !myUid.isEmpty() && Boolean.TRUE.equals(flags.get("me:" + myUid));
+                        c.creatorLiked = Boolean.TRUE.equals(flags.get("creator"));
+                    }
+                } catch (Exception ex) { /* flags stay false */ }
+                c.likedBy = null;
                 try {
                     c.reactions = e.reactionsJson != null
                         ? GSON.<Map<String, String>>fromJson(e.reactionsJson, MAP_STR_TYPE)
