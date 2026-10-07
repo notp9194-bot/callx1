@@ -121,4 +121,22 @@
          the parent trunk in item_reel_comment.xml). Separate from text_muted so
          it stays visible in dark mode. Light: text_muted hue (#94A3B8) at 60% alpha. -->
     <color name="thread_line">#9994A3B8</color>
+
+    <!-- Comment char counter when near the 300 limit (light) -->
+    <color name="comment_counter_warn">#E53935</color>
+
+    <!-- Comment input bar icons (light). Attach icon used text_muted, which is
+         #555555/#808080 in dark builds and nearly invisible on the field. -->
+    <color name="comment_input_icon">#64748B</color>
+    <!-- Send icon: explicit tint (alias of brand_primary so the app module's
+         brand colour still wins; change here to restyle only the send icon). -->
+    <color name="comment_send_icon">@color/brand_primary</color>
+
+    <!-- Reel comment system: colours that used to be hardcoded in layouts/Java. -->
+    <color name="reel_accent_cyan">#6BCFEF</color>        <!-- search icons, @mention text -->
+    <color name="reel_pin_icon">#00E5FF</color>           <!-- pinned-comment badge icon -->
+    <color name="reel_pin_label">#FF9800</color>          <!-- "Pinned comment" label -->
+    <color name="reel_like_heart">#FF416C</color>         <!-- liked heart, "Liked by creator" -->
+    <color name="reel_error_red">#FF3B5C</color>          <!-- "Failed - tap to retry" -->
+    <color name="reel_reaction_chip_text">#5B5BF6</color>      <!-- reaction chips under a comment -->
 </resources>

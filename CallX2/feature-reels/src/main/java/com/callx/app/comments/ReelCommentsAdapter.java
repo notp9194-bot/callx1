@@ -370,8 +370,10 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         // ── Name ────────────────────────────────────────────────────────
         h.tvName.setText(c.ownerName != null && !c.ownerName.isEmpty()
-            ? c.ownerName : "User");
+            ? c.ownerName : h.itemView.getContext().getString(R.string.reel_c_user_fallback));
         com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, c.uid);
+        h.ivAvatar.setContentDescription(h.itemView.getContext().getString(
+            R.string.reel_c_open_profile, h.tvName.getText()));
 
         // ── Time + Edited (+ local-first send state) ─────────────────────
         // Offline/retry: a comment created locally (see
@@ -383,14 +385,14 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         // instead of the comment silently vanishing or the input just
         // showing a one-off Toast with nothing left in the list to retry.
         if (ReelComment.SEND_STATE_SENDING.equals(c.sendState)) {
-            h.tvTime.setText("Sending…");
+            h.tvTime.setText(R.string.reel_c_sending);
             h.tvTime.setTextColor(ctx.getResources().getColor(R.color.text_muted));
             h.tvTime.setOnClickListener(null);
             h.tvTime.setClickable(false);
             h.itemView.setAlpha(0.6f);
         } else if (ReelComment.SEND_STATE_FAILED.equals(c.sendState)) {
-            h.tvTime.setText("⚠ Failed — tap to retry");
-            h.tvTime.setTextColor(0xFFFF3B5C);
+            h.tvTime.setText(R.string.reel_c_failed_retry_warn);
+            h.tvTime.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.reel_error_red));
             h.itemView.setAlpha(1f);
             h.tvTime.setClickable(true);
             h.tvTime.setOnClickListener(v -> {
@@ -458,8 +460,8 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             h.tvViewReplies.setVisibility(View.VISIBLE);
             boolean expanded = h.containerReplies.getVisibility() == View.VISIBLE;
             h.tvViewReplies.setText(expanded
-                ? "Hide replies"
-                : "View " + c.replyCount + (c.replyCount == 1 ? " reply" : " replies"));
+                ? h.itemView.getContext().getString(R.string.reel_c_hide_replies)
+                : repliesToggleLabel(h.itemView.getContext(), c.replyCount));
         } else {
             h.tvViewReplies.setVisibility(View.GONE);
             h.containerReplies.setVisibility(View.GONE);
@@ -516,8 +518,8 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         return s + suffix;
     }
 
-    /** Brand heart color — same as the heart drawable / "Liked by creator" text. */
-    public static final int HEART_LIKED_COLOR = 0xFFFF416C;
+    // Heart colour now lives in R.color.reel_like_heart (same value as the
+    // heart drawable / "Liked by creator" text) so it is themeable.
 
     /**
      * Single source of truth for the heart icon + count, shared by comment
@@ -528,6 +530,26 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
      * a small slide/fade on the count. Non-animated binds reset any
      * half-finished animation so recycled rows never show a stale scale.
      */
+    /** "View N reply/replies" toggle label (plural-aware, localizable). */
+    public static String repliesToggleLabel(Context ctx, int n) {
+        return ctx.getResources().getQuantityString(R.plurals.reel_c_view_replies, n, n);
+    }
+
+    /** Makes a clickable TextView/ImageView announce itself as a Button
+     *  (TalkBack: "Reply, button") without changing how it looks or behaves. */
+    public static void asButton(@Nullable View v) {
+        if (v == null) return;
+        androidx.core.view.ViewCompat.setAccessibilityDelegate(v,
+            new androidx.core.view.AccessibilityDelegateCompat() {
+                @Override public void onInitializeAccessibilityNodeInfo(
+                        @NonNull View host,
+                        @NonNull androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+                    super.onInitializeAccessibilityNodeInfo(host, info);
+                    info.setClassName(android.widget.Button.class.getName());
+                }
+            });
+    }
+
     public static void applyHeartState(ImageButton btn, TextView tvCount,
                                        boolean liked, int likesCount,
                                        boolean animate, String noun) {
@@ -539,9 +561,16 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         btn.setImageResource(liked ? R.drawable.ic_comment_heart_filled : R.drawable.ic_comment_heart);
         btn.setColorFilter(liked
-            ? HEART_LIKED_COLOR
+            ? androidx.core.content.ContextCompat.getColor(ctx, R.color.reel_like_heart)
             : androidx.core.content.ContextCompat.getColor(ctx, R.color.text_muted));
-        btn.setContentDescription((liked ? "Unlike " : "Like ") + noun);
+        boolean isReply = "reply".equals(noun);
+        String base = ctx.getString(liked
+            ? (isReply ? R.string.reel_c_unlike_reply : R.string.reel_c_unlike_comment)
+            : (isReply ? R.string.reel_c_like_reply   : R.string.reel_c_like_comment));
+        btn.setContentDescription(likesCount > 0
+            ? base + ", " + ctx.getResources().getQuantityString(
+                  R.plurals.reel_c_likes_count, likesCount, likesCount)
+            : base);
 
         String countText = likesCount > 0 ? formatCount(likesCount) : "";
         boolean countChanged = tvCount != null
@@ -790,44 +819,44 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         List<Runnable> actions = new ArrayList<>();
 
         // React (everyone)
-        opts.add("React with emoji");
+        opts.add(ctx.getString(R.string.reel_c_react_emoji));
         actions.add(() -> showEmojiPanel(ctx, c, position));
 
         // Copy text (everyone) — Instagram-style, handled locally, no
         // listener round-trip needed for a plain clipboard write.
-        opts.add("Copy text");
+        opts.add(ctx.getString(R.string.reel_c_copy_text));
         actions.add(() -> {
             ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("comment", c.text));
-            Toast.makeText(ctx, "Text copied", Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx, R.string.reel_c_text_copied, Toast.LENGTH_SHORT).show();
         });
 
         // Translate (everyone) — actual translation call lives with the
         // fragment/host; adapter just surfaces the entry.
-        opts.add("Translate");
+        opts.add(ctx.getString(R.string.reel_c_translate));
         actions.add(() -> { if (listener != null) listener.onTranslateComment(c, position); });
 
         if (isOwn) {
             // Edit own comment
-            opts.add("Edit comment");
+            opts.add(ctx.getString(R.string.reel_c_edit_comment));
             actions.add(() -> { if (listener != null) listener.onEditComment(c, position); });
         }
 
         if (isReelOwner) {
             // Pin / Unpin
-            opts.add(c.isPinned ? "Unpin comment" : "Pin comment");
+            opts.add(ctx.getString(c.isPinned ? R.string.reel_c_unpin_comment : R.string.reel_c_pin_comment));
             actions.add(() -> { if (listener != null) listener.onPinComment(c); });
         }
 
         if (!isOwn) {
             // Report
-            opts.add("Report comment");
+            opts.add(ctx.getString(R.string.reel_c_report_comment));
             actions.add(() -> { if (listener != null) listener.onReportComment(c); });
         }
 
         if (isOwn || isReelOwner) {
             // Delete
-            opts.add("Delete comment");
+            opts.add(ctx.getString(R.string.reel_c_delete_comment));
             actions.add(() -> { if (listener != null) listener.onLongPress(c, position); });
         }
 
@@ -842,7 +871,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         String myReaction = c.getMyReaction(myUid);
 
         AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
-            .setTitle("React to comment")
+            .setTitle(R.string.reel_c_react_title)
             .setItems(emojis, (d, which) -> {
                 String selected = emojis[which];
                 // Toggle: if already reacted with same emoji, remove
@@ -907,7 +936,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             for (int i = 0; i < reactionChips.length; i++) {
                 TextView chip = new TextView(ctx);
                 chip.setTextSize(11f);
-                chip.setTextColor(0xFF5B5BF6);
+                chip.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.reel_reaction_chip_text));
                 chip.setBackgroundResource(R.drawable.bg_reaction_chip);
                 chip.setPadding(dp8, dp2, dp8, dp2);
                 chip.setVisibility(View.GONE);
@@ -984,6 +1013,22 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                     adapter.showContextMenu(v2.getContext(), boundComment, getAdapterPosition());
                 return true;
             });
+
+            // Accessibility: announce tappable text/images as buttons, and
+            // expose "Reply" as a TalkBack action - swipe-to-reply is a touch
+            // gesture that screen-reader users cannot perform.
+            asButton(ivAvatar);
+            asButton(btnReply);
+            asButton(tvViewReplies);
+            androidx.core.view.ViewCompat.addAccessibilityAction(itemView,
+                itemView.getContext().getString(R.string.reel_c_action_reply),
+                (view, args) -> {
+                    if (boundComment != null && adapter.listener != null) {
+                        adapter.listener.onReplyComment(boundComment);
+                        return true;
+                    }
+                    return false;
+                });
         }
     }
 }

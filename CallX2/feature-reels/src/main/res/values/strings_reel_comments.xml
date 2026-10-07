@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reel comment system strings (moved out of layouts / Java). -->
+<resources>
+    <string name="reel_c_cancel">Cancel</string>
+    <string name="reel_c_save">Save</string>
+    <string name="reel_c_delete">Delete</string>
+    <string name="reel_c_loading">Loading…</string>
+    <string name="reel_c_hide_replies">Hide replies</string>
+    <string name="reel_c_no_replies">No replies yet</string>
+    <string name="reel_c_user_fallback">User</string>
+    <string name="reel_c_sending">Sending…</string>
+    <string name="reel_c_failed_retry">Failed — tap to retry</string>
+    <string name="reel_c_failed_retry_warn">⚠ Failed — tap to retry</string>
+    <string name="reel_c_err_open_gallery">Couldn\'t open gallery</string>
+    <string name="reel_c_translate_soon">Translate: coming soon</string>
+    <string name="reel_c_max_chars">Max %1$d characters</string>
+    <string name="reel_c_gif_upload_failed">GIF upload failed</string>
+    <string name="reel_c_photo_upload_failed">Photo upload failed</string>
+    <string name="reel_c_photo_uploading">Photo uploading… please wait</string>
+    <string name="reel_c_too_fast">You\'re commenting too fast — slow down a bit</string>
+    <string name="reel_c_comment_not_sent">Comment not sent — check your connection</string>
+    <string name="reel_c_reply_not_sent">Reply not sent — check your connection</string>
+    <string name="reel_c_login_to_like">Please login to like</string>
+    <string name="reel_c_login_first">Please login first</string>
+    <string name="reel_c_write_something">Please write something</string>
+    <string name="reel_c_too_long_comment">Comment too long (max %1$d chars)</string>
+    <string name="reel_c_too_long_reply">Reply too long (max %1$d chars)</string>
+    <string name="reel_c_edit_comment">Edit comment</string>
+    <string name="reel_c_edit_reply">Edit reply</string>
+    <string name="reel_c_only_owner_pin">Only the reel owner can pin comments</string>
+    <string name="reel_c_pinned">Comment pinned</string>
+    <string name="reel_c_unpinned">Comment unpinned</string>
+    <string name="reel_c_report_comment">Report comment</string>
+    <string name="reel_c_report_reply">Report reply</string>
+    <string name="reel_c_comment_reported">Comment reported. Thank you.</string>
+    <string name="reel_c_reply_reported">Reply reported. Thank you.</string>
+    <string name="reel_c_report_failed">Failed to report. Try again.</string>
+    <string name="reel_c_replying_to">Replying to @%1$s</string>
+    <string name="reel_c_reply_hint">Reply to @%1$s…</string>
+    <string name="reel_c_write_comment">Write a comment…</string>
+    <string name="reel_c_delete_reply">Delete reply</string>
+    <string name="reel_c_delete_reply_title">Delete reply?</string>
+    <string name="reel_c_delete_reply_msg">This reply will be permanently removed.</string>
+    <string name="reel_c_delete_comment">Delete comment</string>
+    <string name="reel_c_delete_comment_title">Delete comment?</string>
+    <string name="reel_c_delete_comment_msg">This comment will be permanently removed.</string>
+    <string name="reel_c_delete_reply_failed">Failed to delete reply</string>
+    <string name="reel_c_delete_failed">Failed to delete</string>
+    <string name="reel_c_comments">Comments</string>
+    <string name="reel_c_comments_count">Comments (%1$d)</string>
+    <string name="reel_c_react_emoji">React with emoji</string>
+    <string name="reel_c_copy_text">Copy text</string>
+    <string name="reel_c_text_copied">Text copied</string>
+    <string name="reel_c_translate">Translate</string>
+    <string name="reel_c_pin_comment">Pin comment</string>
+    <string name="reel_c_unpin_comment">Unpin comment</string>
+    <string name="reel_c_react_title">React to comment</string>
+    <string name="reel_c_like_comment">Like comment</string>
+    <string name="reel_c_unlike_comment">Unlike comment</string>
+    <string name="reel_c_like_reply">Like reply</string>
+    <string name="reel_c_unlike_reply">Unlike reply</string>
+    <string name="reel_c_open_profile">Open profile of %1$s</string>
+    <string name="reel_c_action_reply">Reply</string>
+    <string name="reel_c_new_comments_default">↑ New comments</string>
+    <string name="reel_c_undo">Undo</string>
+    <string name="reel_c_comment_deleted">Comment deleted</string>
+    <string name="reel_c_reply_deleted">Reply deleted</string>
+    <string name="reel_c_back">Back</string>
+    <string name="reel_c_search_comments">Search comments</string>
+    <string name="reel_c_search_hint">Search comments…</string>
+    <string name="reel_c_close_search">Close search</string>
+    <string name="reel_c_sort_newest">Newest</string>
+    <string name="reel_c_sort_top_liked">Top Liked</string>
+    <string name="reel_c_loading_earlier">Loading earlier comments…</string>
+    <string name="reel_c_swipe_hint">Swipe a comment right to reply</string>
+    <string name="reel_c_empty">No comments yet.\nBe the first to comment!</string>
+    <string name="reel_c_cancel_reply">Cancel reply</string>
+    <string name="reel_c_selected_photo">Selected photo</string>
+    <string name="reel_c_remove_photo">Remove photo</string>
+    <string name="reel_c_add_photo">Add photo</string>
+    <string name="reel_c_send">Send</string>
+    <string name="reel_c_pinned_label">Pinned comment</string>
+    <string name="reel_c_verified">Verified</string>
+    <string name="reel_c_author">Author</string>
+    <string name="reel_c_edited">(edited)</string>
+    <string name="reel_c_liked_by_creator">❤️ Liked by creator</string>
+    <string name="reel_c_reply">Reply</string>
+    <string name="reel_c_comment_photo">Comment photo</string>
+
+    <!-- Error / offline states + load failures -->
+    <string name="reel_c_retry">Retry</string>
+    <string name="reel_c_err_offline_title">You\'re offline</string>
+    <string name="reel_c_err_offline_msg">Check your connection and try again.</string>
+    <string name="reel_c_err_load_title">Couldn\'t load comments</string>
+    <string name="reel_c_err_load_msg">Something went wrong. Please try again.</string>
+    <string name="reel_c_offline_banner">You\'re offline. Comments may be out of date.</string>
+    <string name="reel_c_refresh_failed_banner">Couldn\'t refresh comments · Tap to retry</string>
+    <string name="reel_c_older_failed">Couldn\'t load earlier comments · Tap to retry</string>
+    <string name="reel_c_replies_failed_retry">Couldn\'t load replies · Tap to retry</string>
+    <string name="reel_c_reaction_failed">Couldn\'t add reaction</string>
+
+    <plurals name="reel_c_view_replies">
+        <item quantity="one">View %1$d reply</item>
+        <item quantity="other">View %1$d replies</item>
+    </plurals>
+    <plurals name="reel_c_view_more_replies">
+        <item quantity="one">View %1$d more reply</item>
+        <item quantity="other">View %1$d more replies</item>
+    </plurals>
+    <plurals name="reel_c_new_comments">
+        <item quantity="one">↑ New comment</item>
+        <item quantity="other">↑ %1$d new comments</item>
+    </plurals>
+    <plurals name="reel_c_likes_count">
+        <item quantity="one">%1$d like</item>
+        <item quantity="other">%1$d likes</item>
+    </plurals>
+
+    <!-- Display labels only. The value stored in Firebase stays English (see showReportDialog). -->
+    <string-array name="reel_c_report_reasons">
+        <item>Spam</item>
+        <item>Hate speech</item>
+        <item>Harassment</item>
+        <item>Misinformation</item>
+        <item>Nudity or sexual content</item>
+        <item>Violence</item>
+        <item>Other</item>
+    </string-array>
+</resources>

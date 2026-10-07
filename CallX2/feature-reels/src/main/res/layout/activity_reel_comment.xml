@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -22,14 +23,14 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Back"/>
+            android:contentDescription="@string/reel_c_back"/>
 
         <TextView
             android:id="@+id/tv_comment_count"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Comments"
+            android:text="@string/reel_c_comments"
             android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="@color/text_primary"
@@ -41,9 +42,9 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_search"
-            android:tint="#6BCFEF"
+            android:tint="@color/reel_accent_cyan"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Search comments"
+            android:contentDescription="@string/reel_c_search_comments"
             android:padding="8dp"/>
     </LinearLayout>
 
@@ -68,7 +69,7 @@
             android:layout_width="20dp"
             android:layout_height="20dp"
             android:src="@drawable/ic_search"
-            android:tint="#6BCFEF"
+            android:tint="@color/reel_accent_cyan"
             android:layout_marginEnd="8dp"/>
 
         <EditText
@@ -76,7 +77,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="Search comments…"
+            android:hint="@string/reel_c_search_hint"
             android:textSize="14sp"
             android:textColor="@color/text_primary"
             android:textColorHint="@color/text_muted"
@@ -91,7 +92,7 @@
             android:layout_height="36dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Close search"
+            android:contentDescription="@string/reel_c_close_search"
             android:padding="6dp"/>
     </LinearLayout>
 
@@ -125,7 +126,7 @@
                 android:id="@+id/chip_newest"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
-                android:text="Newest"
+                android:text="@string/reel_c_sort_newest"
                 android:textSize="13sp"
                 android:textColor="@color/brand_primary"
                 android:fontFamily="sans-serif-medium"
@@ -139,7 +140,7 @@
                 android:id="@+id/chip_top"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
-                android:text="Top Liked"
+                android:text="@string/reel_c_sort_top_liked"
                 android:textSize="13sp"
                 android:textColor="@color/text_muted"
                 android:fontFamily="sans-serif"
@@ -150,6 +151,25 @@
                 android:layout_marginEnd="8dp"/>
         </LinearLayout>
     </HorizontalScrollView>
+
+    <!-- ── Status banner: offline / "couldn't refresh" (non-blocking, list stays
+         visible underneath). Tappable only in the refresh-failed mode. ── -->
+    <TextView
+        android:id="@+id/tv_status_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="36dp"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"
+        android:fontFamily="sans-serif-medium"
+        android:background="?attr/colorSurfaceVariant"
+        android:accessibilityLiveRegion="polite"
+        android:visibility="gone"/>
 
     <!-- ── Comments list (wrapped so a floating 'new comments' pill can sit on top) ── -->
     <FrameLayout
@@ -185,7 +205,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|center_horizontal"
             android:layout_marginBottom="8dp"
-            android:text="Loading earlier comments…"
+            android:text="@string/reel_c_loading_earlier"
             android:textSize="11sp"
             android:textColor="@color/text_muted"
             android:fontFamily="sans-serif-medium"
@@ -203,9 +223,10 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
             android:layout_marginTop="8dp"
-            android:text="↑ New comments"
+            android:text="@string/reel_c_new_comments_default"
+            android:accessibilityLiveRegion="polite"
             android:textSize="12sp"
-            android:textColor="#FFFFFF"
+            android:textColor="@android:color/white"
             android:fontFamily="sans-serif-medium"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
@@ -238,15 +259,15 @@
                 android:layout_width="16dp"
                 android:layout_height="16dp"
                 android:src="@drawable/ic_reply"
-                android:tint="#FFFFFF"
+                android:tint="@android:color/white"
                 android:contentDescription="@null"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="Swipe a comment right to reply"
-                android:textColor="#FFFFFF"
+                android:text="@string/reel_c_swipe_hint"
+                android:textColor="@android:color/white"
                 android:textSize="12sp"
                 android:fontFamily="sans-serif-medium"/>
         </LinearLayout>
@@ -259,10 +280,68 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:gravity="center"
-        android:text="No comments yet.\nBe the first to comment!"
+        android:text="@string/reel_c_empty"
         android:textColor="@color/text_muted"
         android:textSize="15sp"
         android:visibility="gone"/>
+
+    <!-- ── Error / offline state (full-screen, only when there is nothing to
+         show: first page failed or timed out). Retry re-attaches the listeners. ── -->
+    <LinearLayout
+        android:id="@+id/layout_error_state"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tv_error_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="40sp"
+            android:importantForAccessibility="no"/>
+
+        <TextView
+            android:id="@+id/tv_error_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:gravity="center"/>
+
+        <TextView
+            android:id="@+id/tv_error_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_muted"
+            android:gravity="center"/>
+
+        <TextView
+            android:id="@+id/btn_error_retry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:minHeight="48dp"
+            android:minWidth="120dp"
+            android:gravity="center"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:text="@string/reel_c_retry"
+            android:textSize="14sp"
+            android:textColor="@android:color/white"
+            android:fontFamily="sans-serif-medium"
+            android:background="@drawable/bg_sort_chip_selected"
+            android:clickable="true"
+            android:focusable="true"/>
+    </LinearLayout>
 
     <!-- ── @mention autocomplete strip (shown while typing "@name") ── -->
     <!-- PERF: was a HorizontalScrollView + LinearLayout that had plain
@@ -287,12 +366,12 @@
     <LinearLayout
         android:id="@+id/bar_replying_to"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="44dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="16dp"
         android:paddingEnd="8dp"
-        android:background="#F5F5F5"
+        android:background="?attr/colorSurfaceVariant"
         android:visibility="gone">
 
         <TextView
@@ -300,18 +379,18 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Replying to @user"
+            tools:text="Replying to @user"
             android:textSize="12sp"
             android:textColor="@color/text_secondary"/>
 
         <ImageButton
             android:id="@+id/btn_cancel_reply"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Cancel reply"
-            android:padding="6dp"/>
+            android:contentDescription="@string/reel_c_cancel_reply"
+            android:padding="10dp"/>
     </LinearLayout>
 
     <View
@@ -333,8 +412,9 @@
             android:layout_height="wrap_content"
             android:layout_gravity="end"
             android:paddingEnd="16dp"
-            android:paddingTop="2dp"
-            android:text="0/300"
+            android:paddingTop="6dp"
+            tools:text="0/300"
+            android:accessibilityLiveRegion="polite"
             android:textSize="10sp"
             android:textColor="@color/text_muted"
             android:visibility="gone"/>
@@ -345,8 +425,9 @@
             android:id="@+id/layout_comment_image_preview"
             android:layout_width="64dp"
             android:layout_height="64dp"
-            android:layout_marginStart="12dp"
-            android:layout_marginTop="6dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="2dp"
             android:visibility="gone">
 
             <ImageView
@@ -356,7 +437,7 @@
                 android:scaleType="centerCrop"
                 android:background="@drawable/bg_comment_image_frame"
                 android:clipToOutline="true"
-                android:contentDescription="Selected photo"/>
+                android:contentDescription="@string/reel_c_selected_photo"/>
 
             <ImageButton
                 android:id="@+id/btn_remove_comment_image"
@@ -367,7 +448,7 @@
                 android:layout_marginEnd="-6dp"
                 android:src="@drawable/ic_close"
                 android:background="@drawable/bg_sort_chip_selected"
-                android:contentDescription="Remove photo"
+                android:contentDescription="@string/reel_c_remove_photo"
                 android:padding="4dp"/>
 
             <ProgressBar
@@ -389,8 +470,8 @@
             android:layout_height="wrap_content"
             android:scrollbars="none"
             android:overScrollMode="never"
-            android:paddingTop="4dp"
-            android:paddingBottom="2dp">
+            android:paddingTop="8dp"
+            android:paddingBottom="4dp">
 
             <LinearLayout
                 android:id="@+id/container_quick_emojis"
@@ -401,22 +482,44 @@
                 android:paddingEnd="10dp"/>
         </HorizontalScrollView>
 
+        <!-- Bottom-aligned (not centred): when the field grows to 2-3 lines the
+             avatar / photo / send buttons stay pinned next to the LAST line,
+             like Instagram / WhatsApp. -->
         <LinearLayout
+            android:id="@+id/row_comment_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:padding="8dp">
+            android:gravity="bottom"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="10dp">
+
+            <!-- Own avatar (Instagram comment bar). 32dp = comment-row avatar size,
+                 so ReelCommentAvatarBinder's TINY tier decodes it 1:1. -->
+            <ImageView
+                android:id="@+id/iv_my_avatar"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginBottom="4dp"
+                android:scaleType="centerCrop"
+                android:background="@drawable/bg_comment_avatar_circle"
+                android:clipToOutline="true"
+                android:src="@drawable/ic_person"
+                android:importantForAccessibility="no"/>
 
             <ImageButton
                 android:id="@+id/btn_attach_photo"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:layout_marginEnd="4dp"
-                android:src="@drawable/ic_gallery"
-                android:tint="@color/text_muted"
+                android:src="@drawable/ic_comment_photo"
+                android:tint="@color/comment_input_icon"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Add photo"
+                android:contentDescription="@string/reel_c_add_photo"
                 android:padding="8dp"/>
 
             <com.callx.app.comments.GifAwareCommentEditText
@@ -424,16 +527,21 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Write a comment…"
+                android:hint="@string/reel_c_write_comment"
                 android:textSize="14sp"
                 android:maxLines="3"
-                android:background="@drawable/bg_comment_input"
+                android:minHeight="40dp"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_comment_input_field"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
                 android:paddingTop="8dp"
                 android:paddingBottom="8dp"
                 android:inputType="textMultiLine|textCapSentences"
-                android:imeOptions="actionSend"/>
+                android:imeOptions="flagNoExtractUi"/>
+            <!-- Multiline field: Enter = new line (Instagram-style), sending is the
+                 send button. imeOptions="actionSend" was dead here - keyboards show
+                 Enter for multiline fields and nothing handled the action. -->
 
             <ImageButton
                 android:id="@+id/btn_send"
@@ -441,9 +549,12 @@
                 android:layout_height="40dp"
                 android:layout_marginStart="8dp"
                 android:src="@drawable/ic_send_fill"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Send"
-                android:padding="6dp"/>
+                android:tint="@android:color/white"
+                android:background="@drawable/bg_comment_send_circle"
+                android:foreground="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/reel_c_send"
+                android:padding="8dp"
+                android:visibility="gone"/>
         </LinearLayout>
     </LinearLayout>
 

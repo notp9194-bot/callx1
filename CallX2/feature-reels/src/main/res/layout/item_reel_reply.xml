@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
@@ -60,14 +61,14 @@
                 android:layout_marginStart="3dp"
                 android:src="@drawable/ic_verified_pink"
                 android:visibility="gone"
-                android:contentDescription="Verified"/>
+                android:contentDescription="@string/reel_c_verified"/>
 
             <TextView
                 android:id="@+id/tv_author_badge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="5dp"
-                android:text="Author"
+                android:text="@string/reel_c_author"
                 android:textSize="8sp"
                 android:textColor="@color/text_muted"
                 android:fontFamily="sans-serif-medium"
@@ -91,7 +92,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:text="(edited)"
+                android:text="@string/reel_c_edited"
                 android:textSize="9sp"
                 android:textColor="@color/text_muted"
                 android:visibility="gone"/>
@@ -102,9 +103,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="1dp"
-            android:text="❤️ Liked by creator"
+            android:text="@string/reel_c_liked_by_creator"
             android:textSize="9sp"
-            android:textColor="#FF416C"
+            android:textColor="@color/reel_like_heart"
             android:fontFamily="sans-serif-medium"
             android:visibility="gone"/>
 
@@ -122,13 +123,14 @@
             android:id="@+id/btn_reply"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Reply"
+            android:layout_marginTop="-2dp"
+            android:layout_marginBottom="-6dp"
+            android:text="@string/reel_c_reply"
             android:textSize="11sp"
             android:textColor="@color/text_muted"
             android:fontFamily="sans-serif-medium"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:paddingEnd="12dp"/>
     </LinearLayout>
 
@@ -151,7 +153,7 @@
             android:src="@drawable/ic_comment_heart"
             android:scaleType="fitCenter"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Like reply"
+            android:contentDescription="@string/reel_c_like_reply"
             android:padding="13dp"/>
 
         <TextView

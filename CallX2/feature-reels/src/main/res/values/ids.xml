@@ -42,4 +42,7 @@
          of the same view reuses the existing Drawable/Paint objects instead
          of allocating fresh ones (v43 perf pass). -->
     <item name="tag_story_ring_drawable"  type="id"/>
+
+    <!-- Reel comments: tags a reply row view with its replyId (undo-delete needs to find the row) -->
+    <item name="reel_reply_row_id" type="id"/>
 </resources>

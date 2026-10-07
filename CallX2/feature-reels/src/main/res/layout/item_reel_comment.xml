@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
@@ -22,15 +23,15 @@
             android:layout_width="14dp"
             android:layout_height="14dp"
             android:src="@drawable/ic_pin"
-            android:tint="#00E5FF"
+            android:tint="@color/reel_pin_icon"
             android:layout_marginEnd="4dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Pinned comment"
+            android:text="@string/reel_c_pinned_label"
             android:textSize="11sp"
-            android:textColor="#FF9800"
+            android:textColor="@color/reel_pin_label"
             android:fontFamily="sans-serif-medium"/>
     </LinearLayout>
 
@@ -117,7 +118,7 @@
                     android:id="@+id/tv_name"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Username"
+                    tools:text="Username"
                     android:textSize="13sp"
                     android:fontFamily="sans-serif-medium"
                     android:textColor="@color/text_primary"/>
@@ -129,14 +130,14 @@
                     android:layout_marginStart="3dp"
                     android:src="@drawable/ic_verified_pink"
                     android:visibility="gone"
-                    android:contentDescription="Verified"/>
+                    android:contentDescription="@string/reel_c_verified"/>
 
                 <TextView
                     android:id="@+id/tv_author_badge"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
-                    android:text="Author"
+                    android:text="@string/reel_c_author"
                     android:textSize="9sp"
                     android:textColor="@color/text_muted"
                     android:fontFamily="sans-serif-medium"
@@ -152,7 +153,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
-                    android:text="2h"
+                    tools:text="2h"
                     android:textSize="11sp"
                     android:textColor="@color/text_muted"/>
 
@@ -161,7 +162,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="4dp"
-                    android:text="(edited)"
+                    android:text="@string/reel_c_edited"
                     android:textSize="10sp"
                     android:textColor="@color/text_muted"
                     android:fontFamily="sans-serif"
@@ -174,9 +175,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="❤️ Liked by creator"
+                android:text="@string/reel_c_liked_by_creator"
                 android:textSize="10sp"
-                android:textColor="#FF416C"
+                android:textColor="@color/reel_like_heart"
                 android:fontFamily="sans-serif-medium"
                 android:visibility="gone"/>
 
@@ -202,7 +203,7 @@
                 android:scaleType="centerCrop"
                 android:background="@drawable/bg_comment_image_frame"
                 android:clipToOutline="true"
-                android:contentDescription="Comment photo"
+                android:contentDescription="@string/reel_c_comment_photo"
                 android:visibility="gone"/>
 
             <!-- Emoji reaction strip (shown when reactions exist) -->
@@ -225,25 +226,29 @@
                     android:id="@+id/btn_reply"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Reply"
+                    android:text="@string/reel_c_reply"
                     android:textSize="12sp"
                     android:textColor="@color/text_muted"
                     android:fontFamily="sans-serif-medium"
                     android:paddingEnd="16dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"/>
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:layout_marginTop="-6dp"
+                    android:layout_marginBottom="-6dp"/>
 
                 <TextView
                     android:id="@+id/tv_view_replies"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="View 3 replies"
+                    tools:text="View 3 replies"
                     android:textSize="12sp"
                     android:textColor="@color/brand_primary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingEnd="12dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:layout_marginTop="-6dp"
+                    android:layout_marginBottom="-6dp"
                     android:visibility="gone"/>
             </LinearLayout>
         </LinearLayout>
@@ -268,7 +273,7 @@
                 android:src="@drawable/ic_comment_heart"
                 android:scaleType="fitCenter"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Like comment"
+                android:contentDescription="@string/reel_c_like_comment"
                 android:padding="14dp"/>
 
             <TextView

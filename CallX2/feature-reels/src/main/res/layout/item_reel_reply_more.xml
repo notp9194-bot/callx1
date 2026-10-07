@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "View N more replies" row at the end of a reply thread. Reuses
+     ReplyConnectorView as the LAST row (trunk stops at the curve, arrow points
+     at the text), so it joins the thread line exactly like a reply row does.
+     Same spacing rules as item_reel_reply.xml: no vertical padding on the root. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="0dp"
+    android:paddingEnd="4dp">
+
+    <com.callx.app.comments.ReplyConnectorView
+        android:id="@+id/reply_connector"
+        android:layout_width="24dp"
+        android:layout_height="match_parent"/>
+
+    <!-- marginTop 7 + paddingTop 8 + half a text line (~7.5) = ~23dp = the
+         connector's arrow height, so the arrow lands on the text's centre. -->
+    <TextView
+        android:id="@+id/tv_reply_more"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:layout_marginBottom="4dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:paddingEnd="12dp"
+        android:background="?attr/selectableItemBackground"
+        android:fontFamily="sans-serif-medium"
+        android:textColor="@color/brand_primary"
+        android:textSize="12.5sp"
+        tools:text="View 5 more replies"/>
+</LinearLayout>

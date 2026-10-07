@@ -11,6 +11,10 @@ import android.text.style.ClickableSpan;
 import android.view.View;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
+
+import com.callx.app.reels.R;
+
 import java.util.Locale;
 import java.util.Map;
 
@@ -38,6 +42,7 @@ final class MentionSpanUtils {
 
         SpannableString spannable = new SpannableString(body);
         String lowerBody = body.toLowerCase(Locale.ROOT);
+        final int mentionColor = ContextCompat.getColor(tv.getContext(), R.color.reel_accent_cyan);
 
         for (Map.Entry<String, String> entry : mentions.entrySet()) {
             String uid  = entry.getKey();
@@ -55,7 +60,7 @@ final class MentionSpanUtils {
                     navigateToProfile(widget.getContext(), uid, name);
                 }
                 @Override public void updateDrawState(@androidx.annotation.NonNull TextPaint ds) {
-                    ds.setColor(Color.parseColor("#6BCFEF"));
+                    ds.setColor(mentionColor);
                     ds.setUnderlineText(false);
                 }
             }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);

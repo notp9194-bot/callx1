@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Filled brand-colour circle behind the comment send arrow. The 2dp inset keeps
+     the visible circle at 36dp inside the 40dp touch target. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="2dp">
+    <shape android:shape="oval">
+        <solid android:color="@color/brand_primary"/>
+    </shape>
+</inset>

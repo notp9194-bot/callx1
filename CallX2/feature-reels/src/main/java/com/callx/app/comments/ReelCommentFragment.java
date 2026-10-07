@@ -1,11 +1,17 @@
 package com.callx.app.comments;
 import com.callx.app.utils.AlertDialogStyler;
 
+import android.animation.AnimatorListenerAdapter;
+import android.animation.Animator;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -43,6 +49,7 @@ import androidx.recyclerview.widget.SimpleItemAnimator;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.cache.ReelCommentAvatarBinder;
 import com.callx.app.models.ReelComment;
 import com.callx.app.models.ReelReply;
 import com.callx.app.reels.R;
@@ -50,6 +57,7 @@ import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.ImageCompressor;
+import com.callx.app.utils.NetworkUtils;
 import com.callx.app.workers.ReelCommentNotifWorker;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -99,6 +107,9 @@ public class ReelCommentFragment extends Fragment {
     private static final String ARG_OWNER_AVATAR = "caption_owner_avatar_url";
 
     private static final int MAX_COMMENT_LENGTH = 300;
+    /** Char counter appears from here (last 50 chars) and turns red from COUNTER_WARN_AT. */
+    private static final int COUNTER_SHOW_AT = MAX_COMMENT_LENGTH - 50;
+    private static final int COUNTER_WARN_AT = MAX_COMMENT_LENGTH - 30;
     /** Min gap between two posted comments/replies from this device — blunt
      *  client-side anti-spam guard. Server-side rules validate length/uid,
      *  but nothing previously stopped a user mashing "send" in a loop. */
@@ -144,6 +155,7 @@ public class ReelCommentFragment extends Fragment {
     private String captionOwnerAvatar;
     private GifAwareCommentEditText etComment;
     private ImageButton    btnSend;
+    private ImageView      ivMyAvatar;
     private ImageButton    btnAttachPhoto;
     private FrameLayout    layoutImagePreview;
     private ImageView      ivImagePreview;
@@ -171,6 +183,10 @@ public class ReelCommentFragment extends Fragment {
     private LinearLayout   layoutSwipeHint;
     private LinearLayout   containerQuickEmojis;
     private TextView       tvLoadingOlder;
+    // Error / offline UI (see "Error & offline states" section)
+    private View           layoutErrorState;
+    private TextView       tvErrorIcon, tvErrorTitle, tvErrorMessage, btnErrorRetry;
+    private TextView       tvStatusBanner;
 
     // ── State ────────────────────────────────────────────────────────────────
     private String reelId  = "";
@@ -223,6 +239,18 @@ public class ReelCommentFragment extends Fragment {
     private LinearLayout activeRepliesContainer;
     private TextView     activeRepliesToggle;
     private String       activeRepliesParentId;
+
+    // ── Reply paging ─────────────────────────────────────────────────────
+    // Replies are rendered in pages (first REPLIES_INITIAL, then
+    // REPLIES_STEP per "View N more replies" tap) instead of inflating the
+    // whole thread at once. The full list is fetched once per expand/refresh
+    // and cached here (parentId → ordered rows) so paging is instant; both
+    // maps are dropped when the thread is collapsed.
+    private static final int    REPLIES_INITIAL = 3;
+    private static final int    REPLIES_STEP    = 8;
+    private static final String MORE_ROW_TAG    = "reply_more_row";
+    private final Map<String, java.util.List<ReelReply>> repliesCache = new HashMap<>();
+    private final Map<String, Integer> repliesShown = new HashMap<>();
 
     // ── @mention autocomplete state ─────────────────────────────────────────
     /** lowercase display-name → full candidate (uid + name + avatar url),
@@ -288,8 +316,8 @@ public class ReelCommentFragment extends Fragment {
             autoScrollIfAtTop();
         }
         if (pendingNewComments > 0 && pillNewComments != null) {
-            pillNewComments.setText(pendingNewComments == 1
-                ? "↑ New comment" : "↑ " + pendingNewComments + " new comments");
+            pillNewComments.setText(pillNewComments.getResources().getQuantityString(
+                R.plurals.reel_c_new_comments, pendingNewComments, pendingNewComments));
             pillNewComments.setVisibility(View.VISIBLE);
         }
     };
@@ -329,22 +357,42 @@ public class ReelCommentFragment extends Fragment {
     private boolean hasMoreOlder    = true;
     private boolean loadingOlder    = false;
     private Query    commentsQuery;
+    /** True after a "load older" page failed/timed out - blocks the scroll and
+     *  viewport-fill triggers from hammering a dead connection; cleared by the
+     *  user tapping the retry chip or by the network coming back. */
+    private boolean olderLoadFailed = false;
+    private int     olderRequestId  = 0;
+    private Runnable olderTimeoutRunnable = () -> {};
 
     /** Triggered by the scroll listener once the user nears the top of the
      *  loaded list — fetches the next older page as a one-off read (NOT a
      *  live listener, so it doesn't grow the realtime bandwidth footprint). */
     private void maybeLoadOlderComments() {
-        if (!initialLoadSettled || loadingOlder || !hasMoreOlder
+        if (!initialLoadSettled || loadingOlder || olderLoadFailed || !hasMoreOlder
                 || oldestLoadedKey == null || reelId.isEmpty()) return;
         loadingOlder = true;
         showLoadingOlder(true);
+
+        // A one-off read never calls back while offline (and a permission /
+        // network error only arrives as onCancelled) - without this the
+        // "Loading earlier comments…" chip would spin forever. Each request
+        // gets an id so a late result from a request we already gave up on
+        // can't be applied on top of a retry.
+        final int req = ++olderRequestId;
+        refreshHandler.removeCallbacks(olderTimeoutRunnable);
+        olderTimeoutRunnable = () -> {
+            if (req == olderRequestId && loadingOlder) onOlderLoadFailed();
+        };
+        refreshHandler.postDelayed(olderTimeoutRunnable,
+            isOnlineNow() ? LOAD_TIMEOUT_ONLINE_MS : LOAD_TIMEOUT_OFFLINE_MS);
 
         Query olderPage = FirebaseUtils.getReelCommentsRef(reelId)
             .orderByKey().endBefore(oldestLoadedKey).limitToLast(PAGE_SIZE);
 
         olderPage.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
-                if (!isAdded()) return;
+                if (!isAdded() || req != olderRequestId) return;
+                refreshHandler.removeCallbacks(olderTimeoutRunnable);
                 List<ReelComment> older = new ArrayList<>();
                 for (DataSnapshot child : snapshot.getChildren()) {
                     ReelComment c = safeParseComment(child);
@@ -365,14 +413,21 @@ public class ReelCommentFragment extends Fragment {
                 if (!older.isEmpty()) applyFilterAndSort();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
-                loadingOlder = false;
-                showLoadingOlder(false);
+                if (!isAdded() || req != olderRequestId) return;
+                onOlderLoadFailed();
             }
         });
     }
 
     private void showLoadingOlder(boolean show) {
-        if (tvLoadingOlder != null) tvLoadingOlder.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (tvLoadingOlder == null) return;
+        if (show) {
+            tvLoadingOlder.setText(R.string.reel_c_loading_earlier);
+            tvLoadingOlder.setOnClickListener(null);
+            tvLoadingOlder.setClickable(false);
+            tvLoadingOlder.setMinHeight(0);
+        }
+        tvLoadingOlder.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     // ── Firebase ─────────────────────────────────────────────────────────────
@@ -434,6 +489,7 @@ public class ReelCommentFragment extends Fragment {
         setupSortChips();
         setupSearch();
         setupCharCounter();
+        setupInputLimitAndSendState();
         setupMentionAutocomplete();
         setupNewCommentsPill();
         setupQuickEmojiRow();
@@ -443,6 +499,7 @@ public class ReelCommentFragment extends Fragment {
         if (!reelId.isEmpty()) {
             showCommentsShimmer();
             loadComments();
+            armFirstPageSignal();
             listenCommentsCount();
             // Disk-cache warm-start: paints the last cached window
             // immediately so the sheet doesn't sit on the shimmer while
@@ -454,6 +511,7 @@ public class ReelCommentFragment extends Fragment {
         }
         else showEmpty(true);
         listenBlockedUsers();
+        registerNetworkWatcher();
 
         if (rvComments != null) {
             rvComments.postDelayed(() -> {
@@ -492,9 +550,16 @@ public class ReelCommentFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
+        // Leaving while an Undo window is open = the user is done: commit now
+        // (otherwise the Snackbar dies with the view and the delete is lost).
+        for (String k : new ArrayList<>(pendingDeletes.keySet())) commitPendingDelete(k);
         saveDraft();
         if (skeletonComments != null) skeletonComments.stop();
+        if (ivMyAvatar != null && getContext() != null) {
+            try { ReelCommentAvatarBinder.cancel(getContext(), ivMyAvatar); } catch (Exception ignored) {}
+        }
         refreshHandler.removeCallbacksAndMessages(null);
+        unregisterNetworkWatcher();
         try {
             if (commentsListener != null && commentsQuery != null)
                 commentsQuery.removeEventListener(commentsListener);
@@ -619,8 +684,11 @@ public class ReelCommentFragment extends Fragment {
         skeletonComments = root.findViewById(R.id.skeleton_comments);
         etComment       = root.findViewById(R.id.et_comment);
         btnSend         = root.findViewById(R.id.btn_send);
+        ivMyAvatar      = root.findViewById(R.id.iv_my_avatar);
+        bindMyAvatar();   // Auth photo now; loadMyPhoto() upgrades it to the reels photo
         tvEmpty         = root.findViewById(R.id.tv_empty);
         tvCommentCount  = root.findViewById(R.id.tv_comment_count);
+        if (tvCommentCount != null) androidx.core.view.ViewCompat.setAccessibilityHeading(tvCommentCount, true);
         barReplyingTo   = root.findViewById(R.id.bar_replying_to);
         tvReplyingTo    = root.findViewById(R.id.tv_replying_to);
         btnCancelReply  = root.findViewById(R.id.btn_cancel_reply);
@@ -644,6 +712,17 @@ public class ReelCommentFragment extends Fragment {
         layoutSwipeHint = root.findViewById(R.id.layout_swipe_hint);
         containerQuickEmojis = root.findViewById(R.id.container_quick_emojis);
         tvLoadingOlder  = root.findViewById(R.id.tv_loading_older);
+        layoutErrorState = root.findViewById(R.id.layout_error_state);
+        tvErrorIcon      = root.findViewById(R.id.tv_error_icon);
+        tvErrorTitle     = root.findViewById(R.id.tv_error_title);
+        tvErrorMessage   = root.findViewById(R.id.tv_error_message);
+        btnErrorRetry    = root.findViewById(R.id.btn_error_retry);
+        tvStatusBanner   = root.findViewById(R.id.tv_status_banner);
+        ReelCommentsAdapter.asButton(btnErrorRetry);
+        if (btnErrorRetry != null) btnErrorRetry.setOnClickListener(v -> retryInitialLoad());
+        if (tvStatusBanner != null) tvStatusBanner.setOnClickListener(v -> {
+            if (bannerMode == BANNER_REFRESH_FAILED) retryInitialLoad();
+        });
         btnAttachPhoto     = root.findViewById(R.id.btn_attach_photo);
         layoutImagePreview = root.findViewById(R.id.layout_comment_image_preview);
         ivImagePreview     = root.findViewById(R.id.iv_comment_image_preview);
@@ -660,7 +739,7 @@ public class ReelCommentFragment extends Fragment {
             try {
                 imagePickerLauncher.launch("image/*");
             } catch (Exception e) {
-                Toast.makeText(requireContext(), "Couldn't open gallery", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.reel_c_err_open_gallery), Toast.LENGTH_SHORT).show();
             }
         });
         if (btnRemoveImage != null) btnRemoveImage.setOnClickListener(v -> clearPickedImage());
@@ -722,11 +801,13 @@ public class ReelCommentFragment extends Fragment {
             public void onViewReplies(ReelComment comment,
                                       LinearLayout container, TextView tvToggle) {
                 if (container.getVisibility() == View.VISIBLE) {
-                    tvToggle.setText("View " + comment.replyCount
-                        + (comment.replyCount == 1 ? " reply" : " replies"));
+                    tvToggle.setText(ReelCommentsAdapter.repliesToggleLabel(tvToggle.getContext(), comment.replyCount));
+                    repliesCache.remove(comment.commentId);
+                    repliesShown.remove(comment.commentId);
                     collapseReplies(container);
                 } else {
-                    tvToggle.setText("Loading…");
+                    tvToggle.setText(R.string.reel_c_loading);
+                    repliesShown.remove(comment.commentId);   // fresh expand = first page only
                     loadRepliesInto(comment, container, tvToggle);
                 }
             }
@@ -764,7 +845,7 @@ public class ReelCommentFragment extends Fragment {
                 // Instagram shows the translated text inline, replacing
                 // tv_comment_text with a "See original" toggle; do the same
                 // here once a real translate() call is available.
-                Toast.makeText(requireContext(), "Translate: coming soon", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.reel_c_translate_soon), Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -1173,6 +1254,141 @@ public class ReelCommentFragment extends Fragment {
         }
     }
 
+    // ── Send button state + hard length limit ─────────────────────────────────
+
+    private Boolean sendEnabledState = null;
+    private long lastLimitToastAt = 0L;
+
+    /** Hard-caps the field at MAX_COMMENT_LENGTH (typing AND paste) and keeps
+     *  the send button in sync with whether there is anything to send. */
+    private void setupInputLimitAndSendState() {
+        if (etComment == null) return;
+        sendEnabledState = null;   // view may have been recreated: force a fresh apply
+
+        // Keep any filters already on the field, add the length cap.
+        android.text.InputFilter[] old = etComment.getFilters();
+        android.text.InputFilter[] all = new android.text.InputFilter[old.length + 1];
+        System.arraycopy(old, 0, all, 0, old.length);
+        all[old.length] = new android.text.InputFilter.LengthFilter(MAX_COMMENT_LENGTH) {
+            @Override
+            public CharSequence filter(CharSequence source, int start, int end,
+                                       android.text.Spanned dest, int dstart, int dend) {
+                CharSequence out = super.filter(source, start, end, dest, dstart, dend);
+                if (out != null && isAdded()) {            // something was cut off
+                    long now = System.currentTimeMillis();
+                    if (now - lastLimitToastAt > 1500L) {
+                        lastLimitToastAt = now;
+                        Toast.makeText(requireContext(),
+                            getString(R.string.reel_c_max_chars, MAX_COMMENT_LENGTH),
+                            Toast.LENGTH_SHORT).show();
+                    }
+                }
+                return out;
+            }
+        };
+        etComment.setFilters(all);
+
+        etComment.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
+            @Override public void afterTextChanged(Editable s) { updateSendState(true); }
+        });
+        updateSendState(false);
+
+        // Attach AFTER the first (silent) state apply so opening the sheet never
+        // animates. From here on the row animates its own changes: send
+        // appearing/disappearing, the field resizing around it, and the photo
+        // button hiding while replying - instead of snapping.
+        View row = fragmentRoot != null ? fragmentRoot.findViewById(R.id.row_comment_input) : null;
+        if (row instanceof ViewGroup) {
+            android.animation.LayoutTransition lt = new android.animation.LayoutTransition();
+            lt.enableTransitionType(android.animation.LayoutTransition.CHANGING);
+            lt.setDuration(150L);
+            ((ViewGroup) row).setLayoutTransition(lt);
+        }
+    }
+
+    /** Send only EXISTS while there is something to send (non-blank text or a
+     *  picked photo) - hidden otherwise, so an empty bar is just avatar + field.
+     *  The row's LayoutTransition fades it in/out and resizes the field around
+     *  it; on top of that it gets a small overshoot pop when it appears. */
+    private void updateSendState(boolean animate) {
+        if (btnSend == null) return;
+        boolean has = pickedImageUri != null
+            || (etComment != null && etComment.getText() != null
+                && etComment.getText().toString().trim().length() > 0);
+        if (sendEnabledState != null && sendEnabledState == has) return;
+        sendEnabledState = has;
+
+        btnSend.setEnabled(has);
+        btnSend.animate().cancel();
+        btnSend.setAlpha(1f);
+        if (!has) {
+            btnSend.setScaleX(1f);
+            btnSend.setScaleY(1f);
+            btnSend.setVisibility(View.GONE);
+            return;
+        }
+        btnSend.setVisibility(View.VISIBLE);
+        if (!animate) {
+            btnSend.setScaleX(1f);
+            btnSend.setScaleY(1f);
+            return;
+        }
+        btnSend.setScaleX(0.7f);
+        btnSend.setScaleY(0.7f);
+        btnSend.animate().scaleX(1f).scaleY(1f).setDuration(180L)
+            .setInterpolator(new android.view.animation.OvershootInterpolator(2f)).start();
+    }
+
+    // ── "Replying to" bar: animated show / hide ───────────────────────────────
+
+    private ValueAnimator replyBarAnim;
+
+    /** Slides the bar open/closed (height + fade, ~150ms) instead of popping. */
+    private void setReplyBarVisible(boolean show) {
+        final View bar = barReplyingTo;
+        if (bar == null) return;
+        final int full = dpToPx(44);
+        final boolean visible = bar.getVisibility() == View.VISIBLE;
+        final ViewGroup.LayoutParams lp = bar.getLayoutParams();
+
+        if (replyBarAnim != null) replyBarAnim.cancel();
+        if (show && visible && lp.height == full) return;     // already fully open
+        if (!show && !visible) return;                        // already closed
+
+        final int from = visible ? bar.getHeight() : 0;
+        final int to   = show ? full : 0;
+        if (show) {
+            lp.height = from;
+            bar.setAlpha(from / (float) full);
+            bar.setVisibility(View.VISIBLE);
+            bar.setLayoutParams(lp);
+        }
+
+        final boolean[] cancelled = {false};
+        ValueAnimator va = ValueAnimator.ofInt(from, to);
+        va.setDuration(150L);
+        va.addUpdateListener(a -> {
+            int h = (int) a.getAnimatedValue();
+            lp.height = h;
+            bar.setAlpha(h / (float) full);
+            bar.setLayoutParams(lp);
+        });
+        va.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationCancel(Animator animation) { cancelled[0] = true; }
+            @Override public void onAnimationEnd(Animator animation) {
+                if (cancelled[0]) return;            // a newer animation owns the bar now
+                if (!show) bar.setVisibility(View.GONE);
+                lp.height = full;                    // restore for next show
+                bar.setAlpha(1f);
+                bar.setLayoutParams(lp);
+            }
+        });
+        replyBarAnim = va;
+        va.start();
+    }
+
     // ── Character counter ─────────────────────────────────────────────────────
 
     private void setupCharCounter() {
@@ -1182,12 +1398,21 @@ public class ReelCommentFragment extends Fragment {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
                 int len = s.length();
-                tvCharCount.setVisibility(len > 0 ? View.VISIBLE : View.GONE);
+                // Only show the counter when the limit is actually near; for
+                // normal short comments it is just clutter above the field.
+                if (len < COUNTER_SHOW_AT) {
+                    if (tvCharCount.getVisibility() != View.GONE) {
+                        tvCharCount.setVisibility(View.GONE);
+                    }
+                    return;
+                }
+                if (tvCharCount.getVisibility() != View.VISIBLE) {
+                    tvCharCount.setVisibility(View.VISIBLE);
+                }
                 tvCharCount.setText(len + "/" + MAX_COMMENT_LENGTH);
-                int warnColor = len >= MAX_COMMENT_LENGTH - 30
-                    ? getResources().getColor(android.R.color.holo_red_light)
-                    : getResources().getColor(R.color.text_muted);
-                tvCharCount.setTextColor(warnColor);
+                android.content.Context ctx = tvCharCount.getContext();
+                tvCharCount.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+                    len >= COUNTER_WARN_AT ? R.color.comment_counter_warn : R.color.text_muted));
             }
             @Override public void afterTextChanged(Editable s) {}
         });
@@ -1464,6 +1689,7 @@ public class ReelCommentFragment extends Fragment {
 
         for (ReelComment c : allComments) {
             if (c.uid != null && blockedUids.contains(c.uid)) continue; // blocked user's comment, hide it
+            if (pendingDeletes.containsKey("c:" + c.commentId)) continue; // deleted, waiting out the Undo window
             if (searchQuery.isEmpty()) {
                 filtered.add(c);
             } else {
@@ -1492,7 +1718,17 @@ public class ReelCommentFragment extends Fragment {
         adapter.setComments(filtered);
 
         updateCountHeader();
-        showEmpty(filtered.isEmpty());
+        boolean emptyNow = filtered.isEmpty();
+        if (!emptyNow) markFirstPageReady();
+        // An empty list only means "no comments" once the first page has
+        // really resolved. Before that it is still loading (skeleton) or it
+        // failed (error state) - e.g. the blocklist listener answering first
+        // must not flash "Be the first to comment" over an offline screen.
+        if (emptyNow && !firstPageReady && !reelId.isEmpty()) {
+            // keep skeleton / error state as-is
+        } else {
+            showEmpty(emptyNow);
+        }
         checkAndHighlightComment();
         maybeAutoFillViewport();
     }
@@ -1553,6 +1789,12 @@ public class ReelCommentFragment extends Fragment {
     }
 
     /** Reels profile photo load karo (reels/users/{uid}) — chat profile nahi. */
+    /** Paints the input bar's own avatar (placeholder until a photo is known). */
+    private void bindMyAvatar() {
+        if (ivMyAvatar == null || getContext() == null) return;
+        ReelCommentAvatarBinder.bind(requireContext(), ivMyAvatar, myPhoto, 0L, R.drawable.ic_person);
+    }
+
     private void loadMyPhoto() {
         if (myUid.isEmpty()) return;
         FirebaseDatabase.getInstance()
@@ -1562,7 +1804,7 @@ public class ReelCommentFragment extends Fragment {
                     String thumb = s.child("thumbUrl").getValue(String.class);
                     String photo = s.child("photoUrl").getValue(String.class);
                     String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                    if (p != null && !p.isEmpty()) myPhoto = p;
+                    if (p != null && !p.isEmpty()) { myPhoto = p; if (isAdded()) bindMyAvatar(); }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
@@ -1655,7 +1897,11 @@ public class ReelCommentFragment extends Fragment {
             }
 
             @Override public void onChildMoved(@NonNull DataSnapshot s, @Nullable String prev) {}
-            @Override public void onCancelled(@NonNull DatabaseError e) { showEmpty(true); }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                // Used to call showEmpty(true) = "Be the first to comment" on a
+                // load FAILURE, which is just wrong. Show an error instead.
+                if (isAdded()) onInitialLoadFailed();
+            }
         };
 
         commentsQuery.addChildEventListener(commentsListener);
@@ -1696,6 +1942,7 @@ public class ReelCommentFragment extends Fragment {
 
         Uri uri = contentInfo.getContentUri();
         pickedImageUri = uri;
+        updateSendState(true);
         uploadedImageUrl = null;
         uploadingImage = true;
 
@@ -1723,7 +1970,7 @@ public class ReelCommentFragment extends Fragment {
                         contentInfo.releasePermission();
                         if (!isAdded()) return;
                         uploadingImage = false;
-                        Toast.makeText(requireContext(), "GIF upload failed", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(requireContext(), getString(R.string.reel_c_gif_upload_failed), Toast.LENGTH_SHORT).show();
                         clearPickedImage();
                     }
                 });
@@ -1738,6 +1985,7 @@ public class ReelCommentFragment extends Fragment {
 
     private void onImagePicked(Uri uri) {
         pickedImageUri = uri;
+        updateSendState(true);
         uploadedImageUrl = null;
         uploadingImage = true;
 
@@ -1764,7 +2012,7 @@ public class ReelCommentFragment extends Fragment {
             @Override public void onError(Exception e) {
                 if (!isAdded()) return;
                 uploadingImage = false;
-                Toast.makeText(requireContext(), "Photo upload failed", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), getString(R.string.reel_c_photo_upload_failed), Toast.LENGTH_SHORT).show();
                 clearPickedImage();
             }
         });
@@ -1795,7 +2043,7 @@ public class ReelCommentFragment extends Fragment {
                     @Override public void onError(String message) {
                         if (!isAdded()) return;
                         uploadingImage = false;
-                        Toast.makeText(requireContext(), "Photo upload failed", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(requireContext(), getString(R.string.reel_c_photo_upload_failed), Toast.LENGTH_SHORT).show();
                         clearPickedImage();
                     }
                 });
@@ -1812,13 +2060,14 @@ public class ReelCommentFragment extends Fragment {
         if (layoutImagePreview != null) layoutImagePreview.setVisibility(View.GONE);
         if (progressImage != null) progressImage.setVisibility(View.GONE);
         if (ivImagePreview != null) ivImagePreview.setImageDrawable(null);
+        updateSendState(true);
     }
 
     // ── Send ──────────────────────────────────────────────────────────────────
 
     private void onSendClicked() {
         if (uploadingImage) {
-            Toast.makeText(requireContext(), "Photo uploading… please wait", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_photo_uploading), Toast.LENGTH_SHORT).show();
             return;
         }
         // ANTI-SPAM FIX: nothing previously stopped rapid-fire tapping of
@@ -1827,7 +2076,8 @@ public class ReelCommentFragment extends Fragment {
         // line of defense (server-side rules are the real backstop).
         long now = System.currentTimeMillis();
         if (now - lastCommentPostAt < COMMENT_COOLDOWN_MS) {
-            Toast.makeText(requireContext(), "You're commenting too fast — slow down a bit",
+            CommentHaptics.reject(getView());
+            Toast.makeText(requireContext(), getString(R.string.reel_c_too_fast),
                 Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1873,6 +2123,10 @@ public class ReelCommentFragment extends Fragment {
         clearPickedImage();
         pendingMentions.clear();
 
+        // Accepted + visible instantly (local-first) -> confirm NOW, not after
+        // the server ack, so the buzz lines up with the bubble appearing.
+        // A failed write buzzes again with reject (see sendCommentToFirebase).
+        CommentHaptics.confirm(getView());
         sendCommentToFirebase(ref, key, local);
     }
 
@@ -1920,12 +2174,14 @@ public class ReelCommentFragment extends Fragment {
                     if (!isAdded()) return;
                     local.sendState = ReelComment.SEND_STATE_FAILED;
                     applyFilterAndSort();
+                    CommentHaptics.reject(getView());
                     Toast.makeText(requireContext(),
-                        "Comment not sent — check your connection", Toast.LENGTH_SHORT).show();
+                        getString(R.string.reel_c_comment_not_sent), Toast.LENGTH_SHORT).show();
                 });
         } catch (Exception e) {
             local.sendState = ReelComment.SEND_STATE_FAILED;
             applyFilterAndSort();
+            CommentHaptics.reject(getView());
         }
     }
 
@@ -1935,6 +2191,7 @@ public class ReelCommentFragment extends Fragment {
         if (comment == null || comment.commentId == null) return;
         if (!ReelComment.SEND_STATE_FAILED.equals(comment.sendState)) return;
         comment.sendState = ReelComment.SEND_STATE_SENDING;
+        CommentHaptics.tick(getView());
         applyFilterAndSort();
 
         DatabaseReference ref = commentsRef != null
@@ -1978,12 +2235,22 @@ public class ReelCommentFragment extends Fragment {
         // list, without needing a live RecyclerView for replies.
         if (parent.commentId.equals(activeRepliesParentId)
                 && activeRepliesContainer != null && activeRepliesToggle != null) {
+            // The new reply goes at the END of the thread, so if older replies
+            // are still hidden behind "View N more", show them all first.
+            if (hasMoreRow(activeRepliesContainer)) {
+                revealAllReplies(parent, activeRepliesContainer, activeRepliesToggle);
+            }
             View row = buildReplyRow(local, parent, activeRepliesContainer, activeRepliesToggle);
             if (row != null) {
                 activeRepliesContainer.addView(row);
+                java.util.List<ReelReply> cached = repliesCache.get(parent.commentId);
+                if (cached != null) {
+                    cached.add(local);
+                    repliesShown.put(parent.commentId, cached.size());
+                }
                 updateReplyConnectors(activeRepliesContainer);
                 activeRepliesContainer.setVisibility(View.VISIBLE);
-                activeRepliesToggle.setText("Hide replies");
+                activeRepliesToggle.setText(R.string.reel_c_hide_replies);
             }
         }
 
@@ -1992,6 +2259,7 @@ public class ReelCommentFragment extends Fragment {
         cancelReply();
         pendingMentions.clear();
 
+        CommentHaptics.confirm(getView());
         sendReplyToFirebase(repliesRef, key, local, parent, mention, text);
     }
 
@@ -2068,11 +2336,13 @@ public class ReelCommentFragment extends Fragment {
                             && activeRepliesContainer != null && activeRepliesToggle != null) {
                         loadRepliesInto(parent, activeRepliesContainer, activeRepliesToggle);
                     }
+                    CommentHaptics.reject(getView());
                     Toast.makeText(requireContext(),
-                        "Reply not sent — check your connection", Toast.LENGTH_SHORT).show();
+                        getString(R.string.reel_c_reply_not_sent), Toast.LENGTH_SHORT).show();
                 });
         } catch (Exception e) {
             local.sendState = ReelReply.SEND_STATE_FAILED;
+            CommentHaptics.reject(getView());
             if (parent.commentId.equals(activeRepliesParentId)
                     && activeRepliesContainer != null && activeRepliesToggle != null) {
                 loadRepliesInto(parent, activeRepliesContainer, activeRepliesToggle);
@@ -2085,6 +2355,7 @@ public class ReelCommentFragment extends Fragment {
     private void retryReply(ReelReply r, ReelComment parent, LinearLayout container, TextView tvToggle) {
         if (r == null || r.replyId == null || !ReelReply.SEND_STATE_FAILED.equals(r.sendState)) return;
         r.sendState = ReelReply.SEND_STATE_SENDING;
+        CommentHaptics.tick(getView());
         loadRepliesInto(parent, container, tvToggle);
 
         DatabaseReference repliesRef = FirebaseDatabase.getInstance(Constants.DB_URL)
@@ -2109,12 +2380,15 @@ public class ReelCommentFragment extends Fragment {
 
     private void toggleLike(ReelComment comment, int position) {
         if (myUid.isEmpty()) {
-            Toast.makeText(requireContext(), "Please login to like", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_login_to_like), Toast.LENGTH_SHORT).show();
             return;
         }
 
         final boolean currentlyLiked = comment.isLikedBy(myUid);
         final int prevCount = comment.likesCount;
+        // Tap-time haptic (covers the heart button AND double-tap-to-like,
+        // both route through here). Rolled back below with a reject buzz.
+        CommentHaptics.like(getView(), !currentlyLiked);
         DatabaseReference commentRef = FirebaseUtils.getReelCommentsRef(reelId)
             .child(comment.commentId);
 
@@ -2139,6 +2413,7 @@ public class ReelCommentFragment extends Fragment {
             else comment.likedBy.remove(myUid);
             comment.likesCount = prevCount;
             if (adapter != null && isAdded()) adapter.notifyLikeChanged(comment.commentId);
+            if (isAdded()) CommentHaptics.reject(getView());
         };
 
         commentRef.child("likedBy").child(myUid)
@@ -2180,10 +2455,20 @@ public class ReelCommentFragment extends Fragment {
             .child("reactions")
             .child(myUid);
 
+        // Picking confirms, removing an existing reaction is a lighter tick.
+        if (emoji == null) CommentHaptics.tick(getView());
+        else CommentHaptics.confirm(getView());
+
+        DatabaseReference.CompletionListener done = (err, ref) -> {
+            if (err == null || !isAdded()) return;
+            CommentHaptics.reject(getView());
+            Toast.makeText(requireContext(), getString(R.string.reel_c_reaction_failed),
+                Toast.LENGTH_SHORT).show();
+        };
         if (emoji == null) {
-            reactRef.removeValue();
+            reactRef.removeValue(done);
         } else {
-            reactRef.setValue(emoji);
+            reactRef.setValue(emoji, done);
         }
     }
 
@@ -2200,14 +2485,14 @@ public class ReelCommentFragment extends Fragment {
         et.setPadding(pad, pad, pad, pad);
 
         AlertDialogStyler.showRounded(new AlertDialog.Builder(requireContext())
-            .setTitle("Edit comment")
+            .setTitle(R.string.reel_c_edit_comment)
             .setView(et)
-            .setPositiveButton("Save", (d, w) -> {
+            .setPositiveButton(R.string.reel_c_save, (d, w) -> {
                 String newText = et.getText().toString().trim();
                 if (TextUtils.isEmpty(newText)) return;
                 if (newText.equals(comment.text)) return;
                 if (newText.length() > MAX_COMMENT_LENGTH) {
-                    Toast.makeText(requireContext(), "Comment too long (max 300 chars)",
+                    Toast.makeText(requireContext(), getString(R.string.reel_c_too_long_comment, MAX_COMMENT_LENGTH),
                         Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -2220,7 +2505,7 @@ public class ReelCommentFragment extends Fragment {
                 updates.put("editedAt", System.currentTimeMillis());
                 ref.updateChildren(updates);
             })
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.reel_c_cancel, null)
             .create());
     }
 
@@ -2228,7 +2513,7 @@ public class ReelCommentFragment extends Fragment {
 
     private void togglePin(ReelComment comment) {
         if (!myUid.equals(reelUid)) {
-            Toast.makeText(requireContext(), "Only the reel owner can pin comments",
+            Toast.makeText(requireContext(), getString(R.string.reel_c_only_owner_pin),
                 Toast.LENGTH_SHORT).show();
             return;
         }
@@ -2248,7 +2533,7 @@ public class ReelCommentFragment extends Fragment {
             .child(comment.commentId).child("isPinned").setValue(newPinnedState);
 
         Toast.makeText(requireContext(),
-            newPinnedState ? "Comment pinned" : "Comment unpinned",
+            newPinnedState ? R.string.reel_c_pinned : R.string.reel_c_unpinned,
             Toast.LENGTH_SHORT).show();
     }
 
@@ -2258,14 +2543,15 @@ public class ReelCommentFragment extends Fragment {
         String[] reasons = {
             "Spam", "Hate speech", "Harassment", "Misinformation",
             "Nudity or sexual content", "Violence", "Other"
-        };
+        };   // stored in Firebase as-is - NOT localized (labels below are)
+        final String[] reasonLabels = getResources().getStringArray(R.array.reel_c_report_reasons);
 
         AlertDialogStyler.showRounded(new AlertDialog.Builder(requireContext())
-            .setTitle("Report comment")
-            .setItems(reasons, (d, which) -> {
+            .setTitle(R.string.reel_c_report_comment)
+            .setItems(reasonLabels, (d, which) -> {
                 submitReport(comment, reasons[which]);
             })
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.reel_c_cancel, null)
             .create());
     }
 
@@ -2284,10 +2570,10 @@ public class ReelCommentFragment extends Fragment {
             .child(myUid)
             .setValue(report)
             .addOnSuccessListener(a ->
-                Toast.makeText(requireContext(), "Comment reported. Thank you.",
+                Toast.makeText(requireContext(), getString(R.string.reel_c_comment_reported),
                     Toast.LENGTH_SHORT).show())
             .addOnFailureListener(e ->
-                Toast.makeText(requireContext(), "Failed to report. Try again.",
+                Toast.makeText(requireContext(), getString(R.string.reel_c_report_failed),
                     Toast.LENGTH_SHORT).show());
     }
 
@@ -2299,11 +2585,11 @@ public class ReelCommentFragment extends Fragment {
         clearPickedImage();
         if (btnAttachPhoto != null) btnAttachPhoto.setVisibility(View.GONE);
         String name = comment.ownerName != null ? comment.ownerName : "user";
-        if (tvReplyingTo   != null) tvReplyingTo.setText("Replying to @" + name);
-        if (barReplyingTo  != null) barReplyingTo.setVisibility(View.VISIBLE);
+        if (tvReplyingTo   != null) tvReplyingTo.setText(getString(R.string.reel_c_replying_to, name));
+        setReplyBarVisible(true);
         if (etComment      != null) {
             etComment.setText("");
-            etComment.setHint("Reply to @" + name + "…");
+            etComment.setHint(getString(R.string.reel_c_reply_hint, name));
             etComment.requestFocus();
         }
         showKeyboard(etComment);
@@ -2318,10 +2604,10 @@ public class ReelCommentFragment extends Fragment {
         clearPickedImage();
         if (btnAttachPhoto != null) btnAttachPhoto.setVisibility(View.GONE);
         String name = reply.ownerName != null ? reply.ownerName : "user";
-        if (tvReplyingTo   != null) tvReplyingTo.setText("Replying to @" + name);
-        if (barReplyingTo  != null) barReplyingTo.setVisibility(View.VISIBLE);
+        if (tvReplyingTo   != null) tvReplyingTo.setText(getString(R.string.reel_c_replying_to, name));
+        setReplyBarVisible(true);
         if (etComment      != null) {
-            etComment.setHint("Reply to @" + name + "…");
+            etComment.setHint(getString(R.string.reel_c_reply_hint, name));
             String prefill = "@" + name + " ";
             etComment.setText(prefill);
             etComment.setSelection(prefill.length());
@@ -2333,8 +2619,8 @@ public class ReelCommentFragment extends Fragment {
     private void cancelReply() {
         replyingToComment = null;
         replyingToReplyMention = null;
-        if (barReplyingTo != null) barReplyingTo.setVisibility(View.GONE);
-        if (etComment     != null) etComment.setHint("Write a comment…");
+        setReplyBarVisible(false);
+        if (etComment     != null) etComment.setHint(R.string.reel_c_write_comment);
         if (btnAttachPhoto != null) btnAttachPhoto.setVisibility(View.VISIBLE);
     }
 
@@ -2346,6 +2632,16 @@ public class ReelCommentFragment extends Fragment {
         activeRepliesToggle    = tvToggle;
         activeRepliesParentId  = parent.commentId;
 
+        // Offline, this one-off read never answers and the toggle would sit on
+        // "Loading…" forever - arm a timeout. A late success still wins (it
+        // simply renders over the retry label).
+        final int loadToken = ++repliesLoadSeq;
+        repliesLoadToken.put(parent.commentId, loadToken);
+        refreshHandler.postDelayed(() -> {
+            Integer t = repliesLoadToken.get(parent.commentId);
+            if (t != null && t == loadToken) onRepliesLoadFailed(parent, container, tvToggle);
+        }, isOnlineNow() ? LOAD_TIMEOUT_ONLINE_MS : LOAD_TIMEOUT_OFFLINE_MS);
+
         FirebaseDatabase.getInstance(Constants.DB_URL)
             .getReference("reelCommentReplies")
             .child(reelId)
@@ -2354,9 +2650,10 @@ public class ReelCommentFragment extends Fragment {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot snapshot) {
                     if (!isAdded()) return;
+                    repliesLoadToken.remove(parent.commentId);
                     final boolean wasVisible = container.getVisibility() == View.VISIBLE;
                     container.removeAllViews();
-                    int count = 0;
+                    final java.util.List<ReelReply> list = new java.util.ArrayList<>();
                     java.util.Set<String> confirmedIds = new java.util.HashSet<>();
                     for (DataSnapshot s : snapshot.getChildren()) {
                         try {
@@ -2365,9 +2662,9 @@ public class ReelCommentFragment extends Fragment {
                             if (r.uid != null && blockedUids.contains(r.uid)) continue; // blocked user's reply, hide it
                             if (r.replyId == null) r.replyId = s.getKey();
                             confirmedIds.add(r.replyId);
+                            if (pendingDeletes.containsKey("r:" + r.replyId)) continue; // waiting out Undo
                             registerMentionCandidate(r.uid, r.ownerName, r.ownerPhoto);
-                            View row = buildReplyRow(r, parent, container, tvToggle);
-                            if (row != null) { container.addView(row); count++; }
+                            list.add(r);
                         } catch (Exception ignored) {}
                     }
                     // Merge in still-pending (sending/failed) local replies for
@@ -2379,22 +2676,83 @@ public class ReelCommentFragment extends Fragment {
                     if (pending != null) {
                         for (ReelReply r : new java.util.ArrayList<>(pending)) {
                             if (confirmedIds.contains(r.replyId)) continue;
-                            View row = buildReplyRow(r, parent, container, tvToggle);
-                            if (row != null) { container.addView(row); count++; }
+                            if (pendingDeletes.containsKey("r:" + r.replyId)) continue;
+                            list.add(r);
                         }
+                    }
+                    // Render only the first page; keep the pages the user
+                    // already opened when this is a refresh (like / edit /
+                    // delete rebuild the container from scratch).
+                    final int count = list.size();
+                    repliesCache.put(parent.commentId, list);
+                    int shown = Math.min(count, Math.max(REPLIES_INITIAL,
+                        repliesShown.containsKey(parent.commentId)
+                            ? repliesShown.get(parent.commentId) : 0));
+                    for (int i = 0; i < shown; i++) {
+                        View row = buildReplyRow(list.get(i), parent, container, tvToggle);
+                        if (row != null) container.addView(row);
+                    }
+                    repliesShown.put(parent.commentId, shown);
+                    if (shown < count) {
+                        container.addView(buildMoreRow(parent, container, tvToggle, count - shown));
                     }
                     updateReplyConnectors(container);
                     container.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
-                    tvToggle.setText(count > 0 ? "Hide replies" : "No replies yet");
+                    tvToggle.setText(count > 0 ? R.string.reel_c_hide_replies : R.string.reel_c_no_replies);
                     // Short slide+fade only on a fresh expand — not on a
                     // refresh of an already-open thread (avoids flicker).
                     if (count > 0 && !wasVisible) expandReplies(container);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    tvToggle.setText("View " + parent.replyCount
-                        + (parent.replyCount == 1 ? " reply" : " replies"));
+                    if (!isAdded()) return;
+                    onRepliesLoadFailed(parent, container, tvToggle);
                 }
             });
+    }
+
+    // ── Reply paging helpers ──────────────────────────────────────────────
+
+    private static boolean hasMoreRow(LinearLayout container) {
+        int n = container.getChildCount();
+        return n > 0 && MORE_ROW_TAG.equals(container.getChildAt(n - 1).getTag());
+    }
+
+    /** "View N more replies" row (connector as the last row of the thread). */
+    private View buildMoreRow(ReelComment parent, LinearLayout container,
+                              TextView tvToggle, int remaining) {
+        View row = LayoutInflater.from(container.getContext())
+            .inflate(R.layout.item_reel_reply_more, container, false);
+        row.setTag(MORE_ROW_TAG);
+        TextView tv = row.findViewById(R.id.tv_reply_more);
+        ReelCommentsAdapter.asButton(tv);
+        tv.setText(tv.getResources().getQuantityString(R.plurals.reel_c_view_more_replies, remaining, remaining));
+        tv.setOnClickListener(v -> showMoreReplies(parent, container, tvToggle, REPLIES_STEP));
+        return row;
+    }
+
+    /** Appends the next page of cached replies (no network, no rebuild). */
+    private void showMoreReplies(ReelComment parent, LinearLayout container,
+                                 TextView tvToggle, int step) {
+        java.util.List<ReelReply> list = repliesCache.get(parent.commentId);
+        if (list == null) return;                       // collapsed meanwhile
+        if (hasMoreRow(container)) container.removeViewAt(container.getChildCount() - 1);
+        Integer s = repliesShown.get(parent.commentId);
+        int shown = s == null ? 0 : s;
+        int next  = (int) Math.min((long) list.size(), (long) shown + step);
+        for (int i = shown; i < next; i++) {
+            View row = buildReplyRow(list.get(i), parent, container, tvToggle);
+            if (row != null) container.addView(row);
+        }
+        repliesShown.put(parent.commentId, next);
+        if (next < list.size()) {
+            container.addView(buildMoreRow(parent, container, tvToggle, list.size() - next));
+        }
+        updateReplyConnectors(container);
+    }
+
+    private void revealAllReplies(ReelComment parent, LinearLayout container, TextView tvToggle) {
+        java.util.List<ReelReply> list = repliesCache.get(parent.commentId);
+        if (list != null) showMoreReplies(parent, container, tvToggle, list.size());
     }
 
     // ── Reply thread visuals (trunk + ↳ connector, expand/collapse) ──────────
@@ -2471,6 +2829,7 @@ public class ReelCommentFragment extends Fragment {
         try {
             View v = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_reel_reply, container, false);
+            v.setTag(R.id.reel_reply_row_id, r.replyId);
 
             android.widget.ImageView ivAvatar = v.findViewById(R.id.iv_avatar);
             TextView tvName     = v.findViewById(R.id.tv_name);
@@ -2480,10 +2839,11 @@ public class ReelCommentFragment extends Fragment {
             TextView tvAuthorBadge  = v.findViewById(R.id.tv_author_badge);
             TextView tvCreatorLiked = v.findViewById(R.id.tv_creator_liked);
             TextView btnReplyTo = v.findViewById(R.id.btn_reply);
+            ReelCommentsAdapter.asButton(btnReplyTo);
             ImageButton btnLike = v.findViewById(R.id.btn_like_reply);
             TextView tvLikes    = v.findViewById(R.id.tv_likes_count);
 
-            if (tvName != null) tvName.setText(r.ownerName != null ? r.ownerName : "User");
+            if (tvName != null) tvName.setText(r.ownerName != null ? r.ownerName : getString(R.string.reel_c_user_fallback));
             android.widget.ImageView ivVerified = v.findViewById(R.id.iv_verified);
             com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivVerified, r.uid);
             if (tvTime != null) tvTime.setText(formatTime(r.timestamp));
@@ -2533,8 +2893,9 @@ public class ReelCommentFragment extends Fragment {
             } else if (ReelReply.SEND_STATE_FAILED.equals(r.sendState)) {
                 v.setAlpha(1f);
                 if (tvTime != null) {
-                    tvTime.setText("Failed — tap to retry");
-                    tvTime.setTextColor(getResources().getColor(android.R.color.holo_red_light));
+                    tvTime.setText(R.string.reel_c_failed_retry);
+                    tvTime.setTextColor(androidx.core.content.ContextCompat.getColor(
+                        requireContext(), R.color.reel_error_red));
                 }
                 v.setOnClickListener(v2 -> retryReply(r, parent, container, tvToggle));
             } else {
@@ -2652,12 +3013,13 @@ public class ReelCommentFragment extends Fragment {
                                  LinearLayout container, TextView tvToggle,
                                  @Nullable ImageButton btnLike, @Nullable TextView tvLikes) {
         if (myUid.isEmpty()) {
-            Toast.makeText(requireContext(), "Please login to like", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_login_to_like), Toast.LENGTH_SHORT).show();
             return;
         }
 
         final boolean currentlyLiked = reply.isLikedBy(myUid);
         final int prevCount = reply.likesCount;
+        CommentHaptics.like(btnLike != null ? btnLike : getView(), !currentlyLiked);
         DatabaseReference replyRef = FirebaseDatabase.getInstance(Constants.DB_URL)
             .getReference("reelCommentReplies")
             .child(reelId).child(parent.commentId).child(reply.replyId);
@@ -2683,6 +3045,7 @@ public class ReelCommentFragment extends Fragment {
             if (isAdded()) {
                 ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
                     currentlyLiked, prevCount, true, "reply");
+                CommentHaptics.reject(btnLike != null ? btnLike : getView());
             }
         };
 
@@ -2705,7 +3068,20 @@ public class ReelCommentFragment extends Fragment {
                     replyRef.child("likedBy").child(myUid)
                         .setValue(currentlyLiked ? true : null);
                 }
-                if (isAdded()) loadRepliesInto(parent, container, tvToggle);
+                // PERF: no loadRepliesInto() here any more. It re-downloaded the WHOLE
+                // thread and removeAllViews()+re-inflated every row just to confirm a
+                // like the UI already shows (the rows hold the same ReelReply objects
+                // as repliesCache, so the optimistic flip IS the cached state; a
+                // failure was already rolled back by revert). Only reconcile the count
+                // in place if other people's likes made the server value differ.
+                if (e == null && s != null && isAdded()) {
+                    Integer server = s.getValue(Integer.class);
+                    if (server != null && server != reply.likesCount) {
+                        reply.likesCount = server;
+                        ReelCommentsAdapter.applyHeartState(btnLike, tvLikes,
+                            reply.isLikedBy(myUid), server, false, "reply");
+                    }
+                }
             }
         });
 
@@ -2726,15 +3102,15 @@ public class ReelCommentFragment extends Fragment {
         List<Runnable> actions = new ArrayList<>();
 
         if (isOwn) {
-            opts.add("Edit reply");
+            opts.add(getString(R.string.reel_c_edit_reply));
             actions.add(() -> showEditReplyDialog(reply, parent, container, tvToggle));
         }
         if (!isOwn) {
-            opts.add("Report reply");
+            opts.add(getString(R.string.reel_c_report_reply));
             actions.add(() -> showReportReplyDialog(reply));
         }
         if (isOwn || isReelOwner) {
-            opts.add("Delete reply");
+            opts.add(getString(R.string.reel_c_delete_reply));
             actions.add(() -> showDeleteReplyDialog(reply, parent, container, tvToggle));
         }
         if (opts.isEmpty()) return;
@@ -2757,13 +3133,13 @@ public class ReelCommentFragment extends Fragment {
         et.setPadding(pad, pad, pad, pad);
 
         AlertDialogStyler.showRounded(new AlertDialog.Builder(requireContext())
-            .setTitle("Edit reply")
+            .setTitle(R.string.reel_c_edit_reply)
             .setView(et)
-            .setPositiveButton("Save", (d, w) -> {
+            .setPositiveButton(R.string.reel_c_save, (d, w) -> {
                 String newText = et.getText().toString().trim();
                 if (TextUtils.isEmpty(newText) || newText.equals(reply.text)) return;
                 if (newText.length() > MAX_COMMENT_LENGTH) {
-                    Toast.makeText(requireContext(), "Reply too long (max 300 chars)",
+                    Toast.makeText(requireContext(), getString(R.string.reel_c_too_long_reply, MAX_COMMENT_LENGTH),
                         Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -2777,7 +3153,7 @@ public class ReelCommentFragment extends Fragment {
                 ref.updateChildren(updates)
                     .addOnCompleteListener(t -> { if (isAdded()) loadRepliesInto(parent, container, tvToggle); });
             })
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.reel_c_cancel, null)
             .create());
     }
 
@@ -2785,11 +3161,11 @@ public class ReelCommentFragment extends Fragment {
                                        LinearLayout container, TextView tvToggle) {
         AlertDialogStyler.showReusableConfirm(requireContext(), "delete_reel_reply",
             AlertDialogStyler.DialogSize.DEFAULT,
-            "Delete reply?",
-            "This reply will be permanently removed.",
-            "Delete", () -> deleteReply(reply, parent, container, tvToggle),
+            getString(R.string.reel_c_delete_reply_title),
+            getString(R.string.reel_c_delete_reply_msg),
+            getString(R.string.reel_c_delete), () -> deleteReplyWithUndo(reply, parent, container, tvToggle),
             null, null,
-            "Cancel");
+            getString(R.string.reel_c_cancel));
     }
 
     private void deleteReply(ReelReply reply, ReelComment parent,
@@ -2812,11 +3188,17 @@ public class ReelCommentFragment extends Fragment {
                     }
                     @Override public void onComplete(@Nullable DatabaseError e,
                                                      boolean b, @Nullable DataSnapshot s) {
-                        if (isAdded()) loadRepliesInto(parent, container, tvToggle);
+                        // The delete may be committed seconds later (Undo window):
+                        // only refresh if this is still the open thread, so a
+                        // recycled/other row is never rebuilt with these replies.
+                        if (isAdded() && container == activeRepliesContainer
+                                && parent.commentId.equals(activeRepliesParentId)) {
+                            loadRepliesInto(parent, container, tvToggle);
+                        }
                     }
                 });
         } catch (Exception e) {
-            Toast.makeText(requireContext(), "Failed to delete reply", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_delete_reply_failed), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -2824,11 +3206,12 @@ public class ReelCommentFragment extends Fragment {
         String[] reasons = {
             "Spam", "Hate speech", "Harassment", "Misinformation",
             "Nudity or sexual content", "Violence", "Other"
-        };
+        };   // stored in Firebase as-is - NOT localized (labels below are)
+        final String[] reasonLabels = getResources().getStringArray(R.array.reel_c_report_reasons);
         AlertDialogStyler.showRounded(new AlertDialog.Builder(requireContext())
-            .setTitle("Report reply")
-            .setItems(reasons, (d, which) -> submitReplyReport(reply, reasons[which]))
-            .setNegativeButton("Cancel", null)
+            .setTitle(R.string.reel_c_report_reply)
+            .setItems(reasonLabels, (d, which) -> submitReplyReport(reply, reasons[which]))
+            .setNegativeButton(R.string.reel_c_cancel, null)
             .create());
     }
 
@@ -2847,10 +3230,10 @@ public class ReelCommentFragment extends Fragment {
             .child(myUid)
             .setValue(report)
             .addOnSuccessListener(a ->
-                Toast.makeText(requireContext(), "Reply reported. Thank you.",
+                Toast.makeText(requireContext(), getString(R.string.reel_c_reply_reported),
                     Toast.LENGTH_SHORT).show())
             .addOnFailureListener(e ->
-                Toast.makeText(requireContext(), "Failed to report. Try again.",
+                Toast.makeText(requireContext(), getString(R.string.reel_c_report_failed),
                     Toast.LENGTH_SHORT).show());
     }
 
@@ -2859,11 +3242,11 @@ public class ReelCommentFragment extends Fragment {
     private void showDeleteDialog(ReelComment comment, int position) {
         AlertDialogStyler.showReusableConfirm(requireContext(), "delete_reel_comment",
             AlertDialogStyler.DialogSize.DEFAULT,
-            "Delete comment?",
-            "This comment will be permanently removed.",
-            "Delete", () -> deleteComment(comment),
+            getString(R.string.reel_c_delete_comment_title),
+            getString(R.string.reel_c_delete_comment_msg),
+            getString(R.string.reel_c_delete), () -> deleteCommentWithUndo(comment),
             null, null,
-            "Cancel");
+            getString(R.string.reel_c_cancel));
     }
 
     private void deleteComment(ReelComment comment) {
@@ -2874,8 +3257,113 @@ public class ReelCommentFragment extends Fragment {
                 .child(reelId).child(comment.commentId).removeValue();
             incrementCommentsCount(-1);
         } catch (Exception e) {
-            Toast.makeText(requireContext(), "Failed to delete", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_delete_failed), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ── Delete with Undo ──────────────────────────────────────────────────────
+    // Deleting hides the comment/reply locally and shows "Deleted · Undo" for
+    // ~4s. Only when the window closes without Undo is the real Firebase
+    // delete sent (commitPendingDelete). Keys: "c:<commentId>" / "r:<replyId>".
+    private static final int UNDO_WINDOW_MS = 4000;
+    private final Map<String, Runnable> pendingDeletes = new HashMap<>();
+
+    private int pendingCommentDeleteCount() {
+        int n = 0;
+        for (String k : pendingDeletes.keySet()) if (k.startsWith("c:")) n++;
+        return n;
+    }
+
+    private void commitPendingDelete(String key) {
+        Runnable r = pendingDeletes.remove(key);
+        if (r != null) r.run();
+    }
+
+    private void showUndoSnackbar(int msgRes, String key, Runnable onUndo, Runnable onCommit) {
+        pendingDeletes.put(key, onCommit);
+        View anchorRoot = fragmentRoot != null ? fragmentRoot : getView();
+        try {
+            if (anchorRoot == null) throw new IllegalStateException("no view");
+            com.google.android.material.snackbar.Snackbar sb =
+                com.google.android.material.snackbar.Snackbar.make(anchorRoot, msgRes, UNDO_WINDOW_MS);
+            sb.setAction(R.string.reel_c_undo, v -> {
+                if (pendingDeletes.remove(key) != null) onUndo.run();
+            });
+            sb.addCallback(new com.google.android.material.snackbar.Snackbar.Callback() {
+                @Override public void onDismissed(com.google.android.material.snackbar.Snackbar bar, int event) {
+                    // Everything except the Undo tap (timeout, swipe-away,
+                    // replaced by a newer snackbar) means: really delete.
+                    if (event != DISMISS_EVENT_ACTION) commitPendingDelete(key);
+                }
+            });
+            if (etComment != null && etComment.isAttachedToWindow()) sb.setAnchorView(etComment);
+            sb.show();
+        } catch (Exception e) {
+            commitPendingDelete(key);   // no snackbar possible -> behave like before
+        }
+    }
+
+    private void deleteCommentWithUndo(ReelComment comment) {
+        showUndoSnackbar(R.string.reel_c_comment_deleted, "c:" + comment.commentId,
+            this::applyFilterAndSort,                 // Undo: bring it back
+            () -> deleteComment(comment));            // timeout: real delete
+        applyFilterAndSort();                         // hide now
+    }
+
+    private void deleteReplyWithUndo(ReelReply reply, ReelComment parent,
+                                     LinearLayout container, TextView tvToggle) {
+        if (reply.replyId == null) { deleteReply(reply, parent, container, tvToggle); return; }
+        showUndoSnackbar(R.string.reel_c_reply_deleted, "r:" + reply.replyId,
+            () -> { if (isAdded()) loadRepliesInto(parent, container, tvToggle); },
+            () -> {
+                // also forget a still-local (sending/failed) copy of this reply
+                java.util.List<ReelReply> pl = pendingRepliesByParent.get(parent.commentId);
+                if (pl != null) pl.removeIf(x -> reply.replyId.equals(x.replyId));
+                deleteReply(reply, parent, container, tvToggle);
+            });
+        hideReplyLocally(reply, parent, container, tvToggle);
+    }
+
+    /** Removes one reply row (and its cache entry) without a rebuild/network. */
+    private void hideReplyLocally(ReelReply reply, ReelComment parent,
+                                  LinearLayout container, TextView tvToggle) {
+        View row = null;
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View c = container.getChildAt(i);
+            if (reply.replyId.equals(c.getTag(R.id.reel_reply_row_id))) { row = c; break; }
+        }
+        if (row == null) return;
+        container.removeView(row);
+
+        boolean empty;
+        java.util.List<ReelReply> list = repliesCache.get(parent.commentId);
+        if (list != null) {
+            for (int i = 0; i < list.size(); i++) {
+                if (reply.replyId.equals(list.get(i).replyId)) {
+                    list.remove(i);
+                    Integer s = repliesShown.get(parent.commentId);
+                    if (s != null && i < s) repliesShown.put(parent.commentId, s - 1);
+                    break;
+                }
+            }
+            if (hasMoreRow(container)) container.removeViewAt(container.getChildCount() - 1);
+            Integer s = repliesShown.get(parent.commentId);
+            int shown = s == null ? 0 : s;
+            if (shown < list.size()) {
+                container.addView(buildMoreRow(parent, container, tvToggle, list.size() - shown));
+            }
+            empty = list.isEmpty();
+        } else {
+            empty = true;
+            for (int i = 0; i < container.getChildCount(); i++) {
+                if (container.getChildAt(i).getTag(R.id.reel_reply_row_id) != null) { empty = false; break; }
+            }
+        }
+        if (empty) {
+            container.setVisibility(View.GONE);       // also hides the parent trunk
+            tvToggle.setText(R.string.reel_c_no_replies);
+        }
+        updateReplyConnectors(container);
     }
 
     // ── Comments count transaction ────────────────────────────────────────────
@@ -2896,9 +3384,246 @@ public class ReelCommentFragment extends Fragment {
             });
     }
 
+
+    // ── Error & offline states ────────────────────────────────────────────────
+    // Three levels, from loudest to quietest:
+    //   1. Full-screen error (layout_error_state) - the FIRST page failed or
+    //      timed out and there is nothing to show. Retry re-attaches listeners.
+    //   2. Status banner (tv_status_banner) - the list IS showing (live or
+    //      disk-cached) but we're offline / a refresh failed. Non-blocking.
+    //   3. Inline retry chips - "load older" page failed (tv_loading_older) and
+    //      "load replies" failed (the replies toggle itself becomes the retry).
+    // Realtime Database never calls back while offline, so "failed" has to be
+    // detected with a timeout + a connectivity watcher, not only onCancelled.
+
+    private static final long LOAD_TIMEOUT_ONLINE_MS  = 10_000L;
+    private static final long LOAD_TIMEOUT_OFFLINE_MS = 3_000L;
+    private static final long OFFLINE_DEBOUNCE_MS     = 1_500L;
+    private static final int  BANNER_NONE = 0, BANNER_OFFLINE = 1, BANNER_REFRESH_FAILED = 2;
+
+    /** True once the first comments page has really resolved (data arrived, or
+     *  the server confirmed the thread is empty). Gates the "empty" state. */
+    private boolean firstPageReady = false;
+    private boolean errorStateShown = false;
+    private int     bannerMode = BANNER_NONE;
+
+    private final Map<String, Integer> repliesLoadToken = new HashMap<>();
+    private int repliesLoadSeq = 0;
+
+    private ConnectivityManager.NetworkCallback netCallback;
+    private ConnectivityManager netManager;
+
+    private final Runnable initialLoadTimeoutRunnable = () -> {
+        if (isAdded() && !firstPageReady) onInitialLoadFailed();
+    };
+    private final Runnable offlineCheckRunnable = () -> {
+        if (!isAdded() || isOnlineNow()) return;
+        applyOfflineUi();
+    };
+
+    private boolean isOnlineNow() {
+        Context c = getContext();
+        return c == null || NetworkUtils.isOnline(c);
+    }
+
+    /** Fires once the first page has resolved - including the EMPTY case, which
+     *  a ChildEventListener alone can never signal (no children = no callback). */
+    private void armFirstPageSignal() {
+        firstPageReady = false;
+        refreshHandler.removeCallbacks(initialLoadTimeoutRunnable);
+        refreshHandler.postDelayed(initialLoadTimeoutRunnable,
+            isOnlineNow() ? LOAD_TIMEOUT_ONLINE_MS : LOAD_TIMEOUT_OFFLINE_MS);
+        if (commentsQuery == null) return;
+        commentsQuery.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
+                if (!isAdded()) return;
+                markFirstPageReady();
+                applyFilterAndSort();   // resolves empty-vs-list now that we know
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                if (isAdded() && !firstPageReady) onInitialLoadFailed();
+            }
+        });
+    }
+
+    private void markFirstPageReady() {
+        if (firstPageReady) return;
+        firstPageReady = true;
+        refreshHandler.removeCallbacks(initialLoadTimeoutRunnable);
+        if (bannerMode == BANNER_REFRESH_FAILED) hideStatusBanner();
+    }
+
+    private void onInitialLoadFailed() {
+        refreshHandler.removeCallbacks(initialLoadTimeoutRunnable);
+        if (!isAdded()) return;
+        boolean offline = !isOnlineNow();
+        if (adapter != null && adapter.getItemCount() > 0) {
+            // We have rows on screen (live or disk cache) - don't wipe them.
+            showStatusBanner(offline ? BANNER_OFFLINE : BANNER_REFRESH_FAILED);
+        } else {
+            showErrorState(offline);
+        }
+    }
+
+    private void showErrorState(boolean offline) {
+        if (layoutErrorState == null) return;
+        hideCommentsShimmer();   // idempotent; stops + hides the skeleton
+        errorStateShown = true;
+        if (rvComments != null) rvComments.setVisibility(View.GONE);
+        if (tvEmpty    != null) tvEmpty.setVisibility(View.GONE);
+        bindErrorTexts(offline);
+        layoutErrorState.setVisibility(View.VISIBLE);
+    }
+
+    private void bindErrorTexts(boolean offline) {
+        if (tvErrorIcon    != null) tvErrorIcon.setText(offline ? "📡" : "⚠️");
+        if (tvErrorTitle   != null) tvErrorTitle.setText(offline
+            ? R.string.reel_c_err_offline_title : R.string.reel_c_err_load_title);
+        if (tvErrorMessage != null) tvErrorMessage.setText(offline
+            ? R.string.reel_c_err_offline_msg : R.string.reel_c_err_load_msg);
+    }
+
+    /** Retry for the first page: re-attaches the live listener (Firebase drops
+     *  it after onCancelled) and re-arms the resolve signal + timeout. */
+    private void retryInitialLoad() { reloadInitial(true); }
+
+    private void reloadInitial(boolean userTapped) {
+        if (!isAdded() || reelId.isEmpty()) return;
+        if (userTapped) CommentHaptics.tick(getView());
+        hideStatusBanner();
+        errorStateShown = false;
+        if (layoutErrorState != null) layoutErrorState.setVisibility(View.GONE);
+        try {
+            if (commentsListener != null && commentsQuery != null)
+                commentsQuery.removeEventListener(commentsListener);
+        } catch (Exception ignored) {}
+        if (adapter == null || adapter.getItemCount() == 0) showCommentsShimmer();
+        else if (rvComments != null) rvComments.setVisibility(View.VISIBLE);
+        loadComments();          // dup-guarded by loadedCommentIds
+        armFirstPageSignal();
+    }
+
+    private void showStatusBanner(int mode) {
+        if (tvStatusBanner == null) return;
+        bannerMode = mode;
+        if (mode == BANNER_NONE) { hideStatusBanner(); return; }
+        boolean tappable = mode == BANNER_REFRESH_FAILED;
+        tvStatusBanner.setText(tappable
+            ? R.string.reel_c_refresh_failed_banner : R.string.reel_c_offline_banner);
+        tvStatusBanner.setClickable(tappable);
+        androidx.core.view.ViewCompat.setAccessibilityDelegate(tvStatusBanner, null);
+        if (tappable) ReelCommentsAdapter.asButton(tvStatusBanner);
+        tvStatusBanner.setVisibility(View.VISIBLE);
+    }
+
+    private void hideStatusBanner() {
+        bannerMode = BANNER_NONE;
+        if (tvStatusBanner != null) tvStatusBanner.setVisibility(View.GONE);
+    }
+
+    private void onOlderLoadFailed() {
+        loadingOlder = false;
+        olderLoadFailed = true;
+        olderRequestId++;                       // ignore any late result of this request
+        refreshHandler.removeCallbacks(olderTimeoutRunnable);
+        if (tvLoadingOlder != null) {
+            tvLoadingOlder.setText(R.string.reel_c_older_failed);
+            tvLoadingOlder.setMinHeight(
+                (int) (48 * tvLoadingOlder.getResources().getDisplayMetrics().density));
+            tvLoadingOlder.setGravity(android.view.Gravity.CENTER);
+            ReelCommentsAdapter.asButton(tvLoadingOlder);
+            tvLoadingOlder.setOnClickListener(v -> {
+                CommentHaptics.tick(v);
+                olderLoadFailed = false;
+                maybeLoadOlderComments();
+            });
+            tvLoadingOlder.setVisibility(View.VISIBLE);
+        }
+        CommentHaptics.reject(getView());
+    }
+
+    private void onRepliesLoadFailed(ReelComment parent, LinearLayout container, TextView tvToggle) {
+        repliesLoadToken.remove(parent.commentId);
+        if (!isAdded()) return;
+        // Thread already open (this was only a background refresh after a like /
+        // edit): keep what's on screen, stay quiet (no buzz either - the user
+        // didn't ask for anything). Otherwise the toggle itself becomes the
+        // retry - tapping it runs the normal expand path again.
+        if (container.getVisibility() == View.VISIBLE) return;
+        CommentHaptics.reject(getView());
+        tvToggle.setText(R.string.reel_c_replies_failed_retry);
+    }
+
+    // ── Connectivity watcher ──────────────────────────────────────────────────
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private void registerNetworkWatcher() {
+        Context c = getContext();
+        if (c == null) return;
+        try {
+            netManager = (ConnectivityManager) c.getApplicationContext()
+                .getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (netManager == null) return;
+            netCallback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(@NonNull Network network) {
+                    refreshHandler.post(() -> onNetworkBack());
+                }
+                @Override public void onLost(@NonNull Network network) {
+                    // Wi-Fi <-> cellular handoffs fire onLost briefly - debounce.
+                    refreshHandler.removeCallbacks(offlineCheckRunnable);
+                    refreshHandler.postDelayed(offlineCheckRunnable, OFFLINE_DEBOUNCE_MS);
+                }
+            };
+            netManager.registerNetworkCallback(new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), netCallback);
+            if (!NetworkUtils.isOnline(c)) {
+                refreshHandler.postDelayed(offlineCheckRunnable, OFFLINE_DEBOUNCE_MS);
+            }
+        } catch (Exception e) {
+            netCallback = null;   // watcher is best-effort; timeouts still cover us
+        }
+    }
+
+    private void unregisterNetworkWatcher() {
+        try {
+            if (netManager != null && netCallback != null) netManager.unregisterNetworkCallback(netCallback);
+        } catch (Exception ignored) {}
+        netCallback = null;
+        netManager = null;
+    }
+
+    private void applyOfflineUi() {
+        if (errorStateShown) {
+            bindErrorTexts(true);
+        } else if (firstPageReady && adapter != null && adapter.getItemCount() > 0
+                && bannerMode != BANNER_REFRESH_FAILED) {
+            showStatusBanner(BANNER_OFFLINE);
+        }
+    }
+
+    private void onNetworkBack() {
+        if (!isAdded()) return;
+        refreshHandler.removeCallbacks(offlineCheckRunnable);
+        if (bannerMode == BANNER_OFFLINE) hideStatusBanner();
+        if (errorStateShown || bannerMode == BANNER_REFRESH_FAILED) {
+            reloadInitial(false);               // auto-recover, no tap needed
+        } else if (!firstPageReady) {
+            // Still on the skeleton: restart the clock instead of erroring early.
+            refreshHandler.removeCallbacks(initialLoadTimeoutRunnable);
+            refreshHandler.postDelayed(initialLoadTimeoutRunnable, LOAD_TIMEOUT_ONLINE_MS);
+        }
+        if (olderLoadFailed) {
+            olderLoadFailed = false;
+            showLoadingOlder(false);
+            maybeLoadOlderComments();
+        }
+    }
+
     // ── UI helpers ────────────────────────────────────────────────────────────
 
     private void showEmpty(boolean empty) {
+        errorStateShown = false;
+        if (layoutErrorState != null) layoutErrorState.setVisibility(View.GONE);
         if (rvComments != null) rvComments.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (tvEmpty    != null) tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
         hideCommentsShimmer();
@@ -2936,7 +3661,8 @@ public class ReelCommentFragment extends Fragment {
         // only for the brief window before the count listener's first
         // value arrives, so the header isn't blank on first paint.
         int n = totalCommentsCount >= 0 ? totalCommentsCount : allComments.size();
-        tvCommentCount.setText(n > 0 ? "Comments (" + n + ")" : "Comments");
+        n = Math.max(0, n - pendingCommentDeleteCount());
+        tvCommentCount.setText(n > 0 ? getString(R.string.reel_c_comments_count, n) : getString(R.string.reel_c_comments));
     }
 
     @Nullable
@@ -2946,15 +3672,15 @@ public class ReelCommentFragment extends Fragment {
         boolean hasImage = replyingToComment == null
             && uploadedImageUrl != null && !uploadedImageUrl.isEmpty();
         if (TextUtils.isEmpty(t) && !hasImage) {
-            Toast.makeText(requireContext(), "Please write something", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_write_something), Toast.LENGTH_SHORT).show();
             return null;
         }
         if (t.length() > MAX_COMMENT_LENGTH) {
-            Toast.makeText(requireContext(), "Comment too long (max 300 chars)", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_too_long_comment, MAX_COMMENT_LENGTH), Toast.LENGTH_SHORT).show();
             return null;
         }
         if (myUid.isEmpty()) {
-            Toast.makeText(requireContext(), "Please login first", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), getString(R.string.reel_c_login_first), Toast.LENGTH_SHORT).show();
             return null;
         }
         if (reelId.isEmpty()) return null;
