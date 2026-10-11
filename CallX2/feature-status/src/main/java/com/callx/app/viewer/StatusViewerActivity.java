@@ -321,15 +321,6 @@ import com.callx.app.utils.AlertDialogStyler;
           binding = ActivityStatusViewerBinding.inflate(getLayoutInflater());
           setContentView(binding.getRoot());
           getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-          // v509: the chrome groups + scrims never have overlapping children, so tell the renderer:
-          // setChromeHidden()'s alpha fade then applies alpha per draw op instead of rendering the
-          // whole group into an offscreen layer every frame. (Root is NOT flagged: its cross-fade
-          // does overlap backdrop / photo / card, so it keeps normal alpha compositing.)
-          binding.llTopChrome.setHasOverlappingRendering(false);
-          binding.llBottomChrome.setHasOverlappingRendering(false);
-          binding.llReplyBar.setHasOverlappingRendering(false);
-          binding.viewTopScrim.setHasOverlappingRendering(false);
-          binding.viewBottomScrim.setHasOverlappingRendering(false);
           setupEdgeToEdge();
           ownerUid  = getIntent().getStringExtra(EXTRA_OWNER_UID);
           ownerName = getIntent().getStringExtra(EXTRA_OWNER_NAME);

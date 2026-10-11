@@ -97,14 +97,14 @@
       <!-- Fixed-height top/bottom scrims (non-clickable → taps pass through to
            touch_layer). Keep header + caption/reply bar readable over any photo,
            independent of how tall the caption is. -->
-      <View
+      <com.callx.app.viewer.NoOverlapView
           android:id="@+id/view_top_scrim"
           android:layout_width="match_parent"
           android:layout_height="120dp"
           android:layout_gravity="top"
           android:background="@drawable/bg_status_top_scrim"
           android:importantForAccessibility="no"/>
-      <View
+      <com.callx.app.viewer.NoOverlapView
           android:id="@+id/view_bottom_scrim"
           android:layout_width="match_parent"
           android:layout_height="140dp"
@@ -123,7 +123,7 @@
           android:layout_width="match_parent"
           android:layout_height="match_parent"/>
       <!-- Top chrome -->
-      <LinearLayout
+      <com.callx.app.viewer.NoOverlapLinearLayout
           android:id="@+id/ll_top_chrome"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
@@ -272,7 +272,7 @@
 
           </LinearLayout>
 
-      </LinearLayout>
+      </com.callx.app.viewer.NoOverlapLinearLayout>
 
       <!-- Mute button (video only) -->
       <ImageButton
@@ -291,7 +291,7 @@
 
 
       <!-- Bottom chrome -->
-      <LinearLayout
+      <com.callx.app.viewer.NoOverlapLinearLayout
           android:id="@+id/ll_bottom_chrome"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
@@ -355,11 +355,11 @@
               android:layout_marginBottom="8dp"/>
 
 
-      </LinearLayout>
+      </com.callx.app.viewer.NoOverlapLinearLayout>
       </FrameLayout><!-- /fl_story_card -->
 
       <!-- Reply bar: solid strip UNDER the card (no longer an overlay on the photo) -->
-      <LinearLayout
+      <com.callx.app.viewer.NoOverlapLinearLayout
           android:id="@+id/ll_reply_bar"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
@@ -424,7 +424,7 @@
 
           </LinearLayout>
 
-      </LinearLayout>
+      </com.callx.app.viewer.NoOverlapLinearLayout>
       </LinearLayout><!-- /ll_viewer_column -->
 
       <!-- v507: swipe-up-to-react overlay is a ViewStub now — inflated on first swipe-up
