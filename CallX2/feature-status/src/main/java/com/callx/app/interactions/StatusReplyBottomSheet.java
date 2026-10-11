@@ -19,18 +19,33 @@ import com.callx.app.viewer.StatusViewerActivity;
  *      Now a dedicated BottomSheet that pauses the status and gives a focused reply UI.
  * NEW: Shows the status being replied to (thumbnail/text preview).
  * NEW: Keyboard auto-shows on open.
- * NEW: Sends reply as chat message with replyToType metadata.
- * NEW: Sends push notification to status owner.
+ * v511 SPLIT (Instagram-style, two clearly separate paths):
+ *  - PRIVATE: {@link #sendPrivateReply} — chat DM only (messages/{chatId}) + push.
+ *    Used by the "Send message" pill in StatusViewerActivity. Never public.
+ *  - PUBLIC:  {@link #showPublicComment} / {@link #postPublicReply} — writes ONLY to
+ *    status/{ownerUid}/{statusId}/replies (visible to every viewer) + push to owner.
+ *    No chat DM is created.
  */
 public class StatusReplyBottomSheet {
+    // Same limits as reels comments (ReelCommentFragment): hard cap 300, counter appears at 250, warns at 270.
+    private static final int MAX_COMMENT_LENGTH = 300;
+    private static final int COUNTER_SHOW_AT    = MAX_COMMENT_LENGTH - 50;
+    private static final int COUNTER_WARN_AT    = MAX_COMMENT_LENGTH - 30;
+    /** Result of {@link #postPublicReply}: acked by server / written locally but no ack yet (offline) / failed. */
+    public static final int RESULT_POSTED = 0;
+    public static final int RESULT_QUEUED = 1;
+    public static final int RESULT_FAILED = 2;
+    public interface PostCallback { void onResult(int result); }
+    private static final long POST_ACK_TIMEOUT_MS = 8000;
     public interface OnReplySentListener {
         void onSent(String message);
     }
-    public static void show(Context ctx, StatusItem item, String ownerName,
+    /** PUBLIC comment sheet. Returns the dialog so callers can hook dismiss (e.g. resume progress). */
+    public static BottomSheetDialog showPublicComment(Context ctx, StatusItem item, String ownerName,
                             String myUid, String ownerUid,
                             OnReplySentListener listener) {
-        if (item == null || myUid == null || ownerUid == null) return;
-        if (myUid.equals(ownerUid)) return; // Owner cannot reply to own status
+        if (item == null || myUid == null || ownerUid == null) return null;
+        if (myUid.equals(ownerUid)) return null; // Owner cannot reply to own status
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -46,7 +61,7 @@ public class StatusReplyBottomSheet {
         android.graphics.drawable.GradientDrawable previewBg =
             new android.graphics.drawable.GradientDrawable();
         previewBg.setCornerRadius(dp(ctx, 12));
-        previewBg.setColor(Color.parseColor("#F5F5F5"));
+        previewBg.setColor(themeColor(ctx, android.R.attr.textColorPrimary, Color.BLACK) & 0x00FFFFFF | 0x14000000);
         preview.setBackground(previewBg);
         // Thumbnail or type icon
         if (("image".equals(item.type) || "video".equals(item.type))
@@ -73,7 +88,7 @@ public class StatusReplyBottomSheet {
             android.graphics.drawable.GradientDrawable tbg =
                 new android.graphics.drawable.GradientDrawable();
             tbg.setCornerRadius(dp(ctx, 8));
-            tbg.setColor(Color.parseColor("#EDE7F6"));
+            tbg.setColor(themeColor(ctx, android.R.attr.textColorPrimary, Color.BLACK) & 0x00FFFFFF | 0x1F000000);
             typeIcon.setBackground(tbg);
             preview.addView(typeIcon);
         }
@@ -85,16 +100,16 @@ public class StatusReplyBottomSheet {
         infoLp.setMarginStart(dp(ctx, 12));
         previewInfo.setLayoutParams(infoLp);
         TextView tvTo = new TextView(ctx);
-        tvTo.setText("Replying to " + (ownerName != null ? ownerName : "status"));
+        tvTo.setText("Public comment on " + (ownerName != null ? ownerName : "status"));
         tvTo.setTextSize(12);
-        tvTo.setTextColor(Color.parseColor("#6200EE"));
+        tvTo.setTextColor(themeColor(ctx, android.R.attr.colorAccent, Color.parseColor("#6200EE")));
         tvTo.setTypeface(null, android.graphics.Typeface.BOLD);
         previewInfo.addView(tvTo);
         TextView tvPreview = new TextView(ctx);
         String previewText = getPreviewText(item);
         tvPreview.setText(previewText);
         tvPreview.setTextSize(13);
-        tvPreview.setTextColor(Color.DKGRAY);
+        tvPreview.setTextColor(themeColor(ctx, android.R.attr.textColorPrimary, Color.DKGRAY));
         tvPreview.setMaxLines(2);
         tvPreview.setEllipsize(android.text.TextUtils.TruncateAt.END);
         previewInfo.addView(tvPreview);
@@ -105,12 +120,33 @@ public class StatusReplyBottomSheet {
         previewLp.bottomMargin = dp(ctx, 16);
         preview.setLayoutParams(previewLp);
         root.addView(preview);
+        // Privacy cue — makes it obvious this is NOT a private message
+        TextView tvPrivacy = new TextView(ctx);
+        tvPrivacy.setText("\uD83C\uDF10 Everyone who views this status can see this comment"); // 🌐
+        tvPrivacy.setTextSize(12);
+        tvPrivacy.setTextColor(Color.parseColor("#B26A00"));
+        LinearLayout.LayoutParams privLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        privLp.bottomMargin = dp(ctx, 8);
+        root.addView(tvPrivacy, privLp);
         // Reply input row
         LinearLayout inputRow = new LinearLayout(ctx);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
         inputRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        // v511: my own avatar next to the input (same 32dp as reels comment box / comment rows)
+        de.hdodenhof.circleimageview.CircleImageView myAvatar =
+                new de.hdodenhof.circleimageview.CircleImageView(ctx);
+        LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dp(ctx, 32), dp(ctx, 32));
+        avLp.setMarginEnd(dp(ctx, 10));
+        myAvatar.setLayoutParams(avLp);
+        myAvatar.setImageResource(com.callx.app.status.R.drawable.ic_person);
+        inputRow.addView(myAvatar);
+        withMyProfile(myUid, (name, photo) -> {
+            if (photo != null && !photo.isEmpty() && sheet.isShowing())
+                Glide.with(ctx).load(photo).into(myAvatar);
+        });
         EditText et = new EditText(ctx);
-        et.setHint("Write a reply…");
+        et.setHint("Add a public comment…");
         et.setMaxLines(3);
         et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -118,25 +154,79 @@ public class StatusReplyBottomSheet {
         LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         et.setLayoutParams(etLp);
+        // v511: hard cap (typing AND paste) with a toast, like reels comments.
+        et.setFilters(new android.text.InputFilter[]{
+            new android.text.InputFilter.LengthFilter(MAX_COMMENT_LENGTH) {
+                @Override public CharSequence filter(CharSequence src, int st, int en,
+                                                     android.text.Spanned d, int ds, int de) {
+                    CharSequence out = super.filter(src, st, en, d, ds, de);
+                    if (out != null) Toast.makeText(ctx,
+                            "Max " + MAX_COMMENT_LENGTH + " characters", Toast.LENGTH_SHORT).show();
+                    return out;
+                }
+            }});
         inputRow.addView(et);
-        ImageButton sendBtn = new ImageButton(ctx);
-        sendBtn.setImageResource(android.R.drawable.ic_menu_send);
-        int btnSz = dp(ctx, 48);
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(btnSz, btnSz);
+        final TextView counter = new TextView(ctx);
+        counter.setTextSize(11);
+        counter.setGravity(android.view.Gravity.END);
+        counter.setVisibility(View.GONE);
+        Button sendBtn = new Button(ctx);
+        sendBtn.setText("Post");
+        sendBtn.setAllCaps(false);
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(ctx, 44));
         btnLp.setMarginStart(dp(ctx, 8));
         sendBtn.setLayoutParams(btnLp);
-        sendBtn.setBackground(null);
+        // v511: Post is disabled (dimmed) until there is text — no error popup needed.
+        sendBtn.setEnabled(false);
+        sendBtn.setAlpha(0.4f);
+        et.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
+            @Override public void onTextChanged(CharSequence c, int a, int b, int d) {}
+            @Override public void afterTextChanged(android.text.Editable e) {
+                boolean has = e != null && e.toString().trim().length() > 0;
+                sendBtn.setEnabled(has);
+                sendBtn.setAlpha(has ? 1f : 0.4f);
+                int len = e != null ? e.length() : 0;
+                if (len >= COUNTER_SHOW_AT) {
+                    counter.setVisibility(View.VISIBLE);
+                    counter.setText(len + "/" + MAX_COMMENT_LENGTH);
+                    counter.setTextColor(len >= COUNTER_WARN_AT ? Color.parseColor("#E53935")
+                            : themeColor(ctx, android.R.attr.textColorSecondary, Color.GRAY));
+                } else {
+                    counter.setVisibility(View.GONE);
+                }
+            }
+        });
         sendBtn.setOnClickListener(v -> {
             String msg = et.getText() != null ? et.getText().toString().trim() : "";
-            if (msg.isEmpty()) { et.setError("Enter a message"); return; }
-            sendReply(myUid, ownerUid, ownerName, item, msg);
-            if (listener != null) listener.onSent(msg);
-            Toast.makeText(ctx, "Reply sent ✓", Toast.LENGTH_SHORT).show();
-            sheet.dismiss();
+            if (msg.isEmpty()) return;
+            // v511: don't claim success before it is true — lock the UI while posting,
+            // close only on success/queued, offer retry on failure.
+            sendBtn.setEnabled(false);
+            sendBtn.setText("Posting…");
+            et.setEnabled(false);
+            postPublicReply(myUid, ownerUid, item, msg, null, res -> {
+                if (res == RESULT_FAILED) {
+                    Toast.makeText(ctx, "Couldn't post comment. Tap Post to retry", Toast.LENGTH_SHORT).show();
+                    sendBtn.setText("Post");
+                    sendBtn.setEnabled(true);
+                    sendBtn.setAlpha(1f);
+                    et.setEnabled(true);
+                    return;
+                }
+                if (listener != null) listener.onSent(msg);
+                Toast.makeText(ctx, res == RESULT_POSTED ? "Comment posted ✓"
+                        : "No connection — will post when you're back online", Toast.LENGTH_SHORT).show();
+                sheet.dismiss();
+            });
         });
         inputRow.addView(sendBtn);
         root.addView(inputRow);
+        root.addView(counter);
         sheet.setContentView(root);
+        if (sheet.getWindow() != null) // v511: resize with the keyboard so Post/counter stay visible
+            sheet.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         // Expand fully and show keyboard
         sheet.setOnShowListener(d -> {
             BottomSheetBehavior<View> behavior = BottomSheetBehavior.from(
@@ -149,6 +239,7 @@ public class StatusReplyBottomSheet {
                 imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
         });
         sheet.show();
+        return sheet;
     }
     /**
      * Label shown in the quote box's sender-name slot for a status
@@ -172,8 +263,14 @@ public class StatusReplyBottomSheet {
         if (item.text    != null && !item.text.isEmpty())    return item.text;
         return "Status";
     }
-    private static void sendReply(String myUid, String ownerUid, String ownerName,
-                                   StatusItem item, String message) {
+    /**
+     * PRIVATE reply: chat DM only (messages/{chatId}/{msgId}) quoting the status,
+     * plus a push to the owner. Does NOT touch the public replies node.
+     * Single send path — used by the inline "Send message" pill.
+     */
+    public static void sendPrivateReply(String myUid, String ownerUid, String ownerName,
+                                        StatusItem item, String message) {
+        if (item == null || myUid == null || ownerUid == null || message == null) return;
         String chatId = myUid.compareTo(ownerUid) < 0
                 ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
         String msgId = FirebaseUtils.db().getReference().push().getKey();
@@ -190,57 +287,125 @@ public class StatusReplyBottomSheet {
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
         embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
-            // BUG FIX: was writing to "chats/{chatId}/messages/{msgId}", but
-            // ChatRepository (and every other send path in the app) reads/
-            // listens on "messages/{chatId}/{msgId}" — a completely
-            // different node. That mismatch meant a status reply silently
-            // vanished into a path nobody ever read: it never appeared in
-            // the sender's own chat thread, and — more importantly — the
-            // status owner never saw it either. Writing to the correct
-            // node is what actually makes it show up like a normal WhatsApp
-            // reply-to-status chat bubble on both ends.
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
-                FirebaseUtils.db().getReference("users").child(myUid)
-                    .addListenerForSingleValueEvent(new ValueEventListener() {
-                        @Override public void onDataChange(DataSnapshot snap) {
-                            String name  = snap.child("name").getValue(String.class);
-                            String photo = snap.child("thumbUrl").getValue(String.class);
-                            if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
-                            try {
-                                com.callx.app.utils.PushNotify.notifyStatusReply(
-                                        ownerUid, myUid,
-                                        name != null ? name : "Someone",
-                                        photo != null ? photo : "",
-                                        message, chatId);
-                            } catch (Exception ignored) {}
-                            // Instagram-style: also publish a public preview on the
-                            // status node itself so the OWNER sees this commenter's
-                            // avatar + text as a bottom-left overlay next time they
-                            // view this status (StatusViewerActivity), on top of the
-                            // private chat DM above. See FirebaseUtils#getStatusRepliesRef.
-                            if (item.id != null && !item.id.isEmpty()) {
-                                String replyId = FirebaseUtils.getStatusRepliesRef(ownerUid, item.id)
-                                        .push().getKey();
-                                if (replyId != null) {
-                                    Map<String, Object> preview = new HashMap<>();
-                                    preview.put("uid",       myUid);
-                                    preview.put("name",      name != null ? name : "Someone");
-                                    preview.put("avatarUrl", photo != null ? photo : "");
-                                    preview.put("text",      message);
-                                    preview.put("timestamp", ServerValue.TIMESTAMP);
-                                    FirebaseUtils.getStatusRepliesRef(ownerUid, item.id)
-                                            .child(replyId).setValue(preview)
-                                            .addOnFailureListener(err ->
-                                                android.util.Log.e("StatusReply",
-                                                    "Failed to publish public reply preview for status "
-                                                        + item.id + ": " + err.getMessage(), err));
-                                }
-                            }
-                        }
-                        @Override public void onCancelled(DatabaseError e) {}
-                    })));
+                withMyProfile(myUid, (name, photo) -> notifyOwner(ownerUid, myUid, name, photo, message, chatId))));
+    }
+
+    /**
+     * PUBLIC comment: written ONLY to status/{ownerUid}/{statusId}/replies, which every
+     * viewer sees (bottom-left overlay in StatusViewerActivity). No chat DM is created.
+     * The owner gets a push; if this is a reply to someone's comment, that commenter does too.
+     *
+     * The callback reports the real outcome: RESULT_POSTED (server ack), RESULT_QUEUED (write issued
+     * locally but no ack within 8s — typically offline, Firebase will send it when back online) or
+     * RESULT_FAILED (nothing was written: profile unavailable or write rejected).
+     */
+    public static void postPublicReply(String myUid, String ownerUid, StatusItem item, String message,
+                                       String replyToUid, PostCallback cb) {
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        final boolean[] done = {false};
+        final boolean[] writeIssued = {false};
+        final Runnable[] timeout = new Runnable[1];
+        final Settle settle = res -> {
+            if (done[0]) return;
+            done[0] = true;
+            if (timeout[0] != null) main.removeCallbacks(timeout[0]);
+            if (cb != null) cb.onResult(res);
+        };
+        if (item == null || myUid == null || ownerUid == null || message == null
+                || item.id == null || item.id.isEmpty()) {
+            settle.accept(RESULT_FAILED);
+            return;
+        }
+        timeout[0] = () -> settle.accept(writeIssued[0] ? RESULT_QUEUED : RESULT_FAILED);
+        main.postDelayed(timeout[0], POST_ACK_TIMEOUT_MS);
+
+        final ProfileCb doPost = new ProfileCb() {
+            @Override public void onProfile(String name, String photo) {
+                if (done[0]) return;
+                String replyId = FirebaseUtils.getStatusRepliesRef(ownerUid, item.id).push().getKey();
+                if (replyId == null) { settle.accept(RESULT_FAILED); return; }
+                Map<String, Object> preview = new HashMap<>();
+                preview.put("uid",       myUid);
+                preview.put("name",      name);
+                preview.put("avatarUrl", photo);
+                preview.put("text",      message);
+                preview.put("timestamp", ServerValue.TIMESTAMP);
+                writeIssued[0] = true;
+                FirebaseUtils.getStatusRepliesRef(ownerUid, item.id)
+                        .child(replyId).setValue(preview)
+                        .addOnSuccessListener(u -> {
+                            // Notify even if the UI already settled as QUEUED (late ack).
+                            if (!myUid.equals(ownerUid))
+                                notifyUser(ownerUid, myUid, name, photo, "\uD83D\uDCAC Commented: " + message);
+                            if (replyToUid != null && !replyToUid.equals(myUid) && !replyToUid.equals(ownerUid))
+                                notifyUser(replyToUid, myUid, name, photo, "\u21A9\uFE0F Replied to your comment: " + message);
+                            settle.accept(RESULT_POSTED);
+                        })
+                        .addOnFailureListener(err -> {
+                            android.util.Log.e("StatusReply",
+                                "Failed to post public comment on status " + item.id
+                                    + ": " + err.getMessage(), err);
+                            settle.accept(RESULT_FAILED);
+                        });
+            }
+            @Override public void onError() { settle.accept(RESULT_FAILED); }
+        };
+        // Use the cached profile (filled when the compose sheet opened) so posting doesn't depend on a
+        // network read; refresh it in the background.
+        if (myUid.equals(cacheUid) && cacheName != null) {
+            doPost.onProfile(cacheName, cachePhoto != null ? cachePhoto : "");
+            withMyProfile(myUid, (n, ph) -> {});
+        } else {
+            withMyProfile(myUid, doPost);
+        }
+    }
+
+    private interface Settle { void accept(int result); }
+
+    private interface ProfileCb {
+        void onProfile(String name, String photo);
+        default void onError() {}
+    }
+
+    // Own profile cache (process lifetime) — name/avatar for comment rows.
+    private static String cacheUid, cacheName, cachePhoto;
+
+    private static void withMyProfile(String myUid, ProfileCb cb) {
+        FirebaseUtils.db().getReference("users").child(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    String name  = snap.child("name").getValue(String.class);
+                    String photo = snap.child("thumbUrl").getValue(String.class);
+                    if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
+                    String n = name != null ? name : "Someone";
+                    String ph = photo != null ? photo : "";
+                    cacheUid = myUid; cacheName = n; cachePhoto = ph;
+                    cb.onProfile(n, ph);
+                }
+                @Override public void onCancelled(DatabaseError e) { cb.onError(); }
+            });
+    }
+
+    /** Push to {@code targetUid}; chatId is the 1:1 chat between me and that user (notification tap target). */
+    private static void notifyUser(String targetUid, String myUid, String name, String photo, String text) {
+        String chatId = myUid.compareTo(targetUid) < 0
+                ? myUid + "_" + targetUid : targetUid + "_" + myUid;
+        notifyOwner(targetUid, myUid, name, photo, text, chatId);
+    }
+    private static void notifyOwner(String ownerUid, String myUid, String name, String photo,
+                                    String text, String chatId) {
+        try {
+            com.callx.app.utils.PushNotify.notifyStatusReply(
+                    ownerUid, myUid, name, photo, text, chatId);
+        } catch (Exception ignored) {}
+    }
+    /** Resolves a theme color (light/dark aware) instead of hardcoding light-mode hex values. */
+    private static int themeColor(Context ctx, int attr, int fallback) {
+        android.content.res.TypedArray a = ctx.getTheme().obtainStyledAttributes(new int[]{attr});
+        try { return a.getColor(0, fallback); } finally { a.recycle(); }
     }
     private static int dp(Context ctx, int v) {
         return Math.round(v * ctx.getResources().getDisplayMetrics().density);
@@ -287,7 +452,7 @@ public class StatusReplyBottomSheet {
     /**
      * Shown when a viewer taps a 💬 Question sticker on someone's status
      * (see StatusStickerOverlayView / StatusViewerActivity's sticker overlay).
-     * Same underlying send path as {@link #show}, just a focused UI that
+     * Same underlying send path as {@link #sendPrivateReply} (private DM), just a focused UI that
      * leads with the actual question instead of a generic status preview,
      * and tags the resulting chat bubble as an answer to that question.
      */
@@ -315,7 +480,7 @@ public class StatusReplyBottomSheet {
         TextView tvQuestion = new TextView(ctx);
         tvQuestion.setText("\uD83D\uDCAC " + prompt); // 💬
         tvQuestion.setTextSize(15);
-        tvQuestion.setTextColor(Color.parseColor("#212121"));
+        tvQuestion.setTextColor(themeColor(ctx, android.R.attr.textColorPrimary, Color.parseColor("#212121")));
         tvQuestion.setMaxLines(3);
         LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);

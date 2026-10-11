@@ -2717,28 +2717,36 @@ import com.callx.app.utils.AlertDialogStyler;
           if (myUid != null && myUid.equals(ownerUid)) {
               binding.etReply.setVisibility(View.GONE);
               binding.btnSendReply.setVisibility(View.GONE);
+              binding.btnPublicComment.setVisibility(View.GONE);
               binding.llReplyRow.setVisibility(View.GONE); // own story: no reply/react row (bar stays as the nav-bar spacer)
               return;
           }
-          binding.etReply.setOnClickListener(v -> {
-              StatusItem current = idx < items.size() ? items.get(idx) : null;
-              if (current == null || myUid == null) return;
-              pauseProgress();
-              StatusReplyBottomSheet.show(this, current, ownerName, myUid, ownerUid, msg -> resumeProgress());
-          });
+          // v511: "Send message" pill = PRIVATE reply (chat DM only). Typing happens inline,
+          // like Instagram. No bottom sheet opens from the pill anymore.
           binding.etReply.setOnFocusChangeListener((v, has) -> { if (has) pauseProgress(); else resumeProgress(); });
           binding.btnSendReply.setOnClickListener(v -> {
               String msg = binding.etReply.getText() != null
                       ? binding.etReply.getText().toString().trim() : "";
               // Instagram-style paper plane: nothing typed → it shares the story
-              // (same forward sheet as the ⋯ menu); typed text → sends it as a reply.
+              // (same forward sheet as the ⋯ menu); typed text → sends it privately.
               if (TextUtils.isEmpty(msg)) { runAct(actForward); return; }
               if (myUid == null || ownerUid == null) return;
               StatusItem current = idx < items.size() ? items.get(idx) : null;
-              sendReplyToChat(ownerUid, msg, current);
+              if (current == null) return;
+              StatusReplyBottomSheet.sendPrivateReply(myUid, ownerUid, ownerName, current, msg);
               binding.etReply.setText(""); binding.etReply.clearFocus();
               resumeProgress();
-              Toast.makeText(this, "Reply sent", Toast.LENGTH_SHORT).show();
+              Toast.makeText(this, "Sent privately", Toast.LENGTH_SHORT).show();
+          });
+          // v511: separate comment icon = PUBLIC comment (visible to all viewers, no DM).
+          binding.btnPublicComment.setOnClickListener(v -> {
+              StatusItem current = idx < items.size() ? items.get(idx) : null;
+              if (current == null || myUid == null) return;
+              pauseProgress();
+              android.app.Dialog d = StatusReplyBottomSheet.showPublicComment(
+                      this, current, ownerName, myUid, ownerUid, msg -> resumeProgress());
+              if (d != null) d.setOnDismissListener(x -> resumeProgress());
+              else resumeProgress();
           });
       }
       /** FIX v26: was findViewWithTag("btn_download") — tag not in XML → always null → click never registered */
@@ -3207,38 +3215,6 @@ import com.callx.app.utils.AlertDialogStyler;
               default:            tv.setTypeface(null, android.graphics.Typeface.NORMAL);
           }
       }
-      private void sendReplyToChat(String toUid, String msg, @Nullable StatusItem repliedStatus) {
-          String chatId = FirebaseUtils.getChatId(myUid, toUid);
-          String msgId = FirebaseUtils.getMessagesRef(chatId).push().getKey();
-          if (msgId == null) return;
-          Map<String, Object> data = new HashMap<>();
-          data.put("id",        msgId);
-          // BUG FIX: this used to write key "sender" instead of "senderId".
-          // Message.java's Firebase POJO mapping only knows "senderId", so
-          // the old key silently deserialized to null on every device that
-          // read this message back — breaking sent/received attribution
-          // for the quick inline reply (the full StatusReplyBottomSheet
-          // path already used the right key).
-          data.put("senderId",  myUid);
-          data.put("text",      msg);
-          data.put("type",      "text");
-          data.put("timestamp", ServerValue.TIMESTAMP);
-          data.put("seen",      false);
-          // Quoted "replying to status" box — same fields the full
-          // StatusReplyBottomSheet sets, so the quick inline reply shows
-          // the same WhatsApp-style quote box instead of a bare text bubble.
-          if (repliedStatus != null) {
-              data.put("replyToType",       repliedStatus.type != null ? repliedStatus.type : "text");
-              data.put("replyToText",       StatusReplyBottomSheet.getPreviewText(repliedStatus));
-              data.put("replyToSenderName", StatusReplyBottomSheet.statusReplyLabel(ownerName));
-              data.put("replyToId",         "status_" + (repliedStatus.id != null ? repliedStatus.id : "unknown"));
-              String thumb = repliedStatus.thumbnailUrl != null ? repliedStatus.thumbnailUrl
-                      : ("image".equals(repliedStatus.type) ? repliedStatus.mediaUrl : null);
-              if (thumb != null) data.put("replyToMediaUrl", thumb);
-          }
-          FirebaseUtils.getMessagesRef(chatId).child(msgId).setValue(data);
-      }
-
       /**
        * WhatsApp-style "Reacted 😂 to your status" chat bubble. Sent as a
        * normal text message (text = emoji) carrying the same replyTo*

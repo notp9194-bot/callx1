@@ -467,7 +467,7 @@ public class FirebaseUtils {
     /**
      * status/{ownerUid}/{statusId}/replies/{pushId} — public-on-the-status-node copy
      * of every text reply sent to that status (Instagram-style). A normal status
-     * reply is otherwise only a private chat DM (see StatusReplyBottomSheet#sendReply),
+     * reply is otherwise only a private chat DM (see StatusReplyBottomSheet#sendPrivateReply),
      * invisible to the owner unless they open the chat; this node lets
      * StatusViewerActivity show the latest replier's avatar + comment as a bottom-left
      * overlay to EVERY viewer of the story (not just the owner), and lets
