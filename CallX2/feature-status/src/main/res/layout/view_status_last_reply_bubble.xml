@@ -13,51 +13,57 @@
     android:paddingEnd="12dp"
     android:paddingTop="6dp"
     android:paddingBottom="6dp"
-    android:background="@drawable/bg_status_reply_overlay"
+    android:background="@drawable/bg_status_reply_pill"
     android:clickable="true"
     android:focusable="true"
     android:visibility="gone">
 
-    <!-- Stack: each avatar overlaps the previous by 12dp (negative start
-         margin) with a border so they read as a distinct stack, exactly
+    <!-- Stack: each avatar overlaps the previous by 8dp (negative start
+         margin) so they read as a distinct stack, exactly
          like Instagram's "recent repliers" cluster. Index 1 = oldest of
          the 3 (drawn first, bottom of stack), 3 = newest (drawn last, on
          top) — see bindLastReplyBubble() for the ordering. -->
     <FrameLayout
         android:layout_width="wrap_content"
-        android:layout_height="26dp">
+        android:layout_height="20dp">
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_last_reply_avatar_1"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:layout_marginStart="0dp"
             android:src="@drawable/ic_person"
-            app:civ_border_width="1dp"
-            app:civ_border_color="@color/white"
             android:visibility="gone"/>
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_last_reply_avatar_2"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="14dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="12dp"
             android:src="@drawable/ic_person"
-            app:civ_border_width="1dp"
-            app:civ_border_color="@color/white"
             android:visibility="gone"/>
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_last_reply_avatar_3"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="28dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="24dp"
             android:src="@drawable/ic_person"
-            app:civ_border_width="1dp"
-            app:civ_border_color="@color/white"
             android:visibility="gone"/>
 
     </FrameLayout>
+
+    <!-- Shown when the status has more than the 3 stacked commenters. -->
+    <TextView
+        android:id="@+id/tv_last_reply_more"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="4dp"
+        android:text="+"
+        android:textColor="#CCFFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:visibility="gone"/>
 
     <TextView
         android:id="@+id/tv_last_reply_text"

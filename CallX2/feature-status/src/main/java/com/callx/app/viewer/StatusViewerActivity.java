@@ -145,6 +145,8 @@ import com.callx.app.utils.AlertDialogStyler;
       private Query repliesSyncQuery;      // v514: keepSynced(true) while this status is on screen
       private boolean ownProfilePrewarmed; // v514
       private ValueEventListener repliesListener;
+      private ValueEventListener liveStatusListener;
+      private com.google.firebase.database.DatabaseReference liveStatusRef;
       private Runnable          replyOverlayAutoHide;
       private static final long REPLY_OVERLAY_AUTO_HIDE_MS = 4000;
       private GestureDetector swipeDetector;
@@ -262,6 +264,11 @@ import com.callx.app.utils.AlertDialogStyler;
       private boolean     columnHwLayerOn = false;
       // v508: last-reply bubble is a ViewStub (only inflated once a status really has replies)
       private View        lastReplyBubbleView;
+      private String      lastReplySig;      // newest-3 signature → skip rebind/animation when nothing changed
+      private long        replyHideAtMs, replyHideRemainingMs; // auto-hide deadline (uptime) / time left while paused
+      private boolean     replyHidePending, lastReplyExiting;
+      private View        lastReplyMoreTv;
+      private boolean     lastReplyShown;    // bubble currently on screen (entry already played)
       private android.widget.ImageView[] lastReplyAvatars;
       private TextView    lastReplyTextTv;
       // v508: the hidden Download/Forward/Repost/Stabilizer/React ImageButtons are gone — they were
@@ -280,6 +287,40 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           return textLayerView;
       }
+      /** Extends the bubble's tap area to ~48dp (visual pill stays compact). Must be cleared whenever the bubble is hidden. */
+      private void setReplyHitSlop(boolean on) {
+          final View b = lastReplyBubbleView;
+          if (b == null || !(b.getParent() instanceof android.view.ViewGroup)) return;
+          final android.view.ViewGroup parent = (android.view.ViewGroup) b.getParent();
+          if (!on) { parent.setTouchDelegate(null); return; }
+          b.post(() -> {
+              if (b.getVisibility() != View.VISIBLE || b.getWidth() == 0) return;
+              final int slopV = Math.max(0, (dpToPx(48) - b.getHeight()) / 2), slopH = dpToPx(8);
+              android.graphics.Rect r = new android.graphics.Rect(
+                      b.getLeft() - slopH, b.getTop() - slopV, b.getRight() + slopH, b.getBottom() + slopV);
+              parent.setTouchDelegate(new android.view.TouchDelegate(r, b));
+          });
+      }
+      private boolean replyCollapsed;
+      /** Collapses the pill to avatars only (text hidden) or expands it back; one short ChangeBounds, no per-frame work. */
+      private void setReplyCollapsed(boolean collapse) {
+          final View b = lastReplyBubbleView;
+          if (b == null || lastReplyTextTv == null || replyCollapsed == collapse) return;
+          replyCollapsed = collapse;
+          if (b.getVisibility() == View.VISIBLE && b instanceof android.view.ViewGroup) {
+              android.transition.TransitionManager.beginDelayedTransition((android.view.ViewGroup) b,
+                      new android.transition.ChangeBounds().setDuration(200L));
+          }
+          lastReplyTextTv.setVisibility(collapse ? View.GONE : View.VISIBLE);
+          // tap area follows the new width once the transition settles
+          handler.postDelayed(() -> { if (lastReplyShown && !chromeHidden) setReplyHitSlop(true); }, 260L);
+      }
+      private void scheduleReplyHide(long delayMs) {
+          if (replyOverlayAutoHide == null) return;
+          handler.removeCallbacks(replyOverlayAutoHide);
+          replyHideAtMs = android.os.SystemClock.uptimeMillis() + delayMs;
+          handler.postDelayed(replyOverlayAutoHide, delayMs);
+      }
       private View lastReplyBubble() {
           if (lastReplyBubbleView == null) {
               final View b = binding.stubLastReplyBubble.inflate();
@@ -289,6 +330,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       b.findViewById(R.id.iv_last_reply_avatar_2),
                       b.findViewById(R.id.iv_last_reply_avatar_3) };
               lastReplyTextTv = b.findViewById(R.id.tv_last_reply_text);
+              lastReplyMoreTv = b.findViewById(R.id.tv_last_reply_more);
           }
           return lastReplyBubbleView;
       }
@@ -555,6 +597,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       @Override
       protected void onDestroy() {
+          detachLiveStatusListener();
           detachRepliesListener();
           releasePlayer();
           destroyPlayer();
@@ -626,6 +669,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void load(String uid) {
           if (isHighlightMode) { loadHighlightAlbum(uid); return; }
+          attachLiveStatusListener(uid);
           // FAST PATH: StatusCacheManager is an app-wide, always-listening (CallxApp) copy of every
           // contact's active statuses, already sorted. Open straight from it — no Firebase round-trip
           // before the first frame. Falls through to the network read when the cache has nothing for
@@ -724,6 +768,64 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
               });
       }
+      // ── Dead-status pruning (deleted / expired while viewer is open) ──────
+      private static boolean isDead(StatusItem s, long now) {
+          return s == null || Boolean.TRUE.equals(s.deleted)
+                  || (s.expiresAt != null && s.expiresAt < now);
+      }
+      /** Drops deleted/expired items and rebuilds the segment bars. Highlights are permanent → skipped.
+       *  Returns true if the item that was current (idx) itself got removed; idx is kept pointing at the same item (or its successor). */
+      private boolean pruneDead() {
+          if (isHighlightMode || items.isEmpty()) return false;
+          final long now = System.currentTimeMillis();
+          boolean changed = false, curRemoved = false;
+          int newIdx = idx;
+          for (int i = items.size() - 1; i >= 0; i--) {
+              if (!isDead(items.get(i), now)) continue;
+              items.remove(i);
+              changed = true;
+              if (i < idx) newIdx--; else if (i == idx) curRemoved = true;
+          }
+          if (changed) { idx = Math.max(0, newIdx); buildSegmentBars(); }
+          return curRemoved;
+      }
+      private void attachLiveStatusListener(String uid) {
+          detachLiveStatusListener();
+          if (uid == null) return;
+          liveStatusRef = FirebaseUtils.getStatusRef().child(uid);
+          liveStatusListener = new ValueEventListener() {
+              @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                  if (isFinishing() || isDestroyed() || items.isEmpty()) return;
+                  final long now = System.currentTimeMillis();
+                  Set<String> alive = new HashSet<>();
+                  for (DataSnapshot c : snap.getChildren()) {
+                      try {
+                          StatusItem si = c.getValue(StatusItem.class);
+                          if (si != null && !isDead(si, now) && si.id != null) alive.add(si.id);
+                      } catch (Exception ignored) {}
+                  }
+                  StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                  boolean changed = false;
+                  for (int i = items.size() - 1; i >= 0; i--) {
+                      StatusItem it = items.get(i);
+                      if (it.id != null && !alive.contains(it.id)) { items.remove(i); changed = true; }
+                  }
+                  if (!changed) return;
+                  if (items.isEmpty()) { finish(); return; }
+                  buildSegmentBars();
+                  int pos = cur == null ? -1 : items.indexOf(cur);
+                  if (pos >= 0) { idx = pos; fillSegmentsBefore(idx); }
+                  else { stopProgress(); releasePlayer(); idx = Math.min(idx, items.size() - 1); showCurrent(); }
+              }
+              @Override public void onCancelled(@NonNull DatabaseError e) {}
+          };
+          liveStatusRef.addValueEventListener(liveStatusListener);
+      }
+      private void detachLiveStatusListener() {
+          if (liveStatusRef != null && liveStatusListener != null)
+              liveStatusRef.removeEventListener(liveStatusListener);
+          liveStatusRef = null; liveStatusListener = null;
+      }
       // ── Segment bar ───────────────────────────────────────────────────────
       private void buildSegmentBars() {
           // v509: reuse the existing ProgressBars — only add / drop the tail when the count changed
@@ -787,8 +889,11 @@ import com.callx.app.utils.AlertDialogStyler;
           detachRepliesListener();
           if (lastReplyBubbleView != null) {
               lastReplyBubbleView.animate().cancel();
+              setReplyHitSlop(false);
               lastReplyBubbleView.setVisibility(View.GONE);
+              lastReplyBubbleView.setTranslationY(0f);
           }
+          lastReplyShown = false; lastReplySig = null; lastReplyExiting = false; replyCollapsed = false;
           final StatusItem shown = s;
           deferAfterFirstFrame(seq, () -> updateLastReplyOverlay(shown));
           updateExpiryLabel(s);
@@ -2321,6 +2426,11 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void pauseProgress() {
           if (paused) return; paused = true;
+          if (replyOverlayAutoHide != null && replyHideAtMs > 0 && !lastReplyExiting) {
+              replyHideRemainingMs = Math.max(600L, replyHideAtMs - android.os.SystemClock.uptimeMillis());
+              handler.removeCallbacks(replyOverlayAutoHide);
+              replyHidePending = true;
+          }
           if (player != null) player.setPlayWhenReady(false);
           if (musicPlayer != null) { try { if (musicPlayer.isPlaying()) musicPlayer.pause(); } catch (Exception ignored) {} }
           syncMusicStickerPlaying();
@@ -2328,6 +2438,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void resumeProgress() {
           if (!paused) return; paused = false;
+          if (replyHidePending && replyOverlayAutoHide != null) { replyHidePending = false; scheduleReplyHide(replyHideRemainingMs); }
           if (player != null) player.setPlayWhenReady(true);
           cancelMusicHold();      // viewer resumed → progress is driven by remainingMs below
           cancelImageHold();
@@ -2394,11 +2505,13 @@ import com.callx.app.utils.AlertDialogStyler;
       // ── Navigation ────────────────────────────────────────────────────────
       private void next() {
           releasePlayer(); stopProgress();
-          idx++;
+          boolean curGone = pruneDead();
+          if (!curGone) idx++; // current removed → idx already points at its successor
           showCurrent();
       }
       private void previous() {
           releasePlayer(); stopProgress();
+          pruneDead();
           if (idx == 0) {
               // Instagram-style: tapping/swiping back on the very first
               // segment jumps to the previous owner/highlight in the queue
@@ -2466,6 +2579,7 @@ import com.callx.app.utils.AlertDialogStyler;
        *  segment. */
       private void switchQueueEntry(int pos) {
           releasePlayer(); stopProgress();
+          detachLiveStatusListener();
           items.clear();
           idx = 0;
           targetStatusId = null; // only meant for the FIRST owner we opened on
@@ -2572,6 +2686,14 @@ import com.callx.app.utils.AlertDialogStyler;
               if (c == null) continue;
               c.animate().cancel();
               c.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
+          }
+          // Reply bubble hides with the rest of the chrome (skip while it is already fading out on its own).
+          final View rb = lastReplyBubbleView;
+          if (rb != null && lastReplyShown && !lastReplyExiting && rb.getVisibility() == View.VISIBLE) {
+              rb.animate().cancel();
+              rb.animate().alpha(hide ? 0f : 1f).translationY(0f).setDuration(hide ? 150L : 200L).start();
+              rb.setClickable(!hide);
+              setReplyHitSlop(!hide);
           }
       }
       private void applyDrag(float dx, float dy) {
@@ -3220,14 +3342,16 @@ import com.callx.app.utils.AlertDialogStyler;
       private void updateLastReplyOverlay(StatusItem s) {
           detachRepliesListener();
           if (s == null || s.id == null || s.id.isEmpty()) {
+              setReplyHitSlop(false);
               if (lastReplyBubbleView != null) lastReplyBubbleView.setVisibility(View.GONE);
+              lastReplyShown = false; lastReplySig = null; lastReplyExiting = false; replyCollapsed = false;
               return;
           }
           // Bubble only shows the newest 3 commenters + newest text → listen to just those 3
           // (was: the whole replies node, re-downloaded + re-parsed on every new comment).
           // Needs ".indexOn": ["timestamp"] on status/$uid/$statusId/replies.
           repliesListenerRef = FirebaseUtils.getStatusRepliesRef(ownerUid, s.id)
-                  .orderByChild("timestamp").limitToLast(3);
+                  .orderByChild("timestamp").limitToLast(4); // 4th only tells us "more than 3" (+ badge)
           repliesListener = new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot snap) {
                   final ValueEventListener self = this;
@@ -3296,11 +3420,29 @@ import com.callx.app.utils.AlertDialogStyler;
           if (newestFirst.isEmpty()) {
               // No replies → never inflate the bubble; just reset it if it was shown before.
               if (lastReplyBubbleView != null) {
+                  setReplyHitSlop(false);
                   lastReplyBubbleView.setVisibility(View.GONE);
                   lastReplyBubbleView.setAlpha(1f);
               }
+              lastReplyShown = false; lastReplySig = null; lastReplyExiting = false; replyCollapsed = false;
               return;
           }
+          // Instagram-style perf: Firebase re-fires for unrelated child edits — if the newest-3
+          // (uid, ts, text) are identical, skip the whole rebind + animation + timer reset.
+          final StringBuilder sigB = new StringBuilder();
+          for (int i = 0; i < Math.min(3, newestFirst.size()); i++) {
+              StatusItem.ReplyPreview r = newestFirst.get(i);
+              sigB.append(r.uid).append('|').append(r.timestamp).append('|').append(r.avatarUrl).append('|')
+                  .append(r.text == null ? 0 : r.text.hashCode()).append(';');
+          }
+          final boolean hasMore = newestFirst.size() > 3;
+          sigB.append(hasMore ? "+" : "");
+          final String sig = sigB.toString();
+          if (lastReplyShown && sig.equals(lastReplySig)
+                  && lastReplyBubbleView != null && lastReplyBubbleView.getVisibility() == View.VISIBLE) return;
+          final boolean firstShow = !lastReplyShown || lastReplyBubbleView == null
+                  || lastReplyBubbleView.getVisibility() != View.VISIBLE;
+          lastReplySig = sig;
           final View bubble = lastReplyBubble(); // v508: inflated on first status that has replies
           final android.widget.ImageView[] slots = lastReplyAvatars;
           // slots[2] (rightmost/top-of-stack) = newest; older ones fill leftward.
@@ -3335,24 +3477,68 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           }
           StatusItem.ReplyPreview latest = newestFirst.get(0);
+          String who = latest.name != null && !latest.name.isEmpty() ? latest.name : "Someone";
+          if (who.length() > 14) who = who.substring(0, 13).trim() + "\u2026"; // long names never eat the comment
+          final String body = latest.text != null ? latest.text.replace('\n', ' ') : "";
           if (lastReplyTextTv != null) {
-              String who = latest.name != null && !latest.name.isEmpty() ? latest.name : "Someone";
-              lastReplyTextTv.setText(who + ": " + (latest.text != null ? latest.text : ""));
+              android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(who);
+              sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, who.length(),
+                      android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+              sb.append("  ");
+              int bs = sb.length();
+              sb.append(body);
+              sb.setSpan(new android.text.style.ForegroundColorSpan(0xCCFFFFFF), bs, sb.length(),
+                      android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+              lastReplyTextTv.setText(sb);
           }
+          if (lastReplyMoreTv != null) lastReplyMoreTv.setVisibility(hasMore ? View.VISIBLE : View.GONE);
+          bubble.setContentDescription("Latest comment by " + who + ": " + body
+                  + (hasMore ? ". More comments." : "") + " Double tap to view all comments.");
           bubble.animate().cancel();
-          bubble.setAlpha(1f);
           bubble.setVisibility(View.VISIBLE);
+          if (firstShow) { replyCollapsed = false; if (lastReplyTextTv != null) lastReplyTextTv.setVisibility(View.VISIBLE); }
+          else setReplyCollapsed(false);
+          final float risePx = dpToPx(8);
+          if (firstShow) {
+              // Entry: fade + 8dp rise (GPU layer only for the 220ms the animation runs).
+              bubble.setAlpha(0f);
+              bubble.setTranslationY(risePx);
+              bubble.animate().alpha(chromeHidden ? 0f : 1f).translationY(0f).setDuration(220L)
+                      .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                      .withLayer().start();
+          } else {
+              // New comment while visible: bubble stays, text cross-fades, newest avatar pops in.
+              bubble.setAlpha(chromeHidden ? 0f : 1f);
+              bubble.setTranslationY(0f);
+              if (lastReplyTextTv != null) {
+                  lastReplyTextTv.animate().cancel();
+                  lastReplyTextTv.setAlpha(0f);
+                  lastReplyTextTv.animate().alpha(1f).setDuration(160L).withLayer().start();
+              }
+              final android.widget.ImageView top = lastReplyAvatars != null ? lastReplyAvatars[lastReplyAvatars.length - 1] : null;
+              if (top != null && top.getVisibility() == View.VISIBLE) {
+                  top.animate().cancel();
+                  top.setScaleX(0.5f); top.setScaleY(0.5f);
+                  top.animate().scaleX(1f).scaleY(1f).setDuration(200L)
+                          .setInterpolator(new android.view.animation.OvershootInterpolator(2f))
+                          .withLayer().start();
+              }
+          }
+          lastReplyShown = true; lastReplyExiting = false;
+          setReplyHitSlop(!chromeHidden);
           bubble.setOnClickListener(v -> {
               if (replyOverlayAutoHide != null) handler.removeCallbacks(replyOverlayAutoHide);
               pauseProgress();
               com.callx.app.interactions.StatusRepliesBottomSheet.show(this, ownerUid, myUid, s, this::resumeProgress);
           });
           replyOverlayAutoHide = () -> {
-              bubble.animate()
-                  .alpha(0f).setDuration(300)
-                  .withEndAction(() -> bubble.setVisibility(View.GONE)).start();
+              // v7: never vanish — collapse to the avatar stack (+ badge). It stays tappable, so existing
+              // comments are always reachable; a new comment expands it again.
+              replyHideAtMs = 0;
+              setReplyCollapsed(true);
           };
-          handler.postDelayed(replyOverlayAutoHide, REPLY_OVERLAY_AUTO_HIDE_MS);
+          if (paused) { replyHidePending = true; replyHideRemainingMs = REPLY_OVERLAY_AUTO_HIDE_MS; }
+          else scheduleReplyHide(REPLY_OVERLAY_AUTO_HIDE_MS);
       }
       private void detachRepliesListener() {
           if (repliesSyncQuery != null) {
@@ -3366,6 +3552,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (replyOverlayAutoHide != null) {
               handler.removeCallbacks(replyOverlayAutoHide);
               replyOverlayAutoHide = null;
+              replyHideAtMs = 0; replyHidePending = false;
           }
       }
       /** Keeps the quick-like heart filled/outline in sync with whether I've already ❤️'d this status. */

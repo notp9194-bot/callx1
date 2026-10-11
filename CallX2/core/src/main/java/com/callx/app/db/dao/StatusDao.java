@@ -60,6 +60,13 @@ public interface StatusDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertStatus(StatusEntity status);
 
+    /** IDs of all locally stored, already-published statuses — used to drop rows Firebase no longer has. */
+    @Query("SELECT id FROM statuses WHERE scheduledAt = 0")
+    List<String> getAllPublishedIds();
+
+    @Query("DELETE FROM statuses WHERE id IN (:ids)")
+    void deleteByIds(List<String> ids);
+
     /** Prune expired statuses. Pass System.currentTimeMillis() or 0 to prune all. */
     @Query("DELETE FROM statuses WHERE expiresAt IS NOT NULL AND expiresAt < :now")
     void pruneExpired(long now);

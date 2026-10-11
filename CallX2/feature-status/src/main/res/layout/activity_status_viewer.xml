@@ -256,8 +256,11 @@
                   android:id="@+id/btn_more"
                   android:layout_width="40dp"
                   android:layout_height="40dp"
-                  android:src="@android:drawable/ic_menu_more"
+                  android:padding="8dp"
+                  android:scaleType="fitCenter"
+                  android:src="@drawable/ic_status_more_lines"
                   android:tint="@color/white"
+                  android:contentDescription="More options"
                   android:background="?attr/selectableItemBackgroundBorderless"/>
 
               <!-- Close -->

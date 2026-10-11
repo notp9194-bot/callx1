@@ -458,13 +458,17 @@ public class StatusFragment extends BaseFragment {
         statusListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 long now = System.currentTimeMillis();
-                statusMap.clear(); myStatuses.clear();
+                // Parse into temp holders first: one bad child must not leave the maps half-cleared.
+                Map<String, List<StatusItem>> newMap = new LinkedHashMap<>();
+                List<StatusItem> newMine = new ArrayList<>();
                 for (DataSnapshot userSnap : snap.getChildren()) {
                     String uid = userSnap.getKey();
                     if (uid == null || !watchedUids.contains(uid)) continue;
                     List<StatusItem> items2 = new ArrayList<>();
                     for (DataSnapshot stSnap : userSnap.getChildren()) {
-                        StatusItem item = stSnap.getValue(StatusItem.class);
+                        StatusItem item;
+                        try { item = stSnap.getValue(StatusItem.class); }
+                        catch (Exception parseErr) { continue; }
                         if (item == null || (item.deleted != null && item.deleted)) continue;
                         if (item.expiresAt != null && item.expiresAt < now) continue;
                         items2.add(item);
@@ -472,10 +476,12 @@ public class StatusFragment extends BaseFragment {
                     items2.sort((a, b) -> Long.compare(
                         a.timestamp == null ? 0 : a.timestamp,
                         b.timestamp == null ? 0 : b.timestamp));
-                    if (uid.equals(myUid())) myStatuses.addAll(items2);
+                    if (uid.equals(myUid())) newMine.addAll(items2);
                     else if (!items2.isEmpty() && !blockedUids.contains(uid))
-                        statusMap.put(uid, items2);
+                        newMap.put(uid, items2);
                 }
+                statusMap.clear(); myStatuses.clear();
+                statusMap.putAll(newMap); myStatuses.addAll(newMine);
                 rebuildStatusAdapter();
                 saveToRoom();
             }
@@ -772,12 +778,19 @@ public class StatusFragment extends BaseFragment {
         for (StatusItem si : myStatuses) toSave.add(itemToEntity(si));
         for (List<StatusItem> items2 : statusMap.values())
             for (StatusItem si : items2) toSave.add(itemToEntity(si));
-        if (!toSave.isEmpty()) {
-            com.callx.app.db.AppDatabase db =
-                com.callx.app.db.AppDatabase.getInstance(getContext());
-            Executors.newSingleThreadExecutor().execute(() ->
-                db.statusDao().insertStatuses(toSave));
-        }
+        final com.callx.app.db.AppDatabase db =
+            com.callx.app.db.AppDatabase.getInstance(getContext());
+        Executors.newSingleThreadExecutor().execute(() -> {
+            // Drop rows Firebase no longer has (deleted / expired) so a cold start can't resurrect them.
+            Set<String> keep = new HashSet<>();
+            for (com.callx.app.db.entity.StatusEntity e : toSave) keep.add(e.id);
+            List<String> stale = new ArrayList<>();
+            List<String> existing = db.statusDao().getAllPublishedIds();
+            if (existing != null) for (String id : existing) if (!keep.contains(id)) stale.add(id);
+            for (int i = 0; i < stale.size(); i += 500)
+                db.statusDao().deleteByIds(stale.subList(i, Math.min(i + 500, stale.size())));
+            if (!toSave.isEmpty()) db.statusDao().insertStatuses(toSave);
+        });
     }
 
     // ── Converters ────────────────────────────────────────────────────────
