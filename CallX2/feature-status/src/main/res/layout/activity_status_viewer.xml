@@ -140,6 +140,22 @@
           android:layout_width="match_parent"
           android:layout_height="match_parent"/>
 
+      <!-- Fixed-height top/bottom scrims (non-clickable → taps pass through to
+           touch_layer). Keep header + caption/reply bar readable over any photo,
+           independent of how tall the caption is. -->
+      <View
+          android:layout_width="match_parent"
+          android:layout_height="120dp"
+          android:layout_gravity="top"
+          android:background="@drawable/bg_status_top_scrim"
+          android:importantForAccessibility="no"/>
+      <View
+          android:layout_width="match_parent"
+          android:layout_height="140dp"
+          android:layout_gravity="bottom"
+          android:background="@drawable/bg_status_bottom_scrim"
+          android:importantForAccessibility="no"/>
+
       <!-- Interactive sticker overlay (music/countdown/quiz/question cards).
            Declared after touch_layer so a tap landing on a sticker card is
            handled by that card's own click listener instead of falling
@@ -156,6 +172,7 @@
 
       <!-- Top chrome -->
       <LinearLayout
+          android:id="@+id/ll_top_chrome"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
           android:orientation="vertical"

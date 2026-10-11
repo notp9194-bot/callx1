@@ -40,7 +40,7 @@ import java.security.MessageDigest;
 public class StatusBlurTransformation extends BitmapTransformation {
 
     private static final String ID =
-            "com.callx.app.utils.StatusBlurTransformation.v1";
+            "com.callx.app.utils.StatusBlurTransformation.v2";
     private static final byte[] ID_BYTES =
             ID.getBytes(Charset.forName("UTF-8"));
 
@@ -84,6 +84,7 @@ public class StatusBlurTransformation extends BitmapTransformation {
     @Override
     public void updateDiskCacheKey(@NonNull MessageDigest messageDigest) {
         messageDigest.update(ID_BYTES);
+        messageDigest.update(java.nio.ByteBuffer.allocate(4).putInt(radius).array()); // radius is part of the cache key
     }
 
     @Override

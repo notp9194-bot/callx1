@@ -688,6 +688,13 @@ public class NewStatusActivity extends AppCompatActivity {
         return removedAny ? Math.max(topMargin, 0) : -1;
     }
 
+    private void syncComposerMusicBars() {
+        if (musicStickerInComposer == null) return;
+        boolean playing = false;
+        try { playing = musicPreview != null && musicPreview.isPlaying(); } catch (Exception ignored) {}
+        musicStickerInComposer.setMusicPlaying(playing);
+    }
+
     private void startMusicPreview(StatusStickerOverlayView sticker) {
         stopMusicPreview();
         String url = sticker.getMusicSoundUrl();
@@ -731,6 +738,7 @@ public class NewStatusActivity extends AppCompatActivity {
             if (!previewFocus().request()) return; // e.g. call active → stay silent
             musicPreview.start();
         } catch (Exception ignored) {}
+        syncComposerMusicBars();
     }
 
     /** Screen left the foreground: pause + give audio focus back (other app's music resumes). */
@@ -738,6 +746,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (musicPreview != null) {
             try { if (musicPreview.isPlaying()) musicPreview.pause(); } catch (Exception ignored) {}
         }
+        syncComposerMusicBars();
         if (previewFocus != null) previewFocus.abandon();
     }
 
@@ -750,6 +759,7 @@ public class NewStatusActivity extends AppCompatActivity {
         musicPreviewPrepared = false;
         previewFocusLost = false;
         previewDucked = false;
+        syncComposerMusicBars();
         if (previewFocus != null) previewFocus.abandon();
     }
 

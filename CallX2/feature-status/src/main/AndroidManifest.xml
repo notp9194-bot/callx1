@@ -245,6 +245,8 @@
         <activity
             android:name="com.callx.app.viewer.StatusViewerActivity"
             android:theme="@style/Theme.CallX"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.callx.app.ACTION_OPEN_STATUS"/>

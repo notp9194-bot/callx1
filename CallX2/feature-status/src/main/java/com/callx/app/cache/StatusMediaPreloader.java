@@ -89,6 +89,12 @@ public class StatusMediaPreloader {
             preloadContactStatuses(items);
         }
     }
+    /** Public entry for the viewer: warm the first ~2MB of ONE video (the next status) into the player cache. */
+    public void preloadVideoUrl(String videoUrl) {
+        if (videoUrl == null || videoUrl.isEmpty()) return;
+        preloadVideo(videoUrl);
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────
     private void preloadSingle(StatusItem item) {
         if (item == null) return;
@@ -117,7 +123,10 @@ public class StatusMediaPreloader {
             return;
         }
         // Agar already kaafi data cache mein hai to skip
-        long cached = StatusVideoCacheManager.getCachedBytes(videoUrl);
+        long cached = 0;
+        try { // real cached byte count of the first 2MB (content-length metadata is the FULL size, not what is cached)
+            cached = StatusVideoCacheManager.getSimpleCache().getCachedBytes(videoUrl, 0, VIDEO_PRELOAD_BYTES);
+        } catch (Exception ignored) {}
         if (cached >= VIDEO_PRELOAD_BYTES) {
             Log.v(TAG, "Video already cached (" + cached + " bytes): " + shortUrl(videoUrl));
             return;

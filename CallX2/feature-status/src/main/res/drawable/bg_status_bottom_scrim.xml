@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fixed bottom scrim for the status viewer: independent of caption height, so the
+     reply bar / caption stay readable even when there is no caption at all. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="90"
+        android:startColor="#B3000000"
+        android:centerColor="#55000000"
+        android:endColor="#00000000" />
+</shape>

@@ -93,6 +93,14 @@ public class MusicTickerView extends View {
         invalidate();
     }
 
+    /** Bold/regular face for the ticker text (rebuilds the cached glyph bitmap). */
+    public void setTextBold(boolean bold) {
+        android.graphics.Typeface tf = bold ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT;
+        if (textPaint.getTypeface() == tf) return;
+        textPaint.setTypeface(tf);
+        recompute();
+    }
+
     public void setTextSizePx(float px) {
         if (textPaint.getTextSize() == px) return;
         textPaint.setTextSize(px);

@@ -204,4 +204,14 @@
          so any step-wizard screen (Reel Editor, Reel Upload, Add Status, etc.)
          can reuse the same short format without a step-name suffix. -->
     <string name="editor_step_pill_format">Step %1$d of %2$d</string>
+
+    <!-- Music sticker -->
+    <string name="music_sticker_unknown_song">Unknown Song</string>
+    <string name="music_sticker_album_art">Album art</string>
+    <string name="music_sticker_open_sound">Open sound details</string>
+    <!-- Status viewer a11y -->
+    <string name="status_photo_desc">Status photo</string>
+    <string name="status_photo_desc_with_caption">Status photo, %1$s</string>
+    <string name="status_gif_desc">Status GIF</string>
+    <string name="status_gif_desc_with_caption">Status GIF, %1$s</string>
 </resources>
