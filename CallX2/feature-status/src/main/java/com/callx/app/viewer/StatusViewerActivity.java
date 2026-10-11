@@ -242,6 +242,15 @@ import com.callx.app.utils.AlertDialogStyler;
       private View        reshareContainerView;   // null until first reshared status
       private View        quickReactionOverlayView; // null until first swipe-up-to-react
       private View        quickReactionCardView;
+      private TextView[]  quickReactionCells;
+      private androidx.activity.OnBackPressedCallback quickReactionBack;
+      private boolean     quickReactionSent;
+      private static final String[] QUICK_EMOJIS = {
+              "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE0D",   // 😂 😮 😍
+              "\uD83D\uDE22", "\uD83D\uDC4F", "\uD83D\uDD25" }; // 😢 👏 🔥
+      /** Keeps the scrim exactly above the reply bar while the keyboard moves it. */
+      private final View.OnLayoutChangeListener quickReactionBarListener =
+              (v, l, t, r, bt, ol, ot, or, ob) -> syncQuickReactionInsets();
       private boolean     columnHwLayerOn = false;
       // v508: last-reply bubble is a ViewStub (only inflated once a status really has replies)
       private View        lastReplyBubbleView;
@@ -288,21 +297,34 @@ import com.callx.app.utils.AlertDialogStyler;
           final View ov = binding.stubQuickReaction.inflate();
           quickReactionOverlayView = ov;
           quickReactionCardView = ov.findViewById(R.id.ll_quick_reaction_card);
-          View.OnClickListener emojiClick = v -> {
-              Object tag = v.getTag();
-              if (tag == null) { closeQuickReactionOverlay(); return; }
-              sendQuickReaction(tag.toString());
-              closeQuickReactionOverlay();
-          };
+          // Emojis are set from code (real UTF-16 surrogate pairs). The old "\uD83D\uDE02" escapes in the
+          // layout XML rendered as EMPTY text on device -> an empty dark card (the swipe-up "bug").
           final int[] ids = { R.id.tv_qr_1, R.id.tv_qr_2, R.id.tv_qr_3, R.id.tv_qr_4, R.id.tv_qr_5, R.id.tv_qr_6 };
-          for (int id : ids) {
-              View b = ov.findViewById(id);
-              if (b != null) b.setOnClickListener(emojiClick);
+          quickReactionCells = new TextView[ids.length];
+          for (int i = 0; i < ids.length; i++) {
+              TextView tv = ov.findViewById(ids[i]);
+              quickReactionCells[i] = tv;
+              if (tv == null) continue;
+              tv.setText(QUICK_EMOJIS[i]);
+              tv.setTag(QUICK_EMOJIS[i]);
+              tv.setOnClickListener(this::onQuickEmojiTapped);
           }
-          // Tap anywhere on the dim scrim outside the card dismisses without reacting.
-          ov.setOnClickListener(v -> closeQuickReactionOverlay());
-          // Swallow taps on the card itself so they don't bubble to the scrim above.
+          // Scrim: tap outside the grid or swipe down = dismiss (Instagram). Grid cells consume their own taps.
+          final GestureDetector scrimGestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+              @Override public boolean onDown(MotionEvent e) { return true; }
+              @Override public boolean onSingleTapUp(MotionEvent e) { closeQuickReactionOverlay(); return true; }
+              @Override public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float vx, float vy) {
+                  if (e1 != null && vy > 600 && Math.abs(vy) > Math.abs(vx)) { closeQuickReactionOverlay(); return true; }
+                  return false;
+              }
+          });
+          ov.setOnTouchListener((v, e) -> scrimGestures.onTouchEvent(e));
           if (quickReactionCardView != null) quickReactionCardView.setOnClickListener(v -> {});
+          // Back closes just the overlay (+ keyboard), not the whole viewer.
+          quickReactionBack = new androidx.activity.OnBackPressedCallback(false) {
+              @Override public void handleOnBackPressed() { closeQuickReactionOverlay(); }
+          };
+          getOnBackPressedDispatcher().addCallback(this, quickReactionBack);
           return ov;
       }
       /** Drag / cube animations: promote the whole viewer column to a GPU texture so each
@@ -2634,49 +2656,92 @@ import com.callx.app.utils.AlertDialogStyler;
        */
       // v507: the overlay is a ViewStub — inflated + wired on first swipe-up by
       // ensureQuickReactionOverlay() (no eager setup in onCreate any more).
+      private boolean isOwnStatus() { return myUid != null && myUid.equals(ownerUid); }
+
+      /** Swipe up = Instagram: big emoji grid over the story AND the reply keyboard. */
       private void openQuickReactionOverlay() {
-          if (myUid != null && myUid.equals(ownerUid)) return; // owner can't react to own status
-          final View overlay = ensureQuickReactionOverlay();
-          pauseProgress();
-          // v516: NO keyboard here. Opening the IME together with the overlay made adjustResize / IME
-          // insets shrink the story card and push the emoji card out of place. The keyboard now opens
-          // only when the user taps the "Send message" pill (see focus listener -> hide overlay only).
-          // The scrim ends where the reply bar starts, so the pill stays tappable under the overlay.
-          overlay.animate().cancel(); // a pending fade-out end action must not hide a re-opened overlay
-          android.view.ViewGroup.LayoutParams lp = overlay.getLayoutParams();
-          if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
-              android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
-              int bar = binding.llReplyBar.getHeight();
-              if (mlp.bottomMargin != bar) { mlp.bottomMargin = bar; overlay.setLayoutParams(mlp); }
+          if (isOwnStatus()) return; // owner can't react to own status
+          showQuickReactionUi();
+          if (binding.etReply != null) {
+              binding.etReply.requestFocus();
+              android.view.inputmethod.InputMethodManager imm =
+                      (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+              if (imm != null) imm.showSoftInput(binding.etReply, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
           }
+      }
+
+      /** Scrim bottom edge = reply bar top, so the grid is centered in the (keyboard-shrunk) story area. */
+      private void syncQuickReactionInsets() {
+          final View ov = quickReactionOverlayView;
+          if (ov == null) return;
+          android.view.ViewGroup.LayoutParams lp = ov.getLayoutParams();
+          if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+              android.view.ViewGroup.MarginLayoutParams m = (android.view.ViewGroup.MarginLayoutParams) lp;
+              int bar = binding.llReplyBar.getHeight();
+              if (m.bottomMargin != bar) { m.bottomMargin = bar; ov.setLayoutParams(m); }
+          }
+      }
+
+      /** Shows the grid (idempotent). Used by swipe-up AND by tapping the "Send message" pill. */
+      private void showQuickReactionUi() {
+          if (isOwnStatus()) return;
+          final View overlay = ensureQuickReactionOverlay();
+          if (overlay.getVisibility() == View.VISIBLE && overlay.getAlpha() > 0f) return;
+          pauseProgress();
+          quickReactionSent = false;
+          overlay.animate().cancel(); // a pending fade-out end action must not hide a re-opened overlay
+          syncQuickReactionInsets();
+          binding.llReplyBar.removeOnLayoutChangeListener(quickReactionBarListener);
+          binding.llReplyBar.addOnLayoutChangeListener(quickReactionBarListener);
           overlay.setAlpha(0f);
           overlay.setVisibility(View.VISIBLE);
-          overlay.animate().alpha(1f).setDuration(150).start();
-          if (quickReactionCardView != null) {
-              quickReactionCardView.animate().cancel();
-              quickReactionCardView.setScaleX(0.85f);
-              quickReactionCardView.setScaleY(0.85f);
-              quickReactionCardView.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+          overlay.animate().alpha(1f).setDuration(140).start();
+          // staggered pop-in, slight overshoot — each emoji bounces in one after the other
+          if (quickReactionCells != null) {
+              final android.view.animation.OvershootInterpolator pop = new android.view.animation.OvershootInterpolator(2.2f);
+              for (int i = 0; i < quickReactionCells.length; i++) {
+                  final TextView c = quickReactionCells[i];
+                  if (c == null) continue;
+                  c.animate().cancel();
+                  c.setAlpha(0f); c.setScaleX(0.3f); c.setScaleY(0.3f);
+                  c.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                          .setStartDelay(40L + i * 35L).setDuration(240).setInterpolator(pop).start();
+              }
           }
+          if (quickReactionBack != null) quickReactionBack.setEnabled(true);
       }
-      /** Hides the swipe-up overlay only (keyboard / focus untouched) — used when the reply pill takes over. */
-      private void hideQuickReactionOverlayOnly() {
+
+      /** Hides the grid only (keyboard / focus untouched). */
+      private void hideQuickReactionUi() {
           final View overlay = quickReactionOverlayView;
+          if (quickReactionBack != null) quickReactionBack.setEnabled(false);
+          binding.llReplyBar.removeOnLayoutChangeListener(quickReactionBarListener);
           if (overlay == null || overlay.getVisibility() != View.VISIBLE) return;
-          overlay.animate().cancel();
-          overlay.setVisibility(View.GONE);
-      }
-      private void closeQuickReactionOverlay() {
-          final View overlay = quickReactionOverlayView;
-          if (overlay == null) return; // never opened → nothing to close
           overlay.animate().cancel();
           overlay.animate().alpha(0f).setDuration(120)
                   .withEndAction(() -> overlay.setVisibility(View.GONE)).start();
+      }
+
+      private void closeQuickReactionOverlay() {
+          if (quickReactionOverlayView == null) return; // never opened → nothing to close
+          hideQuickReactionUi();
           android.view.inputmethod.InputMethodManager imm =
                   (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
           if (imm != null && binding.etReply != null) imm.hideSoftInputFromWindow(binding.etReply.getWindowToken(), 0);
           if (binding.etReply != null) binding.etReply.clearFocus();
           resumeProgress();
+      }
+
+      private void onQuickEmojiTapped(View v) {
+          Object tag = v.getTag();
+          if (tag == null || quickReactionSent) return;
+          quickReactionSent = true; // ignore double-taps while the pop animation plays
+          v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+          v.animate().cancel();
+          v.animate().scaleX(1.7f).scaleY(1.7f).setStartDelay(0).setDuration(110)
+                  .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+          sendQuickReaction(tag.toString());          // Firebase + chat bubble + floating burst (burst shows once grid is gone)
+          handler.postDelayed(this::closeQuickReactionOverlay, 140);
       }
       /** Shared by the emoji grid and can be reused anywhere a one-tap emoji reaction is needed. */
       private void sendQuickReaction(String emoji) {
@@ -2739,7 +2804,8 @@ import com.callx.app.utils.AlertDialogStyler;
           // v511: "Send message" pill = PRIVATE reply (chat DM only). Typing happens inline,
           // like Instagram. No bottom sheet opens from the pill anymore.
           binding.etReply.setOnFocusChangeListener((v, has) -> {
-              if (has) { hideQuickReactionOverlayOnly(); pauseProgress(); } else resumeProgress();
+              if (has) { showQuickReactionUi(); pauseProgress(); }
+              else { hideQuickReactionUi(); resumeProgress(); }
           });
           binding.btnSendReply.setOnClickListener(v -> {
               String msg = binding.etReply.getText() != null
