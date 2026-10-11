@@ -1603,6 +1603,13 @@ public class NewStatusActivity extends AppCompatActivity {
             .setPositiveButton("Preview", (d, w) -> {
                 String url = et.getText().toString().trim();
                 if (url.isEmpty()) return;
+                Uri parsed = Uri.parse(url);
+                String scheme = parsed.getScheme();
+                if (!("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
+                        || parsed.getHost() == null) {
+                    toast("Enter a valid http(s) link");
+                    return;
+                }
                 fetchedPreview = null;
                 pickedImage = Uri.parse(url); pickedVideo = null;
                 showImagePreview(pickedImage);
@@ -1957,6 +1964,7 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     private void discardMedia() {
         pickedImage = null; pickedVideo = null; cameraImageUri = null;
+        binding.btnPickImage.setTag(null);
         pendingCustomThumbnailFile = null;
         binding.ivPreview.setVisibility(View.GONE);
         binding.ivVideoHint.setVisibility(View.GONE);
@@ -1983,7 +1991,11 @@ public class NewStatusActivity extends AppCompatActivity {
     private void post() {
         String txt     = binding.etText.getText().toString().trim();
         String caption = binding.etCaption != null ? binding.etCaption.getText().toString().trim() : "";
-        boolean isGif  = "gif".equals(binding.btnPickImage.getTag());
+        // the "gif" tag is only trusted while pickedImage is still the pasted web URL — a
+        // later gallery/camera pick must never be saved as a gif with a local content:// URI
+        boolean isGif  = "gif".equals(binding.btnPickImage.getTag())
+                && pickedImage != null
+                && ("https".equalsIgnoreCase(pickedImage.getScheme()) || "http".equalsIgnoreCase(pickedImage.getScheme()));
         if (pickedImage == null && pickedVideo == null && txt.isEmpty() && fetchedPreview == null) {
             toast("Kuch text ya media add karo"); return;
         }
@@ -2018,14 +2030,24 @@ public class NewStatusActivity extends AppCompatActivity {
             saveStatus("text", null, null, txt, caption, uid, name, photo);
         }
     }
+    // Photo size from ImageCompressor → stored on the status (mediaWidth/mediaHeight) so
+    // viewers can reserve the right aspect box. Consumed (reset) by saveStatus/saveBatchStatus.
+    private int pendingMediaW = 0, pendingMediaH = 0;
+    private static final int STATUS_PHOTO_THUMB_PX = 320;
+    // Stories are viewed full-screen: use ImageCompressor's HD tier (1920x2560 @ q92, ~3MB cap)
+    // instead of Standard (1280x1920 @ q80, 800KB cap) so photos stay as sharp as Instagram's.
+    private static final boolean STATUS_PHOTO_HD = true;
+
     private void compressAndUploadImage(Uri uri, String caption, String txt, String uid, String name, String photo) {
         runOnUiThread(() -> setHint("Compressing image…"));
-        ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
+        ImageCompressor.compress(this, uri, STATUS_PHOTO_HD, new ImageCompressor.Callback() {
             @Override public void onSuccess(ImageCompressor.Result r) {
+                pendingMediaW = r.fullWidth; pendingMediaH = r.fullHeight;
                 runOnUiThread(() -> setHint("Uploading image…"));
                 uploadAndSave(Uri.fromFile(r.fullFile), "image", caption, txt, uid, name, photo, r.thumbFile);
             }
             @Override public void onError(Exception e) {
+                pendingMediaW = 0; pendingMediaH = 0;
                 runOnUiThread(() -> setHint("Uploading image…"));
                 uploadAndSave(uri, "image", caption, txt, uid, name, photo, null);
             }
@@ -2077,6 +2099,10 @@ public class NewStatusActivity extends AppCompatActivity {
                     // saving a thumbnailUrl until the person's own pick has
                     // uploaded and can patch it in below instead.
                     String thumbUrl = ("video".equals(type) && !forceCustomThumb) ? r.thumbnailUrl : null;
+                    // Photos used to get NO thumbnailUrl at all → viewer had nothing to blur-up from
+                    // (black flash) and tray/highlight covers loaded the full-size file. Derive a
+                    // real aspect-preserving 320px variant from the Cloudinary URL (no extra upload).
+                    if ("image".equals(type)) thumbUrl = CloudinaryUploader.deriveLimitThumbUrl(r.secureUrl, STATUS_PHOTO_THUMB_PX);
                     if (!forceCustomThumb) VideoCompressor.safeDelete(thumbFile);
                     saveStatus(type, r.secureUrl, thumbUrl, txt, caption, uid, name, photo);
                     // FIX v25: If thumb was locally generated and Cloudinary didn't return one, upload separately
@@ -2124,6 +2150,10 @@ public class NewStatusActivity extends AppCompatActivity {
         item.caption          = caption.isEmpty() ? null : caption;
         item.mediaUrl         = mediaUrl;
         item.thumbnailUrl     = thumbUrl;
+        if ("image".equals(type) && pendingMediaW > 0 && pendingMediaH > 0) {
+            item.mediaWidth = pendingMediaW; item.mediaHeight = pendingMediaH;
+        }
+        pendingMediaW = 0; pendingMediaH = 0;
         item.bgColor          = String.format("#%08X", selectedBgColor);
         item.fontStyle        = selectedFontStyle;
         item.textColor        = String.format("#%08X", selectedTextColor);
@@ -2278,12 +2308,14 @@ public class NewStatusActivity extends AppCompatActivity {
                 }
             });
         } else {
-            ImageCompressor.compress(this, uri, new ImageCompressor.Callback() {
+            ImageCompressor.compress(this, uri, STATUS_PHOTO_HD, new ImageCompressor.Callback() {
                 @Override public void onSuccess(ImageCompressor.Result r) {
+                    pendingMediaW = r.fullWidth; pendingMediaH = r.fullHeight;
                     runOnUiThread(() -> setHint("Uploading image…"));
                     uploadBatchAndSave(Uri.fromFile(r.fullFile), "image", caption, uid, name, photo, r.thumbFile);
                 }
                 @Override public void onError(Exception e) {
+                    pendingMediaW = 0; pendingMediaH = 0;
                     runOnUiThread(() -> setHint("Uploading image…"));
                     uploadBatchAndSave(uri, "image", caption, uid, name, photo, null);
                 }
@@ -2297,7 +2329,8 @@ public class NewStatusActivity extends AppCompatActivity {
         CloudinaryUploader.upload(this, uri, "callx/status", rt, new CloudinaryUploader.UploadCallback() {
             @Override public void onSuccess(CloudinaryUploader.Result r) {
                 runOnUiThread(() -> {
-                    String thumbUrl = "video".equals(type) ? r.thumbnailUrl : null;
+                    String thumbUrl = "video".equals(type) ? r.thumbnailUrl
+                            : CloudinaryUploader.deriveLimitThumbUrl(r.secureUrl, STATUS_PHOTO_THUMB_PX);
                     if (thumbFile != null) VideoCompressor.safeDelete(thumbFile);
                     saveBatchStatus(type, r.secureUrl, thumbUrl, caption, uid, name, photo);
                 });
@@ -2326,6 +2359,10 @@ public class NewStatusActivity extends AppCompatActivity {
         item.caption        = (caption == null || caption.isEmpty()) ? null : caption;
         item.mediaUrl       = mediaUrl;
         item.thumbnailUrl   = thumbUrl;
+        if ("image".equals(type) && pendingMediaW > 0 && pendingMediaH > 0) {
+            item.mediaWidth = pendingMediaW; item.mediaHeight = pendingMediaH;
+        }
+        pendingMediaW = 0; pendingMediaH = 0;
         item.bgColor        = String.format("#%08X", selectedBgColor);
         item.fontStyle      = selectedFontStyle;
         item.textColor      = String.format("#%08X", selectedTextColor);

@@ -214,4 +214,10 @@
     <string name="status_photo_desc_with_caption">Status photo, %1$s</string>
     <string name="status_gif_desc">Status GIF</string>
     <string name="status_gif_desc_with_caption">Status GIF, %1$s</string>
+    <string name="status_reply_hint">Send message</string>
+    <string name="status_react_desc">React with emoji</string>
+    <string name="status_share_desc">Share story</string>
+    <string name="status_time_now">now</string>
+    <string name="status_load_failed">Couldn\'t load this status\nTap to try again</string>
+    <string name="status_load_failed_desc">Couldn\'t load this status. Double tap to try again.</string>
 </resources>

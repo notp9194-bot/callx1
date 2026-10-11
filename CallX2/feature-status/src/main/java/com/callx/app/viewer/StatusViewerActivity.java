@@ -151,22 +151,29 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           hideSystemBars();
           final float d = getResources().getDisplayMetrics().density;
-          final int topBase = (int) (8 * d), bottomBase = (int) (12 * d);
+          final int cardTopGap = (int) (12 * d), replyBottomBase = (int) (12 * d);
           androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(binding.getRoot(), (v, insets) -> {
-              androidx.core.graphics.Insets top = insets.getInsets(
+              // Status bars are hidden (immersive) → plain getInsets() would be 0 for them. Use the
+              // visibility-ignoring variant so the story card always starts BELOW where the status
+              // bar / notch is, like Instagram's card, instead of jamming against the screen edge.
+              androidx.core.graphics.Insets top = insets.getInsetsIgnoringVisibility(
                       androidx.core.view.WindowInsetsCompat.Type.systemBars()
                               | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
               androidx.core.graphics.Insets bottom = insets.getInsets(
                       androidx.core.view.WindowInsetsCompat.Type.systemBars()
                               | androidx.core.view.WindowInsetsCompat.Type.displayCutout()
-                              | androidx.core.view.WindowInsetsCompat.Type.ime()); // keyboard lifts the reply/caption bar
-              // header (progress bars, name, time) clears the notch / status bar
-              binding.llTopChrome.setPadding(binding.llTopChrome.getPaddingLeft(), topBase + top.top,
-                      binding.llTopChrome.getPaddingRight(), binding.llTopChrome.getPaddingBottom());
-              // caption / reply bar clears the gesture-nav bar (and keyboard)
-              binding.llBottomChrome.setPadding(binding.llBottomChrome.getPaddingLeft(),
-                      binding.llBottomChrome.getPaddingTop(), binding.llBottomChrome.getPaddingRight(),
-                      bottomBase + bottom.bottom);
+                              | androidx.core.view.WindowInsetsCompat.Type.ime()); // keyboard lifts the reply bar (card shrinks)
+              // story card clears the notch / status bar (header lives INSIDE the card now)
+              android.view.ViewGroup.MarginLayoutParams cardLp =
+                      (android.view.ViewGroup.MarginLayoutParams) binding.flStoryCard.getLayoutParams();
+              if (cardLp.topMargin != top.top + cardTopGap) {
+                  cardLp.topMargin = top.top + cardTopGap;
+                  binding.flStoryCard.setLayoutParams(cardLp);
+              }
+              // reply bar (below the card) clears the gesture-nav bar (and keyboard)
+              binding.llReplyBar.setPadding(binding.llReplyBar.getPaddingLeft(),
+                      binding.llReplyBar.getPaddingTop(), binding.llReplyBar.getPaddingRight(),
+                      replyBottomBase + bottom.bottom);
               return insets;
           });
           androidx.core.view.ViewCompat.requestApplyInsets(binding.getRoot());
@@ -900,24 +907,43 @@ import com.callx.app.utils.AlertDialogStyler;
 
       // ── Load-failure UI: one silent auto-retry, then a tap-to-retry card ──
       private void showImageLoadError(final String url, final String caption) {
+          showLoadErrorCard(() -> showImageStatusFromUrl(url, caption, 0));
+      }
+
+      /** Tap-to-retry card shared by photo + GIF. Text comes from strings.xml;
+       *  exposed to TalkBack as a live-announced button with a 48dp touch target. */
+      private void showLoadErrorCard(final Runnable retry) {
           View old = binding.flStickerOverlay.findViewWithTag("img_load_error");
           if (old != null) binding.flStickerOverlay.removeView(old); // only the error card — stickers stay
+          final float density = getResources().getDisplayMetrics().density;
           TextView tv = new TextView(this);
           tv.setTag("img_load_error");
-          tv.setText("Photo load nahi hui\nTap karke dobara try karo");
+          tv.setText(com.callx.app.core.R.string.status_load_failed);
           tv.setTextColor(Color.WHITE);
           tv.setTextSize(14);
           tv.setGravity(Gravity.CENTER);
-          int pad = (int) (16 * getResources().getDisplayMetrics().density);
+          int pad = (int) (16 * density);
           tv.setPadding(pad * 2, pad, pad * 2, pad);
+          tv.setMinHeight((int) (48 * density));
           android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
           bg.setColor(0xCC000000);
-          bg.setCornerRadius(14 * getResources().getDisplayMetrics().density);
+          bg.setCornerRadius(14 * density);
           tv.setBackground(bg);
           tv.setClickable(true);
+          tv.setFocusable(true);
+          tv.setContentDescription(getString(com.callx.app.core.R.string.status_load_failed_desc));
+          tv.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+          androidx.core.view.ViewCompat.setAccessibilityDelegate(tv,
+                  new androidx.core.view.AccessibilityDelegateCompat() {
+              @Override public void onInitializeAccessibilityNodeInfo(View host,
+                      androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+                  super.onInitializeAccessibilityNodeInfo(host, info);
+                  info.setClassName(android.widget.Button.class.getName());
+              }
+          });
           tv.setOnClickListener(v -> {
               binding.flStickerOverlay.removeView(v);
-              showImageStatusFromUrl(url, caption, 0);
+              retry.run();
           });
           binding.flStickerOverlay.addView(tv, new FrameLayout.LayoutParams(
                   FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
@@ -983,7 +1009,7 @@ import com.callx.app.utils.AlertDialogStyler;
                    }
                });
           if (thumbReq != null) fgReq = fgReq.thumbnail(thumbReq);
-          else fgReq = fgReq.placeholder(android.R.drawable.screen_background_dark);
+          else fgReq = fgReq.placeholder(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); // blurred backdrop (ivStatusBg) shows through instead of a flat black flash
           fgReq.transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(150)).into(binding.ivStatus);
           binding.ivStatus.setContentDescription(TextUtils.isEmpty(caption)
                   ? getString(com.callx.app.core.R.string.status_photo_desc)
@@ -1003,20 +1029,64 @@ import com.callx.app.utils.AlertDialogStyler;
           }
       }
       private void showGifStatus(StatusItem s) {
-          binding.ivStatus.setVisibility(View.VISIBLE);
           String url = s.gifUrl != null ? s.gifUrl : s.stickerUrl != null ? s.stickerUrl : s.mediaUrl;
-          if (url != null)
-              Glide.with(this).asGif().load(url)
-                   .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.DATA)
-                   .apply(new com.bumptech.glide.request.RequestOptions()
-                           .transform(new com.bumptech.glide.load.resource.bitmap.RoundedCorners(mediaCornerPx())))
-                   .placeholder(android.R.drawable.screen_background_dark)
-                   .into(binding.ivStatus);
           binding.ivStatus.setContentDescription(TextUtils.isEmpty(s.caption)
                   ? getString(com.callx.app.core.R.string.status_gif_desc)
                   : getString(com.callx.app.core.R.string.status_gif_desc_with_caption, s.caption));
           showCaption(s.caption);
-          startProgress(4_000L);
+          if (url == null || url.isEmpty()) { startProgress(4_000L); return; }
+          loadGif(url, 0);
+      }
+
+      /** attempt 0 = animated (asGif); attempt 1 = plain drawable decode (a static
+       *  PNG/WebP sticker fails asGif); after that → tap-to-retry card. Photo parity:
+       *  blurred backdrop, progress held until the frame is actually on screen. */
+      private void loadGif(final String url, final int attempt) {
+          binding.ivStatus.setVisibility(View.VISIBLE);
+          binding.ivStatusBg.setVisibility(View.VISIBLE);
+          final int reqIdx = idx;
+          beginImageHold(4_000L);
+          Glide.with(this).asBitmap().load(url)
+               .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+               .apply(imgBgOptions())
+               .into(binding.ivStatusBg);
+          com.bumptech.glide.request.RequestOptions fgOpts = new com.bumptech.glide.request.RequestOptions()
+                  .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                  .transform(new com.bumptech.glide.load.resource.bitmap.FitCenter(),
+                          new com.bumptech.glide.load.resource.bitmap.RoundedCorners(mediaCornerPx()));
+          final android.graphics.drawable.Drawable none = new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT);
+          if (attempt == 0) {
+              Glide.with(this).asGif().load(url).apply(fgOpts).placeholder(none)
+                   .listener(this.<com.bumptech.glide.load.resource.gif.GifDrawable>gifListener(url, attempt, reqIdx))
+                   .into(binding.ivStatus);
+          } else {
+              Glide.with(this).load(url).apply(fgOpts).placeholder(none)
+                   .listener(this.<android.graphics.drawable.Drawable>gifListener(url, attempt, reqIdx))
+                   .into(binding.ivStatus);
+          }
+      }
+
+      private <R> com.bumptech.glide.request.RequestListener<R> gifListener(
+              final String url, final int attempt, final int reqIdx) {
+          return new com.bumptech.glide.request.RequestListener<R>() {
+              @Override public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
+                      com.bumptech.glide.request.target.Target<R> target, boolean isFirstResource) {
+                  if (idx != reqIdx || isFinishing() || isDestroyed()) return false;
+                  if (attempt == 0) {
+                      handler.post(() -> { if (idx == reqIdx && !isFinishing() && !isDestroyed()) loadGif(url, 1); });
+                  } else {
+                      releaseImageHold();
+                      showLoadErrorCard(() -> loadGif(url, 0));
+                  }
+                  return false;
+              }
+              @Override public boolean onResourceReady(R resource, Object model,
+                      com.bumptech.glide.request.target.Target<R> target,
+                      com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                  if (idx == reqIdx) releaseImageHold();
+                  return false;
+              }
+          };
       }
       @OptIn(markerClass = UnstableApi.class)
       private void showVideoStatus(StatusItem s) {
@@ -1914,808 +1984,6 @@ import com.callx.app.utils.AlertDialogStyler;
           tv.setEllipsize(TextUtils.TruncateAt.END);
           resumeProgress();
       }
-      // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref
-          binding.tvLocationTag.setVisibility(View.GONE);
-          binding.flStickerOverlay.removeAllViews();
-          stickerZoomScrim = null; // just got removed along with everything else above
-          videoUnderMusic = false; // new status → its own video starts at normal volume
-          cancelMusicHold();    // a hold from the previous status must never start this one's progress
-          cancelImageHold();
-          releaseMusicPlayer(); // stop the previous status's music sticker (+ give audio focus back)
-          hideStatusSongTicker(); // reset the below-name audio ticker; renderStickers() re-shows it if this status has one
-      }
-
-      /** Hides + pauses the below-name audio-name ticker (ll_status_song_row /
-       *  tv_status_song_name) — called on every status change before the next
-       *  status's stickers (if any) are rendered. */
-      private void hideStatusSongTicker() {
-          if (binding.llStatusSongRow != null) binding.llStatusSongRow.setVisibility(View.GONE);
-          if (binding.tvStatusSongName != null) binding.tvStatusSongName.pause();
-      }
-
-      /** Shows the below-name audio ticker for a music sticker found on the
-       *  current status — "Song · Artist" (falls back to just the song name
-       *  when no artist is set), same "Song · Artist" join format as the reel
-       *  player's ReelUiController#buildMusicDisplay(). Called once per music
-       *  sticker from renderStickers(); harmless if a status somehow has more
-       *  than one (last one wins, matches "only shows one row" reel behavior). */
-      private void showStatusSongTicker(StatusStickerOverlayView sticker) {
-          if (binding.llStatusSongRow == null || binding.tvStatusSongName == null) return;
-          String song = sticker.getMusicSong();
-          if (song == null || song.isEmpty()) return;
-          String artist = sticker.getMusicArtist();
-          String display = (artist != null && !artist.isEmpty() && !song.contains(artist))
-                  ? song + " · " + artist : song;
-          binding.tvStatusSongName.setText(display);
-          binding.llStatusSongRow.setVisibility(View.VISIBLE);
-          binding.tvStatusSongName.resume();
-      }
-
-      // ── Music sticker inline autoplay ────────────────────────────────────
-      // Starts playing a music sticker's linked preview clip as soon as the
-      // status carrying it is shown. Uses its own MediaPlayer (not the
-      // ExoPlayer `player` field, which is reserved for the status's own
-      // video track) so a music sticker plays regardless of whether the
-      // status itself is a photo, text card, video, or gif.
-      //
-      // Polish round (v479):
-      //  (1) AUDIO FOCUS  — StatusAudioFocusHelper: pauses other apps' music while
-      //      we play, pauses/resumes on calls, ducks on request.
-      //  (3) FAIL FALLBACK — if the sticker's direct soundUrl errors out, we retry
-      //      once via the soundId lookup (sounds/ → musicLibrary/); if that fails
-      //      too the viewer sees a short toast instead of silence.
-      //  (4) SYNC START   — for photo/text/gif statuses the progress bar is held
-      //      (max MUSIC_HOLD_TIMEOUT_MS) until the audio is prepared, so bar and
-      //      music start together instead of the music arriving seconds late.
-
-      /** Longest we keep the progress bar waiting for the music to buffer. */
-      private static final long MUSIC_HOLD_TIMEOUT_MS = 3_000L;
-
-      // (2) A VIDEO status that also carries a music sticker used to play BOTH
-      // soundtracks at full volume (video's own audio + the sticker's song).
-      // Now the video's own audio is ducked to this level while the sticker music
-      // is in play. Set to 0f if you'd rather the song fully replace the original
-      // audio (Instagram-style); 1f restores the old "both full" behaviour.
-      private static final float VIDEO_VOLUME_UNDER_MUSIC = 0.25f;
-      private boolean videoUnderMusic = false;           // this status's video should be ducked
-      // (5) Full-length tracks (no preview URL) used to play from 0:00 for minutes.
-      // StatusMusicClip plays a ~30s highlight (or the poster's trimmed range) instead.
-      private final StatusMusicClip musicClip = new StatusMusicClip();
-      private int stickerMusicStartMs = 0;   // current status's sticker clip range (0 = unset)
-      private int stickerMusicEndMs   = 0;
-      private StatusAudioFocusHelper musicFocus;      // lazily created
-      private boolean musicPrepared   = false;        // MediaPlayer reached prepared state
-      private boolean musicFocusLost  = false;        // paused because another app/call took focus
-      private boolean musicDucked     = false;        // another app asked us to be quiet
-      private boolean musicHolding    = false;        // progress bar is waiting for the music
-      private long    musicHoldTotalMs = 0L;          // full duration to start once released
-      private final Runnable musicHoldTimeout = () -> releaseMusicHold();
-
-      private StatusAudioFocusHelper musicFocus() {
-          if (musicFocus == null) {
-              musicFocus = new StatusAudioFocusHelper(this, new StatusAudioFocusHelper.Listener() {
-                  @Override public void onFocusLost() {
-                      musicFocusLost = true;
-                      if (musicPlayer != null) {
-                          try { if (musicPlayer.isPlaying()) musicPlayer.pause(); } catch (Exception ignored) {}
-                      }
-                      syncMusicStickerPlaying();
-                  }
-                  @Override public void onFocusRegained() {
-                      musicFocusLost = false;
-                      if (!paused) resumeMusicPlayback();
-                  }
-                  @Override public void onDuck(boolean ducked) {
-                      musicDucked = ducked;
-                      applyMusicVolume();
-                  }
-              });
-          }
-          return musicFocus;
-      }
-
-      /** Bars + ticker on the music sticker follow real playback (not paused, not muted). */
-      private void syncMusicStickerPlaying() {
-          if (musicStickerView == null) return;
-          boolean playing = false;
-          try { playing = musicPlayer != null && musicPlayer.isPlaying() && !isMuted; } catch (Exception ignored) {}
-          musicStickerView.setMusicPlaying(playing);
-      }
-
-      /** Single place that decides the status VIDEO volume (mute + sticker-music ducking). */
-      private void applyVideoVolume() {
-          if (player == null) return;
-          float v = isMuted ? 0f : (videoUnderMusic ? VIDEO_VOLUME_UNDER_MUSIC : 1f);
-          try { player.setVolume(v); } catch (Exception ignored) {}
-      }
-
-      /** Muted viewers don't take focus (we would silence their other app for nothing). */
-      private boolean acquireMusicFocus() {
-          if (isMuted) return true;
-          return musicFocus().request();
-      }
-
-      /** Single place that decides the music volume (mute + duck). */
-      private void applyMusicVolume() {
-          if (musicPlayer == null) return;
-          float v = isMuted ? 0f : (musicDucked ? 0.2f : 1f);
-          try { musicPlayer.setVolume(v, v); } catch (Exception ignored) {}
-      }
-
-      /** Start/continue the music if it is prepared, allowed and we can get focus. */
-      private void resumeMusicPlayback() {
-          if (musicPlayer == null || !musicPrepared || musicFocusLost) return;
-          try {
-              if (musicPlayer.isPlaying()) return;
-              if (!acquireMusicFocus()) return; // e.g. a call is active — stay silent
-              musicPlayer.start();
-          } catch (Exception ignored) {}
-          syncMusicStickerPlaying();
-      }
-
-      // ── (4) progress-bar hold while the music buffers ───────────────────
-      private void beginMusicHold(StatusItem item) {
-          if (paused || (progressRunner == null && !imageHolding)) return;
-          // Videos keep their own timing — never make a video wait for the sticker music.
-          if (item != null && ("video".equals(item.type) || "reel_story".equals(item.type)
-                  || "reel_clip".equals(item.type))) return;
-          musicHoldTotalMs = remainingMs; // startProgress() just set this to the full duration
-          stopProgress();
-          musicHolding = true;
-          handler.removeCallbacks(musicHoldTimeout);
-          handler.postDelayed(musicHoldTimeout, MUSIC_HOLD_TIMEOUT_MS);
-      }
-      /** Audio ready (or gave up / timed out) → let the progress bar run. */
-      private void releaseMusicHold() {
-          handler.removeCallbacks(musicHoldTimeout);
-          if (!musicHolding) return;
-          musicHolding = false;
-          // If the viewer is holding the screen right now, resumeProgress() will start
-          // the bar later using remainingMs, so there's nothing to do here.
-          if (imageHolding) return;          // photo still loading → its release starts the bar
-          if (!paused) startProgress(musicHoldTotalMs);
-      }
-      /** Status changed / closed → forget the hold WITHOUT starting any progress. */
-      private void cancelMusicHold() {
-          handler.removeCallbacks(musicHoldTimeout);
-          musicHolding = false;
-      }
-
-      /**
-       * @param url             direct playable URL from the sticker (may be escaped, see below)
-       * @param fallbackSoundId if non-empty and this URL fails, retry once by soundId lookup
-       * @param requestedIdx    status index this audio belongs to (stale callbacks are dropped)
-       */
-      private void startMusicStickerAudio(String url, final String fallbackSoundId, final int requestedIdx) {
-          Log.d(DBG, "startMusicStickerAudio url=" + url + " isMuted=" + isMuted + " paused=" + paused);
-          // Defensive: a JSON-escaped URL ("https:\\/\\/host\\/a.mp3") is never playable.
-          // Root fix is in StatusStickerOverlayView.jsonStr(); this guards any other path.
-          if (url != null) url = url.replace("\\/", "/");
-          final String playUrl = url;
-          releaseMusicPlayerKeepFocus(); // keep focus: we are about to play again, avoids other-app flicker
-          if (playUrl == null || playUrl.isEmpty()) {
-              handleMusicFailure(fallbackSoundId, requestedIdx, 0, 0);
-              return;
-          }
-          try {
-              final android.media.MediaPlayer mp = new android.media.MediaPlayer();
-              musicPlayer = mp;
-              mp.setAudioAttributes(new android.media.AudioAttributes.Builder()
-                      .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                      .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                      .build());
-              mp.setDataSource(playUrl);
-              // Loop so the clip keeps playing even if it's shorter than however
-              // long the viewer ends up spending on this status.
-              mp.setLooping(true);
-              applyMusicVolume();
-              mp.setOnPreparedListener(p -> {
-                  // Stale callback (viewer already swiped to another status)? ignore.
-                  if (musicPlayer != p || idx != requestedIdx) return;
-                  musicPrepared = true;
-                  // (5) jump to the highlight BEFORE start(); false → short preview, plays whole + loops
-                  musicClip.apply(p, stickerMusicStartMs, stickerMusicEndMs);
-                  releaseMusicHold(); // (4) bar + audio now start together
-                  Log.d(DBG, "startMusicStickerAudio prepared, paused=" + paused);
-                  if (!paused) resumeMusicPlayback(); // (1) takes audio focus, then start()
-              });
-              mp.setOnErrorListener((p, what, extra) -> {
-                  if (musicPlayer != p) return true; // stale player
-                  // Bad/expired URL, unsupported codec, network failure ... all land here.
-                  CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.musicSticker.onError",
-                          new RuntimeException("MediaPlayer error what=" + what + " extra=" + extra + " url=" + playUrl));
-                  releaseMusicPlayerKeepFocus();
-                  handleMusicFailure(fallbackSoundId, requestedIdx, what, extra); // (3)
-                  return true;
-              });
-              mp.prepareAsync();
-          } catch (Exception e) {
-              // Bad/unreachable preview URL — never crash the viewer.
-              CrashReporter.reportSilently(this, "StatusViewer.startMusicStickerAudio", e);
-              releaseMusicPlayerKeepFocus();
-              handleMusicFailure(fallbackSoundId, requestedIdx, 0, 0);
-          }
-      }
-
-      /**
-       * (3) The direct URL failed. First failure → retry via soundId lookup (the same
-       * route the Sound Detail sheet uses, which is why tapping the sticker still
-       * played). No soundId left / second failure → tell the viewer instead of silence.
-       */
-      private void handleMusicFailure(String fallbackSoundId, int requestedIdx, int what, int extra) {
-          releaseMusicHold(); // never keep the bar waiting for audio that isn't coming
-          if (idx != requestedIdx) return; // swiped away meanwhile
-          if (fallbackSoundId != null && !fallbackSoundId.isEmpty()) {
-              Log.d(DBG, "musicSticker: direct url failed (what=" + what + "/" + extra
-                      + ") → retry by soundId=" + fallbackSoundId);
-              resolveSoundIdAndPlay(fallbackSoundId, requestedIdx);
-          } else {
-              showMusicFailedToast(what, extra);
-          }
-      }
-
-      private void showMusicFailedToast(int what, int extra) {
-          // No song is coming → the video must not stay ducked for nothing.
-          videoUnderMusic = false;
-          applyVideoVolume();
-          if (isFinishing()) return;
-          String code = (what != 0 || extra != 0) ? " (" + what + "/" + extra + ")" : "";
-          android.widget.Toast.makeText(this, "\uD83C\uDFB5 Music play nahi ho paya" + code,
-                  android.widget.Toast.LENGTH_SHORT).show();
-      }
-
-      /**
-       * Resolves a playable URL from the soundId (sounds/{id} first, then
-       * musicLibrary/{id} — Trending Audio's "Music" tab tracks live there) and plays it.
-       * The resolved URL gets NO further fallback, so a second failure ends in a toast.
-       */
-      private void resolveSoundIdAndPlay(String soundId, int requestedIdx) {
-          FirebaseUtils.db().getReference("sounds").child(soundId)
-                  .addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                  // Viewer may have swiped to another status by the time this
-                  // lookup returns — don't start audio for a status that's gone.
-                  if (idx != requestedIdx) return;
-                  String resolved = null;
-                  if (snap.exists()) {
-                      for (String key : new String[]{"previewAudioUrl", "audioUrl", "audio_url", "url"}) {
-                          String u = snap.child(key).getValue(String.class);
-                          if (u != null && !u.isEmpty()) { resolved = u; break; }
-                      }
-                  }
-                  if (resolved != null) {
-                      Log.d(DBG, "musicSticker autoplay: resolved from sounds/" + soundId);
-                      startMusicStickerAudio(resolved, null, requestedIdx);
-                  } else {
-                      Log.d(DBG, "musicSticker autoplay: sounds/" + soundId + " missing or no audio field, trying musicLibrary/");
-                      resolveFromMusicLibrary(soundId, requestedIdx);
-                  }
-              }
-              @Override public void onCancelled(@NonNull DatabaseError e) {
-                  Log.e(DBG, "musicSticker autoplay: sounds/" + soundId + " lookup cancelled", e.toException());
-                  if (idx == requestedIdx) { releaseMusicHold(); showMusicFailedToast(0, 0); }
-              }
-          });
-      }
-
-      /**
-       * Fallback lookup for music-sticker autoplay: mirrors
-       * SoundDetailFragment#loadSoundDataFromMusicLibrary() — tracks picked
-       * from Trending Audio's "Music" tab live under musicLibrary/{soundId},
-       * not sounds/{soundId}.
-       */
-      private void resolveFromMusicLibrary(String soundId, int requestedIdx) {
-          FirebaseUtils.getMusicLibraryRef().child(soundId)
-                  .addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                  if (idx != requestedIdx) return; // swiped away while this was in flight
-                  String resolved = null;
-                  if (snap.exists()) {
-                      for (String key : new String[]{"previewAudioUrl", "audioUrl"}) {
-                          String u = snap.child(key).getValue(String.class);
-                          if (u != null && !u.isEmpty()) { resolved = u; break; }
-                      }
-                  }
-                  if (resolved != null) {
-                      Log.d(DBG, "musicSticker autoplay: resolved from musicLibrary/" + soundId);
-                      startMusicStickerAudio(resolved, null, requestedIdx);
-                  } else {
-                      Log.d(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " not found / no audio field");
-                      releaseMusicHold();
-                      showMusicFailedToast(0, 0); // (3) no more silent failure
-                  }
-              }
-              @Override public void onCancelled(@NonNull DatabaseError e) {
-                  Log.e(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " lookup cancelled", e.toException());
-                  if (idx == requestedIdx) { releaseMusicHold(); showMusicFailedToast(0, 0); }
-              }
-          });
-      }
-
-      /** Releases the MediaPlayer but keeps audio focus (used right before re-playing). */
-      private void releaseMusicPlayerKeepFocus() {
-          musicClip.stop();
-          if (musicPlayer != null) {
-              try { musicPlayer.release(); } catch (Exception ignored) {}
-              musicPlayer = null;
-          }
-          musicPrepared = false;
-          musicFocusLost = false;
-          musicDucked = false;
-          syncMusicStickerPlaying();
-      }
-
-      /** Releases the MediaPlayer AND gives audio focus back (other app's music resumes). */
-      private void releaseMusicPlayer() {
-          releaseMusicPlayerKeepFocus();
-          musicStickerView = null;
-          if (musicFocus != null) musicFocus.abandon();
-      }
-
-      // ── Interactive stickers (music/countdown/quiz/question) ────────────────
-      // Renders the poster's stickers on top of the current status (any media
-      // type) and, for a 💬 Question sticker, wires a tap to open the
-      // dedicated answer sheet — mirrors setupReplyButton()'s pause/resume
-      // pattern so the progress timer stops while the viewer is typing.
-      private void renderStickers(StatusItem item) {
-          if (item == null || item.stickersJson == null || item.stickersJson.isEmpty()) return;
-          try {
-              JSONArray arr = new JSONArray(item.stickersJson);
-              int dp = (int) getResources().getDisplayMetrics().density;
-              for (int i = 0; i < arr.length(); i++) {
-                  String stickerJson = arr.getJSONObject(i).toString();
-                  StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(this, stickerJson);
-
-                  // Frame may not have been measured yet on the very first status
-                  // shown — fall back to screen size so the ratio math below still
-                  // lines the sticker up correctly instead of pinning it at (0,0).
-                  int frameW = binding.flStickerOverlay.getWidth() > 0
-                          ? binding.flStickerOverlay.getWidth() : getResources().getDisplayMetrics().widthPixels;
-                  int frameH = binding.flStickerOverlay.getHeight() > 0
-                          ? binding.flStickerOverlay.getHeight() : getResources().getDisplayMetrics().heightPixels;
-
-                  FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                          Math.min(frameW - dp * 32, dp * 280),
-                          FrameLayout.LayoutParams.WRAP_CONTENT,
-                          sticker.hasSavedPosition() ? Gravity.TOP | Gravity.START : Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-                  if (sticker.hasSavedPosition()) {
-                      // Poster dragged/pinched this sticker to a specific spot in the
-                      // composer — reproduce that exact spot here instead of the
-                      // generic stacked layout below.
-                      lp.leftMargin = (int) (sticker.getSavedPosXRatio() * frameW);
-                      lp.topMargin  = (int) (sticker.getSavedPosYRatio() * frameH);
-                  } else {
-                      lp.topMargin = dp * (140 + i * 90); // legacy sticker with no saved position: stack as before
-                  }
-                  binding.flStickerOverlay.addView(sticker, lp);
-
-                  if ("question".equals(sticker.getStickerType())
-                          && myUid != null && !myUid.equals(ownerUid)) {
-                      armStickerZoomGate(sticker, () -> {
-                          StatusItem current = idx < items.size() ? items.get(idx) : null;
-                          if (current == null) { settleStickerReaction(sticker); return; }
-                          StatusReplyBottomSheet.showForQuestion(this, current, ownerName, myUid, ownerUid,
-                                  sticker.getQuestionPrompt(), msg -> settleStickerReaction(sticker));
-                      });
-                  }
-
-                  if ("quiz".equals(sticker.getStickerType())
-                          && myUid != null && !myUid.equals(ownerUid)) {
-                      StatusItem current = idx < items.size() ? items.get(idx) : null;
-                      final int stickerIndex = i;
-                      final String statusId = current != null ? current.id : null;
-                      if (statusId != null) {
-                          // Restore a prior answer if this viewer already voted, otherwise let them tap once.
-                          FirebaseUtils.getStatusQuizVoteRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
-                                      Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
-                                      if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
-                                  } else {
-                                      armStickerZoomGate(sticker);
-                                      sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
-                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                          if (cur == null) return;
-                                          pauseProgress();
-                                          java.util.List<String> opts = sticker.getQuizOptions();
-                                          String selectedText = opts != null && selectedIndex < opts.size()
-                                                  ? opts.get(selectedIndex) : "";
-                                          boolean isCorrect = selectedIndex == sticker.getQuizCorrectIndex();
-                                          sticker.revealQuizAnswer(selectedIndex);
-                                          StatusReplyBottomSheet.sendQuizAnswer(myUid, ownerUid, ownerName,
-                                                  cur, stickerIndex, sticker.getQuizQuestion(),
-                                                  selectedText, selectedIndex, isCorrect);
-                                          // Give the viewer a beat to see the ✓/✗ reveal, then shrink back and resume.
-                                          new Handler(Looper.getMainLooper())
-                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
-                                      });
-                                  }
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
-                      }
-                  }
-
-                  if ("music".equals(sticker.getStickerType())) {
-                      // NEW: below-name audio ticker (ll_status_song_row /
-                      // tv_status_song_name) — Instagram/reel-style, reusing
-                      // core's MusicTickerView, the exact same component the
-                      // reel player's bio song row already uses. Only shown
-                      // when the poster actually attached a music sticker to
-                      // this status; hideStatusSongTicker() (called from
-                      // hideAllContent() on every status change) keeps it
-                      // hidden otherwise.
-                      musicStickerView = sticker;
-                      sticker.setMusicPlaying(false); // rests until the audio actually plays
-                      showStatusSongTicker(sticker);
-                      // Autoplay the sticker's preview clip the instant the status
-                      // appears — WhatsApp/Instagram-style. Independent of whether
-                      // it's linked to a real Reels track (tap-to-open still only
-                      // applies when isMusicLinkedToReelSound() is true, below).
-                      String soundUrl = sticker.getMusicSoundUrl();
-                      final String musicSoundId = sticker.getMusicSoundId();
-                      final int musicIdx = idx;
-                      stickerMusicStartMs = sticker.getMusicStartMs(); // (5) clip range for this status
-                      stickerMusicEndMs   = sticker.getMusicEndMs();
-                      Log.d(DBG, "musicSticker autoplay: soundId=" + musicSoundId
-                              + " directSoundUrl=" + (soundUrl == null || soundUrl.isEmpty() ? "empty" : "present"));
-                      boolean hasDirect = soundUrl != null && !soundUrl.isEmpty();
-                      boolean hasId     = musicSoundId != null && !musicSoundId.isEmpty();
-                      if (hasDirect || hasId) {
-                          videoUnderMusic = true;   // (2) duck the video's own audio (no-op for photo/text)
-                          applyVideoVolume();
-                          beginMusicHold(item); // (4) bar waits (max 3s) so audio + progress start together
-                          if (hasDirect) {
-                              // (3) if this direct URL fails we retry once via the soundId
-                              startMusicStickerAudio(soundUrl, musicSoundId, musicIdx);
-                          } else {
-                              // Composer stored only the soundId → resolve the URL like the Sound Detail sheet does.
-                              resolveSoundIdAndPlay(musicSoundId, musicIdx);
-                          }
-                      }
-                  }
-
-                  if ("music".equals(sticker.getStickerType()) && sticker.isMusicLinkedToReelSound()) {
-                      armStickerZoomGate(sticker, () -> openMusicStickerSoundSheet(sticker));
-                  }
-
-                  if ("countdown".equals(sticker.getStickerType())
-                          && myUid != null && !myUid.equals(ownerUid)) {
-                      StatusItem current = idx < items.size() ? items.get(idx) : null;
-                      final int stickerIndex = i;
-                      final String statusId = current != null ? current.id : null;
-                      if (statusId != null) {
-                          FirebaseUtils.getStatusCountdownSubscriberRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
-                                      sticker.setCountdownSubscribed(true);
-                                  }
-                                  armStickerZoomGate(sticker);
-                                  sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
-                                      StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                      if (cur == null) return;
-                                      if (nowSubscribed) {
-                                          StatusReplyBottomSheet.sendCountdownSubscription(myUid, ownerUid,
-                                                  ownerName, cur, stickerIndex, sticker.getCountdownLabel());
-                                      } else {
-                                          // Quietly remove the subscription — no DM on unsubscribe,
-                                          // so the poster isn't notified every time someone changes their mind.
-                                          FirebaseUtils.getStatusCountdownSubscriberRef(
-                                                  ownerUid, statusId, stickerIndex, myUid).removeValue();
-                                      }
-                                      // Give the viewer a beat to see the bell toggle, then shrink back and resume.
-                                      new Handler(Looper.getMainLooper())
-                                              .postDelayed(() -> settleStickerReaction(sticker), 500);
-                                  });
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
-                      }
-                  }
-                  if ("poll".equals(sticker.getStickerType())
-                          && myUid != null && !myUid.equals(ownerUid)) {
-                      StatusItem current = idx < items.size() ? items.get(idx) : null;
-                      final int stickerIndex = i;
-                      final String statusId = current != null ? current.id : null;
-                      if (statusId != null) {
-                          // Restore a prior vote if this viewer already voted, otherwise let them tap once.
-                          FirebaseUtils.getStatusPollVoteRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
-                                      String prevOption = snap.child("option").getValue(String.class);
-                                      revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, prevOption);
-                                  } else {
-                                      armStickerZoomGate(sticker);
-                                      sticker.setOnPollOptionSelectedListener(selectedOption -> {
-                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                          if (cur == null) return;
-                                          String selectedText = "A".equals(selectedOption)
-                                                  ? sticker.getPollOptionA() : sticker.getPollOptionB();
-                                          StatusReplyBottomSheet.sendPollVote(myUid, ownerUid, ownerName,
-                                                  cur, stickerIndex, sticker.getPollQuestion(),
-                                                  selectedOption, selectedText);
-                                          revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, selectedOption);
-                                          // Give the viewer a beat to see the % split, then shrink back and resume.
-                                          new Handler(Looper.getMainLooper())
-                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
-                                      });
-                                  }
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
-                      }
-                  }
-
-                  if ("slider".equals(sticker.getStickerType())
-                          && myUid != null && !myUid.equals(ownerUid)) {
-                      StatusItem current = idx < items.size() ? items.get(idx) : null;
-                      final int stickerIndex = i;
-                      final String statusId = current != null ? current.id : null;
-                      if (statusId != null) {
-                          // Restore a prior response if this viewer already rated, otherwise let them drag once.
-                          FirebaseUtils.getStatusSliderResponseRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
-                                      Long prevValue = snap.child("value").getValue(Long.class);
-                                      int myVal = prevValue != null ? prevValue.intValue() : 50;
-                                      revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, myVal);
-                                  } else {
-                                      armStickerZoomGate(sticker);
-                                      sticker.setOnSliderValueSubmittedListener(value -> {
-                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                          if (cur == null) return;
-                                          StatusReplyBottomSheet.sendSliderResponse(myUid, ownerUid, ownerName,
-                                                  cur, stickerIndex, sticker.getSliderQuestion(),
-                                                  sticker.getSliderEmoji(), value);
-                                          revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, value);
-                                          // Give the viewer a beat to see the average, then shrink back and resume.
-                                          new Handler(Looper.getMainLooper())
-                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
-                                      });
-                                  }
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
-                      }
-                  }
-                  if ("mention".equals(sticker.getStickerType())) {
-                      armStickerZoomGate(sticker, () -> openMentionStickerProfile(sticker));
-                  }
-
-                  if ("hashtag".equals(sticker.getStickerType())) {
-                      armStickerZoomGate(sticker, () -> openHashtagStickerFeed(sticker));
-                  }
-
-                  if ("link".equals(sticker.getStickerType())) {
-                      armStickerZoomGate(sticker, () -> openLinkSticker(sticker));
-                  }
-
-                  if ("addyours".equals(sticker.getStickerType())
-                          && myUid != null && !myUid.equals(ownerUid)) {
-                      armStickerZoomGate(sticker, () -> openAddYoursComposer(sticker));
-                  }
-              }
-          } catch (Exception e) {
-              // Malformed/legacy stickersJson, or a bug in one of the sticker
-              // handlers below (music/quiz/poll/etc.) — used to swallow this
-              // completely. Now reported instead: if a music sticker silently
-              // isn't playing, or any other sticker misbehaves, this surfaces
-              // the actual exception instead of just skipping rendering with
-              // no trace of why.
-              CrashReporter.report(this, "StatusViewer.renderStickers", e);
-          }
-      }
-
-      /** Reads all votes on a 🗳️ Poll sticker and reveals the live A/B percentage split. */
-      private void revealPollWithCounts(StatusStickerOverlayView sticker, String ownerUid,
-                                         String statusId, int stickerIndex, String myOption) {
-          FirebaseUtils.getStatusPollVotesRef(ownerUid, statusId, stickerIndex)
-                  .addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(DataSnapshot snap) {
-                  int countA = 0, countB = 0;
-                  for (DataSnapshot child : snap.getChildren()) {
-                      String opt = child.child("option").getValue(String.class);
-                      if ("A".equals(opt)) countA++;
-                      else if ("B".equals(opt)) countB++;
-                  }
-                  sticker.revealPollResult(myOption, countA, countB);
-              }
-              @Override public void onCancelled(DatabaseError e) {
-                  sticker.revealPollResult(myOption, "A".equals(myOption) ? 1 : 0,
-                          "B".equals(myOption) ? 1 : 0);
-              }
-          });
-      }
-
-      /** Reads all responses on a 🎚️ Slider sticker and reveals the live average. */
-      private void revealSliderWithAverage(StatusStickerOverlayView sticker, String ownerUid,
-                                            String statusId, int stickerIndex, int myValue) {
-          FirebaseUtils.getStatusSliderResponsesRef(ownerUid, statusId, stickerIndex)
-                  .addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(DataSnapshot snap) {
-                  long total = 0; int count = 0;
-                  for (DataSnapshot child : snap.getChildren()) {
-                      Long val = child.child("value").getValue(Long.class);
-                      if (val != null) { total += val; count++; }
-                  }
-                  int avg = count > 0 ? Math.round(total / (float) count) : myValue;
-                  sticker.revealSliderAverage(myValue, avg);
-              }
-              @Override public void onCancelled(DatabaseError e) {
-                  sticker.revealSliderAverage(myValue, myValue);
-              }
-          });
-      }
-      /**
-       * Opens the exact same Sound Detail bottom sheet Reels uses (SoundDetailSheetFragment),
-       * pre-filled with the track this music sticker points to. Loaded via reflection since
-       * feature-status has no compile-time dependency on feature-reels — only pauses/resumes
-       * the story progress bar around the sheet's lifetime.
-       */
-      private void openMusicStickerSoundSheet(StatusStickerOverlayView sticker) {
-          try {
-              Class<?> sheetCls = Class.forName("com.callx.app.music.SoundDetailSheetFragment");
-              java.lang.reflect.Method newInstance = sheetCls.getMethod("newInstance",
-                      String.class, String.class, String.class, String.class, String.class, int.class);
-              Object sheetObj = newInstance.invoke(null,
-                      sticker.getMusicSoundId(),
-                      sticker.getMusicSong(),
-                      sticker.getMusicArtist(),
-                      sticker.getMusicCoverUrl(),
-                      sticker.getMusicSoundUrl(),
-                      0);
-              if (!(sheetObj instanceof androidx.fragment.app.DialogFragment)) { settleStickerReaction(sticker); return; }
-              final androidx.fragment.app.DialogFragment sheet = (androidx.fragment.app.DialogFragment) sheetObj;
-
-              pauseProgress();
-              getSupportFragmentManager().registerFragmentLifecycleCallbacks(
-                      new androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
-                  @Override public void onFragmentDestroyed(
-                          @NonNull androidx.fragment.app.FragmentManager fm,
-                          @NonNull androidx.fragment.app.Fragment f) {
-                      if (f == sheet) {
-                          settleStickerReaction(sticker);
-                          fm.unregisterFragmentLifecycleCallbacks(this);
-                      }
-                  }
-              }, false);
-              sheet.show(getSupportFragmentManager(), "sound_detail_full");
-          } catch (Exception ignored) {
-              // Reels module unavailable at runtime — the sticker just stays inert.
-              settleStickerReaction(sticker);
-          }
-      }
-
-      /**
-       * Resolves the 👤 Mention sticker's username to a uid (Firebase "users" node,
-       * same lookup pattern chat mentions use) then opens that profile. Loaded via
-       * reflection since feature-status has no compile-time dependency on the app
-       * module — pauses/resumes the story progress bar around the lookup + activity.
-       */
-      private void openMentionStickerProfile(StatusStickerOverlayView sticker) {
-          String username = sticker.getMentionUsername();
-          if (username == null || username.isEmpty()) { settleStickerReaction(sticker); return; }
-          pauseProgress();
-          com.google.firebase.database.FirebaseDatabase.getInstance()
-                  .getReference("usernames").child(username).get()
-                  .addOnSuccessListener(idxSnap -> {
-              String uid = idxSnap.getValue(String.class);
-              if (uid == null || uid.isEmpty()) { settleStickerReaction(sticker); return; }
-              com.google.firebase.database.FirebaseDatabase.getInstance()
-                      .getReference("users").child(uid).get()
-                      .addOnSuccessListener(userSnap -> {
-                  String name = userSnap.child("name").getValue(String.class);
-                  if (name == null || name.isEmpty()) name = username;
-                  String photo = userSnap.child("profileImage").getValue(String.class);
-                  if (photo == null || photo.isEmpty()) photo = userSnap.child("photoUrl").getValue(String.class);
-                  boolean opened = false;
-                  try {
-                      Class<?> profileCls = Class.forName("com.callx.app.activities.UserProfileActivity");
-                      Intent intent = new Intent(StatusViewerActivity.this, profileCls);
-                      intent.putExtra("uid", uid);
-                      intent.putExtra("name", name);
-                      if (photo != null) intent.putExtra("photo", photo);
-                      startActivity(intent);
-                      opened = true; // onResume() will settle the sticker (shrink + resume) once we come back
-                  } catch (Exception ignored2) {
-                      // Profile activity unavailable at runtime — the sticker just stays inert.
-                  }
-                  boolean finalOpened = opened;
-                  if (!finalOpened) settleStickerReaction(sticker);
-              }).addOnFailureListener(e -> settleStickerReaction(sticker));
-          }).addOnFailureListener(e -> settleStickerReaction(sticker));
-      }
-
-      /**
-       * Opens the same Hashtag feed the X ("Twitter-like") tab uses for a
-       * # Hashtag sticker. Loaded via reflection since feature-status has no
-       * compile-time dependency on feature-x — pauses/resumes the story
-       * progress bar around the activity's lifetime.
-       */
-      private void openHashtagStickerFeed(StatusStickerOverlayView sticker) {
-          String tag = sticker.getHashtagTag();
-          if (tag == null || tag.isEmpty()) { settleStickerReaction(sticker); return; }
-          try {
-              Class<?> hashtagCls = Class.forName("com.callx.app.search.XHashtagActivity");
-              Intent intent = new Intent(this, hashtagCls);
-              intent.putExtra("hashtag", tag);
-              pauseProgress();
-              startActivity(intent); // onResume() will settle the sticker (shrink + resume) once we come back
-          } catch (Exception ignored) {
-              // X module unavailable at runtime — the sticker just stays inert.
-              settleStickerReaction(sticker);
-          }
-      }
-
-      /**
-       * Opens the 🔗 Link sticker's URL in the device's default browser. The
-       * scheme was already normalised (https:// prepended if missing) back
-       * at creation time in StatusStickerPickerSheet, so this is just a plain
-       * ACTION_VIEW — no reflection needed since it's a system intent, not an
-       * in-app screen.
-       */
-      private void openLinkSticker(StatusStickerOverlayView sticker) {
-          String url = sticker.getLinkUrl();
-          if (url == null || url.isEmpty()) { settleStickerReaction(sticker); return; }
-          try {
-              pauseProgress();
-              startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
-              // onResume() will settle the sticker (shrink + resume) once we come back from the browser
-          } catch (Exception ignored) {
-              // No app can handle this link — sticker just stays inert.
-              settleStickerReaction(sticker);
-          }
-      }
-
-      /**
-       * Opens NewStatusActivity pre-loaded with the same ➕ Add Yours prompt so
-       * this viewer can post their own story continuing the chain. Both
-       * activities live in feature-status, so this is a direct reference
-       * (no reflection needed, unlike the cross-module Mention/Hashtag taps).
-       *
-       * originUid/originName carry forward the *original* chain-starter's
-       * identity across repeated taps — if the tapped sticker already has an
-       * origin (meaning the current status is itself a chain reply), that
-       * origin is preserved rather than being overwritten with this ownerUid.
-       */
-      private void openAddYoursComposer(StatusStickerOverlayView sticker) {
-          String prompt = sticker.getAddYoursPrompt();
-          if (prompt == null || prompt.isEmpty()) { settleStickerReaction(sticker); return; }
-          String originUid  = sticker.getAddYoursOriginUid();
-          String originName = sticker.getAddYoursOriginName();
-          if (originUid == null || originUid.isEmpty()) {
-              originUid  = ownerUid;
-              originName = ownerName;
-          }
-          try {
-              org.json.JSONObject o = new org.json.JSONObject();
-              o.put("type", "addyours");
-              o.put("prompt", prompt);
-              o.put("originUid", originUid);
-              o.put("originName", originName != null ? originName : "");
-
-              Intent intent = new Intent(this, com.callx.app.compose.NewStatusActivity.class);
-              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_STICKER_JSON, o.toString());
-              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_TOAST,
-                      "Adding to " + (originName != null && !originName.isEmpty() ? originName : "their") + "'s prompt");
-              pauseProgress();
-              startActivity(intent); // onResume() will settle the sticker (shrink + resume) once we come back
-          } catch (Exception ignored) {
-              // Malformed data — sticker just stays inert.
-              settleStickerReaction(sticker);
-          }
-      }
-
-      private void showCaption(String caption) {
-          if (!TextUtils.isEmpty(caption)) {
-              binding.tvCaption.setVisibility(View.VISIBLE);
-              binding.tvCaption.setText(StatusMentionHelper.highlight(caption));
-          }
-      }
       // FIX: was findViewWithTag("tv_location_tag") → null, now binding.tvLocationTag
       private void showLocationTag(String location) {
           binding.tvLocationTag.setText("\uD83D\uDCCD " + location);
@@ -3130,6 +2398,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (myUid != null && myUid.equals(ownerUid)) {
               binding.etReply.setVisibility(View.GONE);
               binding.btnSendReply.setVisibility(View.GONE);
+              binding.llReplyRow.setVisibility(View.GONE); // own story: no reply/react row (bar stays as the nav-bar spacer)
               return;
           }
           binding.etReply.setOnClickListener(v -> {
@@ -3142,7 +2411,9 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.btnSendReply.setOnClickListener(v -> {
               String msg = binding.etReply.getText() != null
                       ? binding.etReply.getText().toString().trim() : "";
-              if (TextUtils.isEmpty(msg)) return;
+              // Instagram-style paper plane: nothing typed → it shares the story
+              // (same forward sheet as the ⋯ menu); typed text → sends it as a reply.
+              if (TextUtils.isEmpty(msg)) { binding.btnForward.performClick(); return; }
               if (myUid == null || ownerUid == null) return;
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               sendReplyToChat(ownerUid, msg, current);
@@ -3262,7 +2533,8 @@ import com.callx.app.utils.AlertDialogStyler;
       private void showOwnerMoreMenu() {
           if (isHighlightMode) { showHighlightOwnerMoreMenu(); return; }
           StatusItem current = idx < items.size() ? items.get(idx) : null;
-          String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", "Cancel"};
+          String stabLabel = StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on";
+          String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", stabLabel, "Cancel"};
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
@@ -3294,6 +2566,9 @@ import com.callx.app.utils.AlertDialogStyler;
                       showAddToHighlightBottomSheet(current);
                   } else if (w == 4 && current != null) {
                       showAnalyticsBottomSheet(current);
+                  } else if (w == 5) {
+                      binding.btnStabilizer.performClick();
+                      resumeProgress();
                   } else {
                       resumeProgress();
                   }
@@ -3309,7 +2584,8 @@ import com.callx.app.utils.AlertDialogStyler;
       private void showHighlightOwnerMoreMenu() {
           StatusItem current = idx < items.size() ? items.get(idx) : null;
           String[] opts = {"Who viewed this", "Remove from Highlight", "Rename Highlight",
-                  "Set as Cover", "Delete Entire Highlight", "Cancel"};
+                  "Set as Cover", "Delete Entire Highlight",
+                  StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on", "Cancel"};
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
@@ -3331,6 +2607,9 @@ import com.callx.app.utils.AlertDialogStyler;
                       resumeProgress();
                   } else if (w == 4) {
                       confirmDeleteHighlightAlbum();
+                  } else if (w == 5) {
+                      binding.btnStabilizer.performClick();
+                      resumeProgress();
                   } else {
                       resumeProgress();
                   }
@@ -3373,28 +2652,30 @@ import com.callx.app.utils.AlertDialogStyler;
               .create());
       }
       private void showViewerMoreMenu() {
-          String muteLabel = StatusMuteManager.isMuted(this, ownerUid)
-                  ? "Unmute " + ownerName : "Mute " + ownerName;
-          String[] opts = {muteLabel, "Download", "Forward", "Report", "Cancel"};
+          final StatusItem cur = idx < items.size() ? items.get(idx) : null;
+          // The floating side buttons moved into this menu. The (now hidden) buttons stay as click
+          // proxies, so their listeners — permission check, pause/resume, allowSharing toast —
+          // are reused as-is.
+          final java.util.List<String> labels = new java.util.ArrayList<>();
+          final java.util.List<Runnable> actions = new java.util.ArrayList<>();
+          labels.add(StatusMuteManager.isMuted(this, ownerUid) ? "Unmute " + ownerName : "Mute " + ownerName);
+          actions.add(() -> {
+              StatusMuteManager.toggle(this, ownerUid);
+              Toast.makeText(this, StatusMuteManager.isMuted(this, ownerUid)
+                      ? ownerName + " muted" : ownerName + " unmuted", Toast.LENGTH_SHORT).show();
+              finish();
+          });
+          labels.add("Download");  actions.add(() -> { binding.btnDownload.performClick(); resumeProgress(); });
+          labels.add("Forward");   actions.add(() -> binding.btnForward.performClick()); // sheet resumes progress itself
+          if (cur != null && cur.allowSharing) {
+              labels.add("Repost to my status"); actions.add(() -> binding.btnRepost.performClick());
+          }
+          labels.add(StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on");
+          actions.add(() -> { binding.btnStabilizer.performClick(); resumeProgress(); });
+          labels.add("Report");    actions.add(() -> { Toast.makeText(this, "Reported", Toast.LENGTH_SHORT).show(); resumeProgress(); });
+          labels.add("Cancel");    actions.add(this::resumeProgress);
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
-              .setItems(opts, (d, w) -> {
-                  if (w == 0) {
-                      StatusMuteManager.toggle(this, ownerUid);
-                      String msg = StatusMuteManager.isMuted(this, ownerUid)
-                              ? ownerName + " muted" : ownerName + " unmuted";
-                      Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-                      finish();
-                  } else if (w == 1) {
-                      StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                      if (cur != null) StatusDownloadHelper.downloadStatus(this, cur);
-                  } else if (w == 2) {
-                      StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                      if (cur != null && myUid != null) StatusForwardBottomSheet.show(this, cur, myUid);
-                  } else if (w == 3) {
-                      Toast.makeText(this, "Reported", Toast.LENGTH_SHORT).show();
-                  }
-                  resumeProgress();
-              })
+              .setItems(labels.toArray(new String[0]), (d, w) -> actions.get(w).run())
               .setOnCancelListener(d -> resumeProgress())
               .create());
       }
@@ -3574,12 +2855,14 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       // ── Header helpers ────────────────────────────────────────────────────
       private void updateHeaderTimestamp(StatusItem s) {
-          if (s.timestamp != null) binding.tvTimestamp.setText(formatAgo(System.currentTimeMillis() - s.timestamp));
+          if (s.timestamp != null) binding.tvTimestamp.setText(formatAgoShort(System.currentTimeMillis() - s.timestamp));
           else binding.tvTimestamp.setText("");
       }
       /** FIX v26: was findViewWithTag("tv_expiry_label") → null, now binding.tvExpiryLabel */
       private void updateExpiryLabel(StatusItem s) {
-          if (isHighlightMode) { binding.tvExpiryLabel.setVisibility(View.GONE); return; }
+          if (isHighlightMode || myUid == null || !myUid.equals(ownerUid)) {
+              binding.tvExpiryLabel.setVisibility(View.GONE); return;
+          }
           if (s.expiresAt != null) {
               long diffMs = s.expiresAt - System.currentTimeMillis();
               if (diffMs > 0) {
@@ -3595,6 +2878,13 @@ import com.callx.app.utils.AlertDialogStyler;
           }
       }
       // ── Utilities ─────────────────────────────────────────────────────────
+      /** Instagram-style compact age for the header: "now", "32m", "17h", "2d". */
+      private String formatAgoShort(long ms) {
+          if (ms < 60_000) return getString(com.callx.app.core.R.string.status_time_now);
+          if (ms < 3_600_000) return (ms / 60_000) + "m";
+          if (ms < 86_400_000) return (ms / 3_600_000) + "h";
+          return (ms / 86_400_000) + "d";
+      }
       private String formatAgo(long ms) {
           if (ms < 60_000) return "just now";
           if (ms < 3_600_000) return (ms / 60_000) + "m ago";

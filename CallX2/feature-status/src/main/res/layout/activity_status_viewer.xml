@@ -3,7 +3,25 @@
       xmlns:app="http://schemas.android.com/apk/res-auto"
       android:layout_width="match_parent"
       android:layout_height="match_parent"
-      android:background="@color/black">
+      android:background="#0B0F17">
+
+      <!-- Instagram-style layout: [ rounded story card ] over [ solid reply bar ].
+           Everything that used to float over the full-screen photo now lives in
+           fl_story_card; only the reply row moved out (ll_reply_bar). The column
+           shrinks the card when the keyboard opens (insets applied in code). -->
+      <LinearLayout
+          android:id="@+id/ll_viewer_column"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:orientation="vertical">
+
+      <FrameLayout
+          android:id="@+id/fl_story_card"
+          android:layout_width="match_parent"
+          android:layout_height="0dp"
+          android:layout_weight="1"
+          android:background="@drawable/bg_story_card"
+          android:clipToOutline="true">
 
       <!-- Full-screen content layers -->
       <!-- WhatsApp-style backdrop: a blurred, darkened, cropped copy of the
@@ -240,6 +258,14 @@
                           android:src="@drawable/ic_verified_pink"
                           android:visibility="gone"
                           android:contentDescription="Verified"/>
+
+                      <TextView
+                          android:id="@+id/tv_timestamp"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="8dp"
+                          android:textColor="#CCFFFFFF"
+                          android:textSize="13sp"/>
                   </LinearLayout>
 
                   <!-- NEW: audio-name ticker, directly below the owner name —
@@ -278,19 +304,11 @@
                       android:orientation="horizontal"
                       android:gravity="center_vertical">
 
-                      <TextView
-                          android:id="@+id/tv_timestamp"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:textColor="#CCFFFFFF"
-                          android:textSize="12sp"/>
-
                       <!-- FIX: expiry label — was findViewWithTag, now proper ID -->
                       <TextView
                           android:id="@+id/tv_expiry_label"
                           android:layout_width="wrap_content"
                           android:layout_height="wrap_content"
-                          android:layout_marginStart="6dp"
                           android:textColor="#AAFFFFFF"
                           android:textSize="11sp"
                           android:visibility="gone"/>
@@ -313,6 +331,7 @@
                   android:id="@+id/btn_close_status"
                   android:layout_width="40dp"
                   android:layout_height="40dp"
+                  android:visibility="gone"
                   android:src="@drawable/ic_back"
                   android:tint="@color/white"
                   android:background="?attr/selectableItemBackgroundBorderless"/>
@@ -336,8 +355,12 @@
           android:visibility="gone"
           android:contentDescription="Mute"/>
 
-      <!-- FIX: Download + Forward action row (was findViewWithTag, now proper IDs) -->
+      <!-- Side action column: HIDDEN. Download / Forward / Stabilizer / Repost used to float
+           over the photo (on top of the person's face). They now live in the "⋯" menu; these
+           buttons stay in the tree only as click proxies (menu calls performClick()), so all
+           existing listeners, permission checks and visibility rules keep working. -->
       <LinearLayout
+          android:visibility="gone"
           android:layout_width="wrap_content"
           android:layout_height="wrap_content"
           android:layout_gravity="end|top"
@@ -405,9 +428,9 @@
           android:orientation="vertical"
           android:background="@drawable/bg_status_reply_overlay"
           android:paddingTop="32dp"
-          android:paddingBottom="12dp"
-          android:paddingStart="12dp"
-          android:paddingEnd="12dp">
+          android:paddingBottom="14dp"
+          android:paddingStart="14dp"
+          android:paddingEnd="14dp">
 
           <!-- FIX: Location tag — was findViewWithTag("tv_location_tag"), now proper ID -->
           <TextView
@@ -426,10 +449,11 @@
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
               android:textColor="@color/white"
-              android:textSize="14sp"
-              android:paddingBottom="8dp"
-              android:shadowColor="@color/black"
-              android:shadowRadius="4"
+              android:textSize="17sp"
+              android:lineSpacingMultiplier="1.1"
+              android:paddingBottom="10dp"
+              android:shadowColor="#CC000000"
+              android:shadowRadius="6"
               android:shadowDx="0"
               android:shadowDy="1"
               android:visibility="gone"/>
@@ -526,8 +550,24 @@
 
           </LinearLayout>
 
+
+      </LinearLayout>
+      </FrameLayout><!-- /fl_story_card -->
+
+      <!-- Reply bar: solid strip UNDER the card (no longer an overlay on the photo) -->
+      <LinearLayout
+          android:id="@+id/ll_reply_bar"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="vertical"
+          android:paddingTop="8dp"
+          android:paddingBottom="12dp"
+          android:paddingStart="12dp"
+          android:paddingEnd="12dp">
+
           <!-- Reaction + reply row -->
           <LinearLayout
+              android:id="@+id/ll_reply_row"
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
               android:orientation="horizontal"
@@ -538,13 +578,16 @@
                   android:layout_width="0dp"
                   android:layout_height="wrap_content"
                   android:layout_weight="1"
-                  android:hint="Reply to status…"
-                  app:boxCornerRadiusTopEnd="24dp"
-                  app:boxCornerRadiusTopStart="24dp"
-                  app:boxCornerRadiusBottomEnd="24dp"
-                  app:boxCornerRadiusBottomStart="24dp"
+                  android:hint="@string/status_reply_hint"
+                  android:textColorHint="#E6FFFFFF"
+                  app:boxCornerRadiusTopEnd="28dp"
+                  app:boxCornerRadiusTopStart="28dp"
+                  app:boxCornerRadiusBottomEnd="28dp"
+                  app:boxCornerRadiusBottomStart="28dp"
                   app:hintTextColor="@color/white"
-                  app:boxStrokeColor="@color/white">
+                  app:boxStrokeWidth="1dp"
+                  app:boxStrokeWidthFocused="1dp"
+                  app:boxStrokeColor="#99FFFFFF">
 
                   <com.google.android.material.textfield.TextInputEditText
                       android:id="@+id/et_reply"
@@ -561,10 +604,11 @@
                   android:layout_width="44dp"
                   android:layout_height="44dp"
                   android:layout_marginStart="8dp"
-                  android:src="@drawable/ic_status_notification"
+                  android:src="@drawable/ic_status_react"
+                  android:padding="9dp"
                   android:tint="@color/white"
                   android:background="?attr/selectableItemBackgroundBorderless"
-                  android:contentDescription="React"/>
+                  android:contentDescription="@string/status_react_desc"/>
 
               <!-- WhatsApp-style quick-like: single tap sends a ❤️ reaction
                    immediately (no picker); tap again to remove it. Long-press
@@ -584,14 +628,16 @@
                   android:layout_width="44dp"
                   android:layout_height="44dp"
                   android:layout_marginStart="4dp"
-                  android:src="@drawable/ic_send_fill"
+                  android:src="@drawable/ic_status_share"
+                  android:padding="9dp"
                   android:tint="@color/white"
                   android:background="?attr/selectableItemBackgroundBorderless"
-                  android:contentDescription="Send reply"/>
+                  android:contentDescription="@string/status_share_desc"/>
 
           </LinearLayout>
 
       </LinearLayout>
+      </LinearLayout><!-- /ll_viewer_column -->
 
       <!-- Swipe-up-to-react overlay — WhatsApp/Instagram style. Hidden by
            default; StatusViewerActivity#openQuickReactionOverlay() shows this

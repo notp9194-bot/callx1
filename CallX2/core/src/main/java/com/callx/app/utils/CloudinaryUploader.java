@@ -40,6 +40,23 @@ public class CloudinaryUploader {
     }
 
     /**
+     * Aspect-preserving variant of {@link #deriveThumbUrl}: {@code c_limit} scales the
+     * longest side down to {@code maxSide} WITHOUT cropping, so a blur-up / cover thumb
+     * lines up with the full image (a square c_fill crop would visibly jump on cross-fade).
+     * No extra upload — Cloudinary generates + CDN-caches the variant on first request.
+     * No-op for non-Cloudinary URLs.
+     */
+    public static String deriveLimitThumbUrl(String secureUrl, int maxSide) {
+        if (secureUrl == null || secureUrl.isEmpty()) return secureUrl;
+        String marker = "/upload/";
+        int idx = secureUrl.indexOf(marker);
+        if (idx < 0) return secureUrl;
+        String transform = "c_limit,w_" + maxSide + ",h_" + maxSide + ",q_auto,f_auto/";
+        return secureUrl.substring(0, idx + marker.length()) + transform
+                + secureUrl.substring(idx + marker.length());
+    }
+
+    /**
      * Same as deriveThumbUrl(url, size) but with an explicit Cloudinary
      * delivery format instead of "f_auto". f_auto is a per-request guess
      * (content negotiation off the request's Accept header) — it's usually
