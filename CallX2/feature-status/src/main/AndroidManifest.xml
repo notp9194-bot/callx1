@@ -244,7 +244,7 @@
              ACTION_OPEN_STATUS from status-reply/reaction quote taps in chat. -->
         <activity
             android:name="com.callx.app.viewer.StatusViewerActivity"
-            android:theme="@style/Theme.CallX"
+            android:theme="@style/Theme.CallX.StatusViewer"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:exported="false">

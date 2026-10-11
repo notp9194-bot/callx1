@@ -289,69 +289,6 @@
           android:visibility="gone"
           android:contentDescription="Mute"/>
 
-      <!-- Side action column: HIDDEN. Download / Forward / Stabilizer / Repost used to float
-           over the photo (on top of the person's face). They now live in the "⋯" menu; these
-           buttons stay in the tree only as click proxies (menu calls performClick()), so all
-           existing listeners, permission checks and visibility rules keep working. -->
-      <LinearLayout
-          android:visibility="gone"
-          android:layout_width="wrap_content"
-          android:layout_height="wrap_content"
-          android:layout_gravity="end|top"
-          android:layout_marginTop="124dp"
-          android:layout_marginEnd="12dp"
-          android:orientation="vertical">
-
-          <ImageButton
-              android:id="@+id/btn_download"
-              android:layout_width="40dp"
-              android:layout_height="40dp"
-              android:src="@android:drawable/ic_menu_save"
-              android:tint="@color/white"
-              android:background="@drawable/bg_circle_dark"
-              android:padding="8dp"
-              android:contentDescription="Download"
-              android:visibility="gone"/>
-
-          <ImageButton
-              android:id="@+id/btn_forward"
-              android:layout_width="40dp"
-              android:layout_height="40dp"
-              android:layout_marginTop="8dp"
-              android:src="@drawable/ic_arrow_right"
-              android:tint="@color/white"
-              android:background="@drawable/bg_circle_dark"
-              android:padding="8dp"
-              android:contentDescription="Forward"
-              android:visibility="gone"/>
-
-          <!-- Level-stabilizer on/off — global viewer preference, remembered
-               across all stories. Icon reflects current on/off state. -->
-          <ImageButton
-              android:id="@+id/btn_stabilizer"
-              android:layout_width="40dp"
-              android:layout_height="40dp"
-              android:layout_marginTop="8dp"
-              android:src="@android:drawable/ic_menu_compass"
-              android:tint="@color/white"
-              android:background="@drawable/bg_circle_dark"
-              android:padding="8dp"
-              android:contentDescription="Stabilizer"/>
-
-          <!-- Repost button — visible for viewers when owner allows sharing -->
-          <ImageButton
-              android:id="@+id/btn_repost"
-              android:layout_width="40dp"
-              android:layout_height="40dp"
-              android:layout_marginTop="8dp"
-              android:src="@drawable/ic_repost"
-              android:tint="@color/white"
-              android:background="@drawable/bg_circle_dark"
-              android:padding="8dp"
-              android:contentDescription="Repost to my status"
-              android:visibility="gone"/>
-
-      </LinearLayout>
 
       <!-- Bottom chrome -->
       <LinearLayout
@@ -406,83 +343,16 @@
               android:background="?attr/selectableItemBackground"
               android:visibility="gone"/>
 
-          <!-- Latest-replies overlay (shown to every viewer, owner included) — Instagram-style: shows up to the
-               last 3 commenters' avatars STACKED (overlapping, newest on top) plus
-               the most recent comment's text, bottom-left on the story itself, so
-               the owner sees it at a glance instead of having to open the chat DM.
-               Populated/shown by StatusViewerActivity#updateLastReplyOverlay(); auto
-               fades out a few seconds after showing (tap re-opens it early); tapping
-               opens StatusRepliesBottomSheet with the full comment list. -->
-          <LinearLayout
-              android:id="@+id/ll_last_reply_bubble"
+          <!-- Latest-replies overlay — v508: ViewStub, inflated the first time a status has replies
+               (view_status_last_reply_bubble.xml; Instagram-style stacked avatars + newest comment). -->
+          <ViewStub
+              android:id="@+id/stub_last_reply_bubble"
+              android:inflatedId="@+id/ll_last_reply_bubble"
+              android:layout="@layout/view_status_last_reply_bubble"
               android:layout_width="wrap_content"
               android:layout_height="wrap_content"
               android:layout_gravity="start"
-              android:orientation="horizontal"
-              android:gravity="center_vertical"
-              android:paddingStart="6dp"
-              android:paddingEnd="12dp"
-              android:paddingTop="6dp"
-              android:paddingBottom="6dp"
-              android:layout_marginBottom="8dp"
-              android:background="@drawable/bg_status_reply_overlay"
-              android:clickable="true"
-              android:focusable="true"
-              android:visibility="gone">
-
-              <!-- Stack: each avatar overlaps the previous by 12dp (negative start
-                   margin) with a border so they read as a distinct stack, exactly
-                   like Instagram's "recent repliers" cluster. Index 1 = oldest of
-                   the 3 (drawn first, bottom of stack), 3 = newest (drawn last, on
-                   top) — see bindLastReplyBubble() for the ordering. -->
-              <FrameLayout
-                  android:layout_width="wrap_content"
-                  android:layout_height="26dp">
-
-                  <de.hdodenhof.circleimageview.CircleImageView
-                      android:id="@+id/iv_last_reply_avatar_1"
-                      android:layout_width="24dp"
-                      android:layout_height="24dp"
-                      android:layout_marginStart="0dp"
-                      android:src="@drawable/ic_person"
-                      app:civ_border_width="1dp"
-                      app:civ_border_color="@color/white"
-                      android:visibility="gone"/>
-
-                  <de.hdodenhof.circleimageview.CircleImageView
-                      android:id="@+id/iv_last_reply_avatar_2"
-                      android:layout_width="24dp"
-                      android:layout_height="24dp"
-                      android:layout_marginStart="14dp"
-                      android:src="@drawable/ic_person"
-                      app:civ_border_width="1dp"
-                      app:civ_border_color="@color/white"
-                      android:visibility="gone"/>
-
-                  <de.hdodenhof.circleimageview.CircleImageView
-                      android:id="@+id/iv_last_reply_avatar_3"
-                      android:layout_width="24dp"
-                      android:layout_height="24dp"
-                      android:layout_marginStart="28dp"
-                      android:src="@drawable/ic_person"
-                      app:civ_border_width="1dp"
-                      app:civ_border_color="@color/white"
-                      android:visibility="gone"/>
-
-              </FrameLayout>
-
-              <TextView
-                  android:id="@+id/tv_last_reply_text"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_marginStart="8dp"
-                  android:maxWidth="220dp"
-                  android:maxLines="1"
-                  android:ellipsize="end"
-                  android:textColor="@color/white"
-                  android:textSize="13sp"/>
-
-          </LinearLayout>
+              android:layout_marginBottom="8dp"/>
 
 
       </LinearLayout>
@@ -527,20 +397,6 @@
                   android:inputType="textCapSentences"
                   android:importantForAutofill="no"/>
 
-
-              <!-- Hidden proxy (Instagram has no separate react button): the heart's
-                   long-press and the swipe-up picker open the full emoji sheet via this. -->
-              <ImageButton
-                  android:id="@+id/btn_react"
-                  android:visibility="gone"
-                  android:layout_width="44dp"
-                  android:layout_height="44dp"
-                  android:layout_marginStart="8dp"
-                  android:src="@drawable/ic_status_react"
-                  android:padding="9dp"
-                  android:tint="@color/white"
-                  android:background="?attr/selectableItemBackgroundBorderless"
-                  android:contentDescription="@string/status_react_desc"/>
 
               <!-- WhatsApp-style quick-like: single tap sends a ❤️ reaction
                    immediately (no picker); tap again to remove it. Long-press

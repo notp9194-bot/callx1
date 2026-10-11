@@ -61,7 +61,7 @@ import org.junit.runner.RunWith
  *  1080p ResolutionSelector cap, MediaEditPreloadCache, VideoCapture
  *  warm-bind). See generateCameraCaptureFlow() below.
  *
- *  11 real user journeys cover:
+ *  12 real user journeys cover (v509 adds #12 Status viewer):
  *    1. Cold start → chat list
  *    2. Open chat → scroll messages
  *    3. Send a message (input pipeline)
@@ -73,6 +73,7 @@ import org.junit.runner.RunWith
  *    9. Emoji reaction (long press)
  *   10. Reels tab → open Sound Detail → scroll reel grid
  *   11. Open chat → in-app camera → capture photo → MediaEditActivity
+ *   12. Status tab → open status viewer → tap through → drag-close
  * ══════════════════════════════════════════════════════════════════════
  */
 @OptIn(ExperimentalBaselineProfilesApi::class)
@@ -152,6 +153,19 @@ class CallXBaselineProfileGenerator {
     ) {
         journeyChatListStartup()
         journeyOpenStatusTab()
+    }
+
+    // v509: StatusViewerActivity (opened off a status ring) had no journey at all — open,
+    // tap through segments, drag-close — so ViewBinding inflate, the stub helpers, progress,
+    // blur/prefetch and the drag/cube paths ran JIT-only. Mirrors CallsAndStatusBenchmark's
+    // statusViewerOpenTransition().
+    @Test
+    fun generateStatusViewerFlow() = baselineProfileRule.collect(
+        packageName = TARGET_PACKAGE, stableIterations = 3, maxIterations = 8,
+    ) {
+        journeyChatListStartup()
+        journeyOpenStatusTab()
+        journeyOpenStatusViewer()
     }
 
     @Test
@@ -280,6 +294,30 @@ private fun MacrobenchmarkScope.journeyOpenStatusTab() {
     val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerStatus"))
         ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView")) ?: return
     rv.scroll(Direction.DOWN, 0.7f, 800)
+    Thread.sleep(300)
+}
+
+// v509: open the first non-empty status in the Status tab, tap through a few segments,
+// then drag it closed (exercises applyDrag / closeByDrag / next() / showCurrent()).
+private fun MacrobenchmarkScope.journeyOpenStatusViewer() {
+    val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_status"))
+        ?: device.findObject(By.res(TARGET_PACKAGE, "recyclerStatus"))
+        ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView")) ?: return
+    // child 0 is usually "My status" / add; prefer the next row, fall back to the first.
+    val row = rv.children.getOrNull(1) ?: rv.children.firstOrNull() ?: return
+    row.click()
+    // the viewer's reply pill is unique to StatusViewerActivity
+    if (!device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "et_reply")), TIMEOUT)) {
+        device.pressBack(); return
+    }
+    Thread.sleep(SETTLE)
+    val w = device.displayWidth
+    val h = device.displayHeight
+    repeat(3) { device.click(w * 3 / 4, h / 2); Thread.sleep(350) }   // next segment / next user
+    device.click(w / 4, h / 2); Thread.sleep(350)                      // previous
+    device.swipe(w / 2, h / 3, w / 2, h * 5 / 6, 24)                   // drag down to close
+    Thread.sleep(400)
+    if (device.hasObject(By.res(TARGET_PACKAGE, "et_reply"))) device.pressBack()
     Thread.sleep(300)
 }
 

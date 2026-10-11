@@ -195,6 +195,42 @@ import com.callx.app.utils.AlertDialogStyler;
           super.onWindowFocusChanged(hasFocus);
           if (hasFocus) hideSystemBars();
       }
+      // ── v508: viewer's own sticker answers — memory cache + deferred (post-first-frame) read ──
+      // quiz / poll / slider / countdown each used to fire a Firebase read synchronously while the
+      // status was being rendered. The answer is per (owner,status,sticker,me) and only changes
+      // when *this* viewer answers, so it is cached for the process lifetime (updated on answer)
+      // and, on a miss, fetched after the first frame instead of during it.
+      private static final java.util.concurrent.ConcurrentHashMap<String, Object> STICKER_OWN_STATE =
+              new java.util.concurrent.ConcurrentHashMap<>();
+      private static final Object NO_STATE = new Object();        // viewer hasn't answered yet
+      private static final Object VOTED_UNKNOWN = new Object();   // record exists but value unreadable
+      /** soundId -> resolved preview URL, so a music sticker seen twice never re-reads Firebase. */
+      private static final java.util.concurrent.ConcurrentHashMap<String, String> SOUND_URL_CACHE =
+              new java.util.concurrent.ConcurrentHashMap<>();
+      private interface SnapParser { Object parse(DataSnapshot snap); }
+      private interface StateApply { void apply(Object state); }
+      private static void putOwnStickerState(String key, Object state) {
+          if (STICKER_OWN_STATE.size() > 400) STICKER_OWN_STATE.clear(); // tiny entries; just keep it bounded
+          STICKER_OWN_STATE.put(key, state != null ? state : NO_STATE);
+      }
+      private static String stickerStateKey(String type, String ownerUid, String statusId, int stickerIndex, String myUid) {
+          return type + "|" + ownerUid + "|" + statusId + "|" + stickerIndex + "|" + myUid;
+      }
+      private void loadOwnStickerState(final int seq, final String key, final DatabaseReference ref,
+                                       final SnapParser parser, final StateApply apply) {
+          final Object hit = STICKER_OWN_STATE.get(key);
+          if (hit != null) { apply.apply(hit); return; } // cached → zero network, applied this frame
+          deferAfterFirstFrame(seq, () -> ref.addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                  Object st = snap.exists() ? parser.parse(snap) : NO_STATE;
+                  if (st == null) st = NO_STATE;
+                  putOwnStickerState(key, st);
+                  if (isFinishing() || isDestroyed()) return;
+                  apply.apply(st);
+              }
+              @Override public void onCancelled(@NonNull DatabaseError e) {}
+          }));
+      }
       // ── v507: lazily inflated layers (ViewStub) + hardware layer during animation ──
       private FrameLayout stickerOverlayView;     // null until first sticker / error card
       private FrameLayout textLayerView;          // null until first text status
@@ -203,6 +239,14 @@ import com.callx.app.utils.AlertDialogStyler;
       private View        quickReactionOverlayView; // null until first swipe-up-to-react
       private View        quickReactionCardView;
       private boolean     columnHwLayerOn = false;
+      // v508: last-reply bubble is a ViewStub (only inflated once a status really has replies)
+      private View        lastReplyBubbleView;
+      private android.widget.ImageView[] lastReplyAvatars;
+      private TextView    lastReplyTextTv;
+      // v508: the hidden Download/Forward/Repost/Stabilizer/React ImageButtons are gone — they were
+      // never visible, only click proxies. Their click bodies are plain Runnables now.
+      private Runnable actDownload, actForward, actRepost, actStabilizer, actReact;
+      private static void runAct(Runnable r) { if (r != null) r.run(); }
 
       private FrameLayout stickerOverlay() {
           if (stickerOverlayView == null) stickerOverlayView = (FrameLayout) binding.stubStickerOverlay.inflate();
@@ -214,6 +258,18 @@ import com.callx.app.utils.AlertDialogStyler;
               textStatusTv  = textLayerView.findViewById(R.id.tv_text_status);
           }
           return textLayerView;
+      }
+      private View lastReplyBubble() {
+          if (lastReplyBubbleView == null) {
+              final View b = binding.stubLastReplyBubble.inflate();
+              lastReplyBubbleView = b;
+              lastReplyAvatars = new android.widget.ImageView[] {
+                      b.findViewById(R.id.iv_last_reply_avatar_1),
+                      b.findViewById(R.id.iv_last_reply_avatar_2),
+                      b.findViewById(R.id.iv_last_reply_avatar_3) };
+              lastReplyTextTv = b.findViewById(R.id.tv_last_reply_text);
+          }
+          return lastReplyBubbleView;
       }
       private View reshareContainer() {
           if (reshareContainerView == null) reshareContainerView = binding.stubReshareCard.inflate();
@@ -261,9 +317,19 @@ import com.callx.app.utils.AlertDialogStyler;
       @Override
       protected void onCreate(Bundle savedInstanceState) {
           super.onCreate(savedInstanceState);
+          overridePendingTransition(0, 0); // v508: no system open animation (theme also disables it) → faster first paint
           binding = ActivityStatusViewerBinding.inflate(getLayoutInflater());
           setContentView(binding.getRoot());
           getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+          // v509: the chrome groups + scrims never have overlapping children, so tell the renderer:
+          // setChromeHidden()'s alpha fade then applies alpha per draw op instead of rendering the
+          // whole group into an offscreen layer every frame. (Root is NOT flagged: its cross-fade
+          // does overlap backdrop / photo / card, so it keeps normal alpha compositing.)
+          binding.llTopChrome.setHasOverlappingRendering(false);
+          binding.llBottomChrome.setHasOverlappingRendering(false);
+          binding.llReplyBar.setHasOverlappingRendering(false);
+          binding.viewTopScrim.setHasOverlappingRendering(false);
+          binding.viewBottomScrim.setHasOverlappingRendering(false);
           setupEdgeToEdge();
           ownerUid  = getIntent().getStringExtra(EXTRA_OWNER_UID);
           ownerName = getIntent().getStringExtra(EXTRA_OWNER_NAME);
@@ -488,10 +554,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       showCurrent();
                       // FIX: show download+forward for viewer, hide for owner
                       boolean isOwner = myUid != null && myUid.equals(ownerUid);
-                      binding.btnDownload.setVisibility(isOwner ? View.GONE : View.VISIBLE);
-                      binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
-                      // btnRepost visibility is refined per-item in showCurrent() based on allowSharing
-                      binding.btnRepost.setVisibility(isOwner ? View.GONE : View.VISIBLE);
+                      // v508: Download/Forward/Repost are menu-only now (no hidden proxy views to toggle)
       }
       private void load(String uid) {
           if (isHighlightMode) { loadHighlightAlbum(uid); return; }
@@ -585,10 +648,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       buildSegmentBars();
                       showCurrent();
                       boolean isOwner = myUid != null && myUid.equals(ownerUid);
-                      binding.btnDownload.setVisibility(isOwner ? View.GONE : View.VISIBLE);
-                      binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
-                      // btnRepost visibility is refined per-item in showCurrent() based on allowSharing
-                      binding.btnRepost.setVisibility(isOwner ? View.GONE : View.VISIBLE);
+                      // v508: Download/Forward/Repost are menu-only now (no hidden proxy views to toggle)
                   }
                   @Override public void onCancelled(@NonNull DatabaseError e) {
                       CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.loadHighlightAlbum.onCancelled", e.toException());
@@ -598,20 +658,30 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       // ── Segment bar ───────────────────────────────────────────────────────
       private void buildSegmentBars() {
-          binding.segmentsContainer.removeAllViews();
-          segmentBars.clear();
-          int count = items.size();
-          for (int i = 0; i < count; i++) {
+          // v509: reuse the existing ProgressBars — only add / drop the tail when the count changed
+          // (was removeAllViews() + N new ProgressBars + N drawable inflations on every status
+          // list load / delete). Same count (the common case) = zero view creation.
+          final int count = items.size();
+          final android.view.ViewGroup box = binding.segmentsContainer;
+          while (segmentBars.size() > count) {
+              ProgressBar extra = segmentBars.remove(segmentBars.size() - 1);
+              box.removeView(extra);
+          }
+          while (segmentBars.size() < count) {
               ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
               pb.setMax(1000);
-              pb.setProgress(0);
-              LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpToPx(2), 1f);
-              lp.setMarginEnd(i < count - 1 ? dpToPx(2) : 0);
-              pb.setLayoutParams(lp);
               // rounded track (white 30%) + rounded white fill — was a whole-drawable WHITE filter (track turned white too)
               pb.setProgressDrawable(androidx.core.content.ContextCompat.getDrawable(this, R.drawable.status_segment_progress));
-              binding.segmentsContainer.addView(pb);
+              box.addView(pb, new LinearLayout.LayoutParams(0, dpToPx(2), 1f));
               segmentBars.add(pb);
+          }
+          final int gap = dpToPx(2);
+          for (int i = 0; i < count; i++) {
+              ProgressBar pb = segmentBars.get(i);
+              LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) pb.getLayoutParams();
+              final int wantEnd = i < count - 1 ? gap : 0; // only the last bar has no trailing gap
+              if (lp.getMarginEnd() != wantEnd) { lp.setMarginEnd(wantEnd); pb.setLayoutParams(lp); }
+              if (pb.getProgress() != 0) pb.setProgress(0);
           }
       }
       private void fillSegmentsBefore(int currentIdx) {
@@ -647,9 +717,9 @@ import com.callx.app.utils.AlertDialogStyler;
           // Replies strip: drop the previous status's listener + bubble NOW (no stale flash),
           // attach the new Firebase listener once the frame is up.
           detachRepliesListener();
-          if (binding.llLastReplyBubble != null) {
-              binding.llLastReplyBubble.animate().cancel();
-              binding.llLastReplyBubble.setVisibility(View.GONE);
+          if (lastReplyBubbleView != null) {
+              lastReplyBubbleView.animate().cancel();
+              lastReplyBubbleView.setVisibility(View.GONE);
           }
           final StatusItem shown = s;
           deferAfterFirstFrame(seq, () -> updateLastReplyOverlay(shown));
@@ -763,12 +833,6 @@ import com.callx.app.utils.AlertDialogStyler;
                       reshareContainerView.setVisibility(android.view.View.GONE);
                   }
 
-                  // ── Repost button: show only if owner allows sharing and viewer ≠ owner ──
-                  boolean amOwner = myUid != null && myUid.equals(ownerUid);
-                  if (!amOwner) {
-                      boolean canRepost = s.allowSharing && !isReshare; // don't chain-repost reshared items
-                      binding.btnRepost.setVisibility(canRepost ? android.view.View.VISIBLE : android.view.View.GONE);
-                  }
               }
           } catch (Exception e) {
               CrashReporter.report(this, "StatusViewer.reshareAttributionCard", e);
@@ -892,7 +956,7 @@ import com.callx.app.utils.AlertDialogStyler;
           final FrameLayout textLayer = textLayer(); // v507: inflated on first text status
           final TextView textTv = textStatusTv;
           textLayer.setVisibility(View.VISIBLE);
-          textTv.setText(StatusMentionHelper.highlight(s.text != null ? s.text : ""));
+          textTv.setText(StatusMentionHelper.highlightFast(s.text));
           try {
               if (s.bgColor != null) textLayer.setBackgroundColor(Color.parseColor(s.bgColor));
               else textLayer.setBackgroundResource(R.drawable.gradient_brand);
@@ -1542,6 +1606,11 @@ import com.callx.app.utils.AlertDialogStyler;
        * The resolved URL gets NO further fallback, so a second failure ends in a toast.
        */
       private void resolveSoundIdAndPlay(String soundId, int requestedIdx) {
+          final String cachedUrl = SOUND_URL_CACHE.get(soundId);
+          if (cachedUrl != null) { // seen before → no Firebase round-trip on the audio critical path
+              if (idx == requestedIdx) startMusicStickerAudio(cachedUrl, null, requestedIdx);
+              return;
+          }
           FirebaseUtils.db().getReference("sounds").child(soundId)
                   .addListenerForSingleValueEvent(new ValueEventListener() {
               @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -1557,6 +1626,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
                   if (resolved != null) {
                       dbgLog( "musicSticker autoplay: resolved from sounds/" + soundId);
+                      SOUND_URL_CACHE.put(soundId, resolved);
                       startMusicStickerAudio(resolved, null, requestedIdx);
                   } else {
                       dbgLog( "musicSticker autoplay: sounds/" + soundId + " missing or no audio field, trying musicLibrary/");
@@ -1590,6 +1660,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
                   if (resolved != null) {
                       dbgLog( "musicSticker autoplay: resolved from musicLibrary/" + soundId);
+                      SOUND_URL_CACHE.put(soundId, resolved);
                       startMusicStickerAudio(resolved, null, requestedIdx);
                   } else {
                       dbgLog( "musicSticker autoplay: musicLibrary/" + soundId + " not found / no audio field");
@@ -1633,6 +1704,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (item == null || item.stickersJson == null || item.stickersJson.isEmpty()) return;
           try {
               JSONArray arr = new JSONArray(item.stickersJson);
+              final int stickerSeq = showSeq; // renderStickers() runs synchronously inside showCurrent()
               int dp = (int) getResources().getDisplayMetrics().density;
               for (int i = 0; i < arr.length(); i++) {
                   String stickerJson = arr.getJSONObject(i).toString();
@@ -1684,34 +1756,37 @@ import com.callx.app.utils.AlertDialogStyler;
                       final String statusId = current != null ? current.id : null;
                       if (statusId != null) {
                           // Restore a prior answer if this viewer already voted, otherwise let them tap once.
-                          FirebaseUtils.getStatusQuizVoteRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
-                                      Long prevSelected = snap.child("selectedIndex").getValue(Long.class);
-                                      if (prevSelected != null) sticker.revealQuizAnswer(prevSelected.intValue());
-                                  } else {
-                                      armStickerZoomGate(sticker);
-                                      sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
-                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                          if (cur == null) return;
-                                          pauseProgress();
-                                          java.util.List<String> opts = sticker.getQuizOptions();
-                                          String selectedText = opts != null && selectedIndex < opts.size()
-                                                  ? opts.get(selectedIndex) : "";
-                                          boolean isCorrect = selectedIndex == sticker.getQuizCorrectIndex();
-                                          sticker.revealQuizAnswer(selectedIndex);
-                                          StatusReplyBottomSheet.sendQuizAnswer(myUid, ownerUid, ownerName,
-                                                  cur, stickerIndex, sticker.getQuizQuestion(),
-                                                  selectedText, selectedIndex, isCorrect);
-                                          // Give the viewer a beat to see the ✓/✗ reveal, then shrink back and resume.
-                                          new Handler(Looper.getMainLooper())
-                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
-                                      });
-                                  }
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
+                          final String stateKey = stickerStateKey("quiz", ownerUid, statusId, stickerIndex, myUid);
+                          loadOwnStickerState(stickerSeq, stateKey,
+                                  FirebaseUtils.getStatusQuizVoteRef(ownerUid, statusId, stickerIndex, myUid),
+                                  snap -> {
+                                      Long prevSel = snap.child("selectedIndex").getValue(Long.class);
+                                      return prevSel != null ? (Object) Integer.valueOf(prevSel.intValue()) : NO_STATE;
+                                  },
+                                  state -> {
+                                      if (state instanceof Integer) {
+                                          sticker.revealQuizAnswer((Integer) state);
+                                      } else {
+                                          armStickerZoomGate(sticker);
+                                          sticker.setOnQuizOptionSelectedListener(selectedIndex -> {
+                                              StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                              if (cur == null) return;
+                                              pauseProgress();
+                                              java.util.List<String> opts = sticker.getQuizOptions();
+                                              String selectedText = opts != null && selectedIndex < opts.size()
+                                                      ? opts.get(selectedIndex) : "";
+                                              boolean isCorrect = selectedIndex == sticker.getQuizCorrectIndex();
+                                              sticker.revealQuizAnswer(selectedIndex);
+                                              putOwnStickerState(stateKey, Integer.valueOf(selectedIndex));
+                                              StatusReplyBottomSheet.sendQuizAnswer(myUid, ownerUid, ownerName,
+                                                      cur, stickerIndex, sticker.getQuizQuestion(),
+                                                      selectedText, selectedIndex, isCorrect);
+                                              // Give the viewer a beat to see the ✓/✗ reveal, then shrink back and resume.
+                                              new Handler(Looper.getMainLooper())
+                                                      .postDelayed(() -> settleStickerReaction(sticker), 1200);
+                                          });
+                                      }
+                                  });
                       }
                   }
 
@@ -1764,32 +1839,31 @@ import com.callx.app.utils.AlertDialogStyler;
                       final int stickerIndex = i;
                       final String statusId = current != null ? current.id : null;
                       if (statusId != null) {
-                          FirebaseUtils.getStatusCountdownSubscriberRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
-                                      sticker.setCountdownSubscribed(true);
-                                  }
-                                  armStickerZoomGate(sticker);
-                                  sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
-                                      StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                      if (cur == null) return;
-                                      if (nowSubscribed) {
-                                          StatusReplyBottomSheet.sendCountdownSubscription(myUid, ownerUid,
-                                                  ownerName, cur, stickerIndex, sticker.getCountdownLabel());
-                                      } else {
-                                          // Quietly remove the subscription — no DM on unsubscribe,
-                                          // so the poster isn't notified every time someone changes their mind.
-                                          FirebaseUtils.getStatusCountdownSubscriberRef(
-                                                  ownerUid, statusId, stickerIndex, myUid).removeValue();
-                                      }
-                                      // Give the viewer a beat to see the bell toggle, then shrink back and resume.
-                                      new Handler(Looper.getMainLooper())
-                                              .postDelayed(() -> settleStickerReaction(sticker), 500);
+                          final String stateKey = stickerStateKey("countdown", ownerUid, statusId, stickerIndex, myUid);
+                          loadOwnStickerState(stickerSeq, stateKey,
+                                  FirebaseUtils.getStatusCountdownSubscriberRef(ownerUid, statusId, stickerIndex, myUid),
+                                  snap -> Boolean.TRUE,
+                                  state -> {
+                                      if (state == Boolean.TRUE) sticker.setCountdownSubscribed(true);
+                                      armStickerZoomGate(sticker);
+                                      sticker.setOnCountdownSubscribeToggleListener(nowSubscribed -> {
+                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                          if (cur == null) return;
+                                          putOwnStickerState(stateKey, nowSubscribed ? (Object) Boolean.TRUE : NO_STATE);
+                                          if (nowSubscribed) {
+                                              StatusReplyBottomSheet.sendCountdownSubscription(myUid, ownerUid,
+                                                      ownerName, cur, stickerIndex, sticker.getCountdownLabel());
+                                          } else {
+                                              // Quietly remove the subscription — no DM on unsubscribe,
+                                              // so the poster isn't notified every time someone changes their mind.
+                                              FirebaseUtils.getStatusCountdownSubscriberRef(
+                                                      ownerUid, statusId, stickerIndex, myUid).removeValue();
+                                          }
+                                          // Give the viewer a beat to see the bell toggle, then shrink back and resume.
+                                          new Handler(Looper.getMainLooper())
+                                                  .postDelayed(() -> settleStickerReaction(sticker), 500);
+                                      });
                                   });
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
                       }
                   }
                   if ("poll".equals(sticker.getStickerType())
@@ -1799,31 +1873,35 @@ import com.callx.app.utils.AlertDialogStyler;
                       final String statusId = current != null ? current.id : null;
                       if (statusId != null) {
                           // Restore a prior vote if this viewer already voted, otherwise let them tap once.
-                          FirebaseUtils.getStatusPollVoteRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
-                                      String prevOption = snap.child("option").getValue(String.class);
-                                      revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, prevOption);
-                                  } else {
-                                      armStickerZoomGate(sticker);
-                                      sticker.setOnPollOptionSelectedListener(selectedOption -> {
-                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                          if (cur == null) return;
-                                          String selectedText = "A".equals(selectedOption)
-                                                  ? sticker.getPollOptionA() : sticker.getPollOptionB();
-                                          StatusReplyBottomSheet.sendPollVote(myUid, ownerUid, ownerName,
-                                                  cur, stickerIndex, sticker.getPollQuestion(),
-                                                  selectedOption, selectedText);
-                                          revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, selectedOption);
-                                          // Give the viewer a beat to see the % split, then shrink back and resume.
-                                          new Handler(Looper.getMainLooper())
-                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
-                                      });
-                                  }
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
+                          final String stateKey = stickerStateKey("poll", ownerUid, statusId, stickerIndex, myUid);
+                          loadOwnStickerState(stickerSeq, stateKey,
+                                  FirebaseUtils.getStatusPollVoteRef(ownerUid, statusId, stickerIndex, myUid),
+                                  snap -> {
+                                      String opt = snap.child("option").getValue(String.class);
+                                      return opt != null ? (Object) opt : VOTED_UNKNOWN;
+                                  },
+                                  state -> {
+                                      if (state != NO_STATE) {
+                                          String prevOption = state instanceof String ? (String) state : null;
+                                          revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, prevOption);
+                                      } else {
+                                          armStickerZoomGate(sticker);
+                                          sticker.setOnPollOptionSelectedListener(selectedOption -> {
+                                              StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                              if (cur == null) return;
+                                              String selectedText = "A".equals(selectedOption)
+                                                      ? sticker.getPollOptionA() : sticker.getPollOptionB();
+                                              putOwnStickerState(stateKey, selectedOption);
+                                              StatusReplyBottomSheet.sendPollVote(myUid, ownerUid, ownerName,
+                                                      cur, stickerIndex, sticker.getPollQuestion(),
+                                                      selectedOption, selectedText);
+                                              revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, selectedOption);
+                                              // Give the viewer a beat to see the % split, then shrink back and resume.
+                                              new Handler(Looper.getMainLooper())
+                                                      .postDelayed(() -> settleStickerReaction(sticker), 1200);
+                                          });
+                                      }
+                                  });
                       }
                   }
 
@@ -1834,30 +1912,32 @@ import com.callx.app.utils.AlertDialogStyler;
                       final String statusId = current != null ? current.id : null;
                       if (statusId != null) {
                           // Restore a prior response if this viewer already rated, otherwise let them drag once.
-                          FirebaseUtils.getStatusSliderResponseRef(ownerUid, statusId, stickerIndex, myUid)
-                                  .addListenerForSingleValueEvent(new ValueEventListener() {
-                              @Override public void onDataChange(DataSnapshot snap) {
-                                  if (snap.exists()) {
+                          final String stateKey = stickerStateKey("slider", ownerUid, statusId, stickerIndex, myUid);
+                          loadOwnStickerState(stickerSeq, stateKey,
+                                  FirebaseUtils.getStatusSliderResponseRef(ownerUid, statusId, stickerIndex, myUid),
+                                  snap -> {
                                       Long prevValue = snap.child("value").getValue(Long.class);
-                                      int myVal = prevValue != null ? prevValue.intValue() : 50;
-                                      revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, myVal);
-                                  } else {
-                                      armStickerZoomGate(sticker);
-                                      sticker.setOnSliderValueSubmittedListener(value -> {
-                                          StatusItem cur = idx < items.size() ? items.get(idx) : null;
-                                          if (cur == null) return;
-                                          StatusReplyBottomSheet.sendSliderResponse(myUid, ownerUid, ownerName,
-                                                  cur, stickerIndex, sticker.getSliderQuestion(),
-                                                  sticker.getSliderEmoji(), value);
-                                          revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, value);
-                                          // Give the viewer a beat to see the average, then shrink back and resume.
-                                          new Handler(Looper.getMainLooper())
-                                                  .postDelayed(() -> settleStickerReaction(sticker), 1200);
-                                      });
-                                  }
-                              }
-                              @Override public void onCancelled(DatabaseError e) {}
-                          });
+                                      return Integer.valueOf(prevValue != null ? prevValue.intValue() : 50);
+                                  },
+                                  state -> {
+                                      if (state instanceof Integer) {
+                                          revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, (Integer) state);
+                                      } else {
+                                          armStickerZoomGate(sticker);
+                                          sticker.setOnSliderValueSubmittedListener(value -> {
+                                              StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                                              if (cur == null) return;
+                                              putOwnStickerState(stateKey, Integer.valueOf(value));
+                                              StatusReplyBottomSheet.sendSliderResponse(myUid, ownerUid, ownerName,
+                                                      cur, stickerIndex, sticker.getSliderQuestion(),
+                                                      sticker.getSliderEmoji(), value);
+                                              revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, value);
+                                              // Give the viewer a beat to see the average, then shrink back and resume.
+                                              new Handler(Looper.getMainLooper())
+                                                      .postDelayed(() -> settleStickerReaction(sticker), 1200);
+                                          });
+                                      }
+                                  });
                       }
                   }
                   if ("mention".equals(sticker.getStickerType())) {
@@ -2103,7 +2183,7 @@ import com.callx.app.utils.AlertDialogStyler;
           tv.scrollTo(0, 0);
           if (!TextUtils.isEmpty(caption)) {
               tv.setVisibility(View.VISIBLE);
-              tv.setText(StatusMentionHelper.highlight(caption));
+              tv.setText(StatusMentionHelper.highlightFast(caption));
               tv.post(() -> {
                   android.text.Layout l = tv.getLayout();
                   if (l == null || l.getLineCount() == 0) return;
@@ -2375,6 +2455,10 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           });
       }
+      @Override public void finish() {
+          super.finish();
+          overridePendingTransition(0, 0); // v508: drag-close / fade already animated by the viewer itself
+      }
       private void finishWithAnimation() {
           AlphaAnimation fade = new AlphaAnimation(1f, 0f);
           fade.setDuration(200);
@@ -2520,7 +2604,7 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.btnCloseStatus.setOnClickListener(v -> finishWithAnimation());
       }
       private void setupReactionButton() {
-          binding.btnReact.setOnClickListener(v -> {
+          actReact = () -> {
               if (myUid != null && myUid.equals(ownerUid)) return;
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null) return;
@@ -2537,7 +2621,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   updateSeenByInfo(current);
                   resumeProgress();
               });
-          });
+          };
       }
       /**
        * WhatsApp-style quick-like: a single tap on the heart icon sends a ❤️
@@ -2612,7 +2696,7 @@ import com.callx.app.utils.AlertDialogStyler;
               return;
           }
           // Long-press = full emoji picker (btn_react is a hidden proxy now).
-          binding.btnLikeHeart.setOnLongClickListener(v -> { binding.btnReact.performClick(); return true; });
+          binding.btnLikeHeart.setOnLongClickListener(v -> { runAct(actReact); return true; });
           binding.btnLikeHeart.setOnClickListener(v -> {
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null || myUid == null) return;
@@ -2657,7 +2741,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       ? binding.etReply.getText().toString().trim() : "";
               // Instagram-style paper plane: nothing typed → it shares the story
               // (same forward sheet as the ⋯ menu); typed text → sends it as a reply.
-              if (TextUtils.isEmpty(msg)) { binding.btnForward.performClick(); return; }
+              if (TextUtils.isEmpty(msg)) { runAct(actForward); return; }
               if (myUid == null || ownerUid == null) return;
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               sendReplyToChat(ownerUid, msg, current);
@@ -2668,23 +2752,23 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       /** FIX v26: was findViewWithTag("btn_download") — tag not in XML → always null → click never registered */
       private void setupDownloadButton() {
-          binding.btnDownload.setOnClickListener(v -> {
+          actDownload = () -> {
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null) return;
               if (!StatusDownloadHelper.hasPermission(this)) {
                   StatusDownloadHelper.requestPermission(this); return;
               }
               StatusDownloadHelper.downloadStatus(this, current);
-          });
+          };
       }
       /** FIX v26: was findViewWithTag("btn_forward") — tag not in XML → always null → click never registered */
       private void setupForwardButton() {
-          binding.btnForward.setOnClickListener(v -> {
+          actForward = () -> {
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null || myUid == null) return;
               pauseProgress();
               StatusForwardBottomSheet.show(this, current, myUid, this::resumeProgress);
-          });
+          };
       }
       /**
        * Repost button — lets a viewer repost the current status to their own story.
@@ -2692,7 +2776,7 @@ import com.callx.app.utils.AlertDialogStyler;
        * StoryReshareActivity with contentType="status" carrying the full attribution.
        */
       private void setupRepostButton() {
-          binding.btnRepost.setOnClickListener(v -> {
+          actRepost = () -> {
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null) return;
               if (!current.allowSharing) {
@@ -2704,7 +2788,7 @@ import com.callx.app.utils.AlertDialogStyler;
               android.content.Intent intent = com.callx.app.utils.StatusReshareHelper
                       .buildReshareStatusIntent(this, current, ownerName, ownerUid);
               startActivity(intent);
-          });
+          };
       }
       /**
        * Level-stabilizer toggle — global viewer preference (persists across
@@ -2714,18 +2798,13 @@ import com.callx.app.utils.AlertDialogStyler;
        * change is felt on the story currently open, no restart needed.
        */
       private void setupStabilizerButton() {
-          updateStabilizerIcon();
-          binding.btnStabilizer.setOnClickListener(v -> {
+          actStabilizer = () -> {
               boolean nowEnabled = !StoryStabilizerPrefs.isEnabled(this);
               StoryStabilizerPrefs.setEnabled(this, nowEnabled);
-              updateStabilizerIcon();
               Toast.makeText(this, nowEnabled ? "Stabilizer on" : "Stabilizer off",
                       Toast.LENGTH_SHORT).show();
               startSpinViewIfAllowed();
-          });
-      }
-      private void updateStabilizerIcon() {
-          binding.btnStabilizer.setAlpha(StoryStabilizerPrefs.isEnabled(this) ? 1f : 0.4f);
+          };
       }
       /** Starts spinView only when: the viewer's own preference allows it,
        *  the applicable "does the content allow it" flag allows it, AND the
@@ -2811,7 +2890,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   } else if (w == 4 && current != null) {
                       showAnalyticsBottomSheet(current);
                   } else if (w == 5) {
-                      binding.btnStabilizer.performClick();
+                      runAct(actStabilizer);
                       resumeProgress();
                   } else {
                       resumeProgress();
@@ -2852,7 +2931,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   } else if (w == 4) {
                       confirmDeleteHighlightAlbum();
                   } else if (w == 5) {
-                      binding.btnStabilizer.performClick();
+                      runAct(actStabilizer);
                       resumeProgress();
                   } else {
                       resumeProgress();
@@ -2909,13 +2988,13 @@ import com.callx.app.utils.AlertDialogStyler;
                       ? ownerName + " muted" : ownerName + " unmuted", Toast.LENGTH_SHORT).show();
               finish();
           });
-          labels.add("Download");  actions.add(() -> { binding.btnDownload.performClick(); resumeProgress(); });
-          labels.add("Forward");   actions.add(() -> binding.btnForward.performClick()); // sheet resumes progress itself
+          labels.add("Download");  actions.add(() -> { runAct(actDownload); resumeProgress(); });
+          labels.add("Forward");   actions.add(() -> runAct(actForward)); // sheet resumes progress itself
           if (cur != null && cur.allowSharing) {
-              labels.add("Repost to my status"); actions.add(() -> binding.btnRepost.performClick());
+              labels.add("Repost to my status"); actions.add(() -> runAct(actRepost));
           }
           labels.add(StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on");
-          actions.add(() -> { binding.btnStabilizer.performClick(); resumeProgress(); });
+          actions.add(() -> { runAct(actStabilizer); resumeProgress(); });
           labels.add("Report");    actions.add(() -> { Toast.makeText(this, "Reported", Toast.LENGTH_SHORT).show(); resumeProgress(); });
           labels.add("Cancel");    actions.add(this::resumeProgress);
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
@@ -2960,10 +3039,7 @@ import com.callx.app.utils.AlertDialogStyler;
               });
           } else {
               binding.tvSeenBy.setVisibility(View.GONE);
-              if (s.hasReaction(myUid)) {
-                  String myReaction = s.getReaction(myUid);
-                  binding.btnReact.setContentDescription("React (" + myReaction + ")");
-              }
+              // v508: hidden btn_react proxy removed; the heart (btn_like_heart) carries the state.
           }
           updateLikeHeartIcon(s);
       }
@@ -2979,9 +3055,8 @@ import com.callx.app.utils.AlertDialogStyler;
        */
       private void updateLastReplyOverlay(StatusItem s) {
           detachRepliesListener();
-          if (binding.llLastReplyBubble == null) return;
           if (s == null || s.id == null || s.id.isEmpty()) {
-              binding.llLastReplyBubble.setVisibility(View.GONE);
+              if (lastReplyBubbleView != null) lastReplyBubbleView.setVisibility(View.GONE);
               return;
           }
           repliesListenerRef = FirebaseUtils.getStatusRepliesRef(ownerUid, s.id);
@@ -3022,16 +3097,17 @@ import com.callx.app.utils.AlertDialogStyler;
        * any pending auto-hide.
        */
       private void bindLastReplyBubble(StatusItem s, List<StatusItem.ReplyPreview> newestFirst) {
-          if (binding.llLastReplyBubble == null) return;
           if (replyOverlayAutoHide != null) handler.removeCallbacks(replyOverlayAutoHide);
           if (newestFirst.isEmpty()) {
-              binding.llLastReplyBubble.setVisibility(View.GONE);
-              binding.llLastReplyBubble.setAlpha(1f);
+              // No replies → never inflate the bubble; just reset it if it was shown before.
+              if (lastReplyBubbleView != null) {
+                  lastReplyBubbleView.setVisibility(View.GONE);
+                  lastReplyBubbleView.setAlpha(1f);
+              }
               return;
           }
-          android.widget.ImageView[] slots = {
-              binding.ivLastReplyAvatar1, binding.ivLastReplyAvatar2, binding.ivLastReplyAvatar3
-          };
+          final View bubble = lastReplyBubble(); // v508: inflated on first status that has replies
+          final android.widget.ImageView[] slots = lastReplyAvatars;
           // slots[2] (rightmost/top-of-stack) = newest; older ones fill leftward.
           for (int slot = 0; slot < slots.length; slot++) {
               int replyIdx = slots.length - 1 - slot; // 2,1,0
@@ -3048,26 +3124,22 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           }
           StatusItem.ReplyPreview latest = newestFirst.get(0);
-          if (binding.tvLastReplyText != null) {
+          if (lastReplyTextTv != null) {
               String who = latest.name != null && !latest.name.isEmpty() ? latest.name : "Someone";
-              binding.tvLastReplyText.setText(who + ": " + (latest.text != null ? latest.text : ""));
+              lastReplyTextTv.setText(who + ": " + (latest.text != null ? latest.text : ""));
           }
-          binding.llLastReplyBubble.animate().cancel();
-          binding.llLastReplyBubble.setAlpha(1f);
-          binding.llLastReplyBubble.setVisibility(View.VISIBLE);
-          binding.llLastReplyBubble.setOnClickListener(v -> {
+          bubble.animate().cancel();
+          bubble.setAlpha(1f);
+          bubble.setVisibility(View.VISIBLE);
+          bubble.setOnClickListener(v -> {
               if (replyOverlayAutoHide != null) handler.removeCallbacks(replyOverlayAutoHide);
               pauseProgress();
               com.callx.app.interactions.StatusRepliesBottomSheet.show(this, ownerUid, myUid, s, this::resumeProgress);
           });
           replyOverlayAutoHide = () -> {
-              if (binding.llLastReplyBubble == null) return;
-              binding.llLastReplyBubble.animate()
+              bubble.animate()
                   .alpha(0f).setDuration(300)
-                  .withEndAction(() -> {
-                      if (binding.llLastReplyBubble != null)
-                          binding.llLastReplyBubble.setVisibility(View.GONE);
-                  }).start();
+                  .withEndAction(() -> bubble.setVisibility(View.GONE)).start();
           };
           handler.postDelayed(replyOverlayAutoHide, REPLY_OVERLAY_AUTO_HIDE_MS);
       }

@@ -44,12 +44,45 @@ public final class StatusMentionHelper {
     public static SpannableString highlight(String text) {
         if (text == null) return new SpannableString("");
         SpannableString ss = new SpannableString(text);
-        Matcher m = MENTION_PATTERN.matcher(text);
-        while (m.find()) {
+        if (text.indexOf('@') < 0) return ss; // v509: no '@' → no regex pass at all
+        final int[] ranges = mentionRanges(text);
+        for (int i = 0; i < ranges.length; i += 2) {
             ss.setSpan(new ForegroundColorSpan(MENTION_COLOR),
-                    m.start(), m.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    ranges[i], ranges[i + 1], Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return ss;
+    }
+
+    /**
+     * v509 — display-path variant for the status viewer (runs on every text status / caption).
+     * No '@' (the vast majority) → returns the String itself: no SpannableString allocation and
+     * TextView skips span handling. With mentions → a fresh SpannableString built from cached
+     * match ranges, so the regex runs once per distinct text. A new Spannable per call on purpose
+     * (a Spannable shared between two TextViews gets its change-watchers stolen by the other).
+     */
+    public static CharSequence highlightFast(String text) {
+        if (text == null || text.isEmpty()) return "";
+        if (text.indexOf('@') < 0) return text;
+        return highlight(text);
+    }
+
+    // [start0,end0,start1,end1,...] per distinct text; tiny, bounded.
+    private static final android.util.LruCache<String, int[]> RANGE_CACHE =
+            new android.util.LruCache<>(48);
+    private static final int[] NO_RANGES = new int[0];
+    private static int[] mentionRanges(String text) {
+        int[] hit = RANGE_CACHE.get(text);
+        if (hit != null) return hit;
+        List<Integer> pos = new ArrayList<>();
+        Matcher m = MENTION_PATTERN.matcher(text);
+        while (m.find()) { pos.add(m.start()); pos.add(m.end()); }
+        int[] out = NO_RANGES;
+        if (!pos.isEmpty()) {
+            out = new int[pos.size()];
+            for (int i = 0; i < out.length; i++) out[i] = pos.get(i);
+        }
+        RANGE_CACHE.put(text, out);
+        return out;
     }
     /** Notify mentioned users via Firebase (fire-and-forget). */
     public static void notifyMentions(String ownerUid, String ownerName,

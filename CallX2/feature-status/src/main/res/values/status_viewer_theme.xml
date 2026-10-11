@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v508: dedicated StatusViewerActivity theme.
+     - windowBackground = the viewer's own dark backdrop colour, so there is no white
+       (Theme.CallX light = @color/white) flash between window open and first drawn frame.
+     - window animations OFF: the viewer runs its own cross-fade / drag / cube transitions, and
+       the system slide/fade only delays first paint by ~250-300 ms.
+     - opaque window, so the system can skip drawing the activity underneath. -->
+<resources>
+    <color name="status_viewer_window_bg">#0B0F17</color>
+
+    <style name="Animation.CallX.StatusViewer" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+    </style>
+
+    <style name="Theme.CallX.StatusViewer" parent="Theme.CallX">
+        <item name="android:windowBackground">@color/status_viewer_window_bg</item>
+        <item name="android:windowAnimationStyle">@style/Animation.CallX.StatusViewer</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>

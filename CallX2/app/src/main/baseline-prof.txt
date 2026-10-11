@@ -2587,3 +2587,36 @@ HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->onPartial(Landroid/graphics/B
 HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->onReady(Ljava/io/File;)V
 HPLcom/callx/app/utils/MediaCache$DownloadWaiter;->onError(Ljava/lang/String;)V
 HPLcom/callx/app/utils/MediaCache$ProgressTick;->wantsPartial()Z
+
+# ══════════════════════════════════════════════════════════════════════
+#  v509 — Status viewer (StatusViewerActivity) hot path
+#  The viewer had no profile coverage: open (ViewBinding inflate, ViewStub
+#  helpers, blur/prefetch), tap-next / segment progress, drag + cube
+#  transitions, sticker render + own-answer cache, reply bubble, mention
+#  highlight. Class-wide rules ('$*' = anonymous listeners / inner classes,
+#  lambdas live in the outer class as synthetics) so v507/v508 additions
+#  (stubs, columnHwLayer*, loadOwnStickerState, ...) are covered too.
+#  Post-startup only (HP) — the viewer is never on the cold-start path.
+#  Re-generate on a device for measured output: generateStatusViewerFlow.
+# ══════════════════════════════════════════════════════════════════════
+HPLcom/callx/app/viewer/StatusViewerActivity;->*(**)**
+HPLcom/callx/app/viewer/StatusViewerActivity$*;->*(**)**
+Lcom/callx/app/viewer/StatusViewerActivity;
+Lcom/callx/app/viewer/StatusViewerActivity$*;
+HPLcom/callx/app/status/databinding/ActivityStatusViewerBinding;->*(**)**
+HPLcom/callx/app/viewer/StorySpinViewController;->*(**)**
+HPLcom/callx/app/viewer/StatusMusicClip;->*(**)**
+HPLcom/callx/app/viewer/StatusAudioFocusHelper;->*(**)**
+HPLcom/callx/app/viewer/StoryStabilizerPrefs;->*(**)**
+HPLcom/callx/app/viewer/StoryRotateHintPrefs;->*(**)**
+HPLcom/callx/app/viewer/StoryRotateHintView;->*(**)**
+HPLcom/callx/app/utils/StatusBlurTransformation;->*(**)**
+HPLcom/callx/app/utils/StatusSeenTracker;->*(**)**
+HPLcom/callx/app/utils/StatusMentionHelper;->*(**)**
+HPLcom/callx/app/utils/StatusDownloadHelper;->*(**)**
+HPLcom/callx/app/stickers/StatusStickerOverlayView;->*(**)**
+HPLcom/callx/app/reaction/FloatingReactionOverlayView;->*(**)**
+HPLcom/callx/app/views/MusicTickerView;->*(**)**
+HPLcom/callx/app/models/StatusItem;->*(**)**
+HPLcom/callx/app/interactions/StatusRepliesBottomSheet;->*(**)**
+HPLcom/callx/app/interactions/StatusForwardBottomSheet;->*(**)**
