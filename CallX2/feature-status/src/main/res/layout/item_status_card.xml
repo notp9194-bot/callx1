@@ -14,7 +14,7 @@
         android:layout_height="match_parent"
         android:layout_marginTop="22dp"
         app:cardCornerRadius="18dp"
-        app:cardElevation="6dp"
+        app:cardElevation="3dp"
         app:cardBackgroundColor="#1A1A1A"
         app:strokeWidth="1dp"
         app:strokeColor="#40D4AF37"
@@ -30,8 +30,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:scaleType="centerCrop"
-                android:background="#3A3A3A"
-                android:src="@drawable/ic_person"/>
+                android:background="#3A3A3A"/>
 
             <!-- Soft top vignette for depth -->
             <View
@@ -45,6 +44,37 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="@drawable/bg_status_card_inner_stroke"/>
+
+            <!-- Text-status preview (shown only on text cards) -->
+            <TextView
+                android:id="@+id/tv_card_preview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="30dp"
+                android:paddingBottom="38dp"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:maxLines="5"
+                android:ellipsize="end"
+                android:visibility="gone"/>
+
+            <!-- Video badge -->
+            <ImageView
+                android:id="@+id/iv_card_type"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="8dp"
+                android:padding="3dp"
+                android:src="@android:drawable/ic_media_play"
+                android:tint="@android:color/white"
+                android:background="@drawable/bg_status_card_type_badge"
+                android:visibility="gone"/>
 
             <TextView
                 android:id="@+id/tv_card_name"
@@ -77,22 +107,18 @@
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_gravity="center_horizontal|top"
-        android:background="@drawable/bg_avatar_oval_outline"
-        android:elevation="8dp">
+        android:elevation="4dp">
 
         <ImageView
             android:id="@+id/ring"
             android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/circle_status_unseen"/>
+            android:layout_height="48dp"/>
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_card_avatar"
-            android:layout_width="39dp"
-            android:layout_height="39dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:layout_gravity="center"
-            app:civ_border_width="2dp"
-            app:civ_border_color="@android:color/white"
             android:src="@drawable/ic_person"/>
 
         <!-- Add (+) badge, shown only on own "add status" tile.

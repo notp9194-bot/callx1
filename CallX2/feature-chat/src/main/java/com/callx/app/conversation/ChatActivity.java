@@ -6008,11 +6008,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         if (state == 2) {
             ring.setBackground(com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(
-                    2f, getResources().getDisplayMetrics().density));
+                    1.5f, getResources().getDisplayMetrics().density));
             ring.setVisibility(View.VISIBLE);
         } else if (state == 1) {
             ring.setBackground(null);
-            ring.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+            ring.setImageResource(com.callx.app.core.R.drawable.circle_status_seen_thin);
             ring.setVisibility(View.VISIBLE);
         } else {
             ring.setBackground(null);

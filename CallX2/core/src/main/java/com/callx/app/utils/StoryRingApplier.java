@@ -44,10 +44,10 @@ public final class StoryRingApplier {
     /** Fresh ring Drawable for a state (null for NONE). Callers set bounds and draw it themselves. */
     public static android.graphics.drawable.Drawable ringDrawable(Context ctx, int state) {
         if (state == STATE_UNSEEN)
-            return StoryRingGradientDrawable.withStrokeDp(2f, ctx.getResources().getDisplayMetrics().density);
+            return StoryRingGradientDrawable.withStrokeDp(1.5f, ctx.getResources().getDisplayMetrics().density);
         if (state == STATE_SEEN) {
             android.graphics.drawable.Drawable d = androidx.core.content.ContextCompat.getDrawable(
-                    ctx, com.callx.app.core.R.drawable.circle_status_seen);
+                    ctx, com.callx.app.core.R.drawable.circle_status_seen_thin);
             return d != null ? d.mutate() : null;
         }
         return null;
@@ -84,11 +84,11 @@ public final class StoryRingApplier {
         if (hasUnseen) {
             ringView.setImageDrawable(null);
             ringView.setBackground(StoryRingGradientDrawable.withStrokeDp(
-                    2f, ctx.getResources().getDisplayMetrics().density));
+                    1.5f, ctx.getResources().getDisplayMetrics().density));
             ringView.setVisibility(View.VISIBLE);
         } else if (hasAny) {
             ringView.setBackground(null);
-            ringView.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+            ringView.setImageResource(com.callx.app.core.R.drawable.circle_status_seen_thin);
             ringView.setVisibility(View.VISIBLE);
         } else {
             ringView.setBackground(null);

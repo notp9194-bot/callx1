@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 1.5dp seen ring — used only by the sites that draw the 2dp-class story ring
+     (StoryRingApplier, status carousel, chat header). circle_status_seen (2dp) stays for everyone else. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <stroke android:width="1.5dp" android:color="@color/text_muted"/>
+    <solid android:color="@color/transparent"/>
+</shape>

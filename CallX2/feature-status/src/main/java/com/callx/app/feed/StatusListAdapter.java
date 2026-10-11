@@ -119,6 +119,37 @@ package com.callx.app.feed;
               this.isHiddenTile = isHiddenTile;
               this.avatarVersion = avatarVersion;
           }
+          /** Preview data of the latest status (text bg / video badge). Set via {@link #withPreview}. */
+          String type, previewText, textColor, bgColor2;
+          CardItem withPreview(StatusItem latest) {
+              if (latest == null) return this;
+              type = latest.type; bgColor2 = latest.bgColor2; textColor = latest.textColor;
+              if ("text".equals(latest.type) && latest.text != null) {
+                  String t = latest.text.trim();
+                  previewText = t.length() > 90 ? t.substring(0, 90) + "\u2026" : t;
+              }
+              return this;
+          }
+          boolean isVideo() { return "video".equals(type) || "reel_clip".equals(type); }
+          boolean isTextCard() { return "text".equals(type) && (thumbUrl == null || thumbUrl.isEmpty()); }
+          boolean sameIdentity(CardItem o) {
+              return o != null && isMine == o.isMine && isHiddenTile == o.isHiddenTile
+                      && java.util.Objects.equals(ownerUid, o.ownerUid);
+          }
+          boolean sameContent(CardItem o) {
+              return o != null && hasStatus == o.hasStatus && unseen == o.unseen && isMuted == o.isMuted
+                      && avatarVersion == o.avatarVersion
+                      && java.util.Objects.equals(ownerName, o.ownerName)
+                      && java.util.Objects.equals(ownerPhoto, o.ownerPhoto)
+                      && java.util.Objects.equals(thumbUrl, o.thumbUrl)
+                      && java.util.Objects.equals(bgColor, o.bgColor)
+                      && java.util.Objects.equals(ringColor, o.ringColor)
+                      && java.util.Objects.equals(ringMode, o.ringMode)
+                      && java.util.Objects.equals(type, o.type)
+                      && java.util.Objects.equals(previewText, o.previewText)
+                      && java.util.Objects.equals(textColor, o.textColor)
+                      && java.util.Objects.equals(bgColor2, o.bgColor2);
+          }
           /** v236: factory for the trailing "Hidden" tile. */
           public static CardItem hiddenTile() {
               return new CardItem(false, true, "__hidden__", "Hidden",
@@ -290,15 +321,28 @@ package com.callx.app.feed;
       // that's rendered as a single horizontal scrolling carousel (WhatsApp-style cards),
       // instead of the old vertical "My status" row + "Recent/Viewed updates" list rows.
       // v236: optionally appends a trailing "Hidden" tile at the very end.
+      private static boolean nz(String x) { return x != null && !x.isEmpty(); }
+      /** Thumb for a card: text statuses have none; a video's mediaUrl is NOT an image, so only its thumbnail counts. */
+      static String cardThumb(StatusItem s) {
+          if (s == null || "text".equals(s.type)) return null;
+          if ("video".equals(s.type) || "reel_clip".equals(s.type)) return nz(s.thumbnailUrl) ? s.thumbnailUrl : null;
+          return nz(s.thumbnailUrl) ? s.thumbnailUrl : (nz(s.mediaUrl) ? s.mediaUrl : null);
+      }
+      /** Own avatar: item's photo, else the already-loaded FirebaseAuth photo (sync, no network call). */
+      private static String myPhotoFallback(String photo) {
+          if (nz(photo)) return photo;
+          try { String p = com.callx.app.utils.FirebaseUtils.getCurrentPhotoUrl(); return nz(p) ? p : null; }
+          catch (Exception e) { return null; }
+      }
       private List<CardItem> buildCarouselItems(List<Entry> unseen, List<Entry> seen, int hiddenCount) {
           List<CardItem> cards = new ArrayList<>();
           if (myStatuses.isEmpty()) {
-              cards.add(new CardItem(true, false, myUid, "My Status", null, null, null, false, false));
+              cards.add(new CardItem(true, false, myUid, "My Status", myPhotoFallback(null), null, null, false, false));
           } else {
               StatusItem latest = myStatuses.get(myStatuses.size() - 1);
-              String thumb = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
-              cards.add(new CardItem(true, true, myUid, "My Status", latest.ownerPhoto, thumb, latest.bgColor,
-                      false, false, latest.ringColor, latest.ringMode));
+              String thumb = cardThumb(latest);
+              cards.add(new CardItem(true, true, myUid, "My Status", myPhotoFallback(latest.ownerPhoto), thumb, latest.bgColor,
+                      false, false, latest.ringColor, latest.ringMode).withPreview(latest));
           }
           for (Entry e : unseen) cards.add(entryToCard(e, true));
           for (Entry e : seen)   cards.add(entryToCard(e, false));
@@ -308,12 +352,12 @@ package com.callx.app.feed;
 
       private CardItem entryToCard(Entry e, boolean unseen) {
           StatusItem latest = e.latestItem;
-          String thumb = latest != null ? (latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl) : null;
+          String thumb = cardThumb(latest);
           String bg = latest != null ? latest.bgColor : null;
           String ringColor = latest != null ? latest.ringColor : null;
           String ringMode  = latest != null ? latest.ringMode  : null;
           return new CardItem(false, true, e.ownerUid, e.ownerName, e.ownerPhoto, thumb, bg,
-                  unseen, e.isMuted, ringColor, ringMode, false, e.avatarVersion);
+                  unseen, e.isMuted, ringColor, ringMode, false, e.avatarVersion).withPreview(latest);
       }
 
       /**
@@ -511,28 +555,38 @@ package com.callx.app.feed;
       // ── v27: Status carousel (horizontal, WhatsApp-style cards) ────────────
       private void bindCarousel(CarouselVH h, List<CardItem> cards) {
           if (cards == null) cards = new ArrayList<>();
-          if (h.rvCarousel.getLayoutManager() == null) {
-              h.rvCarousel.setLayoutManager(
-                      new LinearLayoutManager(h.itemView.getContext(), LinearLayoutManager.HORIZONTAL, false));
+          if (h.cardAdapter == null) {
+              // One-time setup: persistent adapter (DiffUtil updates keep scroll position + avoid flicker).
+              LinearLayoutManager lm = new LinearLayoutManager(
+                      h.itemView.getContext(), LinearLayoutManager.HORIZONTAL, false);
+              lm.setInitialPrefetchItemCount(4);
+              h.rvCarousel.setLayoutManager(lm);
+              h.rvCarousel.setHasFixedSize(true);
+              h.rvCarousel.setItemViewCacheSize(6);
+              if (h.rvCarousel.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator)
+                  ((androidx.recyclerview.widget.SimpleItemAnimator) h.rvCarousel.getItemAnimator())
+                          .setSupportsChangeAnimations(false);
+              h.cardAdapter = new StatusCardAdapter(card -> {
+                  if (card.isHiddenTile) {
+                      if (onHiddenCardClick != null) onHiddenCardClick.run();
+                  } else if (card.isMine) {
+                      if (card.hasStatus) { if (onMyStatusClick != null) onMyStatusClick.run(); }
+                      else                { if (onAddStatusClick != null) onAddStatusClick.run(); }
+                  } else if (!card.isMuted && onContactClick != null) {
+                      onContactClick.onClick(card.ownerUid, card.ownerName);
+                  } else if (card.isMuted) {
+                      android.widget.Toast.makeText(h.itemView.getContext(),
+                              card.ownerName + " is muted. Long press to unmute.",
+                              android.widget.Toast.LENGTH_SHORT).show();
+                  }
+              }, card -> {
+                  if (!card.isMine && !card.isHiddenTile && onLongPress != null)
+                      onLongPress.onLongPress(card.ownerUid, card.ownerName, card.isMuted);
+              });
+              h.rvCarousel.setAdapter(h.cardAdapter);
           }
-          StatusCardAdapter cardAdapter = new StatusCardAdapter(cards, card -> {
-              if (card.isHiddenTile) {
-                  if (onHiddenCardClick != null) onHiddenCardClick.run();
-              } else if (card.isMine) {
-                  if (card.hasStatus) { if (onMyStatusClick != null) onMyStatusClick.run(); }
-                  else                { if (onAddStatusClick != null) onAddStatusClick.run(); }
-              } else if (!card.isMuted && onContactClick != null) {
-                  onContactClick.onClick(card.ownerUid, card.ownerName);
-              } else if (card.isMuted) {
-                  android.widget.Toast.makeText(h.itemView.getContext(),
-                          card.ownerName + " is muted. Long press to unmute.",
-                          android.widget.Toast.LENGTH_SHORT).show();
-              }
-          }, card -> {
-              if (!card.isMine && !card.isHiddenTile && onLongPress != null)
-                  onLongPress.onLongPress(card.ownerUid, card.ownerName, card.isMuted);
-          });
-          h.rvCarousel.setAdapter(cardAdapter);
+          h.cardAdapter.submit(cards);
+          h.cardAdapter.prefetchAhead(h.itemView.getContext());
       }
 
       // ── My-Status ─────────────────────────────────────────────────────────
@@ -567,10 +621,10 @@ package com.callx.app.feed;
               // while visible (it's the very first row), so the plain
               // bind() entry point is enough; bindGated() below is for the
               // scrollable contact rows/carousel where offscreen binds happen.
-              StatusAvatarBinder.bind(ctx, h.ivAvatar, latest.ownerPhoto,
+              StatusAvatarBinder.bind(ctx, h.ivAvatar, myPhotoFallback(latest.ownerPhoto),
                       resolveAvatarVersion(ctx, myUid, 0L), R.drawable.ic_person);
               if (h.ivThumb != null) {
-                  String thumbUrl = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
+                  String thumbUrl = cardThumb(latest);
                   if (thumbUrl != null && !thumbUrl.isEmpty()) {
                       h.ivThumb.setVisibility(View.VISIBLE);
                       Glide.with(ctx).load(thumbUrl).centerCrop().override(480, 853).into(h.ivThumb);
@@ -709,6 +763,7 @@ package com.callx.app.feed;
       // v27: holder for the horizontal status-card carousel
       static class CarouselVH extends RecyclerView.ViewHolder {
           RecyclerView rvCarousel;
+          StatusCardAdapter cardAdapter;
           CarouselVH(View v) {
               super(v);
               rvCarousel = v.findViewById(R.id.rv_status_carousel);
@@ -805,16 +860,71 @@ package com.callx.app.feed;
 
       // ── v27: Inner adapter for the horizontal status-card carousel ─────────
       static class StatusCardAdapter extends RecyclerView.Adapter<StatusCardAdapter.VH> {
-          private final List<CardItem> cards;
+          private static final int COLOR_HIDDEN_BG   = android.graphics.Color.parseColor("#2A2A2A");
+          private static final int COLOR_HIDDEN_ICON = android.graphics.Color.parseColor("#99FFFFFF");
+          private static final int COLOR_CARD_BG     = android.graphics.Color.parseColor("#3A3A3A");
+          // Card body = 116dp x 160dp (182dp row minus the 22dp avatar overlap) — decode at that size, not 480x853.
+          private static final int CARD_W_DP = 116, CARD_H_DP = 160;
+
+          private List<CardItem> cards = new ArrayList<>();
           private final java.util.function.Consumer<CardItem> onClick;
           private final java.util.function.Consumer<CardItem> onLongClick;
 
-          StatusCardAdapter(List<CardItem> cards,
-                             java.util.function.Consumer<CardItem> onClick,
+          StatusCardAdapter(java.util.function.Consumer<CardItem> onClick,
                              java.util.function.Consumer<CardItem> onLongClick) {
-              this.cards = cards;
               this.onClick = onClick;
               this.onLongClick = onLongClick;
+          }
+
+          /** DiffUtil update — only changed cards re-bind, scroll position is kept. */
+          void submit(List<CardItem> next) {
+              final List<CardItem> old = cards;
+              DiffUtil.DiffResult r = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                  @Override public int getOldListSize() { return old.size(); }
+                  @Override public int getNewListSize() { return next.size(); }
+                  @Override public boolean areItemsTheSame(int o, int n) { return old.get(o).sameIdentity(next.get(n)); }
+                  @Override public boolean areContentsTheSame(int o, int n) { return old.get(o).sameContent(next.get(n)); }
+              });
+              cards = next;
+              r.dispatchUpdatesTo(this);
+          }
+
+          static String bgUrlFor(Context ctx, CardItem c) {
+              if (c.thumbUrl != null && !c.thumbUrl.isEmpty()) return c.thumbUrl; // media thumbnail, as-is
+              if (c.ownerPhoto == null || c.ownerPhoto.isEmpty()) return null;
+              String u = null;
+              try {
+                  u = com.callx.app.utils.AvatarUrlBuilder.buildResponsive(ctx, c.ownerPhoto,
+                          com.callx.app.utils.AvatarSizeTier.XLARGE,
+                          resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion));
+              } catch (Exception ignored) {}
+              return (u == null || u.isEmpty()) ? c.ownerPhoto : u;
+          }
+
+          /** Warms the card backgrounds just past the first screen so they're already cached on horizontal scroll. */
+          void prefetchAhead(Context ctx) {
+              final float d = ctx.getResources().getDisplayMetrics().density;
+              final int w = Math.round(CARD_W_DP * d), h = Math.round(CARD_H_DP * d);
+              for (int i = 3; i < Math.min(cards.size(), 7); i++) {
+                  CardItem c = cards.get(i);
+                  if (c.isHiddenTile || c.isTextCard()) continue;
+                  String u = bgUrlFor(ctx, c);
+                  if (u != null) { try { Glide.with(ctx).load(u).centerCrop().override(w, h).preload(w, h); } catch (Exception ignored) {} }
+              }
+          }
+
+          private static int parseColor(String hex, int def) {
+              if (hex == null || hex.isEmpty()) return def;
+              try { return android.graphics.Color.parseColor(hex); } catch (IllegalArgumentException e) { return def; }
+          }
+
+          private static String describe(CardItem c) {
+              if (c.isHiddenTile) return "Hidden status updates";
+              String name = c.ownerName != null ? c.ownerName : "";
+              if (c.isMine) return c.hasStatus ? "My status, tap to view" : "My status, tap to add a status update";
+              String kind = c.isVideo() ? "video " : (c.isTextCard() ? "text " : "");
+              if (c.isMuted) return name + ", muted " + kind + "status";
+              return name + (c.unseen ? ", new " : ", viewed ") + kind + "status";
           }
 
           @NonNull @Override
@@ -832,20 +942,25 @@ package com.callx.app.feed;
                   h.tvName.setText("Hidden");
                   h.ivBg.setImageResource(com.callx.app.core.R.drawable.ic_eye_off);
                   h.ivBg.setScaleType(ImageView.ScaleType.CENTER);
-                  h.ivBg.setBackgroundColor(android.graphics.Color.parseColor("#2A2A2A"));
-                  h.ivBg.setColorFilter(android.graphics.Color.parseColor("#99FFFFFF"));
+                  h.ivBg.setBackgroundColor(COLOR_HIDDEN_BG);
+                  h.ivBg.setColorFilter(COLOR_HIDDEN_ICON);
                   h.ring.setVisibility(View.GONE);
                   h.ivAvatar.setVisibility(View.GONE);
                   h.ivAddBadge.setVisibility(View.GONE);
                   if (h.flAvatar != null) h.flAvatar.setVisibility(View.GONE);
                   h.itemView.setOnClickListener(v -> { if (onClick != null) onClick.accept(c); });
                   h.itemView.setOnLongClickListener(null);
+                  h.itemView.setContentDescription(describe(c));
+                  h.tvPreview.setVisibility(View.GONE);
+                  h.ivType.setVisibility(View.GONE);
+                  h.ivBg.setAlpha(1f);
+                  androidx.core.view.ViewCompat.setAccessibilityDelegate(h.itemView, null);
                   return;
               }
               // Reset flags a recycled hidden-tile VH may have left behind
               h.ivBg.setScaleType(ImageView.ScaleType.CENTER_CROP);
               h.ivBg.setColorFilter(null);
-              h.ivBg.setBackgroundColor(android.graphics.Color.parseColor("#3A3A3A"));
+              h.ivBg.setBackgroundColor(COLOR_CARD_BG);
               h.ring.setVisibility(View.VISIBLE);
               h.ivAvatar.setVisibility(View.VISIBLE);
               if (h.flAvatar != null) h.flAvatar.setVisibility(View.VISIBLE);
@@ -854,15 +969,41 @@ package com.callx.app.feed;
 
               // Card background image: latest status media, or the owner's profile photo,
               // or a plain color fallback (already set as the ImageView's default background).
-              String bg = c.thumbUrl != null && !c.thumbUrl.isEmpty() ? c.thumbUrl : c.ownerPhoto;
-              if (bg != null && !bg.isEmpty()) {
-                  Glide.with(ctx).load(bg).centerCrop()
-                          .placeholder(R.drawable.ic_person)
-                          .override(480, 853)
+              final float dens = ctx.getResources().getDisplayMetrics().density;
+              final int bw = Math.round(CARD_W_DP * dens), bh = Math.round(CARD_H_DP * dens);
+              final android.graphics.drawable.ColorDrawable bgPh = new android.graphics.drawable.ColorDrawable(COLOR_CARD_BG);
+              h.tvPreview.setVisibility(View.GONE);
+              h.ivType.setVisibility(c.isVideo() ? View.VISIBLE : View.GONE);
+              final String bgUrl = c.isTextCard() ? null : bgUrlFor(ctx, c);
+              if (c.isTextCard()) {
+                  // Text status: its own colour/gradient + a short preview, like the status itself.
+                  Glide.with(ctx).clear(h.ivBg);
+                  int c1 = parseColor(c.bgColor, COLOR_CARD_BG);
+                  int c2 = parseColor(c.bgColor2, c1);
+                  android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable(
+                          android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[]{ c1, c2 });
+                  h.ivBg.setScaleType(ImageView.ScaleType.FIT_XY);
+                  h.ivBg.setImageDrawable(gd);
+                  if (c.previewText != null && !c.previewText.isEmpty()) {
+                      h.tvPreview.setText(c.previewText);
+                      h.tvPreview.setTextColor(parseColor(c.textColor, android.graphics.Color.WHITE));
+                      h.tvPreview.setVisibility(View.VISIBLE);
+                  }
+              } else if (bgUrl != null) {
+                  Glide.with(ctx).load(bgUrl).centerCrop()
+                          .placeholder(bgPh)
+                          .override(bw, bh)
                           .into(h.ivBg);
               } else {
+                  // No media and no photo: faint centered person glyph on the dark card.
+                  Glide.with(ctx).clear(h.ivBg);
+                  h.ivBg.setScaleType(ImageView.ScaleType.CENTER);
+                  h.ivBg.setColorFilter(COLOR_HIDDEN_ICON);
                   h.ivBg.setImageResource(R.drawable.ic_person);
               }
+              // Seen / muted cards recede; unseen name is bold.
+              h.ivBg.setAlpha(c.isMuted ? 0.55f : (!c.isMine && !c.unseen) ? 0.72f : 1f);
+              h.tvName.setTypeface(null, (c.unseen || c.isMine) ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
 
               // FIX (deep avatar pipeline + isVisible gate) — same
               // StatusAvatarBinder pipeline as the vertical contact rows;
@@ -877,29 +1018,20 @@ package com.callx.app.feed;
                   h.ring.setVisibility(View.GONE);
                   h.ivAddBadge.setVisibility(View.VISIBLE);
               } else {
+                  // Single ring only — the SAME 3-state story ring StoryRingApplier gives the reel
+                  // search-history / followers rows: gradient = unseen, flat gray = seen.
+                  // (No custom ring colour, no extra outline, no white avatar border.)
+                  final boolean showUnseen = !c.isMuted && (c.unseen || c.isMine);
                   h.ring.setVisibility(View.VISIBLE);
-                  // BUG FIX: ring ImageView's default drawable is set via android:src
-                  // in item_status_card.xml, which always paints over a background —
-                  // setBackgroundResource()/setBackground() here were both invisible,
-                  // hidden behind that static src image. setImageResource()/
-                  // setImageDrawable() are what actually change what's on screen.
-                  h.ring.setBackground(null);
-                  h.ring.setImageResource(c.isMuted ? R.drawable.circle_status_seen
-                          : c.unseen || c.isMine ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
-                  h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
-                  // Custom ring color/gradient (picked via HighlightRingColorPickerBottomSheet
-                  // in NewStatusActivity) overrides the default seen/unseen ring, same as the
-                  // vertical list rows via applyRingStyle().
-                  if (c.ringColor != null && !c.ringColor.isEmpty()) {
-                      try {
-                          int customColor = android.graphics.Color.parseColor(c.ringColor);
-                          float density = ctx.getResources().getDisplayMetrics().density;
-                          h.ring.setImageDrawable(HighlightRingDrawable.withStrokeDp(customColor, c.ringMode, 2.5f, density));
-                          h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
-                      } catch (IllegalArgumentException ignored) {
-                          // Invalid/unparseable hex — keep the default ring resource set above.
-                      }
+                  if (showUnseen) {
+                      h.ring.setImageDrawable(null);
+                      h.ring.setBackground(com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(
+                              1.5f, ctx.getResources().getDisplayMetrics().density));
+                  } else {
+                      h.ring.setBackground(null);
+                      h.ring.setImageResource(com.callx.app.core.R.drawable.circle_status_seen_thin);
                   }
+                  h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
                   h.ivAddBadge.setVisibility(c.isMine ? View.VISIBLE : View.GONE);
               }
 
@@ -929,7 +1061,29 @@ package com.callx.app.feed;
               }
 
               h.itemView.setOnClickListener(v -> { if (onClick != null) onClick.accept(c); });
-              h.itemView.setOnLongClickListener(v -> { if (onLongClick != null) onLongClick.accept(c); return true; });
+              h.itemView.setOnLongClickListener(v -> {
+                  v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                  if (onLongClick != null) onLongClick.accept(c);
+                  return true;
+              });
+              h.itemView.setContentDescription(describe(c));
+              // TalkBack: expose long-press (mute/unmute menu) as a named action.
+              androidx.core.view.ViewCompat.setAccessibilityDelegate(h.itemView, c.isMine ? null
+                      : new androidx.core.view.AccessibilityDelegateCompat() {
+                          @Override public void onInitializeAccessibilityNodeInfo(@NonNull View host,
+                                  @NonNull androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+                              super.onInitializeAccessibilityNodeInfo(host, info);
+                              info.addAction(new androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat(
+                                      androidx.core.view.accessibility.AccessibilityNodeInfoCompat.ACTION_LONG_CLICK,
+                                      c.isMuted ? "Unmute or more options" : "Mute or more options"));
+                          }
+                      });
+              if (h.flAvatar != null) {
+                  // Only "mine" has a separate avatar tap target (always adds a status).
+                  h.flAvatar.setContentDescription(c.isMine ? "Add status update" : null);
+                  h.flAvatar.setImportantForAccessibility(c.isMine
+                          ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+              }
           }
 
           @Override public int getItemCount() { return cards.size(); }
@@ -952,10 +1106,13 @@ package com.callx.app.feed;
           public void onViewRecycled(@NonNull VH holder) {
               super.onViewRecycled(holder);
               StatusAvatarBinder.cancel(holder.itemView.getContext(), holder.ivAvatar);
+              // Cancel the card-background load too — a recycled card must not flash the previous person's image.
+              try { Glide.with(holder.itemView.getContext()).clear(holder.ivBg); } catch (Exception ignored) {}
           }
 
           static class VH extends RecyclerView.ViewHolder {
-              ImageView ivBg, ring, ivAddBadge;
+              ImageView ivBg, ring, ivAddBadge, ivType;
+              TextView tvPreview;
               CircleImageView ivAvatar;
               View flAvatar;
               TextView tvName;
@@ -967,6 +1124,15 @@ package com.callx.app.feed;
                   ivAddBadge = v.findViewById(R.id.iv_card_add);
                   flAvatar   = v.findViewById(R.id.fl_avatar);
                   tvName     = v.findViewById(R.id.tv_card_name);
+                  ivType     = v.findViewById(R.id.iv_card_type);
+                  tvPreview  = v.findViewById(R.id.tv_card_preview);
+                  ivType.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                  tvPreview.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                  // The card announces itself as one element (see describe()); children are decorative.
+                  ivBg.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                  ring.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                  ivAvatar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                  tvName.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
               }
           }
       }
