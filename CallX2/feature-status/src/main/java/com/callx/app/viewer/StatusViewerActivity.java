@@ -908,6 +908,10 @@ import com.callx.app.utils.AlertDialogStyler;
       // status itself is a photo, text card, video, or gif.
       private void startMusicStickerAudio(String url) {
           Log.d(DBG, "startMusicStickerAudio url=" + url + " isMuted=" + isMuted + " paused=" + paused);
+          // Defensive: a JSON-escaped URL ("https:\/\/host\/a.mp3") is never playable.
+          // Root fix is in StatusStickerOverlayView.jsonStr(); this guards any other path.
+          if (url != null) url = url.replace("\\/", "/");
+          final String playUrl = url;
           releaseMusicPlayer();
           try {
               musicPlayer = new android.media.MediaPlayer();
@@ -915,7 +919,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                       .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                       .build());
-              musicPlayer.setDataSource(url);
+              musicPlayer.setDataSource(playUrl);
               // Loop so the clip keeps playing even if it's shorter than however
               // long the viewer ends up spending on this status.
               musicPlayer.setLooping(true);
@@ -931,7 +935,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   // reported (non-intrusive — logged + saved to file, doesn't
                   // interrupt the viewer) so the actual reason is visible.
                   CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.musicSticker.onError",
-                          new RuntimeException("MediaPlayer error what=" + what + " extra=" + extra + " url=" + url));
+                          new RuntimeException("MediaPlayer error what=" + what + " extra=" + extra + " url=" + playUrl));
                   releaseMusicPlayer();
                   return true;
               });

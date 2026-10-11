@@ -31,7 +31,16 @@ public final class ReelAudioFocusHelper {
     private boolean held = false;
     private boolean lostTransiently = false;
 
-    private final AudioManager.OnAudioFocusChangeListener changeListener = change -> {
+    // FIX: pehle yeh lambda field-initializer me tha aur final field `listener` ko
+    // use karta tha — javac ("variable listener might not have been initialized")
+    // kyunki field initializers constructor se PEHLE chalte hain, aur lambda body me
+    // this.listener definitely-assigned nahi hota. Ab sirf declare karte hain aur
+    // constructor me `listener` assign hone ke BAAD build karte hain.
+    private final AudioManager.OnAudioFocusChangeListener changeListener;
+
+    /** Builds the focus-change callback; called from ctor once `listener` is assigned. */
+    private AudioManager.OnAudioFocusChangeListener buildChangeListener() {
+        return change -> {
         switch (change) {
             case AudioManager.AUDIOFOCUS_GAIN:
                 held = true;
@@ -55,11 +64,14 @@ public final class ReelAudioFocusHelper {
             default:
                 break;
         }
-    };
+        };
+    }
 
     public ReelAudioFocusHelper(Context ctx, Listener listener) {
         this.am = (AudioManager) ctx.getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
         this.listener = listener;
+        // listener assign ho chuka hai -> ab lambda safe hai
+        this.changeListener = buildChangeListener();
     }
 
     /** @return true if focus is held (or can't be managed, so playback shouldn't be blocked). */

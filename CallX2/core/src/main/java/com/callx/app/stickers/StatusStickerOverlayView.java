@@ -1912,6 +1912,26 @@ public class StatusStickerOverlayView extends LinearLayout {
     // ─── Helpers ───────────────────────────────────────────────────────────
 
     private static String jsonStr(String json, String key, String def) {
+        // BUG FIX (music sticker silent in status viewer): android's
+        // org.json JSONObject.toString() escapes every "/" as "\/", so after the
+        // viewer re-serialises the sticker (renderStickers → getJSONObject(i)
+        // .toString()) a soundUrl arrives as  https:\/\/host\/a.mp3 .  The old
+        // regex-only reader below never un-escaped that, so MediaPlayer got a
+        // URL full of backslashes and failed silently — while the Sound Detail
+        // sheet still played because it re-resolves the audio from soundId.
+        // Fix: read the value with a real JSON parser (handles \/ \\ \" \uXXXX),
+        // and only fall back to the manual scan (now also un-escaping) if the
+        // string isn't valid JSON.
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            Object v = o.opt(key);
+            if (v instanceof String) return (String) v;
+            // Key missing, or a bare number/bool (jsonNum() handles those) → default,
+            // same as the old quoted-string-only behaviour.
+            return def;
+        } catch (Exception parseFail) {
+            // fall through to manual scan
+        }
         try {
             String search = "\"" + key + "\":\"";
             int start = json.indexOf(search);
@@ -1919,7 +1939,9 @@ public class StatusStickerOverlayView extends LinearLayout {
             start += search.length();
             int end = json.indexOf("\"", start);
             if (end < 0) return def;
-            return json.substring(start, end).replace("\\\"","\"");
+            return json.substring(start, end)
+                    .replace("\\/", "/")
+                    .replace("\\\"", "\"");
         } catch (Exception e) { return def; }
     }
 
