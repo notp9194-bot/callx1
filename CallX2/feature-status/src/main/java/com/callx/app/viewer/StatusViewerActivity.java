@@ -275,7 +275,8 @@ import com.callx.app.utils.AlertDialogStyler;
               binding.playerView.setClipToOutline(true);
           }
       }
-      @Override protected void onPause()  { super.onPause();  pauseProgress(); if (spinView != null) spinView.stop(); }
+      @Override protected void onPause()  { super.onPause();  pauseProgress(); if (spinView != null) spinView.stop();
+          if (musicFocus != null) musicFocus.abandon(); } // backgrounded → let the other app's music resume (re-requested on resume)
       @Override protected void onResume() {
           super.onResume();
           startSpinViewIfAllowed();
@@ -828,7 +829,7 @@ import com.callx.app.utils.AlertDialogStyler;
               binding.playerView.setPlayer(player);
               player.setMediaItem(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
           }
-          player.setVolume(isMuted ? 0f : 1f);
+          applyVideoVolume();
           long estimated = s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L;
           final String statusIdForLog = s.id;
           player.addListener(new Player.Listener() {
@@ -870,7 +871,9 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.tvLocationTag.setVisibility(View.GONE);
           binding.flStickerOverlay.removeAllViews();
           stickerZoomScrim = null; // just got removed along with everything else above
-          releaseMusicPlayer(); // stop the previous status's music sticker before the next one renders
+          videoUnderMusic = false; // new status → its own video starts at normal volume
+          cancelMusicHold();    // a hold from the previous status must never start this one's progress
+          releaseMusicPlayer(); // stop the previous status's music sticker (+ give audio focus back)
           hideStatusSongTicker(); // reset the below-name audio ticker; renderStickers() re-shows it if this status has one
       }
 
@@ -906,86 +909,286 @@ import com.callx.app.utils.AlertDialogStyler;
       // ExoPlayer `player` field, which is reserved for the status's own
       // video track) so a music sticker plays regardless of whether the
       // status itself is a photo, text card, video, or gif.
-      private void startMusicStickerAudio(String url) {
+      //
+      // Polish round (v479):
+      //  (1) AUDIO FOCUS  — StatusAudioFocusHelper: pauses other apps' music while
+      //      we play, pauses/resumes on calls, ducks on request.
+      //  (3) FAIL FALLBACK — if the sticker's direct soundUrl errors out, we retry
+      //      once via the soundId lookup (sounds/ → musicLibrary/); if that fails
+      //      too the viewer sees a short toast instead of silence.
+      //  (4) SYNC START   — for photo/text/gif statuses the progress bar is held
+      //      (max MUSIC_HOLD_TIMEOUT_MS) until the audio is prepared, so bar and
+      //      music start together instead of the music arriving seconds late.
+
+      /** Longest we keep the progress bar waiting for the music to buffer. */
+      private static final long MUSIC_HOLD_TIMEOUT_MS = 3_000L;
+
+      // (2) A VIDEO status that also carries a music sticker used to play BOTH
+      // soundtracks at full volume (video's own audio + the sticker's song).
+      // Now the video's own audio is ducked to this level while the sticker music
+      // is in play. Set to 0f if you'd rather the song fully replace the original
+      // audio (Instagram-style); 1f restores the old "both full" behaviour.
+      private static final float VIDEO_VOLUME_UNDER_MUSIC = 0.25f;
+      private boolean videoUnderMusic = false;           // this status's video should be ducked
+      // (5) Full-length tracks (no preview URL) used to play from 0:00 for minutes.
+      // StatusMusicClip plays a ~30s highlight (or the poster's trimmed range) instead.
+      private final StatusMusicClip musicClip = new StatusMusicClip();
+      private int stickerMusicStartMs = 0;   // current status's sticker clip range (0 = unset)
+      private int stickerMusicEndMs   = 0;
+      private StatusAudioFocusHelper musicFocus;      // lazily created
+      private boolean musicPrepared   = false;        // MediaPlayer reached prepared state
+      private boolean musicFocusLost  = false;        // paused because another app/call took focus
+      private boolean musicDucked     = false;        // another app asked us to be quiet
+      private boolean musicHolding    = false;        // progress bar is waiting for the music
+      private long    musicHoldTotalMs = 0L;          // full duration to start once released
+      private final Runnable musicHoldTimeout = () -> releaseMusicHold();
+
+      private StatusAudioFocusHelper musicFocus() {
+          if (musicFocus == null) {
+              musicFocus = new StatusAudioFocusHelper(this, new StatusAudioFocusHelper.Listener() {
+                  @Override public void onFocusLost() {
+                      musicFocusLost = true;
+                      if (musicPlayer != null) {
+                          try { if (musicPlayer.isPlaying()) musicPlayer.pause(); } catch (Exception ignored) {}
+                      }
+                  }
+                  @Override public void onFocusRegained() {
+                      musicFocusLost = false;
+                      if (!paused) resumeMusicPlayback();
+                  }
+                  @Override public void onDuck(boolean ducked) {
+                      musicDucked = ducked;
+                      applyMusicVolume();
+                  }
+              });
+          }
+          return musicFocus;
+      }
+
+      /** Single place that decides the status VIDEO volume (mute + sticker-music ducking). */
+      private void applyVideoVolume() {
+          if (player == null) return;
+          float v = isMuted ? 0f : (videoUnderMusic ? VIDEO_VOLUME_UNDER_MUSIC : 1f);
+          try { player.setVolume(v); } catch (Exception ignored) {}
+      }
+
+      /** Muted viewers don't take focus (we would silence their other app for nothing). */
+      private boolean acquireMusicFocus() {
+          if (isMuted) return true;
+          return musicFocus().request();
+      }
+
+      /** Single place that decides the music volume (mute + duck). */
+      private void applyMusicVolume() {
+          if (musicPlayer == null) return;
+          float v = isMuted ? 0f : (musicDucked ? 0.2f : 1f);
+          try { musicPlayer.setVolume(v, v); } catch (Exception ignored) {}
+      }
+
+      /** Start/continue the music if it is prepared, allowed and we can get focus. */
+      private void resumeMusicPlayback() {
+          if (musicPlayer == null || !musicPrepared || musicFocusLost) return;
+          try {
+              if (musicPlayer.isPlaying()) return;
+              if (!acquireMusicFocus()) return; // e.g. a call is active — stay silent
+              musicPlayer.start();
+          } catch (Exception ignored) {}
+      }
+
+      // ── (4) progress-bar hold while the music buffers ───────────────────
+      private void beginMusicHold(StatusItem item) {
+          if (paused || progressRunner == null) return;
+          // Videos keep their own timing — never make a video wait for the sticker music.
+          if (item != null && ("video".equals(item.type) || "reel_story".equals(item.type)
+                  || "reel_clip".equals(item.type))) return;
+          musicHoldTotalMs = remainingMs; // startProgress() just set this to the full duration
+          stopProgress();
+          musicHolding = true;
+          handler.removeCallbacks(musicHoldTimeout);
+          handler.postDelayed(musicHoldTimeout, MUSIC_HOLD_TIMEOUT_MS);
+      }
+      /** Audio ready (or gave up / timed out) → let the progress bar run. */
+      private void releaseMusicHold() {
+          handler.removeCallbacks(musicHoldTimeout);
+          if (!musicHolding) return;
+          musicHolding = false;
+          // If the viewer is holding the screen right now, resumeProgress() will start
+          // the bar later using remainingMs, so there's nothing to do here.
+          if (!paused) startProgress(musicHoldTotalMs);
+      }
+      /** Status changed / closed → forget the hold WITHOUT starting any progress. */
+      private void cancelMusicHold() {
+          handler.removeCallbacks(musicHoldTimeout);
+          musicHolding = false;
+      }
+
+      /**
+       * @param url             direct playable URL from the sticker (may be escaped, see below)
+       * @param fallbackSoundId if non-empty and this URL fails, retry once by soundId lookup
+       * @param requestedIdx    status index this audio belongs to (stale callbacks are dropped)
+       */
+      private void startMusicStickerAudio(String url, final String fallbackSoundId, final int requestedIdx) {
           Log.d(DBG, "startMusicStickerAudio url=" + url + " isMuted=" + isMuted + " paused=" + paused);
-          // Defensive: a JSON-escaped URL ("https:\/\/host\/a.mp3") is never playable.
+          // Defensive: a JSON-escaped URL ("https:\\/\\/host\\/a.mp3") is never playable.
           // Root fix is in StatusStickerOverlayView.jsonStr(); this guards any other path.
           if (url != null) url = url.replace("\\/", "/");
           final String playUrl = url;
-          releaseMusicPlayer();
+          releaseMusicPlayerKeepFocus(); // keep focus: we are about to play again, avoids other-app flicker
+          if (playUrl == null || playUrl.isEmpty()) {
+              handleMusicFailure(fallbackSoundId, requestedIdx, 0, 0);
+              return;
+          }
           try {
-              musicPlayer = new android.media.MediaPlayer();
-              musicPlayer.setAudioAttributes(new android.media.AudioAttributes.Builder()
+              final android.media.MediaPlayer mp = new android.media.MediaPlayer();
+              musicPlayer = mp;
+              mp.setAudioAttributes(new android.media.AudioAttributes.Builder()
                       .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                       .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                       .build());
-              musicPlayer.setDataSource(playUrl);
+              mp.setDataSource(playUrl);
               // Loop so the clip keeps playing even if it's shorter than however
               // long the viewer ends up spending on this status.
-              musicPlayer.setLooping(true);
-              musicPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
-              musicPlayer.setOnPreparedListener(mp -> {
-                  Log.d(DBG, "startMusicStickerAudio prepared, paused=" + paused + " -> " + (!paused ? "starting" : "NOT starting (viewer paused)"));
-                  if (!paused) mp.start();
+              mp.setLooping(true);
+              applyMusicVolume();
+              mp.setOnPreparedListener(p -> {
+                  // Stale callback (viewer already swiped to another status)? ignore.
+                  if (musicPlayer != p || idx != requestedIdx) return;
+                  musicPrepared = true;
+                  // (5) jump to the highlight BEFORE start(); false → short preview, plays whole + loops
+                  musicClip.apply(p, stickerMusicStartMs, stickerMusicEndMs);
+                  releaseMusicHold(); // (4) bar + audio now start together
+                  Log.d(DBG, "startMusicStickerAudio prepared, paused=" + paused);
+                  if (!paused) resumeMusicPlayback(); // (1) takes audio focus, then start()
               });
-              musicPlayer.setOnErrorListener((mp, what, extra) -> {
-                  // This is the most likely real cause of "music sticker never
-                  // plays, no error shown" — bad/expired URL, unsupported codec,
-                  // network failure, etc. all land here silently before. Now
-                  // reported (non-intrusive — logged + saved to file, doesn't
-                  // interrupt the viewer) so the actual reason is visible.
+              mp.setOnErrorListener((p, what, extra) -> {
+                  if (musicPlayer != p) return true; // stale player
+                  // Bad/expired URL, unsupported codec, network failure ... all land here.
                   CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.musicSticker.onError",
                           new RuntimeException("MediaPlayer error what=" + what + " extra=" + extra + " url=" + playUrl));
-                  releaseMusicPlayer();
+                  releaseMusicPlayerKeepFocus();
+                  handleMusicFailure(fallbackSoundId, requestedIdx, what, extra); // (3)
                   return true;
               });
-              musicPlayer.prepareAsync();
+              mp.prepareAsync();
           } catch (Exception e) {
-              // Bad/unreachable preview URL — sticker just stays silent, never crash the viewer.
+              // Bad/unreachable preview URL — never crash the viewer.
               CrashReporter.reportSilently(this, "StatusViewer.startMusicStickerAudio", e);
-              releaseMusicPlayer();
+              releaseMusicPlayerKeepFocus();
+              handleMusicFailure(fallbackSoundId, requestedIdx, 0, 0);
           }
       }
+
+      /**
+       * (3) The direct URL failed. First failure → retry via soundId lookup (the same
+       * route the Sound Detail sheet uses, which is why tapping the sticker still
+       * played). No soundId left / second failure → tell the viewer instead of silence.
+       */
+      private void handleMusicFailure(String fallbackSoundId, int requestedIdx, int what, int extra) {
+          releaseMusicHold(); // never keep the bar waiting for audio that isn't coming
+          if (idx != requestedIdx) return; // swiped away meanwhile
+          if (fallbackSoundId != null && !fallbackSoundId.isEmpty()) {
+              Log.d(DBG, "musicSticker: direct url failed (what=" + what + "/" + extra
+                      + ") → retry by soundId=" + fallbackSoundId);
+              resolveSoundIdAndPlay(fallbackSoundId, requestedIdx);
+          } else {
+              showMusicFailedToast(what, extra);
+          }
+      }
+
+      private void showMusicFailedToast(int what, int extra) {
+          // No song is coming → the video must not stay ducked for nothing.
+          videoUnderMusic = false;
+          applyVideoVolume();
+          if (isFinishing()) return;
+          String code = (what != 0 || extra != 0) ? " (" + what + "/" + extra + ")" : "";
+          android.widget.Toast.makeText(this, "\uD83C\uDFB5 Music play nahi ho paya" + code,
+                  android.widget.Toast.LENGTH_SHORT).show();
+      }
+
+      /**
+       * Resolves a playable URL from the soundId (sounds/{id} first, then
+       * musicLibrary/{id} — Trending Audio's "Music" tab tracks live there) and plays it.
+       * The resolved URL gets NO further fallback, so a second failure ends in a toast.
+       */
+      private void resolveSoundIdAndPlay(String soundId, int requestedIdx) {
+          FirebaseUtils.db().getReference("sounds").child(soundId)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                  // Viewer may have swiped to another status by the time this
+                  // lookup returns — don't start audio for a status that's gone.
+                  if (idx != requestedIdx) return;
+                  String resolved = null;
+                  if (snap.exists()) {
+                      for (String key : new String[]{"previewAudioUrl", "audioUrl", "audio_url", "url"}) {
+                          String u = snap.child(key).getValue(String.class);
+                          if (u != null && !u.isEmpty()) { resolved = u; break; }
+                      }
+                  }
+                  if (resolved != null) {
+                      Log.d(DBG, "musicSticker autoplay: resolved from sounds/" + soundId);
+                      startMusicStickerAudio(resolved, null, requestedIdx);
+                  } else {
+                      Log.d(DBG, "musicSticker autoplay: sounds/" + soundId + " missing or no audio field, trying musicLibrary/");
+                      resolveFromMusicLibrary(soundId, requestedIdx);
+                  }
+              }
+              @Override public void onCancelled(@NonNull DatabaseError e) {
+                  Log.e(DBG, "musicSticker autoplay: sounds/" + soundId + " lookup cancelled", e.toException());
+                  if (idx == requestedIdx) { releaseMusicHold(); showMusicFailedToast(0, 0); }
+              }
+          });
+      }
+
       /**
        * Fallback lookup for music-sticker autoplay: mirrors
        * SoundDetailFragment#loadSoundDataFromMusicLibrary() — tracks picked
        * from Trending Audio's "Music" tab live under musicLibrary/{soundId},
-       * not sounds/{soundId}. Without this, autoplay stayed silent for any
-       * sticker built from a Music-tab track while manually tapping it (which
-       * opens the full sheet — same two-step lookup) still played fine.
+       * not sounds/{soundId}.
        */
       private void resolveFromMusicLibrary(String soundId, int requestedIdx) {
           FirebaseUtils.getMusicLibraryRef().child(soundId)
                   .addListenerForSingleValueEvent(new ValueEventListener() {
               @Override public void onDataChange(@NonNull DataSnapshot snap) {
                   if (idx != requestedIdx) return; // swiped away while this was in flight
-                  if (!snap.exists()) {
-                      Log.d(DBG, "musicSticker autoplay: soundId=" + soundId + " not found in musicLibrary/ either — giving up silently");
-                      return;
-                  }
                   String resolved = null;
-                  for (String key : new String[]{"previewAudioUrl", "audioUrl"}) {
-                      String u = snap.child(key).getValue(String.class);
-                      if (u != null && !u.isEmpty()) { resolved = u; break; }
+                  if (snap.exists()) {
+                      for (String key : new String[]{"previewAudioUrl", "audioUrl"}) {
+                          String u = snap.child(key).getValue(String.class);
+                          if (u != null && !u.isEmpty()) { resolved = u; break; }
+                      }
                   }
                   if (resolved != null) {
                       Log.d(DBG, "musicSticker autoplay: resolved from musicLibrary/" + soundId);
-                      startMusicStickerAudio(resolved);
+                      startMusicStickerAudio(resolved, null, requestedIdx);
                   } else {
-                      Log.d(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " exists but has no audio field");
+                      Log.d(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " not found / no audio field");
+                      releaseMusicHold();
+                      showMusicFailedToast(0, 0); // (3) no more silent failure
                   }
               }
               @Override public void onCancelled(@NonNull DatabaseError e) {
                   Log.e(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " lookup cancelled", e.toException());
+                  if (idx == requestedIdx) { releaseMusicHold(); showMusicFailedToast(0, 0); }
               }
           });
       }
 
-      private void releaseMusicPlayer() {
+      /** Releases the MediaPlayer but keeps audio focus (used right before re-playing). */
+      private void releaseMusicPlayerKeepFocus() {
+          musicClip.stop();
           if (musicPlayer != null) {
               try { musicPlayer.release(); } catch (Exception ignored) {}
               musicPlayer = null;
           }
+          musicPrepared = false;
+          musicFocusLost = false;
+          musicDucked = false;
+      }
+
+      /** Releases the MediaPlayer AND gives audio focus back (other app's music resumes). */
+      private void releaseMusicPlayer() {
+          releaseMusicPlayerKeepFocus();
+          if (musicFocus != null) musicFocus.abandon();
       }
 
       // ── Interactive stickers (music/countdown/quiz/question) ────────────────
@@ -1088,55 +1291,24 @@ import com.callx.app.utils.AlertDialogStyler;
                       // it's linked to a real Reels track (tap-to-open still only
                       // applies when isMusicLinkedToReelSound() is true, below).
                       String soundUrl = sticker.getMusicSoundUrl();
-                      Log.d(DBG, "musicSticker autoplay: soundId=" + sticker.getMusicSoundId()
+                      final String musicSoundId = sticker.getMusicSoundId();
+                      final int musicIdx = idx;
+                      stickerMusicStartMs = sticker.getMusicStartMs(); // (5) clip range for this status
+                      stickerMusicEndMs   = sticker.getMusicEndMs();
+                      Log.d(DBG, "musicSticker autoplay: soundId=" + musicSoundId
                               + " directSoundUrl=" + (soundUrl == null || soundUrl.isEmpty() ? "empty" : "present"));
-                      if (soundUrl != null && !soundUrl.isEmpty()) {
-                          startMusicStickerAudio(soundUrl);
-                      } else {
-                          // Composer usually only stores the soundId, not a direct
-                          // playable URL — that's why tapping the sticker to open the
-                          // Sound Detail sheet has audio (it resolves the URL) while
-                          // autoplay above stayed silent. Resolve it the same way here.
-                          String soundId = sticker.getMusicSoundId();
-                          if (soundId != null && !soundId.isEmpty()) {
-                              final int requestedIdx = idx;
-                              FirebaseUtils.db().getReference("sounds").child(soundId)
-                                      .addListenerForSingleValueEvent(new ValueEventListener() {
-                                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                                      // Viewer may have swiped to another status by the
-                                      // time this lookup returns — don't start audio
-                                      // for a status that's no longer showing.
-                                      if (idx != requestedIdx) return;
-                                      if (!snap.exists()) {
-                                          // ROOT CAUSE of "Ad status music sticker never
-                                          // autoplays": tracks picked from Trending Audio's
-                                          // "Music" tab live under the musicLibrary node, NOT
-                                          // sounds/{soundId} — this exact fallback is why
-                                          // tapping the sticker (which opens the full Sound
-                                          // Detail sheet, and THAT sheet checks musicLibrary
-                                          // too) plays fine while autoplay here stayed silent.
-                                          Log.d(DBG, "musicSticker autoplay: soundId=" + soundId
-                                                  + " not found under sounds/, trying musicLibrary/");
-                                          resolveFromMusicLibrary(soundId, requestedIdx);
-                                          return;
-                                      }
-                                      String resolved = null;
-                                      for (String key : new String[]{"previewAudioUrl", "audioUrl", "audio_url", "url"}) {
-                                          String u = snap.child(key).getValue(String.class);
-                                          if (u != null && !u.isEmpty()) { resolved = u; break; }
-                                      }
-                                      if (resolved != null) {
-                                          Log.d(DBG, "musicSticker autoplay: resolved from sounds/" + soundId);
-                                          startMusicStickerAudio(resolved);
-                                      } else {
-                                          Log.d(DBG, "musicSticker autoplay: sounds/" + soundId + " exists but no audio field, trying musicLibrary/");
-                                          resolveFromMusicLibrary(soundId, requestedIdx);
-                                      }
-                                  }
-                                  @Override public void onCancelled(@NonNull DatabaseError e) {
-                                      Log.e(DBG, "musicSticker autoplay: sounds/" + soundId + " lookup cancelled", e.toException());
-                                  }
-                              });
+                      boolean hasDirect = soundUrl != null && !soundUrl.isEmpty();
+                      boolean hasId     = musicSoundId != null && !musicSoundId.isEmpty();
+                      if (hasDirect || hasId) {
+                          videoUnderMusic = true;   // (2) duck the video's own audio (no-op for photo/text)
+                          applyVideoVolume();
+                          beginMusicHold(item); // (4) bar waits (max 3s) so audio + progress start together
+                          if (hasDirect) {
+                              // (3) if this direct URL fails we retry once via the soundId
+                              startMusicStickerAudio(soundUrl, musicSoundId, musicIdx);
+                          } else {
+                              // Composer stored only the soundId → resolve the URL like the Sound Detail sheet does.
+                              resolveSoundIdAndPlay(musicSoundId, musicIdx);
                           }
                       }
                   }
@@ -1518,7 +1690,8 @@ import com.callx.app.utils.AlertDialogStyler;
       private void resumeProgress() {
           if (!paused) return; paused = false;
           if (player != null) player.setPlayWhenReady(true);
-          if (musicPlayer != null) { try { if (!musicPlayer.isPlaying()) musicPlayer.start(); } catch (Exception ignored) {} }
+          cancelMusicHold();      // viewer resumed → progress is driven by remainingMs below
+          resumeMusicPlayback();  // re-acquires audio focus first, only starts if prepared
           if (idx < items.size()) {
               StatusItem s = items.get(idx);
               long total;
@@ -2146,8 +2319,11 @@ import com.callx.app.utils.AlertDialogStyler;
       private void setupMuteButton() {
           binding.btnMute.setOnClickListener(v -> {
               isMuted = !isMuted;
-              if (player != null) player.setVolume(isMuted ? 0f : 1f);
-              if (musicPlayer != null) { try { musicPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f); } catch (Exception ignored) {} }
+              applyVideoVolume();
+              applyMusicVolume();
+              // Muted → don't hold other apps' audio hostage; unmuted → take focus again.
+              if (isMuted) { if (musicFocus != null) musicFocus.abandon(); }
+              else if (!paused) resumeMusicPlayback();
               binding.btnMute.setImageResource(isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
           });
       }

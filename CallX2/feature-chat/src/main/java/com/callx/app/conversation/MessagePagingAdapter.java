@@ -9944,6 +9944,7 @@ public class MessagePagingAdapter
                 h.tvStatus.setOnClickListener(null);
                 break;
             case "sending":
+            case "pending":
             case "uploading":
                 // "uploading" = WhatsApp-style local-first media bubble
                 // (see ChatMessageSender#insertLocalPendingMedia) — same

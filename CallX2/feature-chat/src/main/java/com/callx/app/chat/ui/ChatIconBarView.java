@@ -66,9 +66,10 @@ public class ChatIconBarView extends View {
 
     private final Rect attachRect = new Rect();
     private final Rect cameraRect = new Rect();
+    private final Rect scheduleRect = new Rect();
     private final Rect micSendRect = new Rect();
 
-    private Bitmap attachIcon, cameraIcon, micIcon, sendIcon;
+    private Bitmap attachIcon, cameraIcon, scheduleIcon, micIcon, sendIcon;
     private Paint circlePaint;
     private Paint pressPaint;
     private Paint iconPaint;
@@ -78,6 +79,8 @@ public class ChatIconBarView extends View {
     private boolean iconsExpanded = true;
     private boolean expandedLayout = true; // drives onMeasure width
     private float attachCameraFraction = 1f; // 0..1(+overshoot), paint-only
+    private boolean scheduleAvailable;
+    private boolean scheduleVisible;
     private ValueAnimator expandAnimator;
 
     // Mic <-> send crossfade state
@@ -92,11 +95,12 @@ public class ChatIconBarView extends View {
 
     private Runnable onAttachClick;
     private Runnable onCameraClick;
+    private Runnable onScheduleClick;
     private Runnable onSendClick;
     private Runnable onSendLongClick;
     private MicTouchListener micTouchListener;
 
-    private int downSlot = 0; // 1=attach 2=camera 3=send
+    private int downSlot = 0; // 1=attach 2=camera 3=send 4=schedule
     private float downX, downY;
     private boolean longPressFired;
     private boolean micPointerActive;
@@ -153,6 +157,7 @@ public class ChatIconBarView extends View {
     private void initIcons() {
         attachIcon = tintedBitmap(R.drawable.ic_attach);
         cameraIcon = tintedBitmap(R.drawable.ic_camera);
+        scheduleIcon = tintedBitmap(R.drawable.ic_schedule_message);
         micIcon = tintedBitmap(R.drawable.ic_mic);
         sendIcon = tintedBitmap(R.drawable.ic_send);
     }
@@ -164,6 +169,7 @@ public class ChatIconBarView extends View {
         int desiredWidth = expandedLayout
                 ? slotSizePx * 3 + gapPx * 2
                 : slotSizePx;
+        if (scheduleVisible) desiredWidth += slotSizePx + gapPx;
         setMeasuredDimension(
                 resolveSizeAndState(desiredWidth, widthMeasureSpec, 0),
                 resolveSizeAndState(slotSizePx, heightMeasureSpec, 0));
@@ -174,8 +180,17 @@ public class ChatIconBarView extends View {
         super.onSizeChanged(w, h, oldw, oldh);
         int top = (h - slotSizePx) / 2;
         micSendRect.set(w - slotSizePx, top, w, top + slotSizePx);
-        cameraRect.set(micSendRect.left - gapPx - slotSizePx, top,
-                micSendRect.left - gapPx, top + slotSizePx);
+        int precedingLeft = micSendRect.left;
+        if (scheduleVisible) {
+            int scheduleRight = precedingLeft - gapPx;
+            scheduleRect.set(scheduleRight - slotSizePx, top,
+                    scheduleRight, top + slotSizePx);
+            precedingLeft = scheduleRect.left;
+        } else {
+            scheduleRect.setEmpty();
+        }
+        cameraRect.set(precedingLeft - gapPx - slotSizePx, top,
+                precedingLeft - gapPx, top + slotSizePx);
         attachRect.set(cameraRect.left - gapPx - slotSizePx, top,
                 cameraRect.left - gapPx, top + slotSizePx);
     }
@@ -190,6 +205,11 @@ public class ChatIconBarView extends View {
         if (f > 0.01f) {
             drawIcon(canvas, attachIcon, attachRect, Math.min(1f, f), 0.6f + 0.4f * f);
             drawIcon(canvas, cameraIcon, cameraRect, Math.min(1f, f), 0.6f + 0.4f * f);
+        }
+
+        if (scheduleVisible && micSendVisible) {
+            drawIcon(canvas, scheduleIcon, scheduleRect,
+                    Math.max(0f, Math.min(1f, sendFraction)), 1f);
         }
 
         // Mic/send shared slot: same accent circle (follow-button color, via
@@ -282,6 +302,7 @@ public class ChatIconBarView extends View {
     }
 
     private int slotAt(float x, float y) {
+        if (scheduleVisible && scheduleRect.contains((int) x, (int) y)) return 4;
         if (attachCameraFraction > 0.3f && attachRect.contains((int) x, (int) y)) return 1;
         if (attachCameraFraction > 0.3f && cameraRect.contains((int) x, (int) y)) return 2;
         if (micSendVisible && micSendRect.contains((int) x, (int) y)) return 3;
@@ -308,6 +329,11 @@ public class ChatIconBarView extends View {
             case 3:
                 if (showingSend && sendEnabled && onSendClick != null) onSendClick.run();
                 break;
+            case 4:
+                if (showingSend && scheduleVisible && onScheduleClick != null) {
+                    onScheduleClick.run();
+                }
+                break;
         }
     }
 
@@ -326,6 +352,7 @@ public class ChatIconBarView extends View {
 
     public void setOnAttachClickListener(Runnable r) { this.onAttachClick = r; }
     public void setOnCameraClickListener(Runnable r) { this.onCameraClick = r; }
+    public void setOnScheduleClickListener(Runnable r) { this.onScheduleClick = r; }
     public void setOnSendClickListener(Runnable r) { this.onSendClick = r; }
     public void setOnSendLongClickListener(Runnable r) { this.onSendLongClick = r; }
     public void setMicTouchListener(MicTouchListener l) { this.micTouchListener = l; }
@@ -355,6 +382,22 @@ public class ChatIconBarView extends View {
      *  never touched them for block state either. */
     public void setMicSendVisible(boolean visible) {
         this.micSendVisible = visible;
+        refreshScheduleVisibility();
+        invalidate();
+    }
+
+    /** Shows a dedicated schedule-message action beside Send while composing. */
+    public void setScheduleAvailable(boolean available) {
+        if (scheduleAvailable == available) return;
+        scheduleAvailable = available;
+        refreshScheduleVisibility();
+    }
+
+    private void refreshScheduleVisibility() {
+        boolean shouldShow = scheduleAvailable && showingSend && micSendVisible;
+        if (scheduleVisible == shouldShow) return;
+        scheduleVisible = shouldShow;
+        requestLayout();
         invalidate();
     }
 
@@ -378,6 +421,10 @@ public class ChatIconBarView extends View {
     public void setHasText(boolean hasText) {
         if (showingSend == hasText) return;
         showingSend = hasText;
+        refreshScheduleVisibility();
+        setContentDescription(hasText
+                ? "Attach, camera, schedule message, and send"
+                : "Attach, camera, voice message, and send");
         if (sendAnimator != null) sendAnimator.cancel();
         sendAnimator = ValueAnimator.ofFloat(sendFraction, hasText ? 1f : 0f);
         sendAnimator.setDuration(150);

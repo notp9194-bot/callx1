@@ -31,6 +31,8 @@ import com.callx.app.utils.StatusNotificationHelper;
 import com.callx.app.utils.StatusPrivacyManager;
 import com.callx.app.stickers.StatusStickerPickerSheet;
 import com.callx.app.stickers.StatusStickerOverlayView;
+import com.callx.app.viewer.StatusAudioFocusHelper;
+import com.callx.app.viewer.StatusMusicClip;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 /**
  * NewStatusActivity v26 — Fully comprehensive status creation + Interactive Stickers.
@@ -617,6 +619,140 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
+    // ── Music sticker: one-per-status + live preview (6a / 6b) ─────────────
+    // The viewer plays the sticker's song the moment the status opens, but the
+    // poster used to compose in total silence and could even add two music
+    // stickers (only the last one ever played). Now: only ONE music sticker
+    // exists at a time, and its song previews (looped) while composing.
+    private StatusStickerOverlayView musicStickerInComposer;
+    private android.media.MediaPlayer musicPreview;
+    private boolean musicPreviewPrepared = false;
+    private boolean composerResumed      = false; // preview only sounds while this screen is in front
+    private boolean previewFocusLost     = false; // another app/call took audio focus
+    private boolean previewDucked        = false;
+    private StatusAudioFocusHelper previewFocus;  // lazily created
+    private final StatusMusicClip previewClip = new StatusMusicClip(); // (5) same ~30s highlight the viewer will play
+    private int previewStartMs = 0, previewEndMs = 0;
+
+    private StatusAudioFocusHelper previewFocus() {
+        if (previewFocus == null) {
+            previewFocus = new StatusAudioFocusHelper(this, new StatusAudioFocusHelper.Listener() {
+                @Override public void onFocusLost() {
+                    previewFocusLost = true;
+                    if (musicPreview != null) {
+                        try { if (musicPreview.isPlaying()) musicPreview.pause(); } catch (Exception ignored) {}
+                    }
+                }
+                @Override public void onFocusRegained() {
+                    previewFocusLost = false;
+                    resumeMusicPreview();
+                }
+                @Override public void onDuck(boolean ducked) {
+                    previewDucked = ducked;
+                    if (musicPreview != null) {
+                        float v = ducked ? 0.2f : 1f;
+                        try { musicPreview.setVolume(v, v); } catch (Exception ignored) {}
+                    }
+                }
+            });
+        }
+        return previewFocus;
+    }
+
+    /**
+     * Removes every music sticker already on the canvas (there must be only one).
+     * @return the removed sticker's top margin (so the new one can take its spot),
+     *         or -1 if there was none.
+     */
+    private int removeExistingMusicStickers() {
+        if (stickerOverlayFrame == null) return -1;
+        int topMargin = -1;
+        boolean removedAny = false;
+        for (int i = stickerOverlayFrame.getChildCount() - 1; i >= 0; i--) {
+            View child = stickerOverlayFrame.getChildAt(i);
+            if (child instanceof StatusStickerOverlayView
+                    && "music".equals(((StatusStickerOverlayView) child).getStickerType())) {
+                if (child.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
+                    topMargin = ((android.widget.FrameLayout.LayoutParams) child.getLayoutParams()).topMargin;
+                }
+                stickerOverlayFrame.removeViewAt(i);
+                removedAny = true;
+            }
+        }
+        if (removedAny) {
+            // Old song's preview must go too (the new one starts right after this).
+            if (musicStickerInComposer != null) musicStickerInComposer = null;
+            stopMusicPreview();
+            toast("Pehla music sticker replace ho gaya");
+        }
+        return removedAny ? Math.max(topMargin, 0) : -1;
+    }
+
+    private void startMusicPreview(StatusStickerOverlayView sticker) {
+        stopMusicPreview();
+        String url = sticker.getMusicSoundUrl();
+        if (url == null || url.isEmpty()) return; // sticker carries no playable URL → silent preview
+        previewStartMs = sticker.getMusicStartMs();
+        previewEndMs   = sticker.getMusicEndMs();
+        // Same defensive un-escape as the viewer (org.json writes "/" as "\/").
+        final String playUrl = url.replace("\\/", "/");
+        try {
+            final android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            musicPreview = mp;
+            mp.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build());
+            mp.setDataSource(playUrl);
+            mp.setLooping(true);
+            mp.setOnPreparedListener(p -> {
+                if (musicPreview != p) return; // stale (sticker replaced/removed meanwhile)
+                musicPreviewPrepared = true;
+                previewClip.apply(p, previewStartMs, previewEndMs); // (5) poster hears the same clip viewers will
+                resumeMusicPreview();          // starts only if screen is in front + focus granted
+            });
+            mp.setOnErrorListener((p, what, extra) -> {
+                if (musicPreview != p) return true;
+                stopMusicPreview();
+                toast("Music preview play nahi ho paya (" + what + "/" + extra + ")");
+                return true;
+            });
+            mp.prepareAsync();
+        } catch (Exception e) {
+            stopMusicPreview();
+            toast("Music preview play nahi ho paya");
+        }
+    }
+
+    private void resumeMusicPreview() {
+        if (musicPreview == null || !musicPreviewPrepared || previewFocusLost || !composerResumed) return;
+        try {
+            if (musicPreview.isPlaying()) return;
+            if (!previewFocus().request()) return; // e.g. call active → stay silent
+            musicPreview.start();
+        } catch (Exception ignored) {}
+    }
+
+    /** Screen left the foreground: pause + give audio focus back (other app's music resumes). */
+    private void pauseMusicPreview() {
+        if (musicPreview != null) {
+            try { if (musicPreview.isPlaying()) musicPreview.pause(); } catch (Exception ignored) {}
+        }
+        if (previewFocus != null) previewFocus.abandon();
+    }
+
+    private void stopMusicPreview() {
+        previewClip.stop();
+        if (musicPreview != null) {
+            try { musicPreview.release(); } catch (Exception ignored) {}
+            musicPreview = null;
+        }
+        musicPreviewPrepared = false;
+        previewFocusLost = false;
+        previewDucked = false;
+        if (previewFocus != null) previewFocus.abandon();
+    }
+
     /**
      * Inflate the sticker view and add it to the overlay frame.
      * Falls back gracefully if there is no overlay frame in the layout.
@@ -625,6 +761,12 @@ public class NewStatusActivity extends AppCompatActivity {
         if (stickerOverlayFrame == null) return;
 
         StatusStickerOverlayView stickerView = StatusStickerOverlayView.fromJson(this, stickerJson);
+
+        // (6b) ONE music sticker per status. The viewer can only play one song
+        // (it used to silently play just the last one), so a second music
+        // sticker REPLACES the first — and takes over its spot on the canvas.
+        final boolean isMusicSticker = "music".equals(stickerView.getStickerType());
+        final int replacedTopMargin = isMusicSticker ? removeExistingMusicStickers() : -1;
 
         // Position sticker near centre-top of frame
         int dp = (int) getResources().getDisplayMetrics().density;
@@ -644,12 +786,26 @@ public class NewStatusActivity extends AppCompatActivity {
         // of overlapping. User can still drag any of them afterward.
         int gap = dp * 14;
         lp.topMargin = (stickerStackBottomPx < 0) ? (dp * 16) : (stickerStackBottomPx + gap);
+        if (replacedTopMargin >= 0) lp.topMargin = replacedTopMargin; // replaced music sticker → same spot
         stickerOverlayFrame.addView(stickerView, lp);
 
         // Enable drag + pinch-resize + long-press-remove
         stickerView.attachDragToParent(stickerOverlayFrame);
         stickerView.setOnStickerTappedListener(this::showStickerSizeBar);
         stickerOverlayFrame.setOnClickListener(v -> hideStickerSizeBar());
+
+        // (6a) Let the poster HEAR the song while composing (viewer will hear the same).
+        if (isMusicSticker) {
+            musicStickerInComposer = stickerView;
+            // Long-press / drag-to-trash removal → stop the preview with it.
+            stickerView.setOnStickerRemovedListener(removed -> {
+                if (removed == musicStickerInComposer) {
+                    musicStickerInComposer = null;
+                    stopMusicPreview();
+                }
+            });
+            startMusicPreview(stickerView);
+        }
 
         // Pop-in animation
         stickerView.setScaleX(0.3f);
@@ -737,7 +893,17 @@ public class NewStatusActivity extends AppCompatActivity {
         selectedSticker = null;
         if (stickerSizeBar != null) stickerSizeBar.setVisibility(View.GONE);
     }
-    @Override protected void onPause() { super.onPause(); saveDraft(); }
+    @Override protected void onPause() {
+        super.onPause();
+        saveDraft();
+        composerResumed = false;
+        pauseMusicPreview(); // (6a) never keep playing in the background
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        composerResumed = true;
+        resumeMusicPreview();
+    }
     // ── Toolbar ───────────────────────────────────────────────────────────
     private void setupToolbar() {
         setSupportActionBar(binding.toolbar);
@@ -1304,20 +1470,90 @@ public class NewStatusActivity extends AppCompatActivity {
      * by StatusStickerPickerSheet's own "🎵 Music" option.
      */
     private void attachMusicStickerIfAny(Intent data) {
-        String soundTitle = data.getStringExtra("selected_sound_title");
+        final String soundTitle = data.getStringExtra("selected_sound_title");
         if (soundTitle == null || soundTitle.isEmpty()) return;
-        String soundId  = data.getStringExtra("selected_sound_id");
-        String soundUrl = data.getStringExtra("selected_sound_url");
+        final String soundId  = data.getStringExtra("selected_sound_id");
+        final String soundUrl = data.getStringExtra("selected_sound_url");
+        // Point 7: artist + cover now travel with the result (ReelEditorActivity
+        // forwards them). Before, the card was built with artist "" and no
+        // albumArt → blank art + no artist line.
+        final String artist   = data.getStringExtra("selected_sound_artist");
+        final String cover    = data.getStringExtra("selected_sound_cover");
+        // (5) poster's trimmed range inside the song (ms) → sticker plays that part, not 0:00
+        final int startMs     = data.getIntExtra("music_start_ms", 0);
+        final int endMs       = data.getIntExtra("music_end_ms",   0);
+
+        boolean haveAll = artist != null && !artist.isEmpty() && cover != null && !cover.isEmpty();
+        if (haveAll || soundId == null || soundId.isEmpty()) {
+            buildAndAddMusicSticker(soundTitle, artist, cover, soundId, soundUrl, startMs, endMs);
+            return;
+        }
+        // Something is missing (older camera paths / tracks without cover) → try to
+        // backfill from Firebase (sounds/{id}, then musicLibrary/{id}) BEFORE building
+        // the sticker. Never blocks: if Firebase is slow/offline we build with what we
+        // have after 2s. `done` makes sure the sticker is added exactly once.
+        final boolean[] done = {false};
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable timeout = () -> {
+            if (done[0]) return;
+            done[0] = true;
+            buildAndAddMusicSticker(soundTitle, artist, cover, soundId, soundUrl, startMs, endMs);
+        };
+        h.postDelayed(timeout, 2000L);
+        lookupSoundMeta(FirebaseUtils.db().getReference("sounds").child(soundId), (a1, c1) -> {
+            if ((a1 != null && !a1.isEmpty()) || (c1 != null && !c1.isEmpty())) {
+                finishMusicBackfill(done, h, timeout, soundTitle, soundId, soundUrl, startMs, endMs, artist, cover, a1, c1);
+            } else {
+                lookupSoundMeta(FirebaseUtils.getMusicLibraryRef().child(soundId), (a2, c2) ->
+                        finishMusicBackfill(done, h, timeout, soundTitle, soundId, soundUrl, startMs, endMs, artist, cover, a2, c2));
+            }
+        });
+    }
+
+    /** Merges the Firebase values into whatever the intent already had, then adds the sticker once. */
+    private void finishMusicBackfill(boolean[] done, android.os.Handler h, Runnable timeout,
+                                     String title, String soundId, String soundUrl,
+                                     int startMs, int endMs,
+                                     String artist, String cover, String fbArtist, String fbCover) {
+        if (done[0]) return;           // the 2s timeout already added it
+        done[0] = true;
+        h.removeCallbacks(timeout);
+        if (isFinishing() || isDestroyed()) return;
+        String a = (artist != null && !artist.isEmpty()) ? artist : fbArtist; // intent value wins
+        String c = (cover  != null && !cover.isEmpty())  ? cover  : fbCover;
+        buildAndAddMusicSticker(title, a, c, soundId, soundUrl, startMs, endMs);
+    }
+
+    private interface SoundMetaCb { void onResult(String artist, String coverUrl); }
+
+    /** Reads artist + coverUrl from a sounds/ or musicLibrary/ node (same keys both use). */
+    private void lookupSoundMeta(DatabaseReference ref, SoundMetaCb cb) {
+        ref.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                String a = snap.exists() ? snap.child("artist").getValue(String.class) : null;
+                String c = snap.exists() ? snap.child("coverUrl").getValue(String.class) : null;
+                cb.onResult(a, c);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { cb.onResult(null, null); }
+        });
+    }
+
+    /** Same sticker JSON as StatusStickerPickerSheet's own Music option ("albumArt" = cover). */
+    private void buildAndAddMusicSticker(String title, String artist, String cover,
+                                         String soundId, String soundUrl, int startMs, int endMs) {
         try {
             org.json.JSONObject musicJson = new org.json.JSONObject();
             musicJson.put("type",     "music");
-            musicJson.put("song",     soundTitle);
-            musicJson.put("artist",   "");
+            musicJson.put("song",     title);
+            musicJson.put("artist",   artist != null ? artist : "");
+            musicJson.put("albumArt", cover  != null ? cover  : "");
             musicJson.put("soundId",  soundId  != null ? soundId  : "");
             musicJson.put("soundUrl", soundUrl != null ? soundUrl : "");
+            if (startMs > 0) musicJson.put("startMs", startMs); // bare numbers → read back with jsonNum()
+            if (endMs   > 0) musicJson.put("endMs",   endMs);
             String json = musicJson.toString();
             addedStickerJsons.add(json);
-            addStickerOverlay(json);
+            addStickerOverlay(json); // (also enforces one-music-sticker + starts the preview)
         } catch (Exception ignored) {}
     }
 
@@ -2176,6 +2412,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     // ── UI helpers ────────────────────────────────────────────────────────
     private void setPosting(boolean posting) {
+        if (posting) stopMusicPreview(); // (6a) upload started — preview has done its job
         binding.btnPost.setEnabled(!posting);
         binding.btnPost.setText(posting ? "Posting…" : "Post");
         if (binding.uploadProgress != null)
@@ -2204,6 +2441,7 @@ public class NewStatusActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         if (activeStepRingSpin != null) activeStepRingSpin.cancel();
+        stopMusicPreview(); // (6a) release MediaPlayer + audio focus
         super.onDestroy();
     }
 }

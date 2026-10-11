@@ -227,7 +227,9 @@ public class ChatMessageSender {
     public void updateSendButtonState(boolean online) {
         com.callx.app.chat.databinding.ActivityChatBinding binding = delegate.getBinding();
         if (binding == null) return;
-        binding.chatIconBar.setSendEnabled(online);
+        // Text messages are local-first and have an offline outbox. Keep Send
+        // available without a network; only live voice recording needs it.
+        binding.chatIconBar.setSendEnabled(true);
         binding.chatIconBar.setMicEnabled(online);
     }
 

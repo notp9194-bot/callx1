@@ -333,6 +333,11 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String  preSelectedSoundId    = "";
     private String  preSelectedSoundTitle = "";
     private String  preSelectedSoundUrl   = "";
+    // Status music-sticker polish: artist + cover used to be DROPPED here, so the
+    // sticker built in NewStatusActivity showed a blank card (no artist, no art).
+    // Now carried through intent → fields → finishForStatusResult().
+    private String  preSelectedSoundArtist = "";
+    private String  preSelectedSoundCover  = "";
     // True when ReelCameraActivity already replaced mic audio with the selected
     // sound. Must be forwarded to ReelUploadActivity so it skips a second mix.
     private boolean audioAlreadyReplaced  = false;
@@ -493,6 +498,10 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (si != null && !si.isEmpty()) preSelectedSoundId    = si;
         if (st != null && !st.isEmpty()) preSelectedSoundTitle = st;
         if (su != null && !su.isEmpty()) preSelectedSoundUrl   = su;
+        String sa = getIntent().getStringExtra("selected_sound_artist");
+        String sc = getIntent().getStringExtra("selected_sound_cover");
+        if (sa != null && !sa.isEmpty()) preSelectedSoundArtist = sa;
+        if (sc != null && !sc.isEmpty()) preSelectedSoundCover  = sc;
         // FIX: carry the "already replaced" flag from camera so upload skips re-mixing
         audioAlreadyReplaced = getIntent().getBooleanExtra("audio_already_replaced", false);
         musicStartMs = getIntent().getIntExtra("music_start_ms", 0);
@@ -3790,13 +3799,34 @@ public class ReelEditorActivity extends AppCompatActivity {
 
             // ✅ NEW: user picked a fresh sound from MusicPickerActivity
             case REQ_MUSIC_PICKER: {
+                // BUG FIX: MusicPickerActivity returns its result under music_id /
+                // music_name / music_url / music_cover_url / music_artist (its own
+                // EXTRA_MUSIC_* constants), but this branch only read selected_sound_*
+                // — so a song picked here from scratch was silently ignored
+                // (pid always empty). Read selected_sound_* first (old callers), then
+                // the picker's real keys.
                 String pid = nvl(data.getStringExtra("selected_sound_id"));
                 String pt  = nvl(data.getStringExtra("selected_sound_title"));
                 String pu  = nvl(data.getStringExtra("selected_sound_url"));
+                String pa  = nvl(data.getStringExtra("selected_sound_artist"));
+                String pc  = nvl(data.getStringExtra("selected_sound_cover"));
+                if (pid.isEmpty()) pid = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ID));
+                if (pt.isEmpty())  pt  = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_NAME));
+                if (pu.isEmpty())  pu  = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_URL));
+                if (pa.isEmpty())  pa  = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_ARTIST));
+                if (pc.isEmpty())  pc  = nvl(data.getStringExtra(MusicPickerActivity.EXTRA_MUSIC_COVER_URL));
+                // The picker's music_name is "Title – Artist"; keep just the title so the
+                // sticker doesn't show the artist twice (artist travels separately).
+                String artistSuffix = " \u2013 " + pa;
+                if (!pa.isEmpty() && pt.endsWith(artistSuffix)) {
+                    pt = pt.substring(0, pt.length() - artistSuffix.length());
+                }
                 if (!pid.isEmpty()) {
                     preSelectedSoundId    = pid;
                     preSelectedSoundTitle = pt;
                     preSelectedSoundUrl   = pu;
+                    preSelectedSoundArtist = pa;
+                    preSelectedSoundCover  = pc;
                     updateBadge("music", "🎵 " + pt);
                     if (btnToolMusic != null) btnToolMusic.setColorFilter(
                         android.graphics.Color.argb(200, 255, 100, 180)); // pink tint = active
@@ -3804,12 +3834,15 @@ public class ReelEditorActivity extends AppCompatActivity {
                 break;
             }
 
-            // ✅ NEW: returned from SoundDetailActivity (user may have chosen a different sound)
             case REQ_SOUND_DETAIL: {
                 String sid = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_SOUND_ID));
                 String st  = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_SOUND_TITLE));
                 String su  = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_SOUND_URL));
+                String sdArtist = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_ARTIST));
+                String sdCover  = nvl(data.getStringExtra(SoundDetailActivity.EXTRA_COVER_URL));
                 if (!sid.isEmpty()) {
+                    if (!sdArtist.isEmpty()) preSelectedSoundArtist = sdArtist; // keep old value if detail didn't return one
+                    if (!sdCover.isEmpty())  preSelectedSoundCover  = sdCover;
                     preSelectedSoundId    = sid;
                     preSelectedSoundTitle = st.isEmpty() ? preSelectedSoundTitle : st;
                     preSelectedSoundUrl   = su.isEmpty() ? preSelectedSoundUrl   : su;
@@ -4279,6 +4312,12 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (!preSelectedSoundId.isEmpty())    result.putExtra("selected_sound_id",    preSelectedSoundId);
         if (!preSelectedSoundTitle.isEmpty()) result.putExtra("selected_sound_title", preSelectedSoundTitle);
         if (!preSelectedSoundUrl.isEmpty())   result.putExtra("selected_sound_url",   preSelectedSoundUrl);
+        // artist + cover → Status builds a complete music sticker card (not a blank one)
+        if (!preSelectedSoundArtist.isEmpty()) result.putExtra("selected_sound_artist", preSelectedSoundArtist);
+        if (!preSelectedSoundCover.isEmpty())  result.putExtra("selected_sound_cover",  preSelectedSoundCover);
+        // the poster's trimmed part of the song → status plays just that clip, not 0:00
+        if (musicStartMs > 0) result.putExtra("music_start_ms", musicStartMs);
+        if (musicEndMs   > 0) result.putExtra("music_end_ms",   musicEndMs);
 
         if (!filterName.isEmpty())   result.putExtra("filter_name",   filterName);
         if (!stickerJson.isEmpty())  result.putExtra("sticker_json",  stickerJson);

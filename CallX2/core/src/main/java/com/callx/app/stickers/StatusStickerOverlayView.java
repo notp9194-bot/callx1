@@ -187,6 +187,8 @@ public class StatusStickerOverlayView extends LinearLayout {
 
     // ── Music sticker metadata (links back to the Reels trending-audio track) ──
     private String musicSoundId, musicSong, musicArtist, musicCoverUrl, musicSoundUrl;
+    // Optional clip range inside the song (ms) — from the editor's music trim. 0 = not set.
+    private int musicStartMs = 0, musicEndMs = 0;
 
     // ── Quiz interactivity state (mirrors the question sticker's full flow) ──
     private String quizQuestion;
@@ -284,6 +286,10 @@ public class StatusStickerOverlayView extends LinearLayout {
 
     /** Playable audio URL for the linked track, or null for non-music stickers. */
     public String getMusicSoundUrl() { return "music".equals(stickerType) ? musicSoundUrl : null; }
+    /** Start (ms) of the part of the song to play, or 0 if the poster never set one. */
+    public int getMusicStartMs() { return "music".equals(stickerType) ? musicStartMs : 0; }
+    /** End (ms) of the part of the song to play, or 0 if not set. */
+    public int getMusicEndMs()   { return "music".equals(stickerType) ? musicEndMs : 0; }
 
     /** True once this music sticker is linked to a real Reels track the viewer can open. */
     public boolean isMusicLinkedToReelSound() {
@@ -669,6 +675,9 @@ public class StatusStickerOverlayView extends LinearLayout {
         v.musicCoverUrl = artUrl;
         v.musicSoundId = soundId;
         v.musicSoundUrl = soundUrl;
+        // Optional clip range (bare JSON numbers → jsonNum, not jsonStr).
+        try { v.musicStartMs = (int) Float.parseFloat(jsonNum(json, "startMs", "0")); } catch (Exception ignored) {}
+        try { v.musicEndMs   = (int) Float.parseFloat(jsonNum(json, "endMs",   "0")); } catch (Exception ignored) {}
 
         TextView tvSong = new TextView(ctx);
         tvSong.setText(song);

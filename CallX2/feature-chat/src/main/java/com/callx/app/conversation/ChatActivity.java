@@ -4694,8 +4694,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
 
         binding.chatIconBar.setOnSendClickListener(this::sendTextMessage);
-        binding.chatIconBar.setOnSendLongClickListener(() -> {
-            binding.chatIconBar.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        Runnable scheduleCurrentText = () -> {
             String text = binding.etMessage.getText().toString().trim();
             getScheduledSendController().showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
@@ -4706,7 +4705,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
                 });
             });
+        };
+        binding.chatIconBar.setOnScheduleClickListener(scheduleCurrentText);
+        binding.chatIconBar.setOnSendLongClickListener(() -> {
+            binding.chatIconBar.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            scheduleCurrentText.run();
         });
+        binding.chatIconBar.setScheduleAvailable(true);
         binding.chatIconBar.setOnAttachClickListener(() -> mediaController.showAttachSheet());
         binding.btnViewOnce.setOnClickListener(v -> showViewOnceExpiryPicker());
         // ULTRA-OPT: icon bitmap now comes from IconTintCache (process-wide,

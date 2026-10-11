@@ -1664,6 +1664,9 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public com.callx.app.models.Message getReplyingTo() { return replyingTo; }
                 });
         groupScheduledController.init();
+        // The shared composer exposes its clock action only after the
+        // group scheduling controller is ready.
+        binding.chatIconBar.setScheduleAvailable(true);
 
         observePagedMessages();
         // Pending Firebase events (jo pehle se aa chuke hain) ek transaction mein flush karo
@@ -2418,14 +2421,18 @@ public class GroupChatActivity extends AppCompatActivity
         binding.chatIconBar.setOnAttachClickListener(() -> showAttachSheet());
         binding.chatIconBar.setOnCameraClickListener(() -> imagePicker.launch("image/*"));
         binding.chatIconBar.setOnSendClickListener(this::sendText);
-        binding.chatIconBar.setOnSendLongClickListener(() -> {
+        Runnable scheduleCurrentText = () -> {
             if (groupScheduledController == null) return;
-            binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             String text = binding.etMessage.getText().toString().trim();
             groupScheduledController.showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
                 clearReply();
             });
+        };
+        binding.chatIconBar.setOnScheduleClickListener(scheduleCurrentText);
+        binding.chatIconBar.setOnSendLongClickListener(() -> {
+            binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            scheduleCurrentText.run();
         });
         attachMicGesture();
 
@@ -2908,10 +2915,10 @@ public class GroupChatActivity extends AppCompatActivity
                 this, currentUid, groupId, cache.get(groupId));
     }
 
-    // v17: Send button offline hone par disable
+    // Text messages are local-first and queued offline; keep Send available.
     private void updateSendButtonState(boolean online) {
         if (binding == null) return;
-        binding.chatIconBar.setSendEnabled(online);
+        binding.chatIconBar.setSendEnabled(true);
         binding.chatIconBar.setMicEnabled(online);
     }
 
