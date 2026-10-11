@@ -1919,7 +1919,7 @@ public class StatusStickerOverlayView extends LinearLayout {
         // regex-only reader below never un-escaped that, so MediaPlayer got a
         // URL full of backslashes and failed silently — while the Sound Detail
         // sheet still played because it re-resolves the audio from soundId.
-        // Fix: read the value with a real JSON parser (handles \/ \\ \" \uXXXX),
+        // Fix: read the value with a real JSON parser (handles escaped slash, backslash, quote and unicode escapes),
         // and only fall back to the manual scan (now also un-escaping) if the
         // string isn't valid JSON.
         try {
