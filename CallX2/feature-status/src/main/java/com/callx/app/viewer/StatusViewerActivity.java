@@ -115,14 +115,19 @@ import com.callx.app.utils.AlertDialogStyler;
       // (e.g. swiping back to a previously-viewed segment in this session).
       private final java.util.Set<String> reactionBurstPlayedFor = new java.util.HashSet<>();
       private int     idx         = 0;
-      private ExoPlayer player;
+      private ExoPlayer player;                    // ONE instance reused for every video status (destroyed in onDestroy)
+      private Player.Listener playerListener;      // the current video's listener (swapped per status)
       // Separate audio-only player for a 🎵 music sticker's linked preview
       // clip — independent of `player` above (which only ever holds the
       // status's own video track). Autoplays as soon as the status carrying
       // the sticker is shown, mirrors Instagram/WhatsApp behaviour.
       private android.media.MediaPlayer musicPlayer;
       private final Handler  handler      = new Handler(Looper.getMainLooper());
-      private Runnable       progressRunner;
+      // Progress is driven by Choreographer (vsync) + SystemClock, not a 50 ms Handler poll:
+      // smooth on 60/120 Hz panels, no wake-ups while paused, and — unlike ValueAnimator —
+      // immune to the system "animator duration scale" (battery saver / dev options set it to 0).
+      private boolean         progressActive;
+      private long            progTotalMs, progStartElapsed, progStartUptime;
       private boolean        paused       = false;
       private long           remainingMs  = 0;
       private boolean        isMuted      = false;
@@ -190,6 +195,68 @@ import com.callx.app.utils.AlertDialogStyler;
           super.onWindowFocusChanged(hasFocus);
           if (hasFocus) hideSystemBars();
       }
+      // ── v507: lazily inflated layers (ViewStub) + hardware layer during animation ──
+      private FrameLayout stickerOverlayView;     // null until first sticker / error card
+      private FrameLayout textLayerView;          // null until first text status
+      private TextView    textStatusTv;
+      private View        reshareContainerView;   // null until first reshared status
+      private View        quickReactionOverlayView; // null until first swipe-up-to-react
+      private View        quickReactionCardView;
+      private boolean     columnHwLayerOn = false;
+
+      private FrameLayout stickerOverlay() {
+          if (stickerOverlayView == null) stickerOverlayView = (FrameLayout) binding.stubStickerOverlay.inflate();
+          return stickerOverlayView;
+      }
+      private FrameLayout textLayer() {
+          if (textLayerView == null) {
+              textLayerView = (FrameLayout) binding.stubTextStatus.inflate();
+              textStatusTv  = textLayerView.findViewById(R.id.tv_text_status);
+          }
+          return textLayerView;
+      }
+      private View reshareContainer() {
+          if (reshareContainerView == null) reshareContainerView = binding.stubReshareCard.inflate();
+          return reshareContainerView;
+      }
+      private boolean isQuickReactionOverlayShown() {
+          return quickReactionOverlayView != null && quickReactionOverlayView.getVisibility() == View.VISIBLE;
+      }
+      /** Inflates the swipe-up emoji overlay on first use and wires its listeners once. */
+      private View ensureQuickReactionOverlay() {
+          if (quickReactionOverlayView != null) return quickReactionOverlayView;
+          final View ov = binding.stubQuickReaction.inflate();
+          quickReactionOverlayView = ov;
+          quickReactionCardView = ov.findViewById(R.id.ll_quick_reaction_card);
+          View.OnClickListener emojiClick = v -> {
+              Object tag = v.getTag();
+              if (tag == null) { closeQuickReactionOverlay(); return; }
+              sendQuickReaction(tag.toString());
+              closeQuickReactionOverlay();
+          };
+          final int[] ids = { R.id.tv_qr_1, R.id.tv_qr_2, R.id.tv_qr_3, R.id.tv_qr_4, R.id.tv_qr_5, R.id.tv_qr_6 };
+          for (int id : ids) {
+              View b = ov.findViewById(id);
+              if (b != null) b.setOnClickListener(emojiClick);
+          }
+          // Tap anywhere on the dim scrim outside the card dismisses without reacting.
+          ov.setOnClickListener(v -> closeQuickReactionOverlay());
+          // Swallow taps on the card itself so they don't bubble to the scrim above.
+          if (quickReactionCardView != null) quickReactionCardView.setOnClickListener(v -> {});
+          return ov;
+      }
+      /** Drag / cube animations: promote the whole viewer column to a GPU texture so each
+       *  frame is just a matrix transform (no re-draw of photo + blur + chrome). */
+      private void columnHwLayerOn() {
+          if (columnHwLayerOn || binding == null) return;
+          columnHwLayerOn = true;
+          binding.llViewerColumn.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+      }
+      private void columnHwLayerOff() {
+          if (!columnHwLayerOn || binding == null) return;
+          columnHwLayerOn = false;
+          binding.llViewerColumn.setLayerType(View.LAYER_TYPE_NONE, null);
+      }
       // ── Lifecycle ─────────────────────────────────────────────────────────
       @Override
       protected void onCreate(Bundle savedInstanceState) {
@@ -224,12 +291,19 @@ import com.callx.app.utils.AlertDialogStyler;
               queuePos = Math.max(found, 0);
           }
           try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
+          final float cardR = 14f * getResources().getDisplayMetrics().density;
+          binding.flStoryCard.setOutlineProvider(new android.view.ViewOutlineProvider() {
+              @Override public void getOutline(View v, android.graphics.Outline o) {
+                  o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), cardR);
+              }
+          });
+          binding.flStoryCard.setClipToOutline(true);
+          binding.flStoryCard.setBackgroundColor(Color.BLACK);
           setupSwipeDownGesture();
           setupTouchZones();
           setupCloseButton();
           setupReactionButton();
           setupLikeHeartButton();
-          setupQuickReactionOverlay();
           setupReplyButton();
           setupMoreButton();
           setupMuteButton();
@@ -335,8 +409,10 @@ import com.callx.app.utils.AlertDialogStyler;
       /** The sticker currently enlarged front-and-centre by the tap-to-zoom
        *  gate, if any — at most one can be zoomed in at a time. */
       private StatusStickerOverlayView findZoomedSticker() {
-          for (int i = 0; i < binding.flStickerOverlay.getChildCount(); i++) {
-              View child = binding.flStickerOverlay.getChildAt(i);
+          final FrameLayout so = stickerOverlayView;
+          if (so == null) return null; // never inflated → nothing can be zoomed
+          for (int i = 0; i < so.getChildCount(); i++) {
+              View child = so.getChildAt(i);
               if (child instanceof StatusStickerOverlayView && ((StatusStickerOverlayView) child).isZoomedIn()) {
                   return (StatusStickerOverlayView) child;
               }
@@ -347,6 +423,7 @@ import com.callx.app.utils.AlertDialogStyler;
       protected void onDestroy() {
           detachRepliesListener();
           releasePlayer();
+          destroyPlayer();
           if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
           if (binding.tvStatusSongName != null) binding.tvStatusSongName.release();
           stopProgress();
@@ -373,31 +450,8 @@ import com.callx.app.utils.AlertDialogStyler;
           super.onDestroy();
       }
       // ── Load ──────────────────────────────────────────────────────────────
-      private void load(String uid) {
-          if (isHighlightMode) { loadHighlightAlbum(uid); return; }
-          FirebaseUtils.getStatusRef().child(uid)
-              .addListenerForSingleValueEvent(new ValueEventListener() {
-                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                      long now = System.currentTimeMillis();
-                      for (DataSnapshot c : snap.getChildren()) {
-                          StatusItem s;
-                          try {
-                              s = c.getValue(StatusItem.class);
-                          } catch (Exception parseErr) {
-                              // A single malformed child used to silently vanish from the
-                              // list (or worse, crash the whole onDataChange before any
-                              // items were added) with zero trace of which row or why.
-                              Log.e(DBG, "load() failed to parse status child key=" + c.getKey(), parseErr);
-                              CrashReporter.report(StatusViewerActivity.this, "StatusViewer.load.parseChild", parseErr);
-                              continue;
-                          }
-                          if (s == null || Boolean.TRUE.equals(s.deleted)) continue;
-                          if (s.expiresAt != null && s.expiresAt < now) continue;
-                          Log.d(DBG, "load() added item id=" + s.id + " type=" + s.type
-                                  + " resharedMediaType=" + s.resharedMediaType
-                                  + " hasMediaUrl=" + (s.mediaUrl != null && !s.mediaUrl.isEmpty()));
-                          items.add(s);
-                      }
+      /** Everything that happens once `items` is filled (from the app-wide cache OR Firebase). */
+      private void applyLoadedItems() {
                       if (items.isEmpty()) {
                           // WhatsApp-style: reached here via a "replied to
                           // status" quote-box tap (or a stale status link)
@@ -438,6 +492,45 @@ import com.callx.app.utils.AlertDialogStyler;
                       binding.btnForward.setVisibility(isOwner ? View.GONE : View.VISIBLE);
                       // btnRepost visibility is refined per-item in showCurrent() based on allowSharing
                       binding.btnRepost.setVisibility(isOwner ? View.GONE : View.VISIBLE);
+      }
+      private void load(String uid) {
+          if (isHighlightMode) { loadHighlightAlbum(uid); return; }
+          // FAST PATH: StatusCacheManager is an app-wide, always-listening (CallxApp) copy of every
+          // contact's active statuses, already sorted. Open straight from it — no Firebase round-trip
+          // before the first frame. Falls through to the network read when the cache has nothing for
+          // this owner, or doesn't (yet) contain the specific status we were asked to open.
+          try {
+              List<StatusItem> cached = com.callx.app.cache.StatusCacheManager.getInstance(this).getStatuses(uid);
+              if (!cached.isEmpty()) {
+                  boolean targetOk = targetStatusId == null || targetStatusId.isEmpty();
+                  if (!targetOk) for (StatusItem c : cached) if (targetStatusId.equals(c.id)) { targetOk = true; break; }
+                  if (targetOk) { items.addAll(cached); applyLoadedItems(); return; }
+              }
+          } catch (Exception e) { items.clear(); }
+          FirebaseUtils.getStatusRef().child(uid)
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                      long now = System.currentTimeMillis();
+                      for (DataSnapshot c : snap.getChildren()) {
+                          StatusItem s;
+                          try {
+                              s = c.getValue(StatusItem.class);
+                          } catch (Exception parseErr) {
+                              // A single malformed child used to silently vanish from the
+                              // list (or worse, crash the whole onDataChange before any
+                              // items were added) with zero trace of which row or why.
+                              Log.e(DBG, "load() failed to parse status child key=" + c.getKey(), parseErr);
+                              CrashReporter.report(StatusViewerActivity.this, "StatusViewer.load.parseChild", parseErr);
+                              continue;
+                          }
+                          if (s == null || Boolean.TRUE.equals(s.deleted)) continue;
+                          if (s.expiresAt != null && s.expiresAt < now) continue;
+                          dbgLog( "load() added item id=" + s.id + " type=" + s.type
+                                  + " resharedMediaType=" + s.resharedMediaType
+                                  + " hasMediaUrl=" + (s.mediaUrl != null && !s.mediaUrl.isEmpty()));
+                          items.add(s);
+                      }
+                      applyLoadedItems();
                   }
                   @Override public void onCancelled(@NonNull DatabaseError e) {
                       CrashReporter.reportSilently(StatusViewerActivity.this, "StatusViewer.load.onCancelled", e.toException());
@@ -526,8 +619,19 @@ import com.callx.app.utils.AlertDialogStyler;
               segmentBars.get(i).setProgress(i < currentIdx ? 1000 : 0);
       }
       // ── Show current item ─────────────────────────────────────────────────
+      private int showSeq; // bumps on every showCurrent(); deferred work from an older status is dropped
+      /** Runs `r` right AFTER the next frame has been drawn (so the photo / video is already on
+       *  screen), and only if we're still on the same status. Keeps Firebase listeners, sensor
+       *  start-up and Glide prefetch off the critical path to first paint. */
+      private void deferAfterFirstFrame(final int seq, final Runnable r) {
+          android.view.Choreographer.getInstance().postFrameCallback(t -> handler.post(() -> {
+              if (isFinishing() || isDestroyed() || seq != showSeq) return;
+              r.run();
+          }));
+      }
       private void showCurrent() {
           if (idx >= items.size()) { goToNextQueueEntryOrFinish(); return; }
+          final int seq = ++showSeq;
           StatusItem s = items.get(idx);
           if (viewStartTime > 0 && idx > 0) {
               StatusItem prev = items.get(idx - 1);
@@ -536,13 +640,21 @@ import com.callx.app.utils.AlertDialogStyler;
                           System.currentTimeMillis() - viewStartTime);
           }
           viewStartTime = System.currentTimeMillis();
-          startSpinViewIfAllowed();
+          deferAfterFirstFrame(seq, this::startSpinViewIfAllowed);
           fillSegmentsBefore(idx);
           updateHeaderTimestamp(s);
           updateSeenByInfo(s);
-          updateLastReplyOverlay(s);
+          // Replies strip: drop the previous status's listener + bubble NOW (no stale flash),
+          // attach the new Firebase listener once the frame is up.
+          detachRepliesListener();
+          if (binding.llLastReplyBubble != null) {
+              binding.llLastReplyBubble.animate().cancel();
+              binding.llLastReplyBubble.setVisibility(View.GONE);
+          }
+          final StatusItem shown = s;
+          deferAfterFirstFrame(seq, () -> updateLastReplyOverlay(shown));
           updateExpiryLabel(s);
-          playReactionBurstIfAny(s);
+          deferAfterFirstFrame(seq, () -> playReactionBurstIfAny(shown));
           crossFadeIn();
           if (s.id != null && !s.id.isEmpty() && myUid != null && !myUid.equals(ownerUid))
               if (!seenInSession.contains(s.id)) seenInSession.add(s.id);
@@ -579,12 +691,12 @@ import com.callx.app.utils.AlertDialogStyler;
                       boolean looksLikeVideo;
                       if (s.resharedMediaType != null && !s.resharedMediaType.isEmpty()) {
                           looksLikeVideo = "video".equals(s.resharedMediaType);
-                          Log.d(DBG, "reshareRender id=" + s.id + " using resharedMediaType=" + s.resharedMediaType);
+                          dbgLog( "reshareRender id=" + s.id + " using resharedMediaType=" + s.resharedMediaType);
                       } else {
                           looksLikeVideo = looksLikeVideoUrl(s.mediaUrl);
-                          Log.d(DBG, "reshareRender id=" + s.id + " resharedMediaType MISSING (legacy row) — guessed from URL, looksLikeVideo=" + looksLikeVideo);
+                          dbgLog( "reshareRender id=" + s.id + " resharedMediaType MISSING (legacy row) — guessed from URL, looksLikeVideo=" + looksLikeVideo);
                       }
-                      Log.d(DBG, "reshareRender id=" + s.id + " type=" + s.type
+                      dbgLog( "reshareRender id=" + s.id + " type=" + s.type
                               + " mediaUrl=" + (s.mediaUrl == null ? "null" : "present")
                               + " thumbnailUrl=" + (s.thumbnailUrl == null ? "null" : "present")
                               + " resharedThumbnailUrl=" + (s.resharedThumbnailUrl == null ? "null" : "present")
@@ -607,17 +719,18 @@ import com.callx.app.utils.AlertDialogStyler;
               default: next();
           }
           renderStickers(s);
-          prefetchNextImage();
+          deferAfterFirstFrame(seq, this::prefetchNextImage);
 
           // ── Reshare attribution card ─────────────────────────────────────
           try {
-              android.view.View flReshare = findViewById(R.id.fl_reshare_attribution_container);
-              if (flReshare != null) {
+              // v507: card is a ViewStub — inflated only the first time a reshared status shows.
+              {
                   boolean isReshare = "reel_reshare".equals(s.type)
                                    || "post_reshare".equals(s.type)
                                    || "channel_post_reshare".equals(s.type)
                                    || "status_reshare".equals(s.type);
                   if (isReshare && s.resharedFromOwnerName != null && !s.resharedFromOwnerName.isEmpty()) {
+                      final android.view.View flReshare = reshareContainer();
                       flReshare.setVisibility(android.view.View.VISIBLE);
                       android.widget.ImageView ivThumb = flReshare.findViewById(R.id.iv_reshare_thumb);
                       if (ivThumb != null && s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty())
@@ -646,8 +759,8 @@ import com.callx.app.utils.AlertDialogStyler;
                           final String creatorName = s.resharedFromOwnerName  != null ? s.resharedFromOwnerName  : "";
                           cardRoot.setOnClickListener(v -> openOriginalCreatorProfile(creatorUid, creatorName));
                       }
-                  } else {
-                      flReshare.setVisibility(android.view.View.GONE);
+                  } else if (reshareContainerView != null) {
+                      reshareContainerView.setVisibility(android.view.View.GONE);
                   }
 
                   // ── Repost button: show only if owner allows sharing and viewer ≠ owner ──
@@ -776,25 +889,27 @@ import com.callx.app.utils.AlertDialogStyler;
 
       // ── Content renderers ─────────────────────────────────────────────────
       private void showTextStatus(StatusItem s) {
-          binding.flTextStatus.setVisibility(View.VISIBLE);
-          binding.tvTextStatus.setText(StatusMentionHelper.highlight(s.text != null ? s.text : ""));
+          final FrameLayout textLayer = textLayer(); // v507: inflated on first text status
+          final TextView textTv = textStatusTv;
+          textLayer.setVisibility(View.VISIBLE);
+          textTv.setText(StatusMentionHelper.highlight(s.text != null ? s.text : ""));
           try {
-              if (s.bgColor != null) binding.flTextStatus.setBackgroundColor(Color.parseColor(s.bgColor));
-              else binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
+              if (s.bgColor != null) textLayer.setBackgroundColor(Color.parseColor(s.bgColor));
+              else textLayer.setBackgroundResource(R.drawable.gradient_brand);
           } catch (Exception e) {
-              binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
+              textLayer.setBackgroundResource(R.drawable.gradient_brand);
           }
           if (s.textColor != null) {
-              try { binding.tvTextStatus.setTextColor(Color.parseColor(s.textColor)); }
+              try { textTv.setTextColor(Color.parseColor(s.textColor)); }
               catch (Exception ignored) {}
           }
-          applyFontStyle(binding.tvTextStatus, s.fontStyle);
-          if (s.textSize > 0) binding.tvTextStatus.setTextSize(s.textSize);
+          applyFontStyle(textTv, s.fontStyle);
+          if (s.textSize > 0) textTv.setTextSize(s.textSize);
           if (s.textAlign != null) {
               switch (s.textAlign) {
-                  case "left":  binding.tvTextStatus.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); break;
-                  case "right": binding.tvTextStatus.setGravity(Gravity.END   | Gravity.CENTER_VERTICAL); break;
-                  default:      binding.tvTextStatus.setGravity(Gravity.CENTER);
+                  case "left":  textTv.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); break;
+                  case "right": textTv.setGravity(Gravity.END   | Gravity.CENTER_VERTICAL); break;
+                  default:      textTv.setGravity(Gravity.CENTER);
               }
           }
           if (s.locationName != null && !s.locationName.isEmpty()) showLocationTag(s.locationName);
@@ -809,10 +924,11 @@ import com.callx.app.utils.AlertDialogStyler;
        * finish() looks exactly like a crash to the user.
        */
       private void showUnavailableFallback() {
-          binding.flTextStatus.setVisibility(View.VISIBLE);
-          binding.flTextStatus.setBackgroundResource(R.drawable.gradient_brand);
-          binding.tvTextStatus.setText("This content is no longer available");
-          binding.tvTextStatus.setTextColor(Color.WHITE);
+          final FrameLayout textLayer = textLayer();
+          textLayer.setVisibility(View.VISIBLE);
+          textLayer.setBackgroundResource(R.drawable.gradient_brand);
+          textStatusTv.setText("This content is no longer available");
+          textStatusTv.setTextColor(Color.WHITE);
           startProgress(5_000L);
       }
       // ── Image-ready hold: progress bar waits (max IMAGE_HOLD_TIMEOUT_MS) until the
@@ -873,8 +989,22 @@ import com.callx.app.utils.AlertDialogStyler;
 
       /** Warms Glide's cache with the NEXT status's photo so swiping/auto-advance is instant. */
       private void prefetchNextImage() {
-          if (isFinishing() || isDestroyed() || idx + 1 >= items.size()) return;
-          StatusItem n = items.get(idx + 1);
+          if (isFinishing() || isDestroyed()) return;
+          if (idx + 1 < items.size()) { prefetchItem(items.get(idx + 1)); return; }
+          prefetchNextQueueEntry(); // last segment of this person → warm the NEXT person's first one
+      }
+      /** Instagram-style: while the last story of the current person plays, the next person's
+       *  first story (media + blurred backdrop) is already being fetched, so the cube turn lands
+       *  on a ready frame instead of an empty card. Reads the app-wide cache — no extra Firebase read. */
+      private void prefetchNextQueueEntry() {
+          if (isHighlightMode || !hasNextInQueue()) return;
+          try {
+              List<StatusItem> next = com.callx.app.cache.StatusCacheManager.getInstance(this)
+                      .getStatuses(queueOwnerUids.get(queuePos + 1));
+              if (!next.isEmpty()) prefetchItem(next.get(0));
+          } catch (Exception ignored) {}
+      }
+      private void prefetchItem(StatusItem n) {
           if (n == null || n.type == null) return;
           String url = null;
           switch (n.type) {
@@ -897,9 +1027,9 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           if (url == null || url.isEmpty()) return;
           try {
-              Glide.with(this).load(url)
+              Glide.with(this).asBitmap().load(url)
                       .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-                      .apply(imgBgOptions()).preload();
+                      .apply(imgBgOptions()).preload(); // same key as loadRootBackdrop()
               Glide.with(this).load(url)
                       .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                       .apply(imgFgOptions()).preload();
@@ -914,8 +1044,9 @@ import com.callx.app.utils.AlertDialogStyler;
       /** Tap-to-retry card shared by photo + GIF. Text comes from strings.xml;
        *  exposed to TalkBack as a live-announced button with a 48dp touch target. */
       private void showLoadErrorCard(final Runnable retry) {
-          View old = binding.flStickerOverlay.findViewWithTag("img_load_error");
-          if (old != null) binding.flStickerOverlay.removeView(old); // only the error card — stickers stay
+          final FrameLayout so = stickerOverlay();
+          View old = so.findViewWithTag("img_load_error");
+          if (old != null) so.removeView(old); // only the error card — stickers stay
           final float density = getResources().getDisplayMetrics().density;
           TextView tv = new TextView(this);
           tv.setTag("img_load_error");
@@ -943,10 +1074,10 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           });
           tv.setOnClickListener(v -> {
-              binding.flStickerOverlay.removeView(v);
+              so.removeView(v);
               retry.run();
           });
-          binding.flStickerOverlay.addView(tv, new FrameLayout.LayoutParams(
+          so.addView(tv, new FrameLayout.LayoutParams(
                   FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
       }
 
@@ -956,22 +1087,15 @@ import com.callx.app.utils.AlertDialogStyler;
 
       private void showImageStatusFromUrl(final String url, final String caption, final int attempt) {
           binding.ivStatus.setVisibility(View.VISIBLE);
-          binding.ivStatusBg.setVisibility(View.VISIBLE);
           final android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
           final int screenW = dm.widthPixels, screenH = dm.heightPixels;
           loadRootBackdrop(url);
           final int reqIdx = idx;
           // Hold BEFORE issuing the requests — a memory-cache hit can fire onResourceReady synchronously.
           beginImageHold(5_000L);
-          // WhatsApp-style: full photo, never cropped + a blurred/darkened cropped copy
-          // behind it. The backdrop is blurred anyway, so decode it at 1/6 screen size
-          // (was: full-resolution decode of the same photo, then blur).
-          Glide.with(this).load(url)
-               .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-               .apply(imgBgOptions())
-               .placeholder(android.R.drawable.screen_background_dark)
-               .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(150))
-               .into(binding.ivStatusBg);
+          // Full photo, never cropped; the blurred/dimmed backdrop is ONE whole-window layer
+          // (iv_root_bg, see loadRootBackdrop) that also shows through the transparent card —
+          // so each photo is decoded + blurred once, not twice.
 
           // Blur-up: the item's small thumbnail (if any, and not the same URL) shows instantly
           // while the full photo loads — no black flash.
@@ -1045,14 +1169,9 @@ import com.callx.app.utils.AlertDialogStyler;
        *  blurred backdrop, progress held until the frame is actually on screen. */
       private void loadGif(final String url, final int attempt) {
           binding.ivStatus.setVisibility(View.VISIBLE);
-          binding.ivStatusBg.setVisibility(View.VISIBLE);
           final int reqIdx = idx;
           beginImageHold(4_000L);
           loadRootBackdrop(url);
-          Glide.with(this).asBitmap().load(url)
-               .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-               .apply(imgBgOptions())
-               .into(binding.ivStatusBg);
           com.bumptech.glide.request.RequestOptions fgOpts = new com.bumptech.glide.request.RequestOptions()
                   .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                   .transform(new com.bumptech.glide.load.resource.bitmap.FitCenter(),
@@ -1095,24 +1214,29 @@ import com.callx.app.utils.AlertDialogStyler;
       private void showVideoStatus(StatusItem s) {
           binding.playerView.setVisibility(View.VISIBLE);
           binding.btnMute.setVisibility(View.VISIBLE);
-          releasePlayer();
-          ExoPlayer.Builder builder = new ExoPlayer.Builder(this);
+          releasePlayer(); // stops + resets the shared player and detaches the previous video's listener
+          if (player == null) {
+              // Built once: no per-status player/decoder/thread setup. Small start-up buffers so a
+              // 5–30 s story begins after ~0.5 s of data instead of ExoPlayer's 2.5 s default.
+              player = new ExoPlayer.Builder(this)
+                      .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                              .setBufferDurationsMs(2_500, 15_000, 500, 1_000)
+                              .build())
+                      .build();
+          }
+          binding.playerView.setPlayer(player); // no-op when it's already attached
           if (StatusVideoCacheManager.isInitialized()) {
               CacheDataSource.Factory cf = StatusVideoCacheManager.getCacheDataSourceFactory();
               ProgressiveMediaSource ms = new ProgressiveMediaSource.Factory(cf)
                       .createMediaSource(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
-              player = builder.build();
-              binding.playerView.setPlayer(player);
               player.setMediaSource(ms);
           } else {
-              player = builder.build();
-              binding.playerView.setPlayer(player);
               player.setMediaItem(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
           }
           applyVideoVolume();
           long estimated = s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L;
           final String statusIdForLog = s.id;
-          player.addListener(new Player.Listener() {
+          playerListener = new Player.Listener() {
               @Override public void onPlaybackStateChanged(int state) {
                   if (state == Player.STATE_READY) {
                       long real = player.getDuration();
@@ -1136,7 +1260,8 @@ import com.callx.app.utils.AlertDialogStyler;
                           "StatusViewer.showVideoStatus.onPlayerError", error);
                   next();
               }
-          });
+          };
+          player.addListener(playerListener);
           player.prepare(); player.setPlayWhenReady(true);
           startProgress(estimated);
           showCaption(s.caption);
@@ -1146,21 +1271,24 @@ import com.callx.app.utils.AlertDialogStyler;
       private void loadRootBackdrop(final String url) {
           if (binding.ivRootBg == null || url == null || url.isEmpty()) return;
           binding.ivRootBg.setVisibility(View.VISIBLE);
+          binding.flStoryCard.setBackgroundColor(Color.TRANSPARENT); // let the blurred backdrop show through the card
           Glide.with(this).asBitmap().load(url)
                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                .apply(imgBgOptions())
+               .transition(com.bumptech.glide.load.resource.bitmap.BitmapTransitionOptions.withCrossFade(150))
                .into(binding.ivRootBg);
       }
       private void hideAllContent() {
-          if (binding.ivRootBg != null) binding.ivRootBg.setVisibility(View.GONE);
-          binding.flTextStatus.setVisibility(View.GONE);
+          if (binding.ivRootBg != null) { binding.ivRootBg.setVisibility(View.GONE); binding.ivRootBg.setImageDrawable(null); }
+          binding.flStoryCard.setBackgroundColor(Color.BLACK); // video / text: solid card again
+          if (textLayerView != null) textLayerView.setVisibility(View.GONE);
           binding.ivStatus.setVisibility(View.GONE);
           binding.ivStatusBg.setVisibility(View.GONE);
           binding.playerView.setVisibility(View.GONE);
           binding.tvCaption.setVisibility(View.GONE);
           // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref
           binding.tvLocationTag.setVisibility(View.GONE);
-          binding.flStickerOverlay.removeAllViews();
+          if (stickerOverlayView != null) stickerOverlayView.removeAllViews();
           stickerZoomScrim = null; // just got removed along with everything else above
           videoUnderMusic = false; // new status → its own video starts at normal volume
           cancelMusicHold();    // a hold from the previous status must never start this one's progress
@@ -1299,7 +1427,7 @@ import com.callx.app.utils.AlertDialogStyler;
 
       // ── (4) progress-bar hold while the music buffers ───────────────────
       private void beginMusicHold(StatusItem item) {
-          if (paused || (progressRunner == null && !imageHolding)) return;
+          if (paused || (!progressActive && !imageHolding)) return;
           // Videos keep their own timing — never make a video wait for the sticker music.
           if (item != null && ("video".equals(item.type) || "reel_story".equals(item.type)
                   || "reel_clip".equals(item.type))) return;
@@ -1331,7 +1459,7 @@ import com.callx.app.utils.AlertDialogStyler;
        * @param requestedIdx    status index this audio belongs to (stale callbacks are dropped)
        */
       private void startMusicStickerAudio(String url, final String fallbackSoundId, final int requestedIdx) {
-          Log.d(DBG, "startMusicStickerAudio url=" + url + " isMuted=" + isMuted + " paused=" + paused);
+          dbgLog( "startMusicStickerAudio url=" + url + " isMuted=" + isMuted + " paused=" + paused);
           // Defensive: a JSON-escaped URL ("https:\\/\\/host\\/a.mp3") is never playable.
           // Root fix is in StatusStickerOverlayView.jsonStr(); this guards any other path.
           if (url != null) url = url.replace("\\/", "/");
@@ -1360,7 +1488,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   // (5) jump to the highlight BEFORE start(); false → short preview, plays whole + loops
                   musicClip.apply(p, stickerMusicStartMs, stickerMusicEndMs);
                   releaseMusicHold(); // (4) bar + audio now start together
-                  Log.d(DBG, "startMusicStickerAudio prepared, paused=" + paused);
+                  dbgLog( "startMusicStickerAudio prepared, paused=" + paused);
                   if (!paused) resumeMusicPlayback(); // (1) takes audio focus, then start()
               });
               mp.setOnErrorListener((p, what, extra) -> {
@@ -1390,7 +1518,7 @@ import com.callx.app.utils.AlertDialogStyler;
           releaseMusicHold(); // never keep the bar waiting for audio that isn't coming
           if (idx != requestedIdx) return; // swiped away meanwhile
           if (fallbackSoundId != null && !fallbackSoundId.isEmpty()) {
-              Log.d(DBG, "musicSticker: direct url failed (what=" + what + "/" + extra
+              dbgLog( "musicSticker: direct url failed (what=" + what + "/" + extra
                       + ") → retry by soundId=" + fallbackSoundId);
               resolveSoundIdAndPlay(fallbackSoundId, requestedIdx);
           } else {
@@ -1428,10 +1556,10 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                   }
                   if (resolved != null) {
-                      Log.d(DBG, "musicSticker autoplay: resolved from sounds/" + soundId);
+                      dbgLog( "musicSticker autoplay: resolved from sounds/" + soundId);
                       startMusicStickerAudio(resolved, null, requestedIdx);
                   } else {
-                      Log.d(DBG, "musicSticker autoplay: sounds/" + soundId + " missing or no audio field, trying musicLibrary/");
+                      dbgLog( "musicSticker autoplay: sounds/" + soundId + " missing or no audio field, trying musicLibrary/");
                       resolveFromMusicLibrary(soundId, requestedIdx);
                   }
               }
@@ -1461,10 +1589,10 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                   }
                   if (resolved != null) {
-                      Log.d(DBG, "musicSticker autoplay: resolved from musicLibrary/" + soundId);
+                      dbgLog( "musicSticker autoplay: resolved from musicLibrary/" + soundId);
                       startMusicStickerAudio(resolved, null, requestedIdx);
                   } else {
-                      Log.d(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " not found / no audio field");
+                      dbgLog( "musicSticker autoplay: musicLibrary/" + soundId + " not found / no audio field");
                       releaseMusicHold();
                       showMusicFailedToast(0, 0); // (3) no more silent failure
                   }
@@ -1513,10 +1641,16 @@ import com.callx.app.utils.AlertDialogStyler;
                   // Frame may not have been measured yet on the very first status
                   // shown — fall back to screen size so the ratio math below still
                   // lines the sticker up correctly instead of pinning it at (0,0).
-                  int frameW = binding.flStickerOverlay.getWidth() > 0
-                          ? binding.flStickerOverlay.getWidth() : getResources().getDisplayMetrics().widthPixels;
-                  int frameH = binding.flStickerOverlay.getHeight() > 0
-                          ? binding.flStickerOverlay.getHeight() : getResources().getDisplayMetrics().heightPixels;
+                  // v507: overlay is a freshly inflated ViewStub on first use (not measured yet) —
+                  // it is match_parent inside fl_story_card, so the (already measured) card is the
+                  // exact same size; screen size stays the last-resort fallback.
+                  final FrameLayout stickerOv = stickerOverlay();
+                  int frameW = stickerOv.getWidth() > 0 ? stickerOv.getWidth()
+                          : binding.flStoryCard.getWidth() > 0 ? binding.flStoryCard.getWidth()
+                          : getResources().getDisplayMetrics().widthPixels;
+                  int frameH = stickerOv.getHeight() > 0 ? stickerOv.getHeight()
+                          : binding.flStoryCard.getHeight() > 0 ? binding.flStoryCard.getHeight()
+                          : getResources().getDisplayMetrics().heightPixels;
 
                   FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                           Math.min(frameW - dp * 32, dp * 280),
@@ -1531,7 +1665,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   } else {
                       lp.topMargin = dp * (140 + i * 90); // legacy sticker with no saved position: stack as before
                   }
-                  binding.flStickerOverlay.addView(sticker, lp);
+                  stickerOv.addView(sticker, lp);
 
                   if ("question".equals(sticker.getStickerType())
                           && myUid != null && !myUid.equals(ownerUid)) {
@@ -1602,7 +1736,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       final int musicIdx = idx;
                       stickerMusicStartMs = sticker.getMusicStartMs(); // (5) clip range for this status
                       stickerMusicEndMs   = sticker.getMusicEndMs();
-                      Log.d(DBG, "musicSticker autoplay: soundId=" + musicSoundId
+                      dbgLog( "musicSticker autoplay: soundId=" + musicSoundId
                               + " directSoundUrl=" + (soundUrl == null || soundUrl.isEmpty() ? "empty" : "present"));
                       boolean hasDirect = soundUrl != null && !soundUrl.isEmpty();
                       boolean hasId     = musicSoundId != null && !musicSoundId.isEmpty();
@@ -2004,27 +2138,38 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.tvLocationTag.setVisibility(View.VISIBLE);
       }
       // ── Progress ──────────────────────────────────────────────────────────
+      private final android.view.Choreographer.FrameCallback progressFrame = new android.view.Choreographer.FrameCallback() {
+          @Override public void doFrame(long frameTimeNanos) {
+              if (!progressActive || paused) return;
+              final long elapsed = progStartElapsed + (android.os.SystemClock.uptimeMillis() - progStartUptime);
+              if (elapsed >= progTotalMs) {
+                  progressActive = false;
+                  remainingMs = 0;
+                  if (idx < segmentBars.size()) segmentBars.get(idx).setProgress(1000);
+                  next();
+                  return;
+              }
+              if (idx < segmentBars.size())
+                  segmentBars.get(idx).setProgress((int) ((elapsed * 1000L) / progTotalMs)); // same value → no-op
+              remainingMs = progTotalMs - elapsed;
+              android.view.Choreographer.getInstance().postFrameCallback(this);
+          }
+      };
       private void startProgress(long durationMs) {
           stopProgress(); paused = false; remainingMs = durationMs;
           runProgressTick(durationMs, durationMs);
       }
       private void runProgressTick(final long totalMs, final long remaining) {
-          final long STEP = 50L;
-          progressRunner = new Runnable() {
-              long elapsed = totalMs - remaining;
-              @Override public void run() {
-                  if (paused) return;
-                  elapsed += STEP;
-                  int prog = (int) Math.min(1000L, (elapsed * 1000L) / totalMs);
-                  if (idx < segmentBars.size()) segmentBars.get(idx).setProgress(prog);
-                  if (elapsed >= totalMs) { next(); }
-                  else { remainingMs = totalMs - elapsed; handler.postDelayed(this, STEP); }
-              }
-          };
-          handler.postDelayed(progressRunner, STEP);
+          stopProgress();
+          progTotalMs = Math.max(1L, totalMs);
+          progStartElapsed = Math.max(0L, progTotalMs - remaining);
+          progStartUptime = android.os.SystemClock.uptimeMillis();
+          progressActive = true;
+          android.view.Choreographer.getInstance().postFrameCallback(progressFrame);
       }
       private void stopProgress() {
-          if (progressRunner != null) { handler.removeCallbacks(progressRunner); progressRunner = null; }
+          progressActive = false;
+          android.view.Choreographer.getInstance().removeFrameCallback(progressFrame);
       }
       private void pauseProgress() {
           if (paused) return; paused = true;
@@ -2066,7 +2211,7 @@ import com.callx.app.utils.AlertDialogStyler;
           sticker.armViewerZoomGate(() -> {
               pauseProgress();
               showStickerZoomScrim();
-              sticker.zoomToFront(binding.flStickerOverlay, afterZoomed);
+              sticker.zoomToFront(stickerOverlay(), afterZoomed);
           });
       }
       /** Call once a sticker's reaction is done — shrinks it back and resumes. */
@@ -2086,7 +2231,7 @@ import com.callx.app.utils.AlertDialogStyler;
               StatusStickerOverlayView z = findZoomedSticker();
               if (z != null) settleStickerReaction(z); // tapping outside dismisses the zoom early
           });
-          binding.flStickerOverlay.addView(scrim, new FrameLayout.LayoutParams(
+          stickerOverlay().addView(scrim, new FrameLayout.LayoutParams(
                   FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
           scrim.animate().alpha(1f).setDuration(200).start();
           stickerZoomScrim = scrim;
@@ -2096,7 +2241,7 @@ import com.callx.app.utils.AlertDialogStyler;
           final View scrim = stickerZoomScrim;
           stickerZoomScrim = null;
           scrim.animate().alpha(0f).setDuration(180)
-                  .withEndAction(() -> binding.flStickerOverlay.removeView(scrim)).start();
+                  .withEndAction(() -> { if (stickerOverlayView != null) stickerOverlayView.removeView(scrim); }).start();
       }
       // ── Navigation ────────────────────────────────────────────────────────
       private void next() {
@@ -2156,6 +2301,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void playUserSwitchTransition(final boolean forward) {
           final View col = binding.llViewerColumn;
           col.animate().cancel();
+          columnHwLayerOn(); // v507: cube turn runs on a GPU texture
           col.setScaleX(1f); col.setScaleY(1f); col.setTranslationX(0f); col.setTranslationY(0f);
           col.setCameraDistance(getResources().getDisplayMetrics().density * 8000f);
           col.setPivotX(forward ? 0f : col.getWidth());
@@ -2164,7 +2310,7 @@ import com.callx.app.utils.AlertDialogStyler;
           col.setAlpha(0.4f);
           col.animate().rotationY(0f).alpha(1f).setDuration(280L)
                   .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                  .withEndAction(() -> { col.setPivotX(col.getWidth() / 2f); col.setRotationY(0f); })
+                  .withEndAction(() -> { col.setPivotX(col.getWidth() / 2f); col.setRotationY(0f); columnHwLayerOff(); })
                   .start();
       }
       /** Tears down the current owner/album's on-screen state and loads the
@@ -2174,6 +2320,7 @@ import com.callx.app.utils.AlertDialogStyler;
           releasePlayer(); stopProgress();
           items.clear();
           idx = 0;
+          targetStatusId = null; // only meant for the FIRST owner we opened on
           viewStartTime = 0;
           reactionBurstPlayedFor.clear();
           hideAllContent();
@@ -2278,6 +2425,7 @@ import com.callx.app.utils.AlertDialogStyler;
           final float h = getResources().getDisplayMetrics().heightPixels;
           final float p = Math.min(1f, dy / (h * 0.6f));
           final float scale = 1f - 0.25f * p;
+          columnHwLayerOn(); // v507: GPU texture while the finger drags the card
           final View col = binding.llViewerColumn;
           col.setPivotX(col.getWidth() / 2f);   // user-switch cube transition moves the pivot to an edge
           col.setPivotY(col.getHeight() / 2f);
@@ -2294,7 +2442,9 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void snapBackFromDrag() {
           binding.llViewerColumn.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).alpha(1f)
-                  .setDuration(200L).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+                  .setDuration(200L).setInterpolator(new android.view.animation.DecelerateInterpolator())
+                  .withEndAction(this::columnHwLayerOff) // v507: back to normal rendering once settled
+                  .start();
       }
 
       private void setupTouchZones() {
@@ -2320,7 +2470,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           handler.removeCallbacks(holdPauseRunnable); // it's a swipe, not a hold
                       }
                       if (!swipeDragging && !captionExpanded && rdy > slop * 2 && rdy > Math.abs(rdx) * 1.2f
-                              && binding.flQuickReactionOverlay.getVisibility() != View.VISIBLE) {
+                              && !isQuickReactionOverlayShown()) {
                           swipeDragging = true;
                           handler.removeCallbacks(holdPauseRunnable);
                           if (!touchHoldPaused) { touchHoldPaused = true; pauseProgress(); }
@@ -2404,38 +2554,19 @@ import com.callx.app.utils.AlertDialogStyler;
        * as the quick-like heart; tapping the scrim outside the card dismisses
        * without reacting.
        */
-      private void setupQuickReactionOverlay() {
-          if (binding.flQuickReactionOverlay == null) return;
-          // Can't react to your own status — same restriction as btn_react/btn_like_heart.
-          if (myUid != null && myUid.equals(ownerUid)) return;
-          View.OnClickListener emojiClick = v -> {
-              Object tag = v.getTag();
-              if (tag == null) { closeQuickReactionOverlay(); return; }
-              sendQuickReaction(tag.toString());
-              closeQuickReactionOverlay();
-          };
-          if (binding.tvQr1 != null) binding.tvQr1.setOnClickListener(emojiClick);
-          if (binding.tvQr2 != null) binding.tvQr2.setOnClickListener(emojiClick);
-          if (binding.tvQr3 != null) binding.tvQr3.setOnClickListener(emojiClick);
-          if (binding.tvQr4 != null) binding.tvQr4.setOnClickListener(emojiClick);
-          if (binding.tvQr5 != null) binding.tvQr5.setOnClickListener(emojiClick);
-          if (binding.tvQr6 != null) binding.tvQr6.setOnClickListener(emojiClick);
-          // Tap anywhere on the dim scrim outside the card dismisses without reacting.
-          binding.flQuickReactionOverlay.setOnClickListener(v -> closeQuickReactionOverlay());
-          // Swallow taps on the card itself so they don't bubble to the scrim above.
-          if (binding.llQuickReactionCard != null) binding.llQuickReactionCard.setOnClickListener(v -> {});
-      }
+      // v507: the overlay is a ViewStub — inflated + wired on first swipe-up by
+      // ensureQuickReactionOverlay() (no eager setup in onCreate any more).
       private void openQuickReactionOverlay() {
-          if (binding.flQuickReactionOverlay == null) return;
           if (myUid != null && myUid.equals(ownerUid)) return; // owner can't react to own status
+          final View overlay = ensureQuickReactionOverlay();
           pauseProgress();
-          binding.flQuickReactionOverlay.setAlpha(0f);
-          binding.flQuickReactionOverlay.setVisibility(View.VISIBLE);
-          binding.flQuickReactionOverlay.animate().alpha(1f).setDuration(150).start();
-          if (binding.llQuickReactionCard != null) {
-              binding.llQuickReactionCard.setScaleX(0.85f);
-              binding.llQuickReactionCard.setScaleY(0.85f);
-              binding.llQuickReactionCard.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+          overlay.setAlpha(0f);
+          overlay.setVisibility(View.VISIBLE);
+          overlay.animate().alpha(1f).setDuration(150).start();
+          if (quickReactionCardView != null) {
+              quickReactionCardView.setScaleX(0.85f);
+              quickReactionCardView.setScaleY(0.85f);
+              quickReactionCardView.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
           }
           // Bring up the reply keyboard at the same time, matching the
           // reference swipe-up behaviour.
@@ -2447,9 +2578,10 @@ import com.callx.app.utils.AlertDialogStyler;
           }
       }
       private void closeQuickReactionOverlay() {
-          if (binding.flQuickReactionOverlay == null) return;
-          binding.flQuickReactionOverlay.animate().alpha(0f).setDuration(120)
-                  .withEndAction(() -> binding.flQuickReactionOverlay.setVisibility(View.GONE)).start();
+          final View overlay = quickReactionOverlayView;
+          if (overlay == null) return; // never opened → nothing to close
+          overlay.animate().alpha(0f).setDuration(120)
+                  .withEndAction(() -> overlay.setVisibility(View.GONE)).start();
           android.view.inputmethod.InputMethodManager imm =
                   (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
           if (imm != null && binding.etReply != null) imm.hideSoftInputFromWindow(binding.etReply.getWindowToken(), 0);
@@ -3114,12 +3246,32 @@ import com.callx.app.utils.AlertDialogStyler;
                       .child(ownerUid).child(reactedStatus.id).child(myUid).setValue(emoji);
           }
       }
+      /** Debug-only logging: release builds skip the Log call (it was firing per status item). */
+      private boolean dbgChecked, dbgOn;
+      private void dbgLog(String msg) {
+          if (!dbgChecked) { dbgOn = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0; dbgChecked = true; }
+          if (dbgOn) Log.d(DBG, msg);
+      }
       private int dpToPx(int dp) {
           return Math.round(dp * getResources().getDisplayMetrics().density);
       }
+      /** Stops the current video and resets the SHARED player (kept alive for the next video status).
+       *  The old listener is removed first so a stale STATE_ENDED/error can never call next(). */
       private void releasePlayer() {
-          if (player != null) { player.release(); player = null; }
+          if (player != null) {
+              try {
+                  if (playerListener != null) player.removeListener(playerListener);
+                  player.stop();
+                  player.clearMediaItems();
+              } catch (Exception ignored) {}
+          }
+          playerListener = null;
           releaseMusicPlayer();
           if (binding != null && binding.reactionBurstOverlay != null) binding.reactionBurstOverlay.stop();
+      }
+      /** Really frees the shared player (activity is going away). */
+      private void destroyPlayer() {
+          if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
+          playerListener = null;
       }
   }

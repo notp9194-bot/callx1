@@ -31,7 +31,6 @@
           android:layout_width="match_parent"
           android:layout_height="0dp"
           android:layout_weight="1"
-          android:background="@drawable/bg_story_card"
           android:clipToOutline="true">
 
       <!-- Full-screen content layers -->
@@ -70,98 +69,24 @@
           android:layout_height="match_parent"
           android:visibility="gone"/>
 
-      <!-- Text status -->
-      <FrameLayout
-          android:id="@+id/fl_text_status"
+      <!-- Text status — v507: ViewStub, inflated on first text status. -->
+      <ViewStub
+          android:id="@+id/stub_text_status"
+          android:inflatedId="@+id/fl_text_status"
+          android:layout="@layout/view_status_text_layer"
           android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:visibility="gone">
-          <TextView
-              android:id="@+id/tv_text_status"
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:layout_gravity="center"
-              android:padding="40dp"
-              android:textColor="@color/white"
-              android:textSize="28sp"
-              android:textStyle="bold"
-              android:gravity="center"
-              android:lineSpacingMultiplier="1.2"/>
-      </FrameLayout>
+          android:layout_height="match_parent"/>
 
-      <!-- ── Reshare attribution card overlay (reel_reshare / post_reshare) ── -->
-      <FrameLayout
-          android:id="@+id/fl_reshare_attribution_container"
+      <!-- ── Reshare attribution card (reel_reshare / post_reshare) — v507: ViewStub,
+           inflated only for reshared statuses. Gravity/margin live here (stub params win). ── -->
+      <ViewStub
+          android:id="@+id/stub_reshare_card"
+          android:inflatedId="@+id/fl_reshare_attribution_container"
+          android:layout="@layout/view_status_reshare_card"
           android:layout_width="wrap_content"
           android:layout_height="wrap_content"
           android:layout_gravity="bottom|center_horizontal"
-          android:layout_marginBottom="100dp"
-          android:visibility="gone">
-
-          <LinearLayout
-              android:id="@+id/ll_reshare_attribution_card"
-              android:layout_width="280dp"
-              android:layout_height="wrap_content"
-              android:orientation="horizontal"
-              android:background="@drawable/bg_reshare_card"
-              android:padding="10dp"
-              android:gravity="center_vertical"
-              android:clickable="true"
-              android:focusable="true"
-              android:foreground="?attr/selectableItemBackground">
-
-              <ImageView
-                  android:id="@+id/iv_reshare_thumb"
-                  android:layout_width="56dp"
-                  android:layout_height="56dp"
-                  android:scaleType="centerCrop"
-                  android:background="#CCCCCC"/>
-
-              <LinearLayout
-                  android:layout_width="0dp"
-                  android:layout_height="wrap_content"
-                  android:layout_weight="1"
-                  android:orientation="vertical"
-                  android:layout_marginStart="10dp">
-
-                  <TextView
-                      android:id="@+id/tv_reshare_type_badge"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="Reel"
-                      android:textSize="10sp"
-                      android:textColor="#FFFFFF"
-                      android:background="#C13584"
-                      android:paddingStart="6dp"
-                      android:paddingEnd="6dp"
-                      android:paddingTop="2dp"
-                      android:paddingBottom="2dp"/>
-
-                  <TextView
-                      android:id="@+id/tv_reshare_original_owner"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:textSize="13sp"
-                      android:textStyle="bold"
-                      android:textColor="#1A1A1A"
-                      android:layout_marginTop="4dp"
-                      android:maxLines="1"
-                      android:ellipsize="end"/>
-
-                  <TextView
-                      android:id="@+id/tv_view_original_btn"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="View Original →"
-                      android:textSize="12sp"
-                      android:textColor="#0095F6"
-                      android:layout_marginTop="3dp"
-                      android:clickable="true"
-                      android:focusable="true"
-                      android:background="?attr/selectableItemBackground"/>
-              </LinearLayout>
-          </LinearLayout>
-      </FrameLayout>
+          android:layout_marginBottom="100dp"/>
 
       <!-- Touch capture layer -->
       <View
@@ -188,19 +113,15 @@
           android:importantForAccessibility="no"/>
 
       <!-- Interactive sticker overlay (music/countdown/quiz/question cards).
-           Declared after touch_layer so a tap landing on a sticker card is
-           handled by that card's own click listener instead of falling
-           through to the tap-to-navigate layer underneath — same ordering
-           trick the header/footer controls below already rely on. Empty
-           areas of this FrameLayout aren't clickable, so taps there still
-           pass through to touch_layer as normal. -->
-      <FrameLayout
-          android:id="@+id/fl_sticker_overlay"
+           v507: ViewStub — inflated only when a status actually has stickers (or a load-error
+           card). Still declared after touch_layer so sticker taps win over tap-to-navigate;
+           ViewStub keeps its slot in the parent, so z-order is unchanged. -->
+      <ViewStub
+          android:id="@+id/stub_sticker_overlay"
+          android:inflatedId="@+id/fl_sticker_overlay"
+          android:layout="@layout/view_status_sticker_overlay"
           android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:clickable="false"
-          android:focusable="false"/>
-
+          android:layout_height="match_parent"/>
       <!-- Top chrome -->
       <LinearLayout
           android:id="@+id/ll_top_chrome"
@@ -650,91 +571,13 @@
       </LinearLayout>
       </LinearLayout><!-- /ll_viewer_column -->
 
-      <!-- Swipe-up-to-react overlay — WhatsApp/Instagram style. Hidden by
-           default; StatusViewerActivity#openQuickReactionOverlay() shows this
-           (and focuses the reply box, opening the keyboard) when the viewer
-           swipes up over the status content. Tapping an emoji sends that
-           reaction immediately (same Firebase write + chat message as the
-           quick-like heart) and dismisses everything; tapping the dimmed
-           scrim outside the card dismisses without reacting. -->
-      <FrameLayout
-          android:id="@+id/fl_quick_reaction_overlay"
+      <!-- v507: swipe-up-to-react overlay is a ViewStub now — inflated on first swipe-up
+           (StatusViewerActivity#ensureQuickReactionOverlay()). See view_status_quick_reaction.xml. -->
+      <ViewStub
+          android:id="@+id/stub_quick_reaction"
+          android:inflatedId="@+id/fl_quick_reaction_overlay"
+          android:layout="@layout/view_status_quick_reaction"
           android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:background="#99000000"
-          android:clickable="true"
-          android:focusable="true"
-          android:visibility="gone">
-
-          <LinearLayout
-              android:id="@+id/ll_quick_reaction_card"
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:layout_gravity="center_horizontal|bottom"
-              android:layout_marginBottom="118dp"
-              android:orientation="vertical"
-              android:background="@drawable/bg_quick_reaction_card"
-              android:paddingHorizontal="14dp"
-              android:paddingVertical="12dp"
-              android:gravity="center"
-              android:clickable="true"
-              android:focusable="true">
-
-              <LinearLayout
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal"
-                  android:gravity="center">
-
-                  <TextView android:id="@+id/tv_qr_1" android:tag="\uD83D\uDE02" android:textColor="#FFFFFFFF"
-                      android:layout_width="52dp" android:layout_height="52dp"
-                      android:gravity="center" android:textSize="30sp"
-                      android:text="\uD83D\uDE02"
-                      android:background="?attr/selectableItemBackgroundBorderless"
-                      android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_2" android:tag="\uD83D\uDE2E" android:textColor="#FFFFFFFF"
-                      android:layout_width="52dp" android:layout_height="52dp"
-                      android:gravity="center" android:textSize="30sp"
-                      android:text="\uD83D\uDE2E"
-                      android:background="?attr/selectableItemBackgroundBorderless"
-                      android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_3" android:tag="\uD83D\uDE0D" android:textColor="#FFFFFFFF"
-                      android:layout_width="52dp" android:layout_height="52dp"
-                      android:gravity="center" android:textSize="30sp"
-                      android:text="\uD83D\uDE0D"
-                      android:background="?attr/selectableItemBackgroundBorderless"
-                      android:clickable="true" android:focusable="true"/>
-              </LinearLayout>
-
-              <LinearLayout
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal"
-                  android:gravity="center"
-                  android:layout_marginTop="2dp">
-
-                  <TextView android:id="@+id/tv_qr_4" android:tag="\uD83D\uDE22" android:textColor="#FFFFFFFF"
-                      android:layout_width="52dp" android:layout_height="52dp"
-                      android:gravity="center" android:textSize="30sp"
-                      android:text="\uD83D\uDE22"
-                      android:background="?attr/selectableItemBackgroundBorderless"
-                      android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_5" android:tag="\uD83D\uDC4F" android:textColor="#FFFFFFFF"
-                      android:layout_width="52dp" android:layout_height="52dp"
-                      android:gravity="center" android:textSize="30sp"
-                      android:text="\uD83D\uDC4F"
-                      android:background="?attr/selectableItemBackgroundBorderless"
-                      android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_6" android:tag="\uD83D\uDD25" android:textColor="#FFFFFFFF"
-                      android:layout_width="52dp" android:layout_height="52dp"
-                      android:gravity="center" android:textSize="30sp"
-                      android:text="\uD83D\uDD25"
-                      android:background="?attr/selectableItemBackgroundBorderless"
-                      android:clickable="true" android:focusable="true"/>
-              </LinearLayout>
-
-          </LinearLayout>
-
-      </FrameLayout>
+          android:layout_height="match_parent"/>
 
   </FrameLayout>
