@@ -41,6 +41,7 @@ import java.util.concurrent.Executors;
  *     pagination on scroll. Needs ".indexOn": ["timestamp"] on status/$uid/$statusId/replies (see rules).
  *  4) Avatars load through AvatarUrlBuilder#buildResponsive(TINY) + exact override() with the same
  *     options as ReelCommentAvatarBinder → same Glide cache key as reels comments (instant if warm).
+ *  5) Story ring on every comment avatar (core StoryRingApplier state + drawable, painted on the row canvas).
  *  Also: theme colors / typeface resolved ONCE per sheet instead of per row (was 4x obtainStyledAttributes
  *  per row), live events are coalesced into one list submit per frame.
  */
@@ -369,6 +370,9 @@ public class StatusRepliesBottomSheet {
         final Env env;
         RepliesCallbacks(Env env) { this.env = env; }
         @Override public void onProfile(Row r) { if (openProfile(env.ctx, r)) env.sheet.dismiss(); }
+        @Override public void onStory(Row r) {
+            com.callx.app.utils.StoryRingApplier.openStatusViewer(env.ctx, r.uid, r.name);
+        }
         @Override public void onReply(Row r) {
             final State st = env.state;
             if (r.key.equals(st.openKey)) { st.openKey = null; st.draft = ""; }

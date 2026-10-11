@@ -33,6 +33,8 @@ import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
+import com.callx.app.utils.StoryRingApplier;
+import com.callx.app.cache.StoryRingRegistry;
 
 /**
  * StatusCommentCanvasView — ONE custom View per public status comment (v515, perf item #12).
@@ -57,6 +59,7 @@ final class StatusCommentCanvasView extends View {
 
     interface Callbacks {
         void onProfile(StatusRepliesBottomSheet.Row r);
+        void onStory(StatusRepliesBottomSheet.Row r);
         void onReply(StatusRepliesBottomSheet.Row r);
         void onDelete(StatusRepliesBottomSheet.Row r);
         void onRowClick(StatusRepliesBottomSheet.Row r);
@@ -73,7 +76,7 @@ final class StatusCommentCanvasView extends View {
         final Paint divider = new Paint();
         final Paint avatarBg = new Paint(Paint.ANTI_ALIAS_FLAG);
         final TextPaint avatarGlyph = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        final int padV, avatarSz, avatarTop, colX, bodyGap, nameTimeGap, actTopPad, actBottomPad, actRightPad;
+        final int padV, avatarSz, ringSz, ringPad, avatarTop, colX, bodyGap, nameTimeGap, actTopPad, actBottomPad, actRightPad;
         final float replyW, deleteW, actTextH, actAscent;
         final int avatarPx;
         final RequestOptions avatarOpts;
@@ -90,7 +93,8 @@ final class StatusCommentCanvasView extends View {
             avatarGlyph.setTextSize(16 * d); avatarGlyph.setColor(st.secondary);
             avatarGlyph.setTextAlign(Paint.Align.CENTER);
             padV = Math.round(10 * d); avatarSz = Math.round(32 * d); avatarTop = Math.round(2 * d);
-            colX = Math.round((32 + 10) * d); bodyGap = Math.round(3 * d); nameTimeGap = Math.round(8 * d);
+            ringPad = Math.round(3 * d); ringSz = avatarSz + 2 * ringPad; // story ring box around the 32dp avatar
+            colX = Math.round((38 + 8) * d); bodyGap = Math.round(3 * d); nameTimeGap = Math.round(8 * d);
             actTopPad = Math.round(6 * d); actBottomPad = Math.round(2 * d); actRightPad = Math.round(16 * d);
             replyW = action.measureText("Reply");
             deleteW = action.measureText("Delete");
@@ -156,6 +160,9 @@ final class StatusCommentCanvasView extends View {
     private Built built;
     private int totalH, actTop;
 
+    private int ringState = StoryRingApplier.STATE_NONE;
+    private Drawable ringUnseen, ringSeen; // per-view instances (Drawable bounds are mutable state)
+
     private String avatarUrlTag;
     private CustomTarget<Drawable> avatarTarget;
     private Bitmap avatarBmp;
@@ -208,6 +215,13 @@ final class StatusCommentCanvasView extends View {
         }
         setContentDescription((r.name != null ? r.name : "Someone") + ": " + (r.text != null ? r.text : ""));
         bindAvatar(r.avatarUrl);
+        refreshRing();
+        // Live propagation: marking a story seen anywhere repaints this ring (same registry as all other screens).
+        final java.lang.ref.WeakReference<StatusCommentCanvasView> self = new java.lang.ref.WeakReference<>(this);
+        StoryRingRegistry.register(getContext().getApplicationContext(), this, () -> { // weak: registry value must not pin this view
+            StatusCommentCanvasView v = self.get();
+            if (v != null) v.refreshRing();
+        });
         requestLayout();
         invalidate();
     }
@@ -241,6 +255,26 @@ final class StatusCommentCanvasView extends View {
                 .into(t);
     }
 
+    /** Re-reads the 3-state ring (gradient / seen / none) from StatusCacheManager; cheap map lookups. */
+    private void refreshRing() {
+        final int st = row != null ? StoryRingApplier.stateOf(getContext(), row.uid) : StoryRingApplier.STATE_NONE;
+        if (st == ringState) return;
+        ringState = st;
+        postInvalidate();
+    }
+
+    private Drawable ringFor(int st) {
+        if (st == StoryRingApplier.STATE_UNSEEN) {
+            if (ringUnseen == null) ringUnseen = StoryRingApplier.ringDrawable(getContext(), st);
+            return ringUnseen;
+        }
+        if (st == StoryRingApplier.STATE_SEEN) {
+            if (ringSeen == null) ringSeen = StoryRingApplier.ringDrawable(getContext(), st);
+            return ringSeen;
+        }
+        return null;
+    }
+
     private void dropBitmap() { avatarBmp = null; avatarShader = null; avatarPaint.setShader(null); invalidate(); }
 
     private void clearAvatar() {
@@ -251,7 +285,7 @@ final class StatusCommentCanvasView extends View {
     }
 
     /** Call from onViewRecycled. */
-    void release() { clearAvatar(); row = null; built = null; }
+    void release() { clearAvatar(); row = null; built = null; ringState = StoryRingApplier.STATE_NONE; }
 
     StatusRepliesBottomSheet.Row boundRow() { return row; }
 
@@ -265,7 +299,7 @@ final class StatusCommentCanvasView extends View {
         final boolean actions = canReply || canDelete;
         actTop = built.columnBottom;
         int colBottom = built.columnBottom + (actions ? m.actionsHeight() : 0);
-        int contentBottom = Math.max(colBottom, m.avatarTop + m.avatarSz);
+        int contentBottom = Math.max(colBottom, m.avatarTop + m.ringSz);
         totalH = contentBottom + m.padV + 1;
         setMeasuredDimension(w, totalH);
     }
@@ -275,8 +309,16 @@ final class StatusCommentCanvasView extends View {
         if (row == null || b == null) return;
         // avatar
         final float r = m.avatarSz / 2f;
+        final Drawable ring = ringFor(ringState);
+        if (ring != null) {
+            c.save();
+            c.translate(0, m.padV + m.avatarTop);
+            ring.setBounds(0, 0, m.ringSz, m.ringSz);
+            ring.draw(c);
+            c.restore();
+        }
         c.save();
-        c.translate(0, m.padV + m.avatarTop);
+        c.translate(m.ringPad, m.padV + m.avatarTop + m.ringPad);
         if (avatarBmp != null && avatarShader != null) {
             c.drawCircle(r, r, r, avatarPaint);
         } else {
@@ -321,8 +363,12 @@ final class StatusCommentCanvasView extends View {
         final Built b = built;
         if (row == null || b == null) return;
         // avatar + name line → profile
-        if ((x < m.colX + b.nameLineW && y < b.bodyTop - m.bodyGap)
-                || (x < m.colX && y < m.padV + m.avatarTop + m.avatarSz)) { cb.onProfile(row); return; }
+        // avatar/ring: story viewer when there is a story (like every other avatar list), else profile
+        if (x < m.colX && y < m.padV + m.avatarTop + m.ringSz) {
+            if (ringState != StoryRingApplier.STATE_NONE) cb.onStory(row); else cb.onProfile(row);
+            return;
+        }
+        if (x < m.colX + b.nameLineW && y < b.bodyTop - m.bodyGap) { cb.onProfile(row); return; }
         if (canReply || canDelete) {
             float left = m.colX;
             if (canReply) {

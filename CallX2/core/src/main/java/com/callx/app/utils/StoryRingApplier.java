@@ -30,6 +30,29 @@ public final class StoryRingApplier {
 
     private StoryRingApplier() {}
 
+    // ── Canvas / non-ImageView callers (e.g. status comment rows drawn on one Canvas) ──
+    public static final int STATE_NONE = 0, STATE_SEEN = 1, STATE_UNSEEN = 2;
+
+    /** Same 3-state decision paint() makes, without touching any view. */
+    public static int stateOf(Context ctx, String uid) {
+        if (ctx == null || uid == null || uid.isEmpty()) return STATE_NONE;
+        StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
+        if (scm.hasUnseen(uid)) return STATE_UNSEEN;
+        return scm.hasStatus(uid) ? STATE_SEEN : STATE_NONE;
+    }
+
+    /** Fresh ring Drawable for a state (null for NONE). Callers set bounds and draw it themselves. */
+    public static android.graphics.drawable.Drawable ringDrawable(Context ctx, int state) {
+        if (state == STATE_UNSEEN)
+            return StoryRingGradientDrawable.withStrokeDp(2f, ctx.getResources().getDisplayMetrics().density);
+        if (state == STATE_SEEN) {
+            android.graphics.drawable.Drawable d = androidx.core.content.ContextCompat.getDrawable(
+                    ctx, com.callx.app.core.R.drawable.circle_status_seen);
+            return d != null ? d.mutate() : null;
+        }
+        return null;
+    }
+
     /**
      * @param ringView the overlay ring ImageView for this row (sized bigger
      *                  than the avatar it surrounds). No-op if null.
