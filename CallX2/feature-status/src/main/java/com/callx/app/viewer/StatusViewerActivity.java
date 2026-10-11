@@ -2442,9 +2442,8 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
                   if (dy > 120 && Math.abs(vy) > 100) { finishWithAnimation(); return true; }
                   // Swipe UP — WhatsApp/Instagram-style quick reaction picker
-                  // (see screenshot ref): a large emoji grid appears above the
-                  // reply bar and the reply box gets keyboard focus, exactly
-                  // like swiping up on a status there does.
+                  // (see screenshot ref): a large emoji grid appears centered over
+                  // the story card; the keyboard opens only when the reply pill is tapped.
                   if (dy < -120 && vy < -100) { openQuickReactionOverlay(); return true; }
                   return false;
               }
@@ -2639,26 +2638,38 @@ import com.callx.app.utils.AlertDialogStyler;
           if (myUid != null && myUid.equals(ownerUid)) return; // owner can't react to own status
           final View overlay = ensureQuickReactionOverlay();
           pauseProgress();
+          // v516: NO keyboard here. Opening the IME together with the overlay made adjustResize / IME
+          // insets shrink the story card and push the emoji card out of place. The keyboard now opens
+          // only when the user taps the "Send message" pill (see focus listener -> hide overlay only).
+          // The scrim ends where the reply bar starts, so the pill stays tappable under the overlay.
+          overlay.animate().cancel(); // a pending fade-out end action must not hide a re-opened overlay
+          android.view.ViewGroup.LayoutParams lp = overlay.getLayoutParams();
+          if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+              android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
+              int bar = binding.llReplyBar.getHeight();
+              if (mlp.bottomMargin != bar) { mlp.bottomMargin = bar; overlay.setLayoutParams(mlp); }
+          }
           overlay.setAlpha(0f);
           overlay.setVisibility(View.VISIBLE);
           overlay.animate().alpha(1f).setDuration(150).start();
           if (quickReactionCardView != null) {
+              quickReactionCardView.animate().cancel();
               quickReactionCardView.setScaleX(0.85f);
               quickReactionCardView.setScaleY(0.85f);
               quickReactionCardView.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
           }
-          // Bring up the reply keyboard at the same time, matching the
-          // reference swipe-up behaviour.
-          if (binding.etReply != null) {
-              binding.etReply.requestFocus();
-              android.view.inputmethod.InputMethodManager imm =
-                      (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-              if (imm != null) imm.showSoftInput(binding.etReply, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-          }
+      }
+      /** Hides the swipe-up overlay only (keyboard / focus untouched) — used when the reply pill takes over. */
+      private void hideQuickReactionOverlayOnly() {
+          final View overlay = quickReactionOverlayView;
+          if (overlay == null || overlay.getVisibility() != View.VISIBLE) return;
+          overlay.animate().cancel();
+          overlay.setVisibility(View.GONE);
       }
       private void closeQuickReactionOverlay() {
           final View overlay = quickReactionOverlayView;
           if (overlay == null) return; // never opened → nothing to close
+          overlay.animate().cancel();
           overlay.animate().alpha(0f).setDuration(120)
                   .withEndAction(() -> overlay.setVisibility(View.GONE)).start();
           android.view.inputmethod.InputMethodManager imm =
@@ -2727,7 +2738,9 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           // v511: "Send message" pill = PRIVATE reply (chat DM only). Typing happens inline,
           // like Instagram. No bottom sheet opens from the pill anymore.
-          binding.etReply.setOnFocusChangeListener((v, has) -> { if (has) pauseProgress(); else resumeProgress(); });
+          binding.etReply.setOnFocusChangeListener((v, has) -> {
+              if (has) { hideQuickReactionOverlayOnly(); pauseProgress(); } else resumeProgress();
+          });
           binding.btnSendReply.setOnClickListener(v -> {
               String msg = binding.etReply.getText() != null
                       ? binding.etReply.getText().toString().trim() : "";
