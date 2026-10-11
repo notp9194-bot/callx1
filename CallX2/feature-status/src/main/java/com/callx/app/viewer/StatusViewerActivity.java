@@ -513,9 +513,10 @@ import com.callx.app.utils.AlertDialogStyler;
               pb.setMax(1000);
               pb.setProgress(0);
               LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpToPx(2), 1f);
-              lp.setMarginEnd(i < count - 1 ? dpToPx(3) : 0);
+              lp.setMarginEnd(i < count - 1 ? dpToPx(2) : 0);
               pb.setLayoutParams(lp);
-              pb.getProgressDrawable().setColorFilter(Color.WHITE, android.graphics.PorterDuff.Mode.SRC_IN);
+              // rounded track (white 30%) + rounded white fill — was a whole-drawable WHITE filter (track turned white too)
+              pb.setProgressDrawable(androidx.core.content.ContextCompat.getDrawable(this, R.drawable.status_segment_progress));
               binding.segmentsContainer.addView(pb);
               segmentBars.add(pb);
           }
@@ -849,7 +850,7 @@ import com.callx.app.utils.AlertDialogStyler;
           return new com.bumptech.glide.request.RequestOptions()
                   .override(Math.max(1, dm.widthPixels / 6), Math.max(1, dm.heightPixels / 6))
                   .transform(new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
-                          new StatusBlurTransformation(4));
+                          new StatusBlurTransformation(12)); // bigger blur (was 4) — Instagram-style soft backdrop
       }
       private com.bumptech.glide.request.RequestOptions imgFgOptions() {
           final android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
@@ -958,6 +959,7 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.ivStatusBg.setVisibility(View.VISIBLE);
           final android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
           final int screenW = dm.widthPixels, screenH = dm.heightPixels;
+          loadRootBackdrop(url);
           final int reqIdx = idx;
           // Hold BEFORE issuing the requests — a memory-cache hit can fire onResourceReady synchronously.
           beginImageHold(5_000L);
@@ -1046,6 +1048,7 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.ivStatusBg.setVisibility(View.VISIBLE);
           final int reqIdx = idx;
           beginImageHold(4_000L);
+          loadRootBackdrop(url);
           Glide.with(this).asBitmap().load(url)
                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                .apply(imgBgOptions())
@@ -1138,7 +1141,18 @@ import com.callx.app.utils.AlertDialogStyler;
           startProgress(estimated);
           showCaption(s.caption);
       }
+      /** Same blurred/dimmed copy as iv_status_bg, but spanning the WHOLE window (status bar,
+       *  card gap, reply bar) so the area around the rounded card is color-matched, not flat dark. */
+      private void loadRootBackdrop(final String url) {
+          if (binding.ivRootBg == null || url == null || url.isEmpty()) return;
+          binding.ivRootBg.setVisibility(View.VISIBLE);
+          Glide.with(this).asBitmap().load(url)
+               .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+               .apply(imgBgOptions())
+               .into(binding.ivRootBg);
+      }
       private void hideAllContent() {
+          if (binding.ivRootBg != null) binding.ivRootBg.setVisibility(View.GONE);
           binding.flTextStatus.setVisibility(View.GONE);
           binding.ivStatus.setVisibility(View.GONE);
           binding.ivStatusBg.setVisibility(View.GONE);
@@ -2137,6 +2151,22 @@ import com.callx.app.utils.AlertDialogStyler;
           if (forward) goToNextQueueEntryOrFinish();
           else goToPreviousQueueEntry();
       }
+      /** Instagram-style cube turn between people: the incoming person's card swings in
+       *  around the screen edge it comes from (right edge when going forward, left when back). */
+      private void playUserSwitchTransition(final boolean forward) {
+          final View col = binding.llViewerColumn;
+          col.animate().cancel();
+          col.setScaleX(1f); col.setScaleY(1f); col.setTranslationX(0f); col.setTranslationY(0f);
+          col.setCameraDistance(getResources().getDisplayMetrics().density * 8000f);
+          col.setPivotX(forward ? 0f : col.getWidth());
+          col.setPivotY(col.getHeight() / 2f);
+          col.setRotationY(forward ? -70f : 70f);
+          col.setAlpha(0.4f);
+          col.animate().rotationY(0f).alpha(1f).setDuration(280L)
+                  .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                  .withEndAction(() -> { col.setPivotX(col.getWidth() / 2f); col.setRotationY(0f); })
+                  .start();
+      }
       /** Tears down the current owner/album's on-screen state and loads the
        *  queue entry at the given position, resetting playback to its first
        *  segment. */
@@ -2147,6 +2177,7 @@ import com.callx.app.utils.AlertDialogStyler;
           viewStartTime = 0;
           reactionBurstPlayedFor.clear();
           hideAllContent();
+          playUserSwitchTransition(pos > queuePos);
           queuePos = pos;
           if (isHighlightMode) {
               highlightAlbumId = queueAlbumIds.get(pos);
@@ -2167,6 +2198,7 @@ import com.callx.app.utils.AlertDialogStyler;
           swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
               @Override public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float vx, float vy) {
                   if (e1 == null) return false;
+                  if (swipeDragging) return false; // drag-to-close handles its own release (see setupTouchZones)
                   float dx = e2.getRawX() - e1.getRawX();
                   float dy = e2.getRawY() - e1.getRawY();
                   // BUGFIX: previously this only ever checked dy/vy, with no
@@ -2220,7 +2252,50 @@ import com.callx.app.utils.AlertDialogStyler;
       private static final float PREV_ZONE_FRACTION = 1f / 3f;
       private float   touchDownX, touchDownY;
       private boolean touchMoved, touchHoldPaused;
-      private final Runnable holdPauseRunnable = () -> { touchHoldPaused = true; pauseProgress(); };
+      private final Runnable holdPauseRunnable = () -> { touchHoldPaused = true; pauseProgress(); setChromeHidden(true); };
+
+      // Swipe-down drag-to-close (Instagram style): the whole card + reply bar follows the finger,
+      // shrinks a little, and on release either flies off (close) or springs back.
+      private boolean swipeDragging, chromeHidden;
+      private float dragDownRawX, dragDownRawY;
+      private android.view.VelocityTracker dragVelocity;
+      private static final float DRAG_CLOSE_FRACTION = 0.2f;   // of screen height
+      private static final float DRAG_CLOSE_VELOCITY = 1500f;  // px/s
+
+      /** Hold-to-pause: fade header / segments / caption / reply bar / scrims out, so only the photo shows. */
+      private void setChromeHidden(boolean hide) {
+          if (chromeHidden == hide) return;
+          chromeHidden = hide;
+          final View[] chrome = { binding.llTopChrome, binding.llBottomChrome, binding.llReplyBar,
+                  binding.btnMute, binding.viewTopScrim, binding.viewBottomScrim };
+          for (View c : chrome) {
+              if (c == null) continue;
+              c.animate().cancel();
+              c.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
+          }
+      }
+      private void applyDrag(float dx, float dy) {
+          final float h = getResources().getDisplayMetrics().heightPixels;
+          final float p = Math.min(1f, dy / (h * 0.6f));
+          final float scale = 1f - 0.25f * p;
+          final View col = binding.llViewerColumn;
+          col.setPivotX(col.getWidth() / 2f);   // user-switch cube transition moves the pivot to an edge
+          col.setPivotY(col.getHeight() / 2f);
+          col.setRotationY(0f);
+          col.setTranslationX(dx * 0.6f);
+          col.setTranslationY(dy);
+          col.setScaleX(scale);
+          col.setScaleY(scale);
+      }
+      private void closeByDrag() {
+          final float h = getResources().getDisplayMetrics().heightPixels;
+          binding.llViewerColumn.animate().translationY(h).scaleX(0.6f).scaleY(0.6f).alpha(0f)
+                  .setDuration(180L).withEndAction(this::finish).start();
+      }
+      private void snapBackFromDrag() {
+          binding.llViewerColumn.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).alpha(1f)
+                  .setDuration(200L).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+      }
 
       private void setupTouchZones() {
           final int slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
@@ -2229,20 +2304,54 @@ import com.callx.app.utils.AlertDialogStyler;
               switch (e.getActionMasked()) {
                   case MotionEvent.ACTION_DOWN:
                       touchDownX = e.getX(); touchDownY = e.getY();
-                      touchMoved = false; touchHoldPaused = false;
+                      dragDownRawX = e.getRawX(); dragDownRawY = e.getRawY(); // raw: the card moves while dragging
+                      touchMoved = false; touchHoldPaused = false; swipeDragging = false;
+                      if (dragVelocity != null) dragVelocity.recycle();
+                      dragVelocity = android.view.VelocityTracker.obtain();
+                      dragVelocity.addMovement(e);
                       handler.removeCallbacks(holdPauseRunnable);
                       handler.postDelayed(holdPauseRunnable, TAP_MAX_MS); // pause only if it becomes a hold
                       break;
-                  case MotionEvent.ACTION_MOVE:
-                      if (!touchMoved && (Math.abs(e.getX() - touchDownX) > slop
-                              || Math.abs(e.getY() - touchDownY) > slop)) {
+                  case MotionEvent.ACTION_MOVE: {
+                      if (dragVelocity != null) dragVelocity.addMovement(e);
+                      final float rdx = e.getRawX() - dragDownRawX, rdy = e.getRawY() - dragDownRawY;
+                      if (!touchMoved && (Math.abs(rdx) > slop || Math.abs(rdy) > slop)) {
                           touchMoved = true;
                           handler.removeCallbacks(holdPauseRunnable); // it's a swipe, not a hold
                       }
+                      if (!swipeDragging && !captionExpanded && rdy > slop * 2 && rdy > Math.abs(rdx) * 1.2f
+                              && binding.flQuickReactionOverlay.getVisibility() != View.VISIBLE) {
+                          swipeDragging = true;
+                          handler.removeCallbacks(holdPauseRunnable);
+                          if (!touchHoldPaused) { touchHoldPaused = true; pauseProgress(); }
+                      }
+                      if (swipeDragging) applyDrag(rdx, Math.max(0f, rdy));
                       break;
-                  case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
+                  }
+                  case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL: {
                       handler.removeCallbacks(holdPauseRunnable);
                       final boolean isUp = e.getActionMasked() == MotionEvent.ACTION_UP;
+                      setChromeHidden(false); // hold released → header / bar fade back in
+                      float vy = 0f;
+                      if (dragVelocity != null) {
+                          dragVelocity.addMovement(e);
+                          dragVelocity.computeCurrentVelocity(1000);
+                          vy = dragVelocity.getYVelocity();
+                          dragVelocity.recycle(); dragVelocity = null;
+                      }
+                      if (swipeDragging) {
+                          swipeDragging = false;
+                          final float dy = Math.max(0f, e.getRawY() - dragDownRawY);
+                          final float h = getResources().getDisplayMetrics().heightPixels;
+                          if (isUp && (dy > h * DRAG_CLOSE_FRACTION || vy > DRAG_CLOSE_VELOCITY)) {
+                              touchHoldPaused = false;      // closing: stay paused, no resume
+                              closeByDrag();
+                          } else {
+                              snapBackFromDrag();
+                              if (touchHoldPaused) { touchHoldPaused = false; resumeProgress(); }
+                          }
+                          break;
+                      }
                       if (captionExpanded) { touchHoldPaused = false; collapseCaption(); break; } // tap outside closes the expanded caption
                       if (touchHoldPaused) { touchHoldPaused = false; resumeProgress(); }
                       boolean tap = isUp && !flung && !touchMoved
@@ -2251,6 +2360,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           if (e.getX() < v.getWidth() * PREV_ZONE_FRACTION) previous(); else next();
                       }
                       break;
+                  }
               }
               return true;
           });
@@ -2369,6 +2479,8 @@ import com.callx.app.utils.AlertDialogStyler;
               binding.btnLikeHeart.setVisibility(View.GONE);
               return;
           }
+          // Long-press = full emoji picker (btn_react is a hidden proxy now).
+          binding.btnLikeHeart.setOnLongClickListener(v -> { binding.btnReact.performClick(); return true; });
           binding.btnLikeHeart.setOnClickListener(v -> {
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null || myUid == null) return;

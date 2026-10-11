@@ -9,6 +9,17 @@
            Everything that used to float over the full-screen photo now lives in
            fl_story_card; only the reply row moved out (ll_reply_bar). The column
            shrinks the card when the keyboard opens (insets applied in code). -->
+      <!-- Whole-screen blurred, color-matched backdrop (behind status bar, card gap and
+           reply bar) — same blurred copy of the photo as iv_status_bg, Instagram style.
+           Hidden (flat dark root) for video / text statuses. -->
+      <ImageView
+          android:id="@+id/iv_root_bg"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:scaleType="centerCrop"
+          android:importantForAccessibility="no"
+          android:visibility="gone"/>
+
       <LinearLayout
           android:id="@+id/ll_viewer_column"
           android:layout_width="match_parent"
@@ -573,34 +584,32 @@
               android:orientation="horizontal"
               android:gravity="center_vertical">
 
-              <com.google.android.material.textfield.TextInputLayout
-                  style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+              <!-- Instagram-style pill: fixed "Send message" hint (no floating label),
+                   thin translucent outline, transparent fill. Tapping it opens the reply
+                   sheet (see setupReplyButton). -->
+              <EditText
+                  android:id="@+id/et_reply"
                   android:layout_width="0dp"
-                  android:layout_height="wrap_content"
+                  android:layout_height="44dp"
                   android:layout_weight="1"
+                  android:background="@drawable/bg_status_reply_pill"
                   android:hint="@string/status_reply_hint"
-                  android:textColorHint="#E6FFFFFF"
-                  app:boxCornerRadiusTopEnd="28dp"
-                  app:boxCornerRadiusTopStart="28dp"
-                  app:boxCornerRadiusBottomEnd="28dp"
-                  app:boxCornerRadiusBottomStart="28dp"
-                  app:hintTextColor="@color/white"
-                  app:boxStrokeWidth="1dp"
-                  app:boxStrokeWidthFocused="1dp"
-                  app:boxStrokeColor="#99FFFFFF">
+                  android:textColorHint="#B3FFFFFF"
+                  android:textColor="@color/white"
+                  android:textSize="15sp"
+                  android:gravity="center_vertical"
+                  android:paddingStart="18dp"
+                  android:paddingEnd="18dp"
+                  android:maxLines="1"
+                  android:inputType="textCapSentences"
+                  android:importantForAutofill="no"/>
 
-                  <com.google.android.material.textfield.TextInputEditText
-                      android:id="@+id/et_reply"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:textColor="@color/white"
-                      android:maxLines="2"
-                      android:inputType="textCapSentences"/>
 
-              </com.google.android.material.textfield.TextInputLayout>
-
+              <!-- Hidden proxy (Instagram has no separate react button): the heart's
+                   long-press and the swipe-up picker open the full emoji sheet via this. -->
               <ImageButton
                   android:id="@+id/btn_react"
+                  android:visibility="gone"
                   android:layout_width="44dp"
                   android:layout_height="44dp"
                   android:layout_marginStart="8dp"
@@ -617,7 +626,7 @@
                   android:id="@+id/btn_like_heart"
                   android:layout_width="44dp"
                   android:layout_height="44dp"
-                  android:layout_marginStart="4dp"
+                  android:layout_marginStart="6dp"
                   android:padding="9dp"
                   android:src="@drawable/ic_heart"
                   android:background="?attr/selectableItemBackgroundBorderless"

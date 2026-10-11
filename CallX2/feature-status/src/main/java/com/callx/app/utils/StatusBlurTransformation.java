@@ -40,7 +40,7 @@ import java.security.MessageDigest;
 public class StatusBlurTransformation extends BitmapTransformation {
 
     private static final String ID =
-            "com.callx.app.utils.StatusBlurTransformation.v2";
+            "com.callx.app.utils.StatusBlurTransformation.v3";
     private static final byte[] ID_BYTES =
             ID.getBytes(Charset.forName("UTF-8"));
 
@@ -75,7 +75,11 @@ public class StatusBlurTransformation extends BitmapTransformation {
         // Darken so the sharp foreground photo pops over the blurred backdrop.
         Canvas canvas = new Canvas(result);
         Paint darkPaint = new Paint();
+        // Instagram-style deeper dim: original ~40% scrim + an extra ~25% on top
+        // (combined ≈ 55% black) so the backdrop is clearly dimmer than the photo.
         darkPaint.setColor(0x66000000);   // ~40% translucent black
+        canvas.drawRect(0, 0, result.getWidth(), result.getHeight(), darkPaint);
+        darkPaint.setColor(0x40000000);   // +25% translucent black
         canvas.drawRect(0, 0, result.getWidth(), result.getHeight(), darkPaint);
 
         return result;
