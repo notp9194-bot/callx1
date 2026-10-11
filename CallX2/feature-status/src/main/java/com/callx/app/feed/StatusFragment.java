@@ -77,6 +77,7 @@ public class StatusFragment extends BaseFragment {
     // from the carousel within ~1s of its real expiry — same as WhatsApp.
     private final android.os.Handler statusExpirySweepHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable statusExpirySweepRunnable = this::sweepExpiredStatuses;
+    private long lastTimeLabelRefreshMs = 0L;
     private ValueEventListener statusListener;
     private ValueEventListener seenListener;
     private ValueEventListener highlightsListener;
@@ -189,6 +190,8 @@ public class StatusFragment extends BaseFragment {
             (ownerUid, ownerName, isMuted) -> showContactContextMenu(ownerUid, ownerName, isMuted)
         );
         statusAdapter.setOnHiddenCardClickListener(this::openHiddenUpdates); // v236
+        // Skeleton cards until the first status data lands (skipped when we already hold data).
+        if (statusMap.isEmpty() && myStatuses.isEmpty()) statusAdapter.beginInitialLoad();
         // v50 FIX: Highlights strip removed from the Status tab. Highlights are
         // already surfaced on the profile screen (UserReelsActivity), so showing
         // them again here was redundant. We simply stop wiring the click listener
@@ -614,7 +617,12 @@ public class StatusFragment extends BaseFragment {
             else if (delta < nextExpiryDelta) nextExpiryDelta = delta;
         }
 
-        if (changed) rebuildStatusAdapter();
+        // Also rebuild about once a minute so the cards' "5m ago" labels stay fresh.
+        boolean hasData = !statusMap.isEmpty() || !myStatuses.isEmpty();
+        if (changed || (hasData && now - lastTimeLabelRefreshMs >= 60_000L)) {
+            lastTimeLabelRefreshMs = now;
+            rebuildStatusAdapter();
+        }
 
         long nextRun = nextExpiryDelta == Long.MAX_VALUE
                 ? 60_000L

@@ -12,21 +12,45 @@
         android:paddingHorizontal="16dp"
         android:paddingTop="16dp"
         android:paddingBottom="8dp"
-        android:text="Status"
+        android:text="@string/status_carousel_title"
         android:textSize="21sp"
         android:textStyle="bold"
         android:fontFamily="sans-serif-medium"
         android:letterSpacing="0.01"
         android:textColor="?attr/colorOnSurface"/>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_status_carousel"
+    <com.callx.app.feed.NestedScrollableHost
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:clipToPadding="false"
-        android:paddingStart="4dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="8dp"
-        android:overScrollMode="never"/>
+        android:layout_height="wrap_content">
+
+        <!-- Shown only until the first status data arrives (see StatusListAdapter.beginInitialLoad) -->
+        <LinearLayout
+            android:id="@+id/ll_status_skeleton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingBottom="8dp"
+            android:importantForAccessibility="no"
+            android:visibility="gone">
+            <include layout="@layout/item_status_card_skeleton"/>
+            <include layout="@layout/item_status_card_skeleton"/>
+            <include layout="@layout/item_status_card_skeleton"/>
+            <include layout="@layout/item_status_card_skeleton"/>
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_status_carousel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:paddingStart="8dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="8dp"
+            android:overScrollMode="never"
+            android:requiresFadingEdge="horizontal"
+            android:fadingEdgeLength="20dp"/>
+
+    </com.callx.app.feed.NestedScrollableHost>
 
 </LinearLayout>

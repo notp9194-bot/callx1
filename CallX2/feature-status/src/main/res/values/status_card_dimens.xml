@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status carousel card: outer box (incl. avatar overlap) and how far the avatar overlaps the body. -->
+    <dimen name="status_card_width">116dp</dimen>
+    <dimen name="status_card_height">182dp</dimen>
+    <dimen name="status_card_avatar_overlap">22dp</dimen>
+</resources>

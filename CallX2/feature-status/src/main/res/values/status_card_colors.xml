@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status carousel card tokens (v530). Night variants in values-night. -->
+    <color name="status_card_stroke">#40D4AF37</color>
+    <color name="status_card_ripple">#33D4AF37</color>
+    <color name="status_card_body_bg">#E9EDF3</color>
+    <color name="status_card_placeholder">#D5DBE5</color>
+    <color name="status_card_hidden_bg">#C5CDD9</color>
+    <color name="status_card_glyph">#7A8799</color>
+    <!-- Text-status default bg (white preview text sits on it) stays dark in both themes -->
+    <color name="status_card_text_default">#3A3A3A</color>
+    <string name="status_carousel_title">Status</string>
+    <color name="status_card_cf_ring">#22C55E</color>
+</resources>

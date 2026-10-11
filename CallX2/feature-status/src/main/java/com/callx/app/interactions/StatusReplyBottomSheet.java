@@ -90,8 +90,9 @@ public class StatusReplyBottomSheet {
         previewBg.setColor(themeColor(ctx, android.R.attr.textColorPrimary, Color.BLACK) & 0x00FFFFFF | 0x14000000);
         preview.setBackground(previewBg);
         // Thumbnail or type icon
-        if (("image".equals(item.type) || "video".equals(item.type))
-                && (item.thumbnailUrl != null || item.mediaUrl != null)) {
+        // Video: only a real thumbnail counts (its mediaUrl is a video, not an image).
+        final String thumbSrc = com.callx.app.feed.StatusListAdapter.cardThumb(item);
+        if (("image".equals(item.type) || "video".equals(item.type)) && thumbSrc != null) {
             ImageView thumb = new ImageView(ctx);
             int sz = dp(ctx, 52);
             thumb.setLayoutParams(new LinearLayout.LayoutParams(sz, sz));
@@ -101,14 +102,24 @@ public class StatusReplyBottomSheet {
             thumbBg.setCornerRadius(dp(ctx, 8));
             thumbBg.setColor(Color.DKGRAY);
             thumb.setBackground(thumbBg);
-            String url = item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl;
+            // Clip the image itself to 8dp rounded corners (the background alone doesn't clip it).
+            final float thumbR = dp(ctx, 8);
+            thumb.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override public void getOutline(View v, android.graphics.Outline o) {
+                    o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), thumbR);
+                }
+            });
+            thumb.setClipToOutline(true);
             // Decode at the view's real size (52dp), not 480x853 (~6x less bitmap memory).
             final int thumbPx = dp(ctx, 52);
-            Glide.with(ctx).load(url).centerCrop().override(thumbPx, thumbPx).into(thumb);
+            Glide.with(ctx).load(thumbSrc).centerCrop().override(thumbPx, thumbPx)
+                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE)
+                    .into(thumb);
             preview.addView(thumb);
         } else {
             TextView typeIcon = new TextView(ctx);
-            typeIcon.setText("text".equals(item.type) ? "💬" : "link".equals(item.type) ? "🔗" : "📷");
+            typeIcon.setText("text".equals(item.type) ? "💬" : "link".equals(item.type) ? "🔗" : "video".equals(item.type) ? "🎬" : "📷");
             typeIcon.setTextSize(26);
             int sz = dp(ctx, 52);
             typeIcon.setLayoutParams(new LinearLayout.LayoutParams(sz, sz));

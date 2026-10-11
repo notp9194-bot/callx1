@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tablets: bigger cards -->
+    <dimen name="status_card_width">140dp</dimen>
+    <dimen name="status_card_height">216dp</dimen>
+    <dimen name="status_card_avatar_overlap">22dp</dimen>
+</resources>

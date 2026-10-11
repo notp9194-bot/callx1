@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_card_my_status">My Status</string>
+    <string name="status_card_hidden">Hidden</string>
+    <string name="status_card_muted_toast">%1$s is muted. Long press to unmute.</string>
+    <string name="status_card_kind_video">video status</string>
+    <string name="status_card_kind_text">text status</string>
+    <string name="status_card_kind_plain">status</string>
+    <string name="status_card_desc_hidden">Hidden status updates</string>
+    <string name="status_card_desc_mine_view">My status, tap to view</string>
+    <string name="status_card_desc_mine_add">My status, tap to add a status update</string>
+    <string name="status_card_desc_muted">%1$s, muted %2$s</string>
+    <string name="status_card_desc_new">%1$s, new %2$s</string>
+    <string name="status_card_desc_viewed">%1$s, viewed %2$s</string>
+    <string name="status_card_desc_close_friend">, close friend</string>
+    <string name="status_card_action_unmute">Unmute or more options</string>
+    <string name="status_card_action_mute">Mute or more options</string>
+    <string name="status_card_add_update">Add status update</string>
+    <string name="status_card_time_just_now">Just now</string>
+    <string name="status_card_time_minutes_ago">%1$dm ago</string>
+    <string name="status_card_time_hours_ago">%1$dh ago</string>
+</resources>
