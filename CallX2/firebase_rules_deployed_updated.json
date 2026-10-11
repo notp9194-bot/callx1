@@ -153,6 +153,7 @@
             }
           },
           "replies": {
+            ".indexOn": ["timestamp"],
             "$replyId": {
               ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid)",
               ".validate": "newData.hasChildren(['uid','name','text','timestamp']) && newData.child('uid').val() === auth.uid"

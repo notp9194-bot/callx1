@@ -136,7 +136,11 @@ import com.callx.app.utils.AlertDialogStyler;
       private String myUid, ownerUid, ownerName;
       private final List<ProgressBar> segmentBars = new ArrayList<>();
       // ── Latest-reply overlay (owner-only, Instagram-style) ─────────────────
-      private DatabaseReference repliesListenerRef;
+      private static final java.util.concurrent.ExecutorService REPLY_PARSE_BG =
+              java.util.concurrent.Executors.newSingleThreadExecutor();
+      private Query repliesListenerRef;
+      private Query repliesSyncQuery;      // v514: keepSynced(true) while this status is on screen
+      private boolean ownProfilePrewarmed; // v514
       private ValueEventListener repliesListener;
       private Runnable          replyOverlayAutoHide;
       private static final long REPLY_OVERLAY_AUTO_HIDE_MS = 4000;
@@ -3058,24 +3062,42 @@ import com.callx.app.utils.AlertDialogStyler;
               if (lastReplyBubbleView != null) lastReplyBubbleView.setVisibility(View.GONE);
               return;
           }
-          repliesListenerRef = FirebaseUtils.getStatusRepliesRef(ownerUid, s.id);
+          // Bubble only shows the newest 3 commenters + newest text → listen to just those 3
+          // (was: the whole replies node, re-downloaded + re-parsed on every new comment).
+          // Needs ".indexOn": ["timestamp"] on status/$uid/$statusId/replies.
+          repliesListenerRef = FirebaseUtils.getStatusRepliesRef(ownerUid, s.id)
+                  .orderByChild("timestamp").limitToLast(3);
           repliesListener = new ValueEventListener() {
               @Override public void onDataChange(DataSnapshot snap) {
-                  Map<String, StatusItem.ReplyPreview> repliesMap = new LinkedHashMap<>();
-                  for (DataSnapshot child : snap.getChildren()) {
-                      StatusItem.ReplyPreview r = child.getValue(StatusItem.ReplyPreview.class);
-                      if (r != null) repliesMap.put(child.getKey(), r);
-                  }
-                  // Keep the StatusItem in sync so a tap on the overlay opens
-                  // StatusRepliesBottomSheet with the exact same data, no re-fetch.
-                  s.replies = repliesMap;
-                  List<StatusItem.ReplyPreview> newestFirst = new ArrayList<>(repliesMap.values());
-                  Collections.sort(newestFirst, (a, b) -> {
-                      long ta = a.timestamp != null ? a.timestamp : 0;
-                      long tb = b.timestamp != null ? b.timestamp : 0;
-                      return Long.compare(tb, ta);
+                  final ValueEventListener self = this;
+                  // v513: parse + sort off the main thread; only the bubble bind runs on main.
+                  REPLY_PARSE_BG.execute(() -> {
+                      Map<String, StatusItem.ReplyPreview> repliesMap = new LinkedHashMap<>();
+                      for (DataSnapshot child : snap.getChildren()) {
+                          // manual field reads — no reflection (getValue(Class))
+                          Object t = child.child("timestamp").getValue();
+                          StatusItem.ReplyPreview r = new StatusItem.ReplyPreview(
+                                  child.child("uid").getValue(String.class),
+                                  child.child("name").getValue(String.class),
+                                  child.child("avatarUrl").getValue(String.class),
+                                  child.child("text").getValue(String.class),
+                                  t instanceof Number ? Long.valueOf(((Number) t).longValue()) : null);
+                          if (child.getKey() != null) repliesMap.put(child.getKey(), r);
+                      }
+                      final List<StatusItem.ReplyPreview> newestFirst = new ArrayList<>(repliesMap.values());
+                      Collections.sort(newestFirst, (a, b) -> {
+                          long ta = a.timestamp != null ? a.timestamp : 0;
+                          long tb = b.timestamp != null ? b.timestamp : 0;
+                          return Long.compare(tb, ta);
+                      });
+                      handler.post(() -> {
+                          if (repliesListener != self || isFinishing() || isDestroyed()) return; // detached / segment changed
+                          // Keep the StatusItem in sync so a tap on the overlay opens
+                          // StatusRepliesBottomSheet with this newest-few as an instant seed (it then goes live).
+                          s.replies = repliesMap;
+                          bindLastReplyBubble(s, newestFirst);
+                      });
                   });
-                  bindLastReplyBubble(s, newestFirst);
               }
               @Override public void onCancelled(DatabaseError e) {
                   android.util.Log.e("StatusViewer",
@@ -3084,6 +3106,19 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           };
           repliesListenerRef.addValueEventListener(repliesListener);
+          // v514 keepSynced: same query the sheet listens on → opening the sheet is served from the local cache.
+          // Released in detachRepliesListener() (segment change / close). Persistence is enabled in CallxApp.
+          try {
+              repliesSyncQuery = com.callx.app.interactions.StatusRepliesBottomSheet.liveQuery(
+                      FirebaseUtils.getStatusRepliesRef(ownerUid, s.id));
+              repliesSyncQuery.keepSynced(true);
+          } catch (Exception ignored) { repliesSyncQuery = null; }
+          // v514 prewarm: my profile + avatar (compose sheet / Post) are ready before the viewer taps comment.
+          // The last 3 commenters' avatars are warmed by bindLastReplyBubble() (same TINY cache key as the sheet rows).
+          if (!ownProfilePrewarmed && myUid != null && !myUid.equals(ownerUid)) {
+              ownProfilePrewarmed = true;
+              com.callx.app.interactions.StatusReplyBottomSheet.prewarm(this, myUid);
+          }
       }
       /**
        * Binds up to the 3 most recent commenters as an overlapping avatar stack
@@ -3114,10 +3149,26 @@ import com.callx.app.utils.AlertDialogStyler;
               if (replyIdx < newestFirst.size()) {
                   StatusItem.ReplyPreview r = newestFirst.get(replyIdx);
                   slots[slot].setVisibility(View.VISIBLE);
-                  if (r.avatarUrl != null && !r.avatarUrl.isEmpty())
-                      Glide.with(this).load(r.avatarUrl).into(slots[slot]);
-                  else
+                  if (r.avatarUrl != null && !r.avatarUrl.isEmpty()) {
+                      // TINY tier (32dp) + exact override: same cache key as reels comments / the replies sheet,
+                      // so the sheet's avatars are already warm when it opens.
+                      if (!r.avatarUrl.equals(slots[slot].getTag(R.id.iv_last_reply_avatar_1))) {
+                          slots[slot].setTag(R.id.iv_last_reply_avatar_1, r.avatarUrl);
+                          final int px = com.callx.app.utils.AvatarUrlBuilder.tierPx(this, com.callx.app.utils.AvatarSizeTier.TINY);
+                          Glide.with(this)
+                              .load(com.callx.app.utils.AvatarUrlBuilder.buildResponsive(
+                                      this, r.avatarUrl, com.callx.app.utils.AvatarSizeTier.TINY))
+                              .apply(new com.bumptech.glide.request.RequestOptions()
+                                      .override(px, px)
+                                      .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                                      .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE))
+                              .into(slots[slot]);
+                      }
+                  }
+                  else {
+                      slots[slot].setTag(R.id.iv_last_reply_avatar_1, null);
                       slots[slot].setImageResource(R.drawable.ic_person);
+                  }
               } else {
                   slots[slot].setVisibility(View.GONE);
               }
@@ -3143,6 +3194,10 @@ import com.callx.app.utils.AlertDialogStyler;
           handler.postDelayed(replyOverlayAutoHide, REPLY_OVERLAY_AUTO_HIDE_MS);
       }
       private void detachRepliesListener() {
+          if (repliesSyncQuery != null) {
+              try { repliesSyncQuery.keepSynced(false); } catch (Exception ignored) {}
+              repliesSyncQuery = null;
+          }
           if (repliesListenerRef != null && repliesListener != null)
               repliesListenerRef.removeEventListener(repliesListener);
           repliesListenerRef = null;

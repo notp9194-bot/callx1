@@ -44,6 +44,32 @@ public class StatusReplyBottomSheet {
     public static BottomSheetDialog showPublicComment(Context ctx, StatusItem item, String ownerName,
                             String myUid, String ownerUid,
                             OnReplySentListener listener) {
+        return showPublicComment(ctx, item, ownerName, myUid, ownerUid, listener, "");
+    }
+
+    /**
+     * v514 prewarm: call while a status plays. Loads my own profile into the cache (so Post never waits on
+     * a network read) and pre-decodes my avatar at the exact tier/options the compose sheet uses.
+     */
+    public static void prewarm(Context ctx, String myUid) {
+        if (ctx == null || myUid == null) return;
+        final Context app = ctx.getApplicationContext();
+        withMyProfile(myUid, (name, photo) -> {
+            if (photo == null || photo.isEmpty()) return;
+            com.callx.app.utils.AvatarSizeTier t = com.callx.app.utils.AvatarSizeTier.TINY;
+            Glide.with(app)
+                .load(com.callx.app.utils.AvatarUrlBuilder.buildResponsive(app, photo, t))
+                .apply(new com.bumptech.glide.request.RequestOptions()
+                        .override(com.callx.app.utils.AvatarUrlBuilder.tierPx(app, t))
+                        .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE))
+                .preload();
+        });
+    }
+
+    private static BottomSheetDialog showPublicComment(Context ctx, StatusItem item, String ownerName,
+                            String myUid, String ownerUid,
+                            OnReplySentListener listener, String draft) {
         if (item == null || myUid == null || ownerUid == null) return null;
         if (myUid.equals(ownerUid)) return null; // Owner cannot reply to own status
         BottomSheetDialog sheet = new BottomSheetDialog(ctx);
@@ -76,7 +102,9 @@ public class StatusReplyBottomSheet {
             thumbBg.setColor(Color.DKGRAY);
             thumb.setBackground(thumbBg);
             String url = item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl;
-            Glide.with(ctx).load(url).centerCrop().override(480, 853).into(thumb);
+            // Decode at the view's real size (52dp), not 480x853 (~6x less bitmap memory).
+            final int thumbPx = dp(ctx, 52);
+            Glide.with(ctx).load(url).centerCrop().override(thumbPx, thumbPx).into(thumb);
             preview.addView(thumb);
         } else {
             TextView typeIcon = new TextView(ctx);
@@ -143,7 +171,15 @@ public class StatusReplyBottomSheet {
         inputRow.addView(myAvatar);
         withMyProfile(myUid, (name, photo) -> {
             if (photo != null && !photo.isEmpty() && sheet.isShowing())
-                Glide.with(ctx).load(photo).into(myAvatar);
+                Glide.with(ctx)
+                    .load(com.callx.app.utils.AvatarUrlBuilder.buildResponsive(
+                            ctx, photo, com.callx.app.utils.AvatarSizeTier.TINY))
+                    .apply(new com.bumptech.glide.request.RequestOptions()
+                            .override(com.callx.app.utils.AvatarUrlBuilder.tierPx(
+                                    ctx, com.callx.app.utils.AvatarSizeTier.TINY))
+                            .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                            .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE))
+                    .into(myAvatar);
         });
         EditText et = new EditText(ctx);
         et.setHint("Add a public comment…");
@@ -201,27 +237,29 @@ public class StatusReplyBottomSheet {
         sendBtn.setOnClickListener(v -> {
             String msg = et.getText() != null ? et.getText().toString().trim() : "";
             if (msg.isEmpty()) return;
-            // v511: don't claim success before it is true — lock the UI while posting,
-            // close only on success/queued, offer retry on failure.
-            sendBtn.setEnabled(false);
-            sendBtn.setText("Posting…");
-            et.setEnabled(false);
+            // v514 OPTIMISTIC CLOSE: the sheet closes the moment Post is tapped (Firebase's local event puts the
+            // comment in the list instantly). Failure is reported afterwards: toast + the sheet reopens with the
+            // typed text so nothing is lost. (Trade-off vs v511's ack-wait: faster, but the result arrives late.)
+            sheet.dismiss();
+            if (listener != null) listener.onSent(msg);
             postPublicReply(myUid, ownerUid, item, msg, null, res -> {
                 if (res == RESULT_FAILED) {
                     Toast.makeText(ctx, "Couldn't post comment. Tap Post to retry", Toast.LENGTH_SHORT).show();
-                    sendBtn.setText("Post");
-                    sendBtn.setEnabled(true);
-                    sendBtn.setAlpha(1f);
-                    et.setEnabled(true);
+                    if (ctx instanceof android.app.Activity
+                            && !((android.app.Activity) ctx).isFinishing()
+                            && !((android.app.Activity) ctx).isDestroyed()) {
+                        BottomSheetDialog again = showPublicComment(ctx, item, ownerName, myUid, ownerUid,
+                                listener, msg);
+                        if (again != null && listener != null) again.setOnDismissListener(x -> listener.onSent(""));
+                    }
                     return;
                 }
-                if (listener != null) listener.onSent(msg);
-                Toast.makeText(ctx, res == RESULT_POSTED ? "Comment posted ✓"
-                        : "No connection — will post when you're back online", Toast.LENGTH_SHORT).show();
-                sheet.dismiss();
+                if (res == RESULT_QUEUED)
+                    Toast.makeText(ctx, "No connection — will post when you're back online", Toast.LENGTH_SHORT).show();
             });
         });
         inputRow.addView(sendBtn);
+        if (draft != null && !draft.isEmpty()) { et.setText(draft); et.setSelection(et.length()); } // retry after failed post
         root.addView(inputRow);
         root.addView(counter);
         sheet.setContentView(root);
