@@ -2079,3 +2079,217 @@ exports.onSoundReelOwnerWrite = functions.database
     }
     return null;
   });
+
+/**
+ * Status @mentions — server-side resolve + notify
+ * ===============================================
+ * On every new status (status/{ownerUid}/{statusId}) this collects the
+ * mentioned usernames from text, caption and "mention" stickers
+ * (stickersJson), resolves each one through usernames/{name} → uid (the
+ * client can't be trusted to write other people's uids), then in ONE
+ * multi-path update writes:
+ *   - status/{owner}/{id}/mentionNames/{username} = uid   (viewer shows "mentioned you")
+ *   - statusMentions/{uid}/{owner}_{id}                   (index; the mentioned user may delete it = "remove mention")
+ *   - statusNotifications/{uid}/{pushId}                  (AllNotifications → Status tab)
+ * and sends a data-only FCM push (type "status_mention") so it works when
+ * the app is killed. Self-mentions, unknown usernames and users who blocked
+ * the poster are skipped. Scheduled statuses fire this when they are
+ * actually published (that's when the node is created).
+ */
+const MENTION_RE = /@([a-z0-9_]{3,30})/gi;
+const MAX_STATUS_MENTIONS = 20;
+
+function extractStatusMentions(st) {
+  const names = new Set();
+  const scan = (txt) => {
+    if (typeof txt !== "string" || !txt) return;
+    let m;
+    MENTION_RE.lastIndex = 0;
+    while ((m = MENTION_RE.exec(txt)) !== null) names.add(m[1].toLowerCase());
+  };
+  scan(st.text);
+  scan(st.caption);
+  if (typeof st.stickersJson === "string" && st.stickersJson) {
+    try {
+      const stickers = JSON.parse(st.stickersJson);
+      if (Array.isArray(stickers)) {
+        stickers.forEach((s) => {
+          if (s && s.type === "mention" && typeof s.username === "string") {
+            const u = s.username.replace(/^@/, "").trim().toLowerCase();
+            if (/^[a-z0-9_]{3,30}$/.test(u)) names.add(u);
+          }
+        });
+      }
+    } catch (e) { /* malformed stickersJson — same tolerance as the client parser */ }
+  }
+  return Array.from(names).slice(0, MAX_STATUS_MENTIONS);
+}
+
+exports.onStatusCreatedMentions = functions.database
+  .ref("/status/{ownerUid}/{statusId}")
+  .onCreate(async (snapshot, context) => {
+    const { ownerUid, statusId } = context.params;
+    const st = snapshot.val() || {};
+    if (st.deleted === true) return null;
+    if (st.expiresAt && st.expiresAt < Date.now()) return null;
+
+    const names = extractStatusMentions(st);
+    if (names.length === 0) return null;
+
+    const db = getDatabase();
+    const resolved = await Promise.all(names.map(async (n) => {
+      const s = await db.ref("usernames").child(n).once("value");
+      return s.exists() ? { username: n, uid: s.val() } : null;
+    }));
+
+    const key = `${ownerUid}_${statusId}`;
+    const targets = [];
+    for (const r of resolved) {
+      if (!r || typeof r.uid !== "string" || r.uid === ownerUid) continue;
+      // Idempotent: a retried trigger must not notify the same person twice.
+      const already = await db.ref("statusMentions").child(r.uid).child(key).once("value");
+      if (already.exists()) continue;
+      const blocked = await db.ref("blocks").child(r.uid).child(ownerUid).once("value");
+      if (blocked.exists()) continue; // never revealed to the poster
+      // Mention privacy of the TARGET: users/{uid}/statusMentionPrivacy = "everyone" (default) | "followers" | "none".
+      // "followers" = the poster is in the target's contacts.
+      const privSnap = await db.ref("users").child(r.uid).child("statusMentionPrivacy").once("value");
+      const priv = privSnap.exists() ? privSnap.val() : "everyone";
+      if (priv === "none") continue;
+      if (priv === "followers") {
+        const rel = await db.ref("contacts").child(r.uid).child(ownerUid).once("value");
+        if (!rel.exists()) continue;
+      }
+      targets.push(r);
+    }
+    if (targets.length === 0) return null;
+
+    const now = Date.now();
+    const ownerName = st.ownerName || "Someone";
+    const ownerPhoto = st.ownerPhoto || "";
+    const thumb = st.thumbnailUrl || (st.type === "image" ? st.mediaUrl : "") || ownerPhoto;
+    const updates = {};
+    const pushJobs = [];
+
+    for (const t of targets) {
+      updates[`status/${ownerUid}/${statusId}/mentionNames/${t.username}`] = t.uid;
+      updates[`statusMentions/${t.uid}/${key}`] = {
+        ownerUid, statusId, username: t.username,
+        timestamp: now, expiresAt: st.expiresAt || null,
+      };
+      const nKey = `mention_${key}`; // deterministic → retries overwrite instead of duplicating
+      updates[`statusNotifications/${t.uid}/${nKey}`] = {
+        fromUid: ownerUid, fromName: ownerName, fromPhoto: ownerPhoto, fromThumb: thumb,
+        type: "status_mention", statusId,
+        body: "mentioned you in their story", timestamp: now, read: false,
+      };
+      pushJobs.push((async () => {
+        const tokSnap = await db.ref("users").child(t.uid).child("fcmToken").once("value");
+        if (!tokSnap.exists()) return;
+        try {
+          await getMessaging().send({
+            token: tokSnap.val(),
+            data: {
+              type: "status_mention", fromUid: ownerUid, fromName: ownerName,
+              fromPhoto: ownerPhoto, fromThumb: thumb, statusId,
+            },
+            android: { priority: "high" },
+          });
+        } catch (err) {
+          console.error(`status_mention push failed for ${t.uid}:`, err.message || err);
+        }
+      })());
+    }
+
+    await db.ref().update(updates);
+    await Promise.all(pushJobs);
+    console.log(`Status mentions: ${targets.length} user(s) notified for ${key}.`);
+    return null;
+  });
+
+/** Drops statusMentions index rows whose status has expired (rows are tiny; this just keeps the tree tidy). */
+exports.cleanupExpiredStatusMentions = functions.pubsub
+  .schedule("every 6 hours")
+  .onRun(async () => {
+    const db = getDatabase();
+    const now = Date.now();
+    const PAGE = 200; // users per page — never loads the whole tree at once
+    let lastKey = null;
+    for (;;) {
+      let q = db.ref("statusMentions").orderByKey().limitToFirst(PAGE + (lastKey ? 1 : 0));
+      if (lastKey) q = db.ref("statusMentions").orderByKey().startAt(lastKey).limitToFirst(PAGE + 1);
+      const page = await q.once("value");
+      if (!page.exists()) break;
+      const updates = {};
+      let count = 0;
+      let newLast = null;
+      page.forEach((userSnap) => {
+        newLast = userSnap.key;
+        if (userSnap.key === lastKey) return; // startAt is inclusive
+        count++;
+        userSnap.forEach((m) => {
+          const exp = m.child("expiresAt").val();
+          if (exp && exp < now) updates[`statusMentions/${userSnap.key}/${m.key}`] = null;
+        });
+      });
+      if (Object.keys(updates).length) await db.ref().update(updates);
+      if (count < PAGE || newLast === lastKey) break;
+      lastKey = newLast;
+    }
+    return null;
+  });
+
+/**
+ * Story reshare → notify the ORIGINAL owner ("X shared your story").
+ * Fires when a status_reshare of a status is created. Skips: self-reshare, original gone / deleted / expired,
+ * original.allowSharing === false, and owners who blocked the resharer (never revealed). Idempotent via a
+ * deterministic notification key. The push is data-only "status_mention" with a custom body; tapping it opens
+ * the reshare itself.
+ */
+exports.onStatusReshared = functions.database
+  .ref("/status/{ownerUid}/{statusId}")
+  .onCreate(async (snapshot, context) => {
+    const { ownerUid, statusId } = context.params;
+    const st = snapshot.val() || {};
+    if (st.type !== "status_reshare" || st.resharedFromType !== "status") return null;
+    const origOwner = st.resharedFromOwnerUid;
+    const origId = st.resharedFromId;
+    if (!origOwner || !origId || origOwner === ownerUid) return null;
+
+    const db = getDatabase();
+    const origSnap = await db.ref("status").child(origOwner).child(origId).once("value");
+    if (!origSnap.exists()) return null;
+    const orig = origSnap.val() || {};
+    if (orig.deleted === true || (orig.expiresAt && orig.expiresAt < Date.now())) return null;
+    if (orig.allowSharing === false) return null;
+    const blocked = await db.ref("blocks").child(origOwner).child(ownerUid).once("value");
+    if (blocked.exists()) return null;
+
+    const nKey = `reshare_${ownerUid}_${statusId}`;
+    const nRef = db.ref("statusNotifications").child(origOwner).child(nKey);
+    if ((await nRef.once("value")).exists()) return null; // retry-safe
+
+    const ownerName = st.ownerName || "Someone";
+    const ownerPhoto = st.ownerPhoto || "";
+    const thumb = st.resharedThumbnailUrl || st.thumbnailUrl || ownerPhoto;
+    await nRef.set({
+      fromUid: ownerUid, fromName: ownerName, fromPhoto: ownerPhoto, fromThumb: thumb,
+      type: "status_reshare", statusId, body: "shared your story",
+      timestamp: Date.now(), read: false,
+    });
+    const tokSnap = await db.ref("users").child(origOwner).child("fcmToken").once("value");
+    if (!tokSnap.exists()) return null;
+    try {
+      await getMessaging().send({
+        token: tokSnap.val(),
+        data: {
+          type: "status_mention", fromUid: ownerUid, fromName: ownerName,
+          fromPhoto: ownerPhoto, fromThumb: thumb, statusId, body: "shared your story",
+        },
+        android: { priority: "high" },
+      });
+    } catch (err) {
+      console.error(`status_reshare push failed for ${origOwner}:`, err.message || err);
+    }
+    return null;
+  });

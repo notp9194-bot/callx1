@@ -77,6 +77,9 @@ import com.callx.app.utils.AlertDialogStyler;
        *  that was replied/reacted to (WhatsApp jumps to that specific
        *  story, not just the owner's oldest active one). */
       public static final String EXTRA_TARGET_STATUS_ID = "targetStatusId";
+      /** Open ONLY the target status (no other stories of the owner) — used by the reshared-story chip so Back returns straight to the reshare. */
+      public static final String EXTRA_SINGLE_STATUS_ONLY = "singleStatusOnly";
+      private boolean singleStatusOnly;
       /** v39 — When set, the viewer loads this owner's Highlight ALBUM
        *  (statusHighlights/{ownerUid}/{albumId}) instead of their live status
        *  feed, and never filters by expiresAt — highlight items are permanent,
@@ -244,6 +247,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private FrameLayout stickerOverlayView;     // null until first sticker / error card
       private FrameLayout textLayerView;          // null until first text status
       private TextView    textStatusTv;
+      private View        reshareChipView;
       private View        reshareContainerView;   // null until first reshared status
       private String      ownerPhotoHint;
       private final List<String> queueOwnerPhotos = new ArrayList<>();
@@ -268,6 +272,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private long        replyHideAtMs, replyHideRemainingMs; // auto-hide deadline (uptime) / time left while paused
       private boolean     replyHidePending, lastReplyExiting;
       private View        lastReplyMoreTv;
+      private android.widget.LinearLayout mentionChip; // "Add to your story  ✕" — only on statuses that mention me
       private boolean     lastReplyShown;    // bubble currently on screen (entry already played)
       private android.widget.ImageView[] lastReplyAvatars;
       private TextView    lastReplyTextTv;
@@ -314,6 +319,136 @@ import com.callx.app.utils.AlertDialogStyler;
           lastReplyTextTv.setVisibility(collapse ? View.GONE : View.VISIBLE);
           // tap area follows the new width once the transition settles
           handler.postDelayed(() -> { if (lastReplyShown && !chromeHidden) setReplyHitSlop(true); }, 260L);
+      }
+      // ── @mention taps (text status + caption) and the mentions list ───────────────────────────
+      private static final java.util.regex.Pattern MENTION_TAP = java.util.regex.Pattern.compile("@([A-Za-z0-9_]{3,30})");
+      /** If the tap lands on an @username inside the visible text status / caption, returns that username. */
+      private String mentionAt(TextView tv, float rawX, float rawY) {
+          if (tv == null || !tv.isShown() || tv.getLayout() == null || tv.getText() == null) return null;
+          final int[] loc = new int[2];
+          tv.getLocationOnScreen(loc);
+          final float x = rawX - loc[0] - tv.getTotalPaddingLeft() + tv.getScrollX();
+          final float y = rawY - loc[1] - tv.getTotalPaddingTop() + tv.getScrollY();
+          if (x < 0 || y < 0 || x > tv.getLayout().getWidth() || y > tv.getLayout().getHeight()) return null;
+          final int line = tv.getLayout().getLineForVertical((int) y);
+          final int off = tv.getLayout().getOffsetForHorizontal(line, x);
+          final java.util.regex.Matcher m = MENTION_TAP.matcher(tv.getText());
+          while (m.find()) if (off >= m.start() && off <= m.end()) return m.group(1).toLowerCase();
+          return null;
+      }
+      private boolean tryOpenMentionAt(MotionEvent e) {
+          String u = mentionAt(textStatusTv, e.getRawX(), e.getRawY());
+          if (u == null) u = mentionAt(binding.tvCaption, e.getRawX(), e.getRawY());
+          if (u == null) return false;
+          openProfileByUsername(u);
+          return true;
+      }
+      /** usernames/{name} → uid → profile. Pauses the story while looking up / away; resumes if nothing opens. */
+      private void openProfileByUsername(String username) {
+          pauseProgress();
+          FirebaseUtils.db().getReference("usernames").child(username).get().addOnSuccessListener(ns -> {
+              String uid = ns.getValue(String.class);
+              if (uid == null || uid.isEmpty()) {
+                  Toast.makeText(this, "@" + username + " not found", Toast.LENGTH_SHORT).show();
+                  resumeProgress(); return;
+              }
+              openProfileByUid(uid, username);
+          }).addOnFailureListener(x -> resumeProgress());
+      }
+      private void openProfileByUid(String uid, String fallbackName) {
+          FirebaseUtils.getUserRef(uid).get().addOnSuccessListener(u -> {
+              String name = u.child("name").getValue(String.class);
+              if (name == null || name.isEmpty()) name = fallbackName;
+              String photo = u.child("profileImage").getValue(String.class);
+              if (photo == null || photo.isEmpty()) photo = u.child("photoUrl").getValue(String.class);
+              try {
+                  Intent intent = new Intent(this, Class.forName("com.callx.app.activities.UserProfileActivity"));
+                  intent.putExtra("uid", uid); intent.putExtra("name", name);
+                  if (photo != null) intent.putExtra("photo", photo);
+                  startActivity(intent); // onResume() resumes the story when we come back
+              } catch (Exception ex) { resumeProgress(); }
+          }).addOnFailureListener(x -> resumeProgress());
+      }
+      /** Dialog listing everyone mentioned in this status (server-resolved mentionNames); tap → profile. */
+      private void showMentionsList(StatusItem s) {
+          if (s == null || s.mentionNames == null || s.mentionNames.isEmpty()) {
+              Toast.makeText(this, "No mentions", Toast.LENGTH_SHORT).show(); resumeProgress(); return;
+          }
+          final List<String> names = new ArrayList<>(s.mentionNames.keySet());
+          Collections.sort(names);
+          final String[] labels = new String[names.size()];
+          for (int i = 0; i < labels.length; i++) labels[i] = "@" + names.get(i);
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+              .setTitle("Mentioned (" + labels.length + ")")
+              .setItems(labels, (d, w) -> {
+                  String uid = s.mentionNames.get(names.get(w));
+                  if (uid != null && !uid.isEmpty()) openProfileByUid(uid, names.get(w)); else resumeProgress();
+              })
+              .setOnCancelListener(d -> resumeProgress())
+              .create());
+      }
+      // ── "Mentioned you" chip (Instagram-style: add to your story / remove mention) ──────────
+      /** usernames in s.mentionNames whose uid is me (server-written by functions: onStatusCreatedMentions). */
+      private List<String> myMentionUsernames(StatusItem s) {
+          List<String> out = new ArrayList<>();
+          if (s == null || myUid == null || s.mentionNames == null) return out;
+          for (Map.Entry<String, String> e : s.mentionNames.entrySet())
+              if (myUid.equals(e.getValue())) out.add(e.getKey());
+          return out;
+      }
+      private void updateMentionChip(StatusItem s) {
+          final boolean show = !isHighlightMode && myUid != null && !myUid.equals(ownerUid)
+                  && !myMentionUsernames(s).isEmpty();
+          if (!show) { if (mentionChip != null) mentionChip.setVisibility(View.GONE); return; }
+          if (mentionChip == null) {
+              final android.widget.LinearLayout chip = new android.widget.LinearLayout(this);
+              chip.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+              chip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+              chip.setPadding(dpToPx(14), dpToPx(8), dpToPx(6), dpToPx(8));
+              android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+              bg.setColor(0x99000000); bg.setCornerRadius(dpToPx(20));
+              chip.setBackground(bg);
+              final TextView add = new TextView(this);
+              add.setText("Mentioned you \u00B7 Add to your story");
+              add.setTextColor(0xFFFFFFFF); add.setTextSize(13);
+              add.setTypeface(add.getTypeface(), android.graphics.Typeface.BOLD);
+              add.setPadding(0, 0, dpToPx(8), 0);
+              final TextView x = new TextView(this);
+              x.setText("\u2715"); x.setTextColor(0xCCFFFFFF); x.setTextSize(14);
+              x.setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4));
+              x.setContentDescription("Remove mention");
+              chip.addView(add); chip.addView(x);
+              add.setOnClickListener(v -> {
+                  StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                  if (cur == null) return;
+                  pauseProgress();
+                  startActivity(com.callx.app.utils.StatusReshareHelper
+                          .buildReshareStatusIntent(this, cur, ownerName, ownerUid)); // mentioned users may always reshare
+              });
+              x.setOnClickListener(v -> {
+                  StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                  if (cur != null) removeMyMention(cur);
+              });
+              FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                      ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                      android.view.Gravity.BOTTOM | android.view.Gravity.END);
+              lp.setMargins(0, 0, dpToPx(12), dpToPx(12));
+              binding.flStoryCard.addView(chip, lp);
+              mentionChip = chip;
+          }
+          mentionChip.bringToFront();
+          mentionChip.setVisibility(View.VISIBLE);
+      }
+      /** "Remove mention": deletes my uid from the status' mentionNames and my statusMentions index row (both allowed by rules). */
+      private void removeMyMention(StatusItem s) {
+          if (s == null || s.id == null || myUid == null) return;
+          for (String u : myMentionUsernames(s)) {
+              FirebaseUtils.getStatusRef().child(ownerUid).child(s.id).child("mentionNames").child(u).removeValue();
+              s.mentionNames.remove(u);
+          }
+          FirebaseUtils.db().getReference("statusMentions").child(myUid).child(ownerUid + "_" + s.id).removeValue();
+          if (mentionChip != null) mentionChip.setVisibility(View.GONE);
+          Toast.makeText(this, "Mention removed", Toast.LENGTH_SHORT).show();
       }
       private void scheduleReplyHide(long delayMs) {
           if (replyOverlayAutoHide == null) return;
@@ -431,6 +566,7 @@ import com.callx.app.utils.AlertDialogStyler;
           List<String> qPhotos = getIntent().getStringArrayListExtra(EXTRA_QUEUE_OWNER_PHOTOS);
           if (qPhotos != null) queueOwnerPhotos.addAll(qPhotos);
           targetStatusId = getIntent().getStringExtra(EXTRA_TARGET_STATUS_ID);
+          singleStatusOnly = getIntent().getBooleanExtra(EXTRA_SINGLE_STATUS_ONLY, false);
           highlightAlbumId = getIntent().getStringExtra(EXTRA_HIGHLIGHT_ALBUM_ID);
           isHighlightMode = highlightAlbumId != null && !highlightAlbumId.isEmpty();
           if (ownerUid == null) { finish(); return; }
@@ -648,6 +784,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           }
                           if (found >= 0) {
                               idx = found;
+                              if (singleStatusOnly) { StatusItem keep = items.get(found); items.clear(); items.add(keep); idx = 0; }
                           } else {
                               // The specific status this reply/reaction pointed
                               // at has since expired/been deleted, but the
@@ -897,6 +1034,7 @@ import com.callx.app.utils.AlertDialogStyler;
           final StatusItem shown = s;
           deferAfterFirstFrame(seq, () -> updateLastReplyOverlay(shown));
           updateExpiryLabel(s);
+          updateMentionChip(s);
           deferAfterFirstFrame(seq, () -> playReactionBurstIfAny(shown));
           crossFadeIn();
           if (s.id != null && !s.id.isEmpty() && myUid != null && !myUid.equals(ownerUid))
@@ -975,6 +1113,40 @@ import com.callx.app.utils.AlertDialogStyler;
                   if (isReshare && s.resharedFromOwnerName != null && !s.resharedFromOwnerName.isEmpty()) {
                       final android.view.View flReshare = reshareContainer();
                       flReshare.setVisibility(android.view.View.VISIBLE);
+                      final android.view.View chip = flReshare.findViewById(R.id.ll_reshare_chip);
+                      final android.view.View bigCard = flReshare.findViewById(R.id.ll_reshare_attribution_card);
+                      if ("status".equals(s.resharedFromType) && chip != null) {
+                          // Reshared STORY → small chip; tap opens the original owner's story (profile if it's gone).
+                          if (bigCard != null) bigCard.setVisibility(android.view.View.GONE);
+                          chip.setVisibility(android.view.View.VISIBLE);
+                          final String cName = s.resharedFromOwnerName;
+                          final String cUser = s.resharedFromOwnerUsername;
+                          // @username when we have it; otherwise the display name WITHOUT an "@" (names contain spaces)
+                          final String shown = (cUser != null && !cUser.isEmpty()) ? "@" + cUser : cName;
+                          ((android.widget.TextView) flReshare.findViewById(R.id.tv_reshare_chip_text)).setText("\u21BB " + shown);
+                          final android.widget.ImageView cAv = flReshare.findViewById(R.id.iv_reshare_chip_avatar);
+                          if (cAv != null) {
+                              if (s.resharedFromOwnerAvatar != null && !s.resharedFromOwnerAvatar.isEmpty()) {
+                                  cAv.setVisibility(android.view.View.VISIBLE);
+                                  Glide.with(this).load(s.resharedFromOwnerAvatar).circleCrop().override(dpToPx(36)).dontAnimate().into(cAv);
+                              } else cAv.setVisibility(android.view.View.GONE);
+                          }
+                          reshareChipView = chip;
+                          chip.setAlpha(1f); chip.setEnabled(true);
+                          if (!java.util.Objects.equals(flReshare.getTag(), s.id)) { // entry: fade + 6dp rise, once per status
+                              flReshare.setTag(s.id);
+                              flReshare.setAlpha(0f); flReshare.setTranslationY(dpToPx(6));
+                              flReshare.animate().alpha(chromeHidden ? 0f : 1f).translationY(0f).setDuration(220L).setStartDelay(150L).start();
+                          }
+                          chip.setContentDescription("View original story by " + cName);
+                          final String cUid = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
+                          final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
+                          chip.setOnClickListener(v -> openOriginalStory(cUid, cId, shown));
+                          return;
+                      }
+                      if (chip != null) chip.setVisibility(android.view.View.GONE);
+                      flReshare.animate().cancel(); flReshare.setAlpha(1f); flReshare.setTranslationY(0f); flReshare.setTag(null);
+                      if (bigCard != null) bigCard.setVisibility(android.view.View.VISIBLE);
                       android.widget.ImageView ivThumb = flReshare.findViewById(R.id.iv_reshare_thumb);
                       if (ivThumb != null && s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty())
                           loadReshareThumbOptimized(ivThumb, s.resharedThumbnailUrl);
@@ -1099,6 +1271,72 @@ import com.callx.app.utils.AlertDialogStyler;
        *  app as the generic profile screen. feature-status has no compile-time
        *  dependency on feature-reels, so this reflects the class by name,
        *  same pattern as openOriginalContent() above. */
+      /**
+       * Reshared story chip → the ORIGINAL owner's story. Checks (in order): id present, I haven't blocked the
+       * owner, the original still exists / isn't deleted / isn't expired, and its audience (only / except /
+       * close friends lists) includes me. Anything else falls back to the owner's profile with a toast.
+       */
+      private void openOriginalStory(final String origOwnerUid, final String origStatusId, final String origOwnerName) {
+          if (origOwnerUid == null || origOwnerUid.isEmpty()) return;
+          if (origStatusId == null || origStatusId.isEmpty()) { // legacy reshare: id was never stored
+              Toast.makeText(this, "Original story unavailable", Toast.LENGTH_SHORT).show();
+              openOriginalCreatorProfile(origOwnerUid, origOwnerName);
+              return;
+          }
+          pauseProgress();
+          final View chip = reshareChipView;
+          if (chip != null) { chip.setEnabled(false); chip.setAlpha(0.55f); } // "working" feedback, blocks double taps
+          final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
+          final Runnable restore = () -> { if (chip != null) { chip.setEnabled(true); chip.setAlpha(1f); } };
+          final Runnable fallback = () -> {
+              if (!done.compareAndSet(false, true)) return;
+              restore.run();
+              Toast.makeText(this, "Original story is no longer available", Toast.LENGTH_SHORT).show();
+              openOriginalCreatorProfile(origOwnerUid, origOwnerName); // onResume() resumes if it opened
+              handler.postDelayed(() -> { if (!isFinishing() && paused && hasWindowFocus()) resumeProgress(); }, 700L);
+          };
+          // 1) instant path: contacts' live statuses are already in the app-wide cache; 2) else read in PARALLEL with the block check
+          StatusItem cached = null;
+          try {
+              for (StatusItem c : com.callx.app.cache.StatusCacheManager.getInstance(this).getStatuses(origOwnerUid))
+                  if (origStatusId.equals(c.id)) { cached = c; break; }
+          } catch (Exception ignored) {}
+          final StatusItem[] orig = { cached };
+          final boolean[] statusLoaded = { cached != null }, blockLoaded = { false }, blocked = { false }, failed = { false };
+          final Runnable decide = () -> {
+              if (done.get() || !statusLoaded[0] || !blockLoaded[0]) return;
+              if (failed[0] || blocked[0] || orig[0] == null || isDead(orig[0], System.currentTimeMillis())
+                      || !canIViewOriginal(orig[0])) { fallback.run(); return; }
+              if (!done.compareAndSet(false, true)) return;
+              restore.run();
+              Intent i = new Intent(this, StatusViewerActivity.class);
+              i.putExtra(EXTRA_OWNER_UID, origOwnerUid);
+              i.putExtra(EXTRA_OWNER_NAME, orig[0].ownerName != null ? orig[0].ownerName : (origOwnerName != null ? origOwnerName : ""));
+              i.putExtra(EXTRA_TARGET_STATUS_ID, origStatusId);
+              i.putExtra(EXTRA_SINGLE_STATUS_ONLY, true); // Back goes straight to the reshare, no queue / extra stories
+              startActivity(i); // we stay paused underneath; onResume() resumes when the user comes back
+          };
+          FirebaseUtils.getBlocksRef(myUid).child(origOwnerUid).get()
+              .addOnSuccessListener(b -> { blocked[0] = b.exists(); blockLoaded[0] = true; decide.run(); })
+              .addOnFailureListener(x -> { blockLoaded[0] = true; decide.run(); }); // can't tell → don't block the user
+          if (cached == null) {
+              FirebaseUtils.getStatusRef().child(origOwnerUid).child(origStatusId).get()
+                  .addOnSuccessListener(snap -> {
+                      try { orig[0] = snap.getValue(StatusItem.class); } catch (Exception ignored) {}
+                      statusLoaded[0] = true; decide.run();
+                  })
+                  .addOnFailureListener(x -> { failed[0] = true; statusLoaded[0] = true; decide.run(); });
+          } else decide.run();
+      }
+      /** Audience check from the story's own privacy fields (contacts-only is enforced server-side/by the feed). */
+      private boolean canIViewOriginal(StatusItem o) {
+          if (myUid == null) return false;
+          final List<String> list = o.privacyList;
+          if (StatusPrivacyManager.PRIVACY_ONLY.equals(o.privacy)) return list != null && list.contains(myUid);
+          if (StatusPrivacyManager.PRIVACY_EXCEPT.equals(o.privacy)) return list == null || !list.contains(myUid);
+          if (o.isCloseFriends) return list != null && list.contains(myUid);
+          return true;
+      }
       private void openOriginalCreatorProfile(String uid, String name) {
           if (uid == null || uid.isEmpty()) return;
           try {
@@ -2687,6 +2925,11 @@ import com.callx.app.utils.AlertDialogStyler;
               c.animate().cancel();
               c.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
           }
+          final View rc = reshareContainerView;
+          if (rc != null && rc.getVisibility() == View.VISIBLE) {
+              rc.animate().cancel();
+              rc.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
+          }
           // Reply bubble hides with the rest of the chrome (skip while it is already fading out on its own).
           final View rb = lastReplyBubbleView;
           if (rb != null && lastReplyShown && !lastReplyExiting && rb.getVisibility() == View.VISIBLE) {
@@ -2791,6 +3034,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                       boolean tap = isUp && !flung && !touchMoved
                               && (e.getEventTime() - e.getDownTime()) < TAP_MAX_MS;
+                      if (tap && tryOpenMentionAt(e)) break; // tapped an @username → open profile instead of next/prev
                       if (tap) {
                           if (e.getX() < v.getWidth() * PREV_ZONE_FRACTION) previous(); else next();
                       }
@@ -3143,7 +3387,8 @@ import com.callx.app.utils.AlertDialogStyler;
           if (isHighlightMode) { showHighlightOwnerMoreMenu(); return; }
           StatusItem current = idx < items.size() ? items.get(idx) : null;
           String stabLabel = StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on";
-          String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", stabLabel, "Cancel"};
+          final int mc = current != null && current.mentionNames != null ? current.mentionNames.size() : 0;
+          String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", stabLabel, mc > 0 ? "Mentions (" + mc + ")" : "Mentions", "Cancel"};
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
@@ -3178,6 +3423,8 @@ import com.callx.app.utils.AlertDialogStyler;
                   } else if (w == 5) {
                       runAct(actStabilizer);
                       resumeProgress();
+                  } else if (w == 6) {
+                      showMentionsList(current);
                   } else {
                       resumeProgress();
                   }
@@ -3281,6 +3528,9 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           labels.add(StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on");
           actions.add(() -> { runAct(actStabilizer); resumeProgress(); });
+          if (cur != null && cur.mentionNames != null && !cur.mentionNames.isEmpty()) {
+              labels.add("Mentions (" + cur.mentionNames.size() + ")"); actions.add(() -> showMentionsList(cur));
+          }
           labels.add("Report");    actions.add(() -> { Toast.makeText(this, "Reported", Toast.LENGTH_SHORT).show(); resumeProgress(); });
           labels.add("Cancel");    actions.add(this::resumeProgress);
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)

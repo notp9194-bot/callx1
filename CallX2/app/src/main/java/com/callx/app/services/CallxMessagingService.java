@@ -149,6 +149,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
         } else if ("group_call_missed".equals(type) || "missed_group_call".equals(type)) {
             // FIX-2: "missed_group_call" — PushNotify.notifyMissedGroupCall() se aata hai
             showMissedGroupCallNotification(data);
+        } else if ("status_mention".equals(type)) {
+            showStatusMention(data);
         } else if ("status_reply".equals(type)) {
             showStatusReply(data);
         } else if ("status_reaction".equals(type)) {
@@ -2099,6 +2101,50 @@ public class CallxMessagingService extends FirebaseMessagingService {
             text = t; ts = s; fromMe = me; senderName = sn; senderUid = su;
         }
     }
+    // ─── Status @mention (data-only push from functions: onStatusCreatedMentions) ───
+    // The in-app notification row (statusNotifications) is written server-side, so this only shows the system
+    // notification. Tap opens the viewer on the exact mentioned status.
+    private void showStatusMention(Map<String, String> data) {
+        String fromUid  = data.getOrDefault("fromUid",  "");
+        String name     = data.getOrDefault("fromName", "Someone");
+        String statusId = data.getOrDefault("statusId", "");
+        if (fromUid.isEmpty()) return;
+        Intent i = new Intent(this, com.callx.app.viewer.StatusViewerActivity.class);
+        i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_UID,  fromUid);
+        i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_NAME, name);
+        if (!statusId.isEmpty())
+            i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_TARGET_STATUS_ID, statusId);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pi = PendingIntent.getActivity(this,
+            ("mention_" + fromUid + statusId).hashCode(), i,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        final String thumb = data.getOrDefault("fromThumb", "");
+        final int notifId = ("status_mention_" + fromUid + statusId).hashCode() & 0x7FFFFFFF;
+        final String finalName = name;
+        final String finalBody = data.getOrDefault("body", "mentioned you in their story"); // reshare pushes say "shared your story"
+        final PendingIntent finalPi = pi;
+        bg.execute(() -> {
+            NotificationCompat.Builder b = new NotificationCompat.Builder(this, Constants.CHANNEL_STATUS)
+                .setSmallIcon(R.drawable.ic_status_notification)
+                .setContentTitle(finalName)
+                .setContentText(finalBody)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setGroup("status_mentions") // 4+ mentions collapse into one stack
+                .setAutoCancel(true)
+                .setContentIntent(finalPi);
+            if (!thumb.isEmpty()) {
+                try { // the story itself as the picture, like Instagram's mention push
+                    android.graphics.Bitmap bmp = com.bumptech.glide.Glide.with(getApplicationContext())
+                        .asBitmap().load(thumb).submit(512, 512).get(4, java.util.concurrent.TimeUnit.SECONDS);
+                    b.setLargeIcon(bmp);
+                    b.setStyle(new NotificationCompat.BigPictureStyle().bigPicture(bmp).bigLargeIcon((android.graphics.Bitmap) null));
+                } catch (Exception ignored) { /* text-only notification is fine */ }
+            }
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(notifId, b.build());
+        });
+    }
+
     private void showStatus(Map<String, String> data) {
         String fromUid   = data.getOrDefault("fromUid",   "");
         String name      = data.getOrDefault("fromName",  "Friend");

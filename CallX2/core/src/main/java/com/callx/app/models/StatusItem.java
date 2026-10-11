@@ -239,6 +239,8 @@ public class StatusItem {
     public String resharedFromOwnerName  = "";
     /** Avatar URL of the original creator */
     public String resharedFromOwnerAvatar= "";
+    /** @username of the original owner (resharedFromOwnerName is the display name). Empty on older reshares. */
+    public String resharedFromOwnerUsername = "";
     /** Thumbnail URL of the original content for the card sticker */
     public String resharedThumbnailUrl   = "";
     /** Attribution text e.g. "Originally posted by @username" */
@@ -367,6 +369,8 @@ public class StatusItem {
             m.put("resharedFromOwnerName", resharedFromOwnerName);
         if (resharedFromOwnerAvatar != null && !resharedFromOwnerAvatar.isEmpty())
             m.put("resharedFromOwnerAvatar", resharedFromOwnerAvatar);
+        if (resharedFromOwnerUsername != null && !resharedFromOwnerUsername.isEmpty())
+            m.put("resharedFromOwnerUsername", resharedFromOwnerUsername);
         if (resharedThumbnailUrl != null && !resharedThumbnailUrl.isEmpty())
             m.put("resharedThumbnailUrl", resharedThumbnailUrl);
         if (attribution != null && !attribution.isEmpty())

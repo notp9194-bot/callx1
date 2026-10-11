@@ -442,7 +442,7 @@ public class MediaCropActivity extends AppCompatActivity {
                 if (!dir.exists()) dir.mkdirs();
                 File out = new File(dir, "crop_" + UUID.randomUUID() + ".jpg");
                 try (FileOutputStream fos = new FileOutputStream(out)) {
-                    cropped.compress(Bitmap.CompressFormat.JPEG, 93, fos);
+                    cropped.compress(Bitmap.CompressFormat.JPEG, 98, fos); // near-lossless: later bake/upload stages compress again
                 }
                 cropped.recycle();
 

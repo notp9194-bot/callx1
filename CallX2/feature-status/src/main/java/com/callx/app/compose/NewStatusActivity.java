@@ -186,14 +186,32 @@ public class NewStatusActivity extends AppCompatActivity {
      */
     private boolean pendingAdvanceEditWizardJump = false;
 
+    /** Cropped / baked photo temps (cache/media_crop, cache/media_edit_out) are never deleted elsewhere.
+     *  Age-based (>24h) so an in-progress draft's files are untouched; runs off the main thread. */
+    private void purgeStaleEditTemps() {
+        final java.io.File cache = getCacheDir();
+        new Thread(() -> {
+            final long cutoff = System.currentTimeMillis() - 24L * 3_600_000L;
+            for (String dir : new String[]{"media_crop", "media_edit_out"}) {
+                java.io.File[] fs = new java.io.File(cache, dir).listFiles();
+                if (fs == null) continue;
+                for (java.io.File f : fs) { try { if (f.isFile() && f.lastModified() < cutoff) f.delete(); } catch (Exception ignored) {} }
+            }
+        }, "status-temp-purge").start();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        purgeStaleEditTemps();
         binding = ActivityNewStatusBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         setupToolbar();
         setupMediaPickers();
         setupCameraCapture();
+        // v543: @username suggestions under the status text + caption boxes
+        try { com.callx.app.utils.MentionUi.attachAutocomplete(binding.etText); } catch (Exception ignored) {}
+        try { if (binding.etCaption != null) com.callx.app.utils.MentionUi.attachAutocomplete(binding.etCaption); } catch (Exception ignored) {}
         reelCameraLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 this::handleReelCameraResult);
@@ -1237,6 +1255,31 @@ public class NewStatusActivity extends AppCompatActivity {
         postStatusBatch(uris, videoFlags, cap);
     }
 
+    /** The server skips unknown usernames silently (and never reveals blocks), so tell the owner about
+     *  @names that don't exist at all — checked against the usernames index after a successful post. */
+    private void warnUnresolvedMentions(com.callx.app.models.StatusItem item) {
+        final android.content.Context app = getApplicationContext();
+        java.util.Set<String> names = new java.util.LinkedHashSet<>();
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("@([A-Za-z0-9_]{3,30})");
+        for (String t : new String[]{item.text, item.caption}) {
+            if (t == null) continue;
+            java.util.regex.Matcher m = p.matcher(t);
+            while (m.find()) names.add(m.group(1).toLowerCase());
+        }
+        if (item.stickersJson != null) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\"type\"\\s*:\\s*\"mention\"[^}]*?\"username\"\\s*:\\s*\"([A-Za-z0-9_]{3,30})\"")
+                    .matcher(item.stickersJson);
+            while (m.find()) names.add(m.group(1).toLowerCase());
+        }
+        for (String n : names) {
+            com.callx.app.utils.MentionUserSearch.exists(n, ok -> {
+                if (!ok) android.widget.Toast.makeText(app, "@" + n + " not found \u2014 not mentioned",
+                        android.widget.Toast.LENGTH_LONG).show();
+            });
+        }
+    }
+
     /** v216: AI image prompt dialog — opens text input, result generates an AI image for status. */
     private void showAiImagePromptDialog() {
         android.widget.EditText et = new android.widget.EditText(this);
@@ -2174,15 +2217,8 @@ public class NewStatusActivity extends AppCompatActivity {
         if (!stickersJson.isEmpty()) {
             item.stickersJson = stickersJson;
         }
-        // Mentions
-        if (txt != null && !txt.isEmpty()) {
-            StatusMentionHelper.MentionResult mentions = StatusMentionHelper.extract(txt);
-            if (!mentions.mentionedNames.isEmpty()) {
-                // Store mention names; UID resolution requires backend lookup
-                item.mentionNames = new HashMap<>();
-                for (String n : mentions.mentionedNames) item.mentionNames.put(n, "@" + n);
-            }
-        }
+        // Mentions: uid resolution + notification are done server-side (functions: onStatusCreatedMentions),
+        // which writes status/{owner}/{id}/mentionNames/{username} = uid. The client must not write them.
         // Link metadata
         if ("link".equals(type) && fetchedPreview != null) {
             item.linkUrl         = fetchedPreview.url;
@@ -2221,6 +2257,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 clearDraft();
                 StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt);
                 toast("Status posted!");
+                warnUnresolvedMentions(item);
                 finish();
             })
             .addOnFailureListener(e -> {
@@ -2402,6 +2439,7 @@ public class NewStatusActivity extends AppCompatActivity {
         ref.setValue(item.toMap())
             .addOnSuccessListener(u -> {
                 StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt);
+                warnUnresolvedMentions(item);
                 pendingBatchIndex++;
                 postNextBatchItem();
             })

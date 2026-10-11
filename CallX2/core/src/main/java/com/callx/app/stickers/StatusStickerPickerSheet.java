@@ -653,39 +653,11 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     private void openMentionCreator(Context ctx) {
         int dp = (int) ctx.getResources().getDisplayMetrics().density;
 
-        LinearLayout layout = new LinearLayout(ctx);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
-
-        EditText etUsername = new EditText(ctx);
-        etUsername.setHint("username (without @)");
-        etUsername.setTextSize(15);
-        etUsername.setMaxLines(1);
-        layout.addView(etUsername);
-
-        TextView sub = new TextView(ctx);
-        sub.setText("Tapping this sticker opens their profile.");
-        sub.setTextColor(android.graphics.Color.GRAY);
-        sub.setTextSize(12);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        subLp.topMargin = dp * 10;
-        layout.addView(sub, subLp);
-
-        AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
-            .setTitle("👤 Mention Sticker")
-            .setView(layout)
-            .setPositiveButton("Add to Status", (d, w) -> {
-                String username = etUsername.getText().toString().trim();
-                if (username.startsWith("@")) username = username.substring(1);
-                if (username.isEmpty()) {
-                    Toast.makeText(ctx, "Enter a username to mention", Toast.LENGTH_SHORT).show(); return;
-                }
-                String json = "{\"type\":\"mention\",\"username\":\"" + esc(username) + "\"}";
-                if (listener != null) listener.onSelected(new StickerResult("mention", json));
-            })
-            .setNegativeButton("Cancel", null)
-            .create());
+        // v543: search picker (contacts + username-prefix search, validated) instead of a free-text box.
+        com.callx.app.utils.MentionUi.showPicker(ctx, user -> {
+            String json = "{\"type\":\"mention\",\"username\":\"" + esc(user.username) + "\"}";
+            if (listener != null) listener.onSelected(new StickerResult("mention", json));
+        });
     }
 
     // ─── Hashtag Sticker Creator ────────────────────────────────────────────

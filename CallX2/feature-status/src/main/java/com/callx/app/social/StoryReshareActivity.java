@@ -257,7 +257,16 @@ public class StoryReshareActivity extends AppCompatActivity {
     private void shareToStory() {
         progressBar.setVisibility(View.VISIBLE);
         btnAddStory.setEnabled(false);
+        // The viewer's chip shows "@username" (ownerName is the display name) — resolve it once at share time.
+        if (ownerUid == null || ownerUid.isEmpty()) { doShareToStory(""); return; }
+        FirebaseDatabase.getInstance(Constants.DB_URL).getReference("users").child(ownerUid).child("username")
+                .get().addOnCompleteListener(t -> {
+                    String un = t.isSuccessful() ? t.getResult().getValue(String.class) : null;
+                    doShareToStory(un == null ? "" : un);
+                });
+    }
 
+    private void doShareToStory(String ownerUsername) {
         DatabaseReference ref = FirebaseDatabase.getInstance(Constants.DB_URL).getReference("status").child(myUid).push();
         String reshareId = ref.getKey();
 
@@ -273,6 +282,7 @@ public class StoryReshareActivity extends AppCompatActivity {
         data.put("resharedFromId", contentId);
         data.put("resharedFromOwnerUid", ownerUid);
         data.put("resharedFromOwnerName", ownerName);
+        if (ownerUsername != null && !ownerUsername.isEmpty()) data.put("resharedFromOwnerUsername", ownerUsername);
         data.put("resharedFromOwnerAvatar", ownerAvatar);
         data.put("resharedThumbnailUrl", thumbUrl);
         // BUG FIX (silent-crash-on-repost): the reshare's own "type" is always
