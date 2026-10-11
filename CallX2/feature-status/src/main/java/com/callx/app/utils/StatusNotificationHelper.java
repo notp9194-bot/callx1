@@ -73,9 +73,18 @@ public final class StatusNotificationHelper {
                 Bitmap avatarBmp = null;
                 if (fromPhoto != null && !fromPhoto.isEmpty()) {
                     try {
+                        // Core avatar pipeline: same tiered/versioned URL the tray uses → shared Glide disk/memory entry.
+                        String avatarUrl = null;
+                        try {
+                            long ver = com.callx.app.cache.AvatarVersionSyncManager
+                                    .getInstance(ctx.getApplicationContext()).getCachedVersion(fromUid);
+                            avatarUrl = com.callx.app.cache.StatusAvatarBinder
+                                    .url(ctx.getApplicationContext(), fromPhoto, ver);
+                        } catch (Exception ignored) {}
+                        if (avatarUrl == null || avatarUrl.isEmpty()) avatarUrl = fromPhoto;
                         avatarBmp = Glide.with(ctx.getApplicationContext())
                                 .asBitmap()
-                                .load(fromPhoto)
+                                .load(avatarUrl)
                                 .circleCrop()
                                 .submit(128, 128)
                                 .get();

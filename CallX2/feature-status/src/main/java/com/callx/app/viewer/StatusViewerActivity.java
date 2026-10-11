@@ -69,6 +69,9 @@ import com.callx.app.utils.AlertDialogStyler;
       private static final String DBG = "StatusViewerDbg";
       public static final String EXTRA_OWNER_UID  = "ownerUid";
       public static final String EXTRA_OWNER_NAME = "ownerName";
+      /** Optional — avatar URL the caller already has (status tray). Avoids relying on StatusItem.ownerPhoto. */
+      public static final String EXTRA_OWNER_PHOTO = "ownerPhoto";
+      public static final String EXTRA_QUEUE_OWNER_PHOTOS = "queueOwnerPhotos";
       /** Optional — set by ChatActivity when opened from a reply/reaction
        *  quote-box tap, so the viewer opens directly on the exact status
        *  that was replied/reacted to (WhatsApp jumps to that specific
@@ -240,6 +243,8 @@ import com.callx.app.utils.AlertDialogStyler;
       private FrameLayout textLayerView;          // null until first text status
       private TextView    textStatusTv;
       private View        reshareContainerView;   // null until first reshared status
+      private String      ownerPhotoHint;
+      private final List<String> queueOwnerPhotos = new ArrayList<>();
       private View        quickReactionOverlayView; // null until first swipe-up-to-react
       private View        quickReactionCardView;
       private TextView[]  quickReactionCells;
@@ -248,6 +253,9 @@ import com.callx.app.utils.AlertDialogStyler;
       private static final String[] QUICK_EMOJIS = {
               "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE0D",   // 😂 😮 😍
               "\uD83D\uDE22", "\uD83D\uDC4F", "\uD83D\uDD25" }; // 😢 👏 🔥
+      private static final String[] QUICK_EMOJI_NAMES = {
+              "laughing face", "surprised face", "heart-eyes face",
+              "crying face", "clapping hands", "fire" };
       /** Keeps the scrim exactly above the reply bar while the keyboard moves it. */
       private final View.OnLayoutChangeListener quickReactionBarListener =
               (v, l, t, r, bt, ol, ot, or, ob) -> syncQuickReactionInsets();
@@ -307,8 +315,35 @@ import com.callx.app.utils.AlertDialogStyler;
               if (tv == null) continue;
               tv.setText(QUICK_EMOJIS[i]);
               tv.setTag(QUICK_EMOJIS[i]);
+              tv.setContentDescription("React with " + QUICK_EMOJI_NAMES[i]);
               tv.setOnClickListener(this::onQuickEmojiTapped);
+              tv.setOnTouchListener((cv, ev) -> {
+                  if (quickReactionSent) return false;
+                  switch (ev.getActionMasked()) {
+                      case MotionEvent.ACTION_DOWN:
+                          cv.animate().cancel();
+                          cv.animate().scaleX(0.86f).scaleY(0.86f).alpha(0.75f).setStartDelay(0).setDuration(70).start();
+                          break;
+                      case MotionEvent.ACTION_UP:
+                      case MotionEvent.ACTION_CANCEL:
+                          cv.animate().cancel();
+                          cv.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(0).setDuration(90).start();
+                          break;
+                      default: break;
+                  }
+                  return false; // let the click listener fire
+              });
           }
+          // 2: typing hides the grid (Instagram); clearing the text brings it back.
+          binding.etReply.addTextChangedListener(new android.text.TextWatcher() {
+              @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
+              @Override public void onTextChanged(CharSequence c, int a, int b, int d) {}
+              @Override public void afterTextChanged(android.text.Editable e) {
+                  if (!binding.etReply.hasFocus() || quickReactionSent) return;
+                  if (e == null || e.length() == 0) showQuickReactionUi();
+                  else hideQuickReactionUi();
+              }
+          });
           // Scrim: tap outside the grid or swipe down = dismiss (Instagram). Grid cells consume their own taps.
           final GestureDetector scrimGestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
               @Override public boolean onDown(MotionEvent e) { return true; }
@@ -350,6 +385,9 @@ import com.callx.app.utils.AlertDialogStyler;
           setupEdgeToEdge();
           ownerUid  = getIntent().getStringExtra(EXTRA_OWNER_UID);
           ownerName = getIntent().getStringExtra(EXTRA_OWNER_NAME);
+          ownerPhotoHint = getIntent().getStringExtra(EXTRA_OWNER_PHOTO);
+          List<String> qPhotos = getIntent().getStringArrayListExtra(EXTRA_QUEUE_OWNER_PHOTOS);
+          if (qPhotos != null) queueOwnerPhotos.addAll(qPhotos);
           targetStatusId = getIntent().getStringExtra(EXTRA_TARGET_STATUS_ID);
           highlightAlbumId = getIntent().getStringExtra(EXTRA_HIGHLIGHT_ALBUM_ID);
           isHighlightMode = highlightAlbumId != null && !highlightAlbumId.isEmpty();
@@ -402,6 +440,7 @@ import com.callx.app.utils.AlertDialogStyler;
           spinView.attachTargets(binding.ivStatus, binding.playerView);
           setupStabilizerButton();
           setupMediaRoundedCorners();
+          bindOwnerAvatar(null); // instant: tray's own URL (L2/L3 cache hit), before the status list even loads
           load(ownerUid);
       }
 
@@ -435,11 +474,23 @@ import com.callx.app.utils.AlertDialogStyler;
       // tray row painting it first) is an instant cache hit instead of a
       // fresh network/decode every time.
       private void bindOwnerAvatar(StatusItem item) {
-          if (item.ownerPhoto == null || item.ownerPhoto.isEmpty()) return;
+          // Priority: tray URL (same cache key the tray painted) → item's own → any loaded item with a photo.
+          String photo = ownerPhotoHint;
+          if (photo == null || photo.isEmpty()) photo = item != null ? item.ownerPhoto : null;
+          if ((photo == null || photo.isEmpty()) && !items.isEmpty()) {
+              for (StatusItem it : items) {
+                  if (it != null && it.ownerPhoto != null && !it.ownerPhoto.isEmpty()) { photo = it.ownerPhoto; break; }
+              }
+          }
+          if (photo == null || photo.isEmpty()) {
+              // Never leave the previous person's avatar showing after a queue switch.
+              binding.ivOwner.setImageResource(R.drawable.ic_person);
+              return;
+          }
           long version = com.callx.app.cache.AvatarVersionSyncManager
                   .getInstance(this).getCachedVersion(ownerUid);
           com.callx.app.cache.StatusAvatarBinder.bind(
-                  this, binding.ivOwner, item.ownerPhoto, version, R.drawable.ic_person);
+                  this, binding.ivOwner, photo, version, R.drawable.ic_person);
       }
 
       /** 14dp, resolved once against device density and cached — shared by
@@ -2431,6 +2482,8 @@ import com.callx.app.utils.AlertDialogStyler;
           } else {
               ownerUid  = queueOwnerUids.get(pos);
               ownerName = pos < queueOwnerNames.size() ? queueOwnerNames.get(pos) : ownerUid;
+              ownerPhotoHint = pos < queueOwnerPhotos.size() ? queueOwnerPhotos.get(pos) : null;
+              bindOwnerAvatar(null);
               binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
               if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid))
                   binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
@@ -2604,6 +2657,16 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                       if (captionExpanded) { touchHoldPaused = false; collapseCaption(); break; } // tap outside closes the expanded caption
                       if (touchHoldPaused) { touchHoldPaused = false; resumeProgress(); }
+                      // Slow upward drag (no fling) also opens the reaction grid, like a fast swipe.
+                      if (isUp && !flung && touchMoved && !isQuickReactionOverlayShown()) {
+                          final float udy = e.getRawY() - dragDownRawY;
+                          final float udx = e.getRawX() - dragDownRawX;
+                          final float minUp = 72f * getResources().getDisplayMetrics().density;
+                          if (udy < -minUp && Math.abs(udy) > Math.abs(udx) * 1.2f) {
+                              openQuickReactionOverlay();
+                              break;
+                          }
+                      }
                       boolean tap = isUp && !flung && !touchMoved
                               && (e.getEventTime() - e.getDownTime()) < TAP_MAX_MS;
                       if (tap) {
@@ -2698,11 +2761,19 @@ import com.callx.app.utils.AlertDialogStyler;
           overlay.animate().alpha(1f).setDuration(140).start();
           // staggered pop-in, slight overshoot — each emoji bounces in one after the other
           if (quickReactionCells != null) {
+              final StatusItem curItem = idx < items.size() ? items.get(idx) : null;
+              final String mine = (curItem != null && myUid != null) ? curItem.getReaction(myUid) : null;
               final android.view.animation.OvershootInterpolator pop = new android.view.animation.OvershootInterpolator(2.2f);
               for (int i = 0; i < quickReactionCells.length; i++) {
                   final TextView c = quickReactionCells[i];
                   if (c == null) continue;
                   c.animate().cancel();
+                  final boolean isMine = mine != null && mine.equals(c.getTag());
+                  c.setBackgroundResource(isMine ? R.drawable.bg_quick_reaction_current : 0);
+                  final String nm = QUICK_EMOJI_NAMES[i];
+                  c.setContentDescription(isMine
+                          ? "Your reaction: " + nm + ". Tap to remove"
+                          : "React with " + nm);
                   c.setAlpha(0f); c.setScaleX(0.3f); c.setScaleY(0.3f);
                   c.animate().alpha(1f).scaleX(1f).scaleY(1f)
                           .setStartDelay(40L + i * 35L).setDuration(240).setInterpolator(pop).start();
@@ -2738,8 +2809,15 @@ import com.callx.app.utils.AlertDialogStyler;
           quickReactionSent = true; // ignore double-taps while the pop animation plays
           v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
           v.animate().cancel();
-          v.animate().scaleX(1.7f).scaleY(1.7f).setStartDelay(0).setDuration(110)
+          v.animate().scaleX(1.7f).scaleY(1.7f).alpha(1f).setStartDelay(0).setDuration(110)
                   .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+          if (quickReactionCells != null) {
+              for (TextView c : quickReactionCells) {
+                  if (c == null || c == v) continue;
+                  c.animate().cancel();
+                  c.animate().alpha(0f).scaleX(0.8f).scaleY(0.8f).setStartDelay(0).setDuration(120).start();
+              }
+          }
           sendQuickReaction(tag.toString());          // Firebase + chat bubble + floating burst (burst shows once grid is gone)
           handler.postDelayed(this::closeQuickReactionOverlay, 140);
       }
@@ -2817,7 +2895,11 @@ import com.callx.app.utils.AlertDialogStyler;
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null) return;
               StatusReplyBottomSheet.sendPrivateReply(myUid, ownerUid, ownerName, current, msg);
-              binding.etReply.setText(""); binding.etReply.clearFocus();
+              binding.etReply.clearFocus();   // first: focus listener hides the grid, so setText("") can't re-show it
+              binding.etReply.setText("");
+              android.view.inputmethod.InputMethodManager sentImm =
+                      (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+              if (sentImm != null) sentImm.hideSoftInputFromWindow(binding.etReply.getWindowToken(), 0);
               resumeProgress();
               Toast.makeText(this, "Sent privately", Toast.LENGTH_SHORT).show();
           });

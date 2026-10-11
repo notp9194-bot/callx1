@@ -58,6 +58,8 @@ public class StatusFragment extends BaseFragment {
     // Instagram-style continuous playback queue — see rebuildStatusAdapter().
     private final ArrayList<String> queueOwnerUids  = new ArrayList<>();
     private final ArrayList<String> queueOwnerNames = new ArrayList<>();
+    /** Same avatar URLs the tray already renders — handed to the viewer so its header avatar needs no lookup. */
+    private final ArrayList<String> queueOwnerPhotos = new ArrayList<>();
     private final Map<String, Set<String>>       seenMap   = new HashMap<>();
     private final List<StatusItem>               myStatuses = new ArrayList<>();
 
@@ -160,6 +162,9 @@ public class StatusFragment extends BaseFragment {
                         com.callx.app.viewer.StatusViewerActivity.class);
                     i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_UID, myUid());
                     i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_NAME, "My Status");
+                    com.callx.app.models.StatusItem mine = myStatuses.get(myStatuses.size() - 1);
+                    if (mine != null && mine.ownerPhoto != null && !mine.ownerPhoto.isEmpty())
+                        i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_PHOTO, mine.ownerPhoto);
                     startActivity(i);
                 }
             },
@@ -175,6 +180,10 @@ public class StatusFragment extends BaseFragment {
                 // one's stories finish, instead of just closing.
                 i.putStringArrayListExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_QUEUE_OWNER_UIDS, queueOwnerUids);
                 i.putStringArrayListExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_QUEUE_OWNER_NAMES, queueOwnerNames);
+                i.putStringArrayListExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_QUEUE_OWNER_PHOTOS, queueOwnerPhotos);
+                int qp = queueOwnerUids.indexOf(ownerUid);
+                if (qp >= 0 && qp < queueOwnerPhotos.size())
+                    i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_PHOTO, queueOwnerPhotos.get(qp));
                 startActivity(i);
             },
             (ownerUid, ownerName, isMuted) -> showContactContextMenu(ownerUid, ownerName, isMuted)
@@ -664,8 +673,9 @@ public class StatusFragment extends BaseFragment {
         // just closing.
         queueOwnerUids.clear();
         queueOwnerNames.clear();
-        for (StatusListAdapter.Entry en : unseen) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); }
-        for (StatusListAdapter.Entry en : seen)   { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); }
+        queueOwnerPhotos.clear();
+        for (StatusListAdapter.Entry en : unseen) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
+        for (StatusListAdapter.Entry en : seen)   { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
         statusAdapter.update(unseen, seen, muted, hidden.size());
         if (mediaPreloader != null) {
             for (StatusListAdapter.Entry en : unseen) {

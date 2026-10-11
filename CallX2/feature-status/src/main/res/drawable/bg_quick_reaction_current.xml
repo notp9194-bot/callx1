@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ring marking the emoji the viewer already reacted with (tap again = remove). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#33FFFFFF"/>
+    <stroke android:width="2dp" android:color="#FFFFFF"/>
+</shape>
