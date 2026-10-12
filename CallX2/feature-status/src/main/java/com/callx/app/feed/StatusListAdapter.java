@@ -261,6 +261,7 @@ package com.callx.app.feed;
           Entry  entry;
           List<CardItem> carouselItems; // v27: populated only for ITEM_CAROUSEL
           boolean loaded = true;        // statusLoaded at build time (skeleton vs real cards)
+          String  emptyQuery;           // non-null: search matched nothing -> carousel shows the "no results" line
           FlatItem(int k, String h, Entry e) { kind = k; header = h; entry = e; }
           FlatItem(int k, List<CardItem> cards) { kind = k; carouselItems = cards; }
       }
@@ -283,6 +284,9 @@ package com.callx.app.feed;
       private int lastHiddenCount    = 0; // v236
       /** false only between beginInitialLoad() and the first update() — carousel shows skeleton cards meanwhile. */
       private boolean statusLoaded = true;
+      /** Non-empty = the search matched no statuses at all; the carousel shows a "no results" line. Call before update(). */
+      public void setSearchEmptyQuery(String q) { searchEmptyQuery = (q == null || q.isEmpty()) ? null : q; }
+      private String searchEmptyQuery;
       public void beginInitialLoad() { statusLoaded = false; rebuildFlatList(items); }
       private Runnable onHiddenCardClick; // v236
       private final SimpleDateFormat timeFmt =
@@ -351,8 +355,7 @@ package com.callx.app.feed;
           if (seen   != null) for (Entry e : seen)   if (e.ownerUid != null) verifyUids.add(e.ownerUid);
           if (muted  != null) for (Entry e : muted)  if (e.ownerUid != null) verifyUids.add(e.ownerUid);
           com.callx.app.utils.VerifiedBadgeUtils.prefetch(verifyUids);
-          List<FlatItem> next = buildFlatItems(unseen, seen, muted, hiddenCount);
-          dispatchDiff(next, prevMyCount);
+          requestRebuild(prevMyCount);
       }
 
       // v27: builds the "My status" tile + all contact statuses into one CardItem list
@@ -376,7 +379,7 @@ package com.callx.app.feed;
           try { String p = com.callx.app.utils.FirebaseUtils.getCurrentPhotoUrl(); return nz(p) ? p : null; }
           catch (Exception e) { return null; }
       }
-      private List<CardItem> buildCarouselItems(List<Entry> unseen, List<Entry> seen, int hiddenCount) {
+      private List<CardItem> buildCarouselItems(List<Entry> unseen, List<Entry> seen, int hiddenCount, List<StatusItem> myStatuses) {
           List<CardItem> cards = new ArrayList<>();
           if (myStatuses.isEmpty()) {
               cards.add(new CardItem(true, false, myUid, "My Status", myPhotoFallback(null), null, null, false, false));
@@ -421,7 +424,9 @@ package com.callx.app.feed;
           return AvatarVersionSyncManager.getInstance(ctx).getCachedVersion(ownerUid);
       }
 
-      private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted, int hiddenCount) {
+      private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted, int hiddenCount,
+                                             List<StatusItem> myStatuses, List<HighlightAlbum> highlights, boolean statusLoaded,
+                                             String emptyQuery) {
           List<FlatItem> next = new ArrayList<>();
           // FIX: Highlights strip at very top (if any exist)
           if (!highlights.isEmpty()) {
@@ -429,8 +434,9 @@ package com.callx.app.feed;
           }
           // v27: My-status + contacts now render as one horizontal card carousel
           // v236: trailing "Hidden" tile appended inside the carousel when hiddenCount > 0
-          FlatItem carouselItem = new FlatItem(ITEM_CAROUSEL, buildCarouselItems(unseen, seen, hiddenCount));
+          FlatItem carouselItem = new FlatItem(ITEM_CAROUSEL, buildCarouselItems(unseen, seen, hiddenCount, myStatuses));
           carouselItem.loaded = statusLoaded;
+          carouselItem.emptyQuery = emptyQuery;
           next.add(carouselItem);
           if (!muted.isEmpty()) {
               next.add(new FlatItem(ITEM_MUT_HDR, "Muted", null));
@@ -444,13 +450,13 @@ package com.callx.app.feed;
           // rather than re-parsing the flat list (carousel no longer exposes rows).
           final int prevMyCount = myStatusCount;
           myStatusCount = myStatuses.size();
-          List<FlatItem> next = buildFlatItems(lastUnseen, lastSeen, lastMuted, lastHiddenCount);
-          dispatchDiff(next, prevMyCount);
+          requestRebuild(prevMyCount);
       }
 
       /** Perf: skip the carousel re-bind (+ nested diff + Glide prefetch) when nothing visible changed. */
       private static boolean carouselSame(FlatItem o, FlatItem n) {
           if (o.loaded != n.loaded) return false;
+          if (!java.util.Objects.equals(o.emptyQuery, n.emptyQuery)) return false;
           List<CardItem> a = o.carouselItems, b = n.carouselItems;
           if (a == null || b == null || a.size() != b.size()) return false;
           for (int i = 0; i < a.size(); i++) {
@@ -459,10 +465,49 @@ package com.callx.app.feed;
           return true;
       }
 
-      private void dispatchDiff(List<FlatItem> next, int prevMyCount) {
+      // ── Async list build + diff ───────────────────────────────────────────
+      // buildFlatItems (O(n) CardItem allocs) + the outer DiffUtil (carouselSame is O(n)) used to run on the main
+      // thread on every status tick. They now run on one background thread over a SNAPSHOT of the state; only the
+      // cheap `items = next; dispatchUpdatesTo()` is applied on main. Latest request wins (listGen), older results
+      // are dropped. The very first build (items empty) stays synchronous so first paint never waits a thread hop.
+      private static final java.util.concurrent.ExecutorService LIST_EXEC =
+              java.util.concurrent.Executors.newSingleThreadExecutor();
+      private static final android.os.Handler LIST_MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
+      private volatile int listGen = 0;
+
+      private static <T> List<T> snap(List<T> l) { return l == null ? new ArrayList<>() : new ArrayList<>(l); }
+
+      private void requestRebuild(final int prevMyCount) {
+          final int gen = ++listGen;
           final List<FlatItem> old = items;
-          final int fPrevMyCount = prevMyCount;
-          DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+          final List<Entry> u = snap(lastUnseen), s = snap(lastSeen), m = snap(lastMuted);
+          final int hidden = lastHiddenCount;
+          final List<StatusItem> mine = snap(myStatuses);   // fragment mutates myStatuses in place
+          final List<HighlightAlbum> hl = highlights;       // replaced, never mutated
+          final boolean loaded = statusLoaded;
+          final String eq = searchEmptyQuery;
+          final int myCount = myStatusCount;
+          if (old.isEmpty()) {
+              final List<FlatItem> next = buildFlatItems(u, s, m, hidden, mine, hl, loaded, eq);
+              items = next;
+              computeDiff(old, next, prevMyCount, myCount).dispatchUpdatesTo(this);
+              return;
+          }
+          LIST_EXEC.execute(() -> {
+              if (gen != listGen) return; // already superseded: skip the work
+              final List<FlatItem> next = buildFlatItems(u, s, m, hidden, mine, hl, loaded, eq);
+              final DiffUtil.DiffResult diff = computeDiff(old, next, prevMyCount, myCount);
+              LIST_MAIN.post(() -> {
+                  if (gen != listGen || items != old) return; // newer request (or sync path) won
+                  items = next;
+                  diff.dispatchUpdatesTo(this);
+              });
+          });
+      }
+
+      private static DiffUtil.DiffResult computeDiff(final List<FlatItem> old, final List<FlatItem> next,
+                                                     final int prevMyCount, final int myCount) {
+          return DiffUtil.calculateDiff(new DiffUtil.Callback() {
               @Override public int getOldListSize() { return old.size(); }
               @Override public int getNewListSize() { return next.size(); }
               @Override public boolean areItemsTheSame(int op, int np) {
@@ -479,7 +524,7 @@ package com.callx.app.feed;
               }
               @Override public boolean areContentsTheSame(int op, int np) {
                   FlatItem o = old.get(op), n = next.get(np);
-                  if (o.kind == ITEM_HIGHLIGHTS) return highlights.size() == highlights.size(); // always false = re-bind
+                  if (o.kind == ITEM_HIGHLIGHTS) return false; // re-bind: HighlightAlbumAdapter.setAlbums() diffs, so this is cheap
                   if (o.kind == ITEM_CAROUSEL) return carouselSame(o, n); // re-bind only if cards/skeleton state changed
                   if (o.kind == ITEM_ROW || o.kind == ITEM_MUT_ROW) {
                       if (o.entry == null || n.entry == null) return false;
@@ -490,12 +535,10 @@ package com.callx.app.feed;
                           && o.entry.isCloseFriend == n.entry.isCloseFriend
                           && java.util.Objects.equals(o.entry.latestReaction, n.entry.latestReaction);
                   }
-                  if (o.kind == ITEM_MY) return myStatusCount == fPrevMyCount;
+                  if (o.kind == ITEM_MY) return myCount == prevMyCount;
                   return true;
               }
           });
-          items = next;
-          diff.dispatchUpdatesTo(this);
       }
 
       // ── Adapter ───────────────────────────────────────────────────────────
@@ -585,7 +628,7 @@ package com.callx.app.feed;
               case TYPE_MUTED_HEADER:
                   return new HeaderVH(li.inflate(R.layout.item_status_header, parent, false));
               default:
-                  return new ContactVH(li.inflate(R.layout.item_status, parent, false));
+                  return newContactVH(li.inflate(R.layout.item_status, parent, false));
           }
       }
 
@@ -594,26 +637,56 @@ package com.callx.app.feed;
           FlatItem fi = items.get(pos);
           Context ctx = holder.itemView.getContext();
           if (holder instanceof HighlightsVH) bindHighlights((HighlightsVH) holder, ctx);
-          else if (holder instanceof CarouselVH) bindCarousel((CarouselVH) holder, fi.carouselItems);
+          else if (holder instanceof CarouselVH) bindCarousel((CarouselVH) holder, fi.carouselItems, fi.emptyQuery);
           else if (holder instanceof MyStatusVH) bindMyStatus((MyStatusVH) holder, ctx);
           else if (holder instanceof HeaderVH) {
-              String label = fi.kind == ITEM_MUT_HDR ? "\uD83D\uDD07 Muted" : fi.header;
+              String label = fi.kind == ITEM_MUT_HDR ? "\uD83D\uDD07 " + ctx.getString(R.string.status_section_muted) : fi.header;
               ((HeaderVH) holder).tvHeader.setText(label);
           } else bindContact((ContactVH) holder, fi.entry, ctx, fi.kind == ITEM_MUT_ROW);
       }
 
+      // Click/long-press listeners are set once per holder; bindContact() only updates h.entry / h.muted.
+      private ContactVH newContactVH(View v) {
+          final ContactVH h = new ContactVH(v);
+          h.itemView.setOnClickListener(x -> {
+              final Entry e = h.entry;
+              if (e == null) return;
+              if (!h.muted) {
+                  if (onContactClick != null) onContactClick.onClick(e.ownerUid, e.ownerName);
+              } else {
+                  android.widget.Toast.makeText(x.getContext(),
+                          x.getContext().getString(R.string.status_card_muted_toast, e.ownerName != null ? e.ownerName : ""),
+                          android.widget.Toast.LENGTH_SHORT).show();
+              }
+          });
+          h.itemView.setOnLongClickListener(x -> {
+              final Entry e = h.entry;
+              if (e == null) return false;
+              if (onLongPress != null) onLongPress.onLongPress(e.ownerUid, e.ownerName, h.muted);
+              return true;
+          });
+          return h;
+      }
+
       // ── FIX: Highlights ViewHolder ────────────────────────────────────────
       private void bindHighlights(HighlightsVH h, Context ctx) {
-          h.rvHighlights.setLayoutManager(
-                  new LinearLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, false));
-          HighlightAlbumAdapter albumAdapter = new HighlightAlbumAdapter(highlights, album -> {
-              if (onHighlightClick != null) onHighlightClick.onClick(album);
-          });
-          h.rvHighlights.setAdapter(albumAdapter);
+          if (h.albumAdapter == null) {
+              // One-time setup (was: new LayoutManager + adapter on every bind).
+              LinearLayoutManager lm = new LinearLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, false);
+              lm.setInitialPrefetchItemCount(4);
+              h.rvHighlights.setLayoutManager(lm);
+              h.albumAdapter = new HighlightAlbumAdapter(highlights, album -> {
+                  if (onHighlightClick != null) onHighlightClick.onClick(album);
+              });
+              h.rvHighlights.setAdapter(h.albumAdapter);
+          } else {
+              h.albumAdapter.setAlbums(highlights); // DiffUtil: no-op when nothing changed
+          }
       }
 
       // ── v27: Status carousel (horizontal, WhatsApp-style cards) ────────────
-      private void bindCarousel(CarouselVH h, List<CardItem> cards) {
+      private void bindCarousel(CarouselVH h, List<CardItem> cards, String emptyQuery) {
+          h.bindEmpty(emptyQuery);
           if (cards == null) cards = new ArrayList<>();
           if (h.cardAdapter == null) {
               // One-time setup: persistent adapter (DiffUtil updates keep scroll position + avoid flicker).
@@ -684,8 +757,8 @@ package com.callx.app.feed;
 
           if (myStatuses.isEmpty()) {
               h.ring.setVisibility(View.GONE);
-              h.tvName.setText("My Status");
-              h.tvSub.setText("Tap to add status update");
+              h.tvName.setText(R.string.status_card_my_status);
+              h.tvSub.setText(R.string.status_my_tap_to_add);
               h.ivAvatar.setImageResource(R.drawable.ic_person);
               if (h.ivThumb != null) h.ivThumb.setVisibility(View.GONE);
               h.itemView.setOnClickListener(v -> { if (onAddStatusClick != null) onAddStatusClick.run(); });
@@ -693,10 +766,11 @@ package com.callx.app.feed;
               StatusItem latest = myStatuses.get(myStatuses.size() - 1);
               h.ring.setVisibility(View.VISIBLE);
               applyRingStyle(h.ring, latest, ctx, false);
-              h.tvName.setText("My Status");
+              h.tvName.setText(R.string.status_card_my_status);
               String timeSub = timeFmt.format(new java.util.Date(latest.timestamp != null ? latest.timestamp : 0));
-              h.tvSub.setText(timeSub + " \u00B7 " + myStatuses.size() + " update"
-                      + (myStatuses.size() > 1 ? "s" : "") + " \u00B7 " + latest.getExpiryLabel());
+              h.tvSub.setText(timeSub + " \u00B7 "
+                      + ctx.getResources().getQuantityString(R.plurals.status_my_updates, myStatuses.size(), myStatuses.size())
+                      + " \u00B7 " + latest.getExpiryLabel());
               // FIX (deep avatar pipeline): shared AvatarSizeTier + density/
               // WebP-AVIF aware URL, L2/L3 reuse, and blur-up thumbnail —
               // see StatusAvatarBinder class doc. This row is always bound
@@ -805,6 +879,19 @@ package com.callx.app.feed;
           if (h.ivThumb != null) {
               StatusItem latest = e.latestItem;
               String url = latest != null ? (latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl) : null;
+              // Muted rows: 8dp rounded thumbnail (clip via outline; reset for recycled non-muted rows).
+              if (isMuted) {
+                  final float r8 = 8f * ctx.getResources().getDisplayMetrics().density;
+                  h.ivThumb.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                      @Override public void getOutline(View view, android.graphics.Outline o) {
+                          o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), r8);
+                      }
+                  });
+                  h.ivThumb.setClipToOutline(true);
+              } else {
+                  h.ivThumb.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+                  h.ivThumb.setClipToOutline(false);
+              }
               if (url != null && !url.isEmpty()) {
                   h.ivThumb.setVisibility(View.VISIBLE);
                   Glide.with(ctx).load(url).centerCrop().override(480, 853).into(h.ivThumb);
@@ -818,24 +905,16 @@ package com.callx.app.feed;
               } else h.tvReaction.setVisibility(View.GONE);
           }
 
-          h.itemView.setOnClickListener(v -> {
-              if (!isMuted && onContactClick != null)
-                  onContactClick.onClick(e.ownerUid, e.ownerName);
-              else if (isMuted)
-                  android.widget.Toast.makeText(ctx,
-                          e.ownerName + " is muted. Long press to unmute.",
-                          android.widget.Toast.LENGTH_SHORT).show();
-          });
-          h.itemView.setOnLongClickListener(v -> {
-              if (onLongPress != null) onLongPress.onLongPress(e.ownerUid, e.ownerName, isMuted);
-              return true;
-          });
+          // Listeners live in newContactVH(); just hand them the current entry.
+          h.entry = e;
+          h.muted = isMuted;
       }
 
       // ── ViewHolders ───────────────────────────────────────────────────────
       // FIX: new HighlightsVH
       static class HighlightsVH extends RecyclerView.ViewHolder {
           RecyclerView rvHighlights;
+          HighlightAlbumAdapter albumAdapter;
           HighlightsVH(View v) {
               super(v);
               rvHighlights = v.findViewById(R.id.rv_highlights);
@@ -851,6 +930,13 @@ package com.callx.app.feed;
           Runnable skeletonTimeout;
           View fadeL, fadeR;
           /** Shows each edge fade only while the list can actually scroll that way (and is visible). */
+          TextView tvEmpty;
+          void bindEmpty(String q) {
+              if (tvEmpty == null) return;
+              if (q == null) { if (tvEmpty.getVisibility() != View.GONE) tvEmpty.setVisibility(View.GONE); return; }
+              tvEmpty.setText(tvEmpty.getResources().getString(R.string.status_search_no_results, q));
+              tvEmpty.setVisibility(View.VISIBLE);
+          }
           void updateFades() {
               if (fadeL == null || fadeR == null) return;
               final boolean vis = rvCarousel.getVisibility() == View.VISIBLE;
@@ -892,6 +978,7 @@ package com.callx.app.feed;
               super(v);
               rvCarousel = v.findViewById(R.id.rv_status_carousel);
               llSkeleton = v.findViewById(R.id.ll_status_skeleton);
+              tvEmpty    = v.findViewById(R.id.tv_carousel_empty);
               // v561: title moved to the top bar (fragment_status.xml); no tv_carousel_title here anymore.
               // Skeleton safety-net timeout must not outlive the view: cancel on detach, re-arm on attach
               // if the skeleton is still showing (offline / never-arriving data would otherwise stick forever).
@@ -951,6 +1038,8 @@ package com.callx.app.feed;
           ImageView ring, ivThumb;
           TextView tvName, tvTime, tvSub, tvBadge, tvReaction, tvCfBadge; // FIX: tvCfBadge added
           android.widget.ImageView ivVerified;
+          Entry entry;      // current bind (read by the once-set listeners)
+          boolean muted;
           ContactVH(View v) {
               super(v);
               ivAvatar   = v.findViewById(R.id.iv_avatar);
@@ -968,18 +1057,46 @@ package com.callx.app.feed;
 
       // ── Inner adapter for highlights horizontal strip ──────────────────────
       static class HighlightAlbumAdapter extends RecyclerView.Adapter<HighlightAlbumAdapter.VH> {
-          private final List<HighlightAlbum> albums;
+          private List<HighlightAlbum> albums;
           private final java.util.function.Consumer<HighlightAlbum> onClick;
           HighlightAlbumAdapter(List<HighlightAlbum> albums, java.util.function.Consumer<HighlightAlbum> onClick) {
-              this.albums = albums; this.onClick = onClick;
+              this.albums = albums != null ? albums : new ArrayList<>(); this.onClick = onClick;
+          }
+          /** Tiny list: diff on the main thread is cheaper than a full rebind of every album. */
+          void setAlbums(List<HighlightAlbum> next) {
+              if (next == null) next = new ArrayList<>();
+              final List<HighlightAlbum> old = albums;
+              if (old == next) return;
+              final List<HighlightAlbum> nn = next;
+              androidx.recyclerview.widget.DiffUtil.DiffResult r = androidx.recyclerview.widget.DiffUtil.calculateDiff(
+                      new androidx.recyclerview.widget.DiffUtil.Callback() {
+                          @Override public int getOldListSize() { return old.size(); }
+                          @Override public int getNewListSize() { return nn.size(); }
+                          @Override public boolean areItemsTheSame(int o, int n) {
+                              return java.util.Objects.equals(old.get(o).albumId, nn.get(n).albumId);
+                          }
+                          @Override public boolean areContentsTheSame(int o, int n) {
+                              final HighlightAlbum a = old.get(o), b = nn.get(n);
+                              return java.util.Objects.equals(a.title, b.title)
+                                      && java.util.Objects.equals(a.coverUrl, b.coverUrl)
+                                      && java.util.Objects.equals(a.ringColor, b.ringColor)
+                                      && java.util.Objects.equals(a.ringMode, b.ringMode);
+                          }
+                      }, false);
+              albums = nn;
+              r.dispatchUpdatesTo(this);
           }
           @NonNull @Override
           public VH onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
-              return new VH(LayoutInflater.from(parent.getContext())
+              final VH h = new VH(LayoutInflater.from(parent.getContext())
                       .inflate(R.layout.item_highlight_album, parent, false));
+              // Listener set once per holder (was: a new lambda on every bind).
+              h.itemView.setOnClickListener(v -> { if (h.album != null) onClick.accept(h.album); });
+              return h;
           }
           @Override public void onBindViewHolder(@NonNull VH h, int pos) {
               HighlightAlbum a = albums.get(pos);
+              h.album = a;
               Context ctx = h.itemView.getContext();
               h.tvTitle.setText(a.title);
               if (a.coverUrl != null && !a.coverUrl.isEmpty())
@@ -998,13 +1115,13 @@ package com.callx.app.feed;
                   h.ivRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
                           .withStrokeDp(2.5f, density));
               }
-              h.itemView.setOnClickListener(v -> onClick.accept(a));
           }
           @Override public int getItemCount() { return albums.size(); }
           static class VH extends RecyclerView.ViewHolder {
               CircleImageView ivCover;
               ImageView ivRing;
               TextView tvTitle;
+              HighlightAlbum album;
               VH(View v) {
                   super(v);
                   ivCover = v.findViewById(R.id.iv_highlight_cover);
@@ -1470,6 +1587,8 @@ package com.callx.app.feed;
               h.tvPreview.setVisibility(View.GONE);
               h.ivType.setVisibility(c.isVideo() ? View.VISIBLE : View.GONE);
               h.ivMuted.setVisibility(c.isMuted ? View.VISIBLE : View.GONE);
+              // Stack under the video badge only when it is shown (20dp badge + 6dp gap); translation = no relayout.
+              h.ivMuted.setTranslationY(c.isVideo() ? 26f * dens : 0f);
               final String bgUrl = c.isTextCard() ? null : bgUrlFor(ctx, c);
               if (c.isTextCard()) {
                   // Text status: its own colour/gradient + a short preview, like the status itself.

@@ -56,4 +56,16 @@
 
     </com.callx.app.feed.NestedScrollableHost>
 
+    <!-- Search produced no matches (driven by StatusListAdapter#setSearchEmptyQuery) -->
+    <TextView
+        android:id="@+id/tv_carousel_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="12dp"
+        android:textSize="14sp"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:visibility="gone"/>
+
 </LinearLayout>

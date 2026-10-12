@@ -810,6 +810,9 @@ public class StatusFragment extends BaseFragment {
         queueOwnerPhotos.clear();
         for (StatusListAdapter.Entry en : unseen) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
         for (StatusListAdapter.Entry en : seen)   { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
+        // Search matched nothing anywhere (carousel, Muted section, Hidden): show a "no results" line.
+        statusAdapter.setSearchEmptyQuery(!searchQuery.isEmpty() && unseen.isEmpty() && seen.isEmpty()
+                && muted.isEmpty() && hidden.isEmpty() ? searchQuery : null);
         statusAdapter.update(unseen, seen, muted, hidden.size());
         nextLabelChangeMs = computeNextLabelChangeMs(System.currentTimeMillis());
         if (mediaPreloader != null) {

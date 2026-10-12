@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Loading placeholder, same outer box/margins as item_status_card.xml -->
+<!-- Loading placeholder. Spacing matches the REAL carousel cards: StatusCardAdapter#onCreateViewHolder zeroes the
+     card's side margins, so the gap is just the 8dp CardGapDecoration and the first card starts at the RV padding. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="@dimen/status_card_width"
     android:layout_height="@dimen/status_card_height"

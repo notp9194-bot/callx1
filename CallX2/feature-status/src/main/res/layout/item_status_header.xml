@@ -9,4 +9,4 @@
     android:textStyle="bold"
     android:textColor="?attr/colorOnSurfaceVariant"
     android:background="?attr/colorSurface"
-    android:text="Recent updates"/>
+    android:text="@string/status_section_recent"/>

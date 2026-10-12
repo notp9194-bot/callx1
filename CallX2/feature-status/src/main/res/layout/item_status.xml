@@ -71,7 +71,7 @@
                   android:layout_marginStart="3dp"
                   android:src="@drawable/ic_verified_pink"
                   android:visibility="gone"
-                  android:contentDescription="Verified"/>
+                  android:contentDescription="@string/status_verified_cd"/>
 
               <!-- FIX NEW: Close Friends star badge -->
               <TextView

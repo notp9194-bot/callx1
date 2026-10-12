@@ -15,7 +15,7 @@
              the title/icon for the inline search field in this SAME row (no separate full-width search bar). -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:layout_marginTop="4dp"
@@ -62,7 +62,7 @@
                     android:layout_height="match_parent"
                     android:paddingStart="44dp"
                     android:paddingEnd="40dp"
-                    android:hint="Search statuses…"
+                    android:hint="@string/status_search_hint"
                     android:singleLine="true"
                     android:imeOptions="actionSearch"
                     android:inputType="text"
@@ -81,7 +81,7 @@
                     android:tint="?attr/colorOnSurfaceVariant"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:padding="8dp"
-                    android:contentDescription="Close search"/>
+                    android:contentDescription="@string/status_search_close"/>
             </FrameLayout>
 
             <ImageButton
@@ -92,7 +92,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="10dp"
                 android:tint="?attr/colorOnSurfaceVariant"
-                android:contentDescription="Search statuses"/>
+                android:contentDescription="@string/status_search_open"/>
 
             <!-- Status privacy shortcut (v51) -->
             <ImageButton
@@ -105,7 +105,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="10dp"
                 android:tint="?attr/colorOnSurfaceVariant"
-                android:contentDescription="Who can see my status"/>
+                android:contentDescription="@string/status_privacy_shortcut_cd"/>
 
         </LinearLayout>
 
@@ -146,7 +146,7 @@
             app:backgroundTint="@android:color/white"
             app:tint="#4A4A4A"
             app:elevation="3dp"
-            android:contentDescription="Text status"/>
+            android:contentDescription="@string/status_fab_text_cd"/>
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_camera_status"
@@ -156,7 +156,7 @@
             app:backgroundTint="#25D366"
             app:tint="@android:color/white"
             app:elevation="4dp"
-            android:contentDescription="Camera status"/>
+            android:contentDescription="@string/status_fab_camera_cd"/>
 
     </LinearLayout>
 
@@ -171,7 +171,7 @@
         android:background="?attr/selectableItemBackgroundBorderless"
         android:padding="8dp"
         android:tint="?attr/colorOnSurfaceVariant"
-        android:contentDescription="Archive"
+        android:contentDescription="@string/status_archive_cd"
         android:visibility="visible"/>
 
     <!-- Scheduled statuses shortcut: sits right next to the Archive icon -->
@@ -186,7 +186,7 @@
         android:background="?attr/selectableItemBackgroundBorderless"
         android:padding="8dp"
         android:tint="?attr/colorOnSurfaceVariant"
-        android:contentDescription="Scheduled statuses"
+        android:contentDescription="@string/status_scheduled_cd"
         android:visibility="visible"/>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

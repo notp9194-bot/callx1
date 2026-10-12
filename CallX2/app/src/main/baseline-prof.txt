@@ -199,12 +199,24 @@ HSPLcom/callx/app/feed/StatusListAdapter$StatusCardAdapter;->*(**)**
 HSPLcom/callx/app/feed/StatusListAdapter$StatusCardAdapter$VH;-><init>(**)V
 HSPLcom/callx/app/feed/StatusListAdapter$CardItem;->*(**)**
 HSPLcom/callx/app/feed/StatusListAdapter$CardGapDecoration;->*(**)**
+# v565 carousel scroll path (VH bind helpers, snap, highlights strip, contact rows)
+HSPLcom/callx/app/feed/StatusListAdapter$StatusCardAdapter$VH;->*(**)**
+HSPLcom/callx/app/feed/StatusListAdapter$CarouselVH;->*(**)**
+HSPLcom/callx/app/feed/StatusListAdapter$HighlightAlbumAdapter;->*(**)**
+HSPLcom/callx/app/feed/StatusListAdapter$HighlightAlbumAdapter$VH;->*(**)**
+HSPLcom/callx/app/feed/StatusListAdapter$HighlightsVH;->*(**)**
+HSPLcom/callx/app/feed/StatusListAdapter$ContactVH;->*(**)**
+HSPLcom/callx/app/feed/StatusCardStartSnapHelper;->*(**)**
 HSPLcom/callx/app/cache/StatusAvatarBinder;->*(**)**
 HSPLcom/callx/app/utils/StatusSegmentedRingDrawable;->*(**)**
 HSPLcom/callx/app/utils/StoryRingGradientDrawable;->*(**)**
 Lcom/callx/app/feed/StatusListAdapter$StatusCardAdapter;
 Lcom/callx/app/feed/StatusListAdapter$StatusCardAdapter$VH;
 Lcom/callx/app/feed/StatusListAdapter$CardItem;
+Lcom/callx/app/feed/StatusListAdapter$CarouselVH;
+Lcom/callx/app/feed/StatusListAdapter$HighlightAlbumAdapter;
+Lcom/callx/app/feed/StatusListAdapter$HighlightAlbumAdapter$VH;
+Lcom/callx/app/feed/StatusCardStartSnapHelper;
 HSPLcom/callx/app/cache/StatusMediaPreloader;-><init>(**)V
 HSPLcom/callx/app/cache/StatusVideoCacheManager;->*(**)V
 HSPLcom/callx/app/interactions/StatusReactionBottomSheet;->*(**)V

@@ -61,13 +61,13 @@
                 android:background="@drawable/bg_status_card_type_badge"
                 android:visibility="gone"/>
 
-            <!-- Muted badge (top-end, under the video badge — top-start is the avatar) -->
+            <!-- Muted badge (top-end; bound code shifts it 26dp down via translationY only when the video badge is shown) -->
             <ImageView
                 android:id="@+id/iv_card_muted"
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:layout_gravity="top|end"
-                android:layout_marginTop="34dp"
+                android:layout_marginTop="8dp"
                 android:layout_marginEnd="8dp"
                 android:padding="3dp"
                 android:src="@drawable/ic_status_card_muted"
@@ -114,8 +114,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
-                    android:textColor="#D9FFFFFF"
-                    android:textSize="10.5sp"
+                    android:textColor="#F2FFFFFF"
+                    android:textSize="11sp"
                     android:maxLines="1"
                     android:visibility="gone"/>
             </LinearLayout>

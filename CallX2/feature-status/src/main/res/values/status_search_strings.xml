@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- %1$s = the text typed in the status search field -->
+    <string name="status_search_no_results">No statuses found for \u201c%1$s\u201d</string>
+
+    <string name="status_search_hint">Search statuses\u2026</string>
+    <string name="status_search_close">Close search</string>
+    <string name="status_search_open">Search statuses</string>
+    <string name="status_privacy_shortcut_cd">Who can see my status</string>
+    <string name="status_fab_text_cd">Text status</string>
+    <string name="status_fab_camera_cd">Camera status</string>
+    <string name="status_archive_cd">Archive</string>
+    <string name="status_scheduled_cd">Scheduled statuses</string>
+    <string name="status_verified_cd">Verified</string>
+    <string name="status_section_recent">Recent updates</string>
+    <string name="status_section_highlights">Highlights</string>
+    <string name="status_section_muted">Muted</string>
+    <string name="status_my_tap_to_add">Tap to add status update</string>
+    <plurals name="status_my_updates">
+        <item quantity="one">%d update</item>
+        <item quantity="other">%d updates</item>
+    </plurals>
+</resources>

@@ -153,6 +153,7 @@ class CallXBaselineProfileGenerator {
     ) {
         journeyChatListStartup()
         journeyOpenStatusTab()
+        journeyScrollStatusCarousel()
     }
 
     // v509: StatusViewerActivity (opened off a status ring) had no journey at all — open,
@@ -295,6 +296,16 @@ private fun MacrobenchmarkScope.journeyOpenStatusTab() {
         ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView")) ?: return
     rv.scroll(Direction.DOWN, 0.7f, 800)
     Thread.sleep(300)
+}
+
+// v565: horizontal status-card carousel (StatusCardAdapter bind / preloader / snap helper) had no profile coverage.
+private fun MacrobenchmarkScope.journeyScrollStatusCarousel() {
+    val carousel = device.findObject(By.res(TARGET_PACKAGE, "rv_status_carousel")) ?: return
+    carousel.setGestureMargin(device.displayWidth / 10)
+    repeat(3) {
+        carousel.fling(Direction.RIGHT); device.waitForIdle()
+        carousel.fling(Direction.LEFT);  device.waitForIdle()
+    }
 }
 
 // v509: open the first non-empty status in the Status tab, tap through a few segments,

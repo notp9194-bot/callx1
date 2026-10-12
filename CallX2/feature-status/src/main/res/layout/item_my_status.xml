@@ -52,7 +52,7 @@
             android:id="@+id/tv_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="My Status"
+            android:text="@string/status_card_my_status"
             android:textSize="15sp"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"/>
@@ -61,7 +61,7 @@
             android:id="@+id/tv_sub"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Tap to add status update"
+            android:text="@string/status_my_tap_to_add"
             android:textSize="12sp"
             android:textColor="?attr/colorOnSurfaceVariant"
             android:maxLines="1"
