@@ -22,7 +22,7 @@ import org.json.JSONObject;
  *
  * Data (written ONLY by Cloud Functions, see functions/index.js onStatusCreatedAddYours):
  *   addYoursChains/{chainId}             = { prompt, originUid, originName, count, template?, ... }
- *   addYoursChainEntries/{chainId}/{uid} = { statusId, ts, expiresAt, name, photo, thumb, ... }
+ *   addYoursChainEntries/{chainId}/{uid} = { statusId, ts, expiresAt, listed, isOrigin, + name/photo/thumb only if listed }
  */
 public final class AddYoursHelper {
 
@@ -32,8 +32,19 @@ public final class AddYoursHelper {
     public static final String CHAIN_ACTIVITY = "com.callx.app.viewer.AddYoursChainActivity";
     public static final String EXTRA_CHAIN_ID = "chainId";
     public static final String EXTRA_PROMPT   = "prompt";
+    /** v579: origin/template hints so the chain screen can still join a legacy chain whose chain doc doesn't exist yet. */
+    public static final String EXTRA_ORIGIN_UID  = "originUid";
+    public static final String EXTRA_ORIGIN_NAME = "originName";
+    public static final String EXTRA_TEMPLATE    = "templateJson";
 
     private AddYoursHelper() {}
+
+    /** Localised "Adding to X's prompt" text shared by the viewer, the chain screen and reels. */
+    public static String adding(@NonNull Context ctx, @Nullable String originName) {
+        return (originName != null && !originName.isEmpty())
+                ? ctx.getString(com.callx.app.core.R.string.add_yours_toast_adding_named, originName)
+                : ctx.getString(com.callx.app.core.R.string.add_yours_toast_adding_their);
+    }
 
     // ── ids ──────────────────────────────────────────────────────────────
 
@@ -126,12 +137,24 @@ public final class AddYoursHelper {
 
     /** Opens the chain screen (prompt, count, grid of everyone who added theirs). */
     public static void openChain(@NonNull Context ctx, String chainId, @Nullable String prompt) {
+        openChain(ctx, chainId, prompt, null, null, null);
+    }
+
+    /**
+     * Same, plus the sticker's origin/template as a fallback: pre-v578 chains have no chain doc until the first
+     * person joins, so the chain screen needs these to offer "Add Yours" instead of loading forever.
+     */
+    public static void openChain(@NonNull Context ctx, String chainId, @Nullable String prompt,
+                                 @Nullable String originUid, @Nullable String originName, @Nullable String templateJson) {
         if (chainId == null || chainId.isEmpty()) return;
         try {
             Intent i = new Intent();
             i.setClassName(ctx.getPackageName(), CHAIN_ACTIVITY);
             i.putExtra(EXTRA_CHAIN_ID, chainId);
             if (prompt != null) i.putExtra(EXTRA_PROMPT, prompt);
+            if (originUid != null && !originUid.isEmpty()) i.putExtra(EXTRA_ORIGIN_UID, originUid);
+            if (originName != null && !originName.isEmpty()) i.putExtra(EXTRA_ORIGIN_NAME, originName);
+            if (templateJson != null && !templateJson.isEmpty()) i.putExtra(EXTRA_TEMPLATE, templateJson);
             if (!(ctx instanceof Activity)) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
         } catch (Exception ignored) { /* chain screen unavailable — sticker stays inert */ }
@@ -146,9 +169,7 @@ public final class AddYoursHelper {
         String prompt = sticker.getAddYoursPrompt();
         if (prompt == null || prompt.isEmpty()) return;
         String origin = sticker.getAddYoursOriginName();
-        Toast.makeText(ctx,
-                "Adding to " + (origin != null && !origin.isEmpty() ? origin : "their") + "'s prompt",
-                Toast.LENGTH_SHORT).show();
+        Toast.makeText(ctx, adding(ctx, origin), Toast.LENGTH_SHORT).show();
         try { openCamera.run(); } catch (Exception ignored) {}
     }
 }

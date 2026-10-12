@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v580: every user-visible string of the Add Yours flow (creator dialog, sticker counter, chain screen, toasts).
+     Lives in :core so core (AddYoursHelper / sticker views) and feature-status (viewer + chain screen) share it. -->
+<resources>
+    <!-- creator dialog (StatusStickerPickerSheet) -->
+    <string name="add_yours_creator_title">➕ Add Yours Sticker</string>
+    <string name="add_yours_creator_hint">e.g. My study era 📚</string>
+    <string name="add_yours_creator_sub">Friends who tap this can post their own story with the same prompt.</string>
+    <string name="add_yours_creator_template">Share my style as a template</string>
+    <string name="add_yours_creator_positive">Add to Status</string>
+    <string name="add_yours_creator_negative">Cancel</string>
+    <string name="add_yours_creator_need_prompt">Add a prompt</string>
+
+    <!-- live label on the sticker -->
+    <plurals name="add_yours_sticker_count">
+        <item quantity="one">%d person added</item>
+        <item quantity="other">%d people added</item>
+    </plurals>
+
+    <!-- toasts shared by viewer / chain screen / reels -->
+    <string name="add_yours_toast_already">You\'ve already added yours</string>
+    <string name="add_yours_toast_adding_named">Adding to %1$s\'s prompt</string>
+    <string name="add_yours_toast_adding_their">Adding to their prompt</string>
+    <string name="add_yours_toast_composer_failed">Couldn\'t open the composer</string>
+
+    <!-- chain screen -->
+    <string name="add_yours_title">Add Yours</string>
+    <string name="add_yours_back">Back</string>
+    <string name="add_yours_started_by">↳ Started by %1$s</string>
+    <string name="add_yours_count_zero">Be the first to add yours</string>
+    <plurals name="add_yours_count_people">
+        <item quantity="one">%d person added yours</item>
+        <item quantity="other">%d people added yours</item>
+    </plurals>
+    <plurals name="add_yours_hidden_note">
+        <item quantity="one">%d story isn\'t shown (private or expired)</item>
+        <item quantity="other">%d stories aren\'t shown (private or expired)</item>
+    </plurals>
+    <string name="add_yours_btn_add">Add Yours</string>
+    <string name="add_yours_btn_added">You added yours ✓</string>
+    <string name="add_yours_btn_loading">Loading…</string>
+    <string name="add_yours_btn_unavailable">Not available yet — tap to retry</string>
+    <string name="add_yours_empty_none">No stories yet.\nBe the first to add yours!</string>
+    <string name="add_yours_empty_private">No public stories to show right now.</string>
+    <string name="add_yours_error">Couldn\'t load stories.\nCheck your connection and try again.</string>
+    <string name="add_yours_error_more">Couldn\'t load more stories</string>
+    <string name="add_yours_retry">Retry</string>
+    <string name="add_yours_badge_original">ORIGINAL</string>
+    <string name="add_yours_tile_desc">Story by %1$s</string>
+    <string name="add_yours_tile_desc_original">Original story by %1$s</string>
+    <string name="add_yours_tile_desc_unknown">Story</string>
+    <string name="add_yours_tile_desc_original_unknown">Original story</string>
+</resources>

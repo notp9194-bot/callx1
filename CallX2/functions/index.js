@@ -2296,17 +2296,25 @@ exports.onStatusReshared = functions.database
 
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  Add Yours chains (Instagram "Add Yours" template)  — v578
+//  Add Yours chains (Instagram "Add Yours" template)  — v578, hardened in v579
 //
 //  The CLIENT only writes the status (its stickersJson carries { type:"addyours", chainId, prompt, ... }).
 //  Everything below is server-owned so counts/indexes can't be forged (rules: addYoursChains* are read-only):
-//    addYoursChains/{chainId}              = { prompt, originUid, originName, originStatusId, createdAt, count, template?, lastJoinAt, lastPushAt }
-//    addYoursChainEntries/{chainId}/{uid}  = { statusId, ts, expiresAt, name, photo, thumb, type, bg, text, isOrigin, listed }
+//    addYoursChains/{chainId}              = { prompt, originUid, originName, originStatusId, createdAt, count, legacy?, template?, lastJoinAt, lastPushAt }
+//    addYoursChainEntries/{chainId}/{uid}  = { statusId, ts, expiresAt, isOrigin, listed, + (only if listed) name, photo, thumb, type, bg, text }
+//    addYoursChainMembers/{chainId}/{uid}  = true   (server-only, NOT readable by clients: "has been counted once")
 //  • one entry per user per chain (key = uid); re-joining is only possible once the previous status has expired
-//  • count = people who joined (the chain starter is NOT counted); deleting your status withdraws you (count - 1)
-//  • "listed" = status privacy is "everyone" (only those show in the chain screen's grid; all are counted)
+//  • count = people who joined (the chain starter is NOT counted); a person is counted once even if they re-join after
+//    expiry; deleting your status withdraws you (count - 1, and you may be counted again if you re-join)
+//  • "listed" = status privacy is "everyone". Unlisted entries carry NO name/photo/thumb/text (v579) because the
+//    entries tree is readable by every signed-in user — private stories stay private, they are only counted.
+//  • v579 anti-spoof: a NEW chain is always owned by the user whose status first carries its chainId. A joiner can't
+//    claim somebody else as chain starter (that would let them spam that person with "added yours" pushes).
+//    The only exception is pre-v578 "legacy" chains (id starts with "L_"): their chain doc is created by the first
+//    joiner on behalf of the sticker's origin, but they are flagged legacy:true and never notify anyone.
 // ═════════════════════════════════════════════════════════════════════════════
 const ADDYOURS_ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
+const ADDYOURS_UID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 function extractAddYoursSticker(st) {
   if (!st || typeof st.stickersJson !== "string" || !st.stickersJson) return null;
@@ -2317,6 +2325,21 @@ function extractAddYoursSticker(st) {
     if (s && s.type === "addyours" && typeof s.chainId === "string" && ADDYOURS_ID_RE.test(s.chainId)) return s;
   }
   return null;
+}
+
+const addYoursSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** The identity/media fields an entry may expose — only for stories whose privacy is "everyone". */
+const ADDYOURS_PUBLIC_KEYS = ["name", "photo", "thumb", "type", "bg", "text"];
+function addYoursPublicFields(st) {
+  return {
+    name: String(st.ownerName || "").slice(0, 60),
+    photo: st.ownerPhoto || "",
+    thumb: st.thumbnailUrl || (st.type === "image" ? st.mediaUrl : "") || "",
+    type: st.type || "",
+    bg: st.bgColor || "",
+    text: st.type === "text" ? String(st.text || "").slice(0, 60) : "",
+  };
 }
 
 exports.onStatusCreatedAddYours = functions.database
@@ -2333,58 +2356,80 @@ exports.onStatusCreatedAddYours = functions.database
 
     const db = getDatabase();
     const chainId = sticker.chainId;
-    const claimedOrigin = typeof sticker.originUid === "string" ? sticker.originUid : "";
+    const isLegacyId = chainId.startsWith("L_");
+    const claimedOrigin = (typeof sticker.originUid === "string" && ADDYOURS_UID_RE.test(sticker.originUid))
+      ? sticker.originUid : "";
     const prompt = String(sticker.prompt || "Add Yours").slice(0, 80);
-
-    // 1) Chain doc: created exactly once, by the first status that carries this chainId.
-    //    Later statuses can NOT overwrite it (an attacker can't claim someone else's chain).
-    const fresh = {
-      prompt,
-      originUid: claimedOrigin === "" ? ownerUid : claimedOrigin,
-      originName: claimedOrigin === "" ? String(st.ownerName || "").slice(0, 60)
-                                       : String(sticker.originName || "").slice(0, 60),
-      originStatusId: claimedOrigin === "" ? statusId : "",
-      createdAt: now,
-      count: 0,
-    };
-    if (sticker.template && typeof sticker.template === "object" && JSON.stringify(sticker.template).length <= 2000) {
-      fresh.template = sticker.template;
-    }
     const chainRef = db.ref("addYoursChains").child(chainId);
-    const chainTx = await chainRef.transaction((cur) => (cur ? cur : fresh));
-    const chain = chainTx.snapshot.val() || fresh;
+
+    // 1) Chain doc — created exactly once. Who may create it?
+    //    • the chain starter (no/own originUid)                         → origin = owner
+    //    • a joiner of a pre-v578 chain (id "L_…")                      → origin = claimed, flagged legacy (no notifications)
+    //    • a joiner of a v578+ chain whose doc isn't there yet (the starter's trigger is still running)
+    //      → wait a little for the real doc instead of letting the joiner claim the chain.
+    let chain = null;
+    const claimsOtherOrigin = claimedOrigin !== "" && claimedOrigin !== ownerUid;
+    if (claimsOtherOrigin && !isLegacyId) {
+      for (let i = 0; i < 4 && !chain; i++) {
+        const cur = await chainRef.once("value");
+        if (cur.exists()) chain = cur.val();
+        else await addYoursSleep(2000);
+      }
+      if (!chain) {
+        console.warn(`addyours: chain ${chainId} not found for joiner ${ownerUid}; origin claim ${claimedOrigin} ignored`);
+        return null; // never let a joiner become (or impersonate) the starter of a v578+ chain
+      }
+    } else {
+      const asLegacyJoin = claimsOtherOrigin && isLegacyId;
+      const fresh = {
+        prompt,
+        originUid: asLegacyJoin ? claimedOrigin : ownerUid,
+        originName: asLegacyJoin ? String(sticker.originName || "").slice(0, 60)
+                                 : String(st.ownerName || "").slice(0, 60),
+        originStatusId: asLegacyJoin ? "" : statusId,
+        createdAt: now,
+        count: 0,
+      };
+      if (asLegacyJoin) fresh.legacy = true;
+      if (sticker.template && typeof sticker.template === "object" && JSON.stringify(sticker.template).length <= 2000) {
+        fresh.template = sticker.template;
+      }
+      const chainTx = await chainRef.transaction((cur) => (cur ? cur : fresh));
+      chain = chainTx.snapshot.val() || fresh;
+    }
 
     // 2) Entry (one per user per chain). A previous entry whose status already expired may be replaced.
     const isOriginStatus = chain.originUid === ownerUid && (!chain.originStatusId || chain.originStatusId === statusId);
+    const listed = st.privacy === "everyone";
     const thumb = st.thumbnailUrl || (st.type === "image" ? st.mediaUrl : "") || "";
     const entry = {
       statusId,
       ts: st.timestamp || now,
       expiresAt: st.expiresAt || null,
-      name: String(st.ownerName || "").slice(0, 60),
-      photo: st.ownerPhoto || "",
-      thumb,
-      type: st.type || "",
-      bg: st.bgColor || "",
-      text: st.type === "text" ? String(st.text || "").slice(0, 60) : "",
       isOrigin: isOriginStatus,
-      listed: st.privacy === "everyone",
+      listed,
     };
-    let wasNew = true;
+    if (listed) Object.assign(entry, addYoursPublicFields(st)); // only public stories expose identity/media (entries tree is world-readable)
+    const memberRef = db.ref("addYoursChainMembers").child(chainId).child(ownerUid);
+    const alreadyCounted = (await memberRef.once("value")).exists();
+    let hadEntry = false;
     const entryRef = db.ref("addYoursChainEntries").child(chainId).child(ownerUid);
     const entryTx = await entryRef.transaction((cur) => {
-      wasNew = !cur;
+      hadEntry = !!cur;
       if (cur && !(cur.expiresAt && cur.expiresAt < now)) return undefined; // already joined, still live (or trigger retry)
       return entry;
     });
     if (!entryTx.committed) return null;
+    await memberRef.set(true);
 
     // 3) Count: only brand-new participants, never the chain starter.
-    if (isOriginStatus || !wasNew) return null;
+    if (isOriginStatus || hadEntry || alreadyCounted) return null;
     await chainRef.child("count").transaction((c) => (typeof c === "number" ? c : 0) + 1);
     await chainRef.child("lastJoinAt").set(now);
 
     // 4) Tell the chain starter (in-app row + throttled push, max 1 push / 5 min / chain).
+    //    Legacy chains have an UNVERIFIED origin → never notify.
+    if (chain.legacy === true) return null;
     const originUid = chain.originUid;
     if (!originUid || originUid === ownerUid) return null;
     const blocked = await db.ref("blocks").child(originUid).child(ownerUid).once("value");
@@ -2430,9 +2475,80 @@ exports.onStatusDeletedAddYours = functions.database
     const cur = await entryRef.once("value");
     if (!cur.exists() || cur.val().statusId !== statusId) return null;
     await entryRef.remove();
+    await db.ref("addYoursChainMembers").child(sticker.chainId).child(ownerUid).remove(); // withdrawn: may be counted again
     if (cur.val().isOrigin !== true) {
       await db.ref("addYoursChains").child(sticker.chainId).child("count")
         .transaction((c) => Math.max(0, (typeof c === "number" ? c : 0) - 1));
     }
+    return null;
+  });
+
+/**
+ * v580 — the story's audience was changed AFTER posting: keep the chain entry's `listed` flag (and the public
+ * name/photo/thumb fields) in sync. Public → private wipes the identity/media fields; private → public fills them.
+ * Cheap early-return for every other update of the status node.
+ */
+exports.onStatusPrivacyChangedAddYours = functions.database
+  .ref("/status/{ownerUid}/{statusId}")
+  .onUpdate(async (change, context) => {
+    const { ownerUid, statusId } = context.params;
+    const before = change.before.val() || {};
+    const after = change.after.val() || {};
+    if (before.privacy === after.privacy) return null;
+    if (after.deleted === true) return null;
+    const sticker = extractAddYoursSticker(after);
+    if (!sticker) return null;
+    const entryRef = getDatabase().ref("addYoursChainEntries").child(sticker.chainId).child(ownerUid);
+    const cur = await entryRef.once("value");
+    if (!cur.exists() || cur.val().statusId !== statusId) return null; // entry belongs to another (older/newer) story
+    const listed = after.privacy === "everyone";
+    if (cur.val().listed === listed) return null;
+    const upd = { listed };
+    if (listed) Object.assign(upd, addYoursPublicFields(after));
+    else for (const k of ADDYOURS_PUBLIC_KEYS) upd[k] = null;
+    await entryRef.update(upd);
+    return null;
+  });
+
+/**
+ * v579 — keeps addYoursChainEntries tidy: drops entries whose story already expired (the chain screen would only
+ * filter them out client-side anyway, and big chains would otherwise page through dead rows forever).
+ * The chain's count and the server-only addYoursChainMembers rows are NOT touched, so a person who re-joins after
+ * their story expired is still counted once. Walks chains in pages of 100; per chain only rows older than 24h are
+ * queried (uses the existing ts index).
+ */
+exports.cleanupExpiredAddYoursEntries = functions.pubsub
+  .schedule("every 6 hours")
+  .onRun(async () => {
+    const db = getDatabase();
+    const now = Date.now();
+    const PAGE = 100;
+    const AGE_MS = 24 * 60 * 60 * 1000;
+    let lastKey = null;
+    let removed = 0;
+    for (;;) {
+      const base = db.ref("addYoursChainEntries").orderByKey();
+      const page = await (lastKey ? base.startAt(lastKey).limitToFirst(PAGE + 1) : base.limitToFirst(PAGE)).once("value");
+      if (!page.exists()) break;
+      const keys = [];
+      page.forEach((c) => { if (c.key !== lastKey) keys.push(c.key); });
+      for (const chainId of keys) {
+        const old = await db.ref("addYoursChainEntries").child(chainId)
+          .orderByChild("ts").endAt(now - AGE_MS).limitToFirst(500).once("value");
+        if (!old.exists()) continue;
+        const updates = {};
+        old.forEach((e) => {
+          const exp = e.child("expiresAt").val();
+          const ts = e.child("ts").val();
+          const dead = exp ? exp < now : (ts && ts < now - 7 * AGE_MS); // no expiry stored → only drop very old rows
+          if (dead) updates[`addYoursChainEntries/${chainId}/${e.key}`] = null;
+        });
+        const n = Object.keys(updates).length;
+        if (n) { await db.ref().update(updates); removed += n; }
+      }
+      if (keys.length < PAGE) break;
+      lastKey = keys[keys.length - 1];
+    }
+    console.log(`Add Yours cleanup: removed ${removed} expired entr${removed === 1 ? "y" : "ies"}.`);
     return null;
   });

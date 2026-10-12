@@ -503,7 +503,8 @@ public class StatusStickerOverlayView extends LinearLayout {
     public void setAddYoursCount(long count) {
         if (tvAddYoursCount == null) return;
         if (count <= 0) { tvAddYoursCount.setVisibility(View.GONE); return; }
-        tvAddYoursCount.setText(count == 1 ? "1 person added" : count + " people added");
+        tvAddYoursCount.setText(getResources().getQuantityString(
+                com.callx.app.core.R.plurals.add_yours_sticker_count, (int) Math.min(count, Integer.MAX_VALUE), count));
         tvAddYoursCount.setVisibility(View.VISIBLE);
     }
 

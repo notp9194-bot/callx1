@@ -770,13 +770,13 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         layout.setPadding(dp * 20, dp * 16, dp * 20, dp * 8);
 
         EditText etPrompt = new EditText(ctx);
-        etPrompt.setHint("e.g. My study era 📚");
+        etPrompt.setHint(ctx.getString(com.callx.app.core.R.string.add_yours_creator_hint));
         etPrompt.setTextSize(15);
         etPrompt.setMaxLines(2);
         layout.addView(etPrompt);
 
         TextView sub = new TextView(ctx);
-        sub.setText("Friends who tap this can post their own story with the same prompt.");
+        sub.setText(ctx.getString(com.callx.app.core.R.string.add_yours_creator_sub));
         sub.setTextColor(android.graphics.Color.GRAY);
         sub.setTextSize(12);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -786,7 +786,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
 
         // v578: let the poster share their look (background, font, sticker spot) as a reusable template
         final android.widget.CheckBox cbTpl = new android.widget.CheckBox(ctx);
-        cbTpl.setText("Share my style as a template");
+        cbTpl.setText(ctx.getString(com.callx.app.core.R.string.add_yours_creator_template));
         cbTpl.setTextSize(13);
         cbTpl.setChecked(true);
         LinearLayout.LayoutParams tplLp = new LinearLayout.LayoutParams(
@@ -821,12 +821,12 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         }
 
         AlertDialogStyler.showRounded(new android.app.AlertDialog.Builder(ctx)
-            .setTitle("➕ Add Yours Sticker")
+            .setTitle(com.callx.app.core.R.string.add_yours_creator_title)
             .setView(layout)
-            .setPositiveButton("Add to Status", (d, w) -> {
+            .setPositiveButton(com.callx.app.core.R.string.add_yours_creator_positive, (d, w) -> {
                 String prompt = etPrompt.getText().toString().trim();
                 if (prompt.isEmpty()) {
-                    Toast.makeText(ctx, "Add a prompt", Toast.LENGTH_SHORT).show(); return;
+                    Toast.makeText(ctx, com.callx.app.core.R.string.add_yours_creator_need_prompt, Toast.LENGTH_SHORT).show(); return;
                 }
                 // v578: chainId ties every story that joins this prompt together (counter + chain screen);
                 // tpl=true makes NewStatusActivity snapshot the poster's look into the sticker when posting.
@@ -836,7 +836,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
                     + ",\"originUid\":\"\",\"originName\":\"\"}";
                 if (listener != null) listener.onSelected(new StickerResult("addyours", json));
             })
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(com.callx.app.core.R.string.add_yours_creator_negative, null)
             .create());
     }
 

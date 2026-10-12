@@ -2735,8 +2735,9 @@ import com.callx.app.utils.AlertDialogStyler;
               handler.removeCallbacks(onTimeout);
               if (isFinishing() || isDestroyed()) return;
               if (joined) {
-                  android.widget.Toast.makeText(this, "You've already added yours", android.widget.Toast.LENGTH_SHORT).show();
-                  com.callx.app.stickers.AddYoursHelper.openChain(this, chainId, prompt); // onResume() settles the sticker
+                  android.widget.Toast.makeText(this, R.string.add_yours_toast_already, android.widget.Toast.LENGTH_SHORT).show();
+                  com.callx.app.stickers.AddYoursHelper.openChain(this, chainId, prompt, fOriginUid, fOriginName,
+                          sticker.getAddYoursTemplateJson()); // onResume() settles the sticker
               } else {
                   launchAddYoursComposer(sticker, chainId, prompt, fOriginUid, fOriginName);
               }
@@ -2753,7 +2754,7 @@ import com.callx.app.utils.AlertDialogStyler;
               Intent intent = new Intent(this, com.callx.app.compose.NewStatusActivity.class);
               intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_STICKER_JSON, json);
               intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_TOAST,
-                      "Adding to " + (originName != null && !originName.isEmpty() ? originName : "their") + "'s prompt");
+                      com.callx.app.stickers.AddYoursHelper.adding(this, originName));
               pauseProgress();
               startActivity(intent); // onResume() will settle the sticker (shrink + resume) once we come back
           } catch (Exception ignored) {
@@ -2770,7 +2771,10 @@ import com.callx.app.utils.AlertDialogStyler;
           addYoursCountDetachers.add(com.callx.app.stickers.AddYoursHelper.attachCount(cid, sticker));
           sticker.setOnAddYoursCountClick(() -> {
               pauseProgress(); // onResume() resumes when we come back
-              com.callx.app.stickers.AddYoursHelper.openChain(this, cid, sticker.getAddYoursPrompt());
+              String ou = sticker.getAddYoursOriginUid(), on = sticker.getAddYoursOriginName();
+              if (ou == null || ou.isEmpty()) { ou = ownerUid; on = ownerName; }
+              com.callx.app.stickers.AddYoursHelper.openChain(this, cid, sticker.getAddYoursPrompt(),
+                      ou, on, sticker.getAddYoursTemplateJson());
           });
       }
       private void detachAddYoursCounts() {
