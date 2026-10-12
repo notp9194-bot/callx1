@@ -3,18 +3,25 @@ import com.callx.app.utils.AlertDialogStyler;
 import android.Manifest;
 import android.content.*;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.text.*;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.*;
 import androidx.activity.result.*;
 import androidx.activity.result.contract.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.*;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.status.R;
 import com.callx.app.status.databinding.ActivityNewStatusBinding;
 import com.callx.app.models.StatusItem;
@@ -35,7 +42,7 @@ import com.callx.app.viewer.StatusAudioFocusHelper;
 import com.callx.app.viewer.StatusMusicClip;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 /**
- * NewStatusActivity v26 — Fully comprehensive status creation + Interactive Stickers.
+ * NewStatusActivity v27 — Story-canvas photo editor + existing status creation flow.
  *
  * ORIGINAL features:
  *   ✅ Text status + 10 bg color presets + font styles
@@ -68,6 +75,12 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
  *   ✅ Long-press sticker to remove it
  *   ✅ Multiple stickers supported simultaneously
  *   ✅ Sticker JSON serialized and stored with the status post
+ *
+ * v27 story editor:
+ *   ✅ 9:16 live canvas with a blurred/dimmed copy behind the sharp photo
+ *   ✅ Pinch/drag transforms baked into the uploaded photo
+ *   ✅ Right-side story tools for text, stickers/music, effects, mentions,
+ *      drawing, gallery save, AI label and reset/clear actions
  */
 public class NewStatusActivity extends AppCompatActivity {
 
@@ -161,6 +174,19 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** FrameLayout that holds the status preview + sticker overlays */
     private android.widget.FrameLayout stickerOverlayFrame;
+    /** Instagram-style editor state for a picked photo. */
+    private ImageView editorBlurBackground;
+    private LinearLayout editorToolRail;
+    private StatusDrawOverlayView drawingOverlay;
+    private TextView editorTextOverlay;
+    private TextView editorAiLabel;
+    private Uri editorMediaUri;
+    private float editorMediaScale = 1f;
+    private boolean editorPhotoMode;
+    private boolean editorDrawMode;
+    private boolean editorAiLabelEnabled;
+    private boolean preserveStoryOverlaysOnNextPhoto;
+    private ActivityResultLauncher<String> legacySavePermissionLauncher;
     /** JSON array of all added sticker configs (serialised for post metadata) */
     private final java.util.List<String> addedStickerJsons = new java.util.ArrayList<>();
     /** Small/Medium/Large size-control row shown above whichever sticker was last tapped */
@@ -209,6 +235,11 @@ public class NewStatusActivity extends AppCompatActivity {
         setupToolbar();
         setupMediaPickers();
         setupCameraCapture();
+        legacySavePermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(), granted -> {
+                    if (granted) saveEditorPreviewToGallery();
+                    else toast("Gallery permission denied");
+                });
         // v543: @username suggestions under the status text + caption boxes
         try { com.callx.app.utils.MentionUi.attachAutocomplete(binding.etText); } catch (Exception ignored) {}
         try { if (binding.etCaption != null) com.callx.app.utils.MentionUi.attachAutocomplete(binding.etCaption); } catch (Exception ignored) {}
@@ -407,9 +438,12 @@ public class NewStatusActivity extends AppCompatActivity {
                 visible = wizardStep == 1;
             } else if ("wizard_step_publish".equals(section)) {
                 visible = wizardStep == 2;
-            } else if ("btn_gif".equals(section) || "btn_add_sticker".equals(section)
-                    || child.getId() == R.id.media_preview_frame) {
+            } else if (child.getId() == R.id.media_preview_frame) {
                 visible = wizardStep == 1;
+            } else if ("btn_gif".equals(section) || "btn_add_sticker".equals(section)) {
+                // These two standalone buttons are represented by the compact
+                // right-side tool rail while editing media.
+                visible = wizardStep == 0;
             } else if (child.getId() == R.id.btn_pick_image) {
                 // Upload is the entry action on Create; the selected media
                 // itself is reviewed on the following Edit step.
@@ -430,6 +464,14 @@ public class NewStatusActivity extends AppCompatActivity {
             // to the Create step when it is actually shown.
             if ("link_preview_card".equals(section)) visible = wizardStep == 0;
             child.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+        if (binding.statusWizardHeader != null) {
+            // Give the story canvas more vertical room on the media-edit step.
+            binding.statusWizardHeader.setVisibility(wizardStep == 1 ? View.GONE : View.VISIBLE);
+        }
+        if (editorToolRail != null) {
+            editorToolRail.setVisibility(wizardStep == 1 && (pickedImage != null || pickedVideo != null)
+                    ? View.VISIBLE : View.GONE);
         }
 
         // ✅ tv_step_eyebrow now hosts the shared premium "Step X of Y" pill
@@ -581,7 +623,454 @@ public class NewStatusActivity extends AppCompatActivity {
         View frame = binding.getRoot().findViewWithTag("sticker_overlay_frame");
         if (frame instanceof android.widget.FrameLayout) {
             stickerOverlayFrame = (android.widget.FrameLayout) frame;
+            editorBlurBackground = binding.getRoot().findViewById(R.id.iv_preview_blur_bg);
+            drawingOverlay = new StatusDrawOverlayView(this);
+            drawingOverlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            stickerOverlayFrame.addView(drawingOverlay, 2, new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+            sizeStoryCanvas();
+            setupEditorGestures();
+            setupStatusEditorTools();
         }
+    }
+
+    /** Keep the editor canvas at story ratio so its preview and exported image match. */
+    private void sizeStoryCanvas() {
+        if (stickerOverlayFrame == null) return;
+        stickerOverlayFrame.post(() -> {
+            int width = stickerOverlayFrame.getWidth();
+            if (width <= 0) return;
+            int storyHeight = Math.round(width * (16f / 9f));
+            ViewGroup.LayoutParams lp = stickerOverlayFrame.getLayoutParams();
+            if (lp != null && lp.height != storyHeight) {
+                lp.height = storyHeight;
+                stickerOverlayFrame.setLayoutParams(lp);
+            }
+        });
+    }
+
+    private float editorLastTouchX, editorLastTouchY;
+    private android.view.ScaleGestureDetector editorScaleDetector;
+
+    /** Pinch scales around the fingers; one-finger drag repositions only the sharp media layer. */
+    private void setupEditorGestures() {
+        if (binding.ivPreview == null) return;
+        editorScaleDetector = new android.view.ScaleGestureDetector(this,
+                new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    @Override public boolean onScale(android.view.ScaleGestureDetector detector) {
+                        if (!editorPhotoMode) return false;
+                        float previous = editorMediaScale;
+                        float next = Math.max(0.35f, Math.min(4f, previous * detector.getScaleFactor()));
+                        float focusX = detector.getFocusX() - binding.ivPreview.getWidth() / 2f;
+                        float focusY = detector.getFocusY() - binding.ivPreview.getHeight() / 2f;
+                        float ratio = next / Math.max(0.01f, previous);
+                        binding.ivPreview.setTranslationX(
+                                binding.ivPreview.getTranslationX() + focusX * (1f - ratio));
+                        binding.ivPreview.setTranslationY(
+                                binding.ivPreview.getTranslationY() + focusY * (1f - ratio));
+                        editorMediaScale = next;
+                        applyEditorMediaTransform();
+                        return true;
+                    }
+                });
+        binding.ivPreview.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        binding.ivPreview.setOnTouchListener((view, event) -> {
+            if (!editorPhotoMode) return false;
+            editorScaleDetector.onTouchEvent(event);
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    editorLastTouchX = event.getX();
+                    editorLastTouchY = event.getY();
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (!editorScaleDetector.isInProgress() && event.getPointerCount() == 1) {
+                        float dx = event.getX() - editorLastTouchX;
+                        float dy = event.getY() - editorLastTouchY;
+                        binding.ivPreview.setTranslationX(binding.ivPreview.getTranslationX() + dx);
+                        binding.ivPreview.setTranslationY(binding.ivPreview.getTranslationY() + dy);
+                        clampEditorTranslation();
+                    }
+                    editorLastTouchX = event.getX();
+                    editorLastTouchY = event.getY();
+                    return true;
+                case android.view.MotionEvent.ACTION_POINTER_DOWN:
+                case android.view.MotionEvent.ACTION_POINTER_UP:
+                    editorLastTouchX = event.getX(0);
+                    editorLastTouchY = event.getY(0);
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    return true;
+                default:
+                    return true;
+            }
+        });
+    }
+
+    private void applyEditorMediaTransform() {
+        if (binding == null || binding.ivPreview == null) return;
+        binding.ivPreview.setScaleX(editorMediaScale);
+        binding.ivPreview.setScaleY(editorMediaScale);
+        clampEditorTranslation();
+    }
+
+    private void clampEditorTranslation() {
+        if (binding == null || binding.ivPreview == null || stickerOverlayFrame == null) return;
+        float maxX = stickerOverlayFrame.getWidth() * 0.70f;
+        float maxY = stickerOverlayFrame.getHeight() * 0.70f;
+        float x = Math.max(-maxX, Math.min(maxX, binding.ivPreview.getTranslationX()));
+        float y = Math.max(-maxY, Math.min(maxY, binding.ivPreview.getTranslationY()));
+        binding.ivPreview.setTranslationX(x);
+        binding.ivPreview.setTranslationY(y);
+    }
+
+    /** Compact Instagram-style editor controls anchored to the right edge of the story canvas. */
+    private void setupStatusEditorTools() {
+        if (stickerOverlayFrame == null || editorToolRail != null) return;
+        editorToolRail = new LinearLayout(this);
+        editorToolRail.setOrientation(LinearLayout.VERTICAL);
+        editorToolRail.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
+        editorToolRail.setPadding(0, dp(4), dp(2), dp(4));
+        editorToolRail.setTag("status_editor_tool_rail");
+
+        String[][] tools = {
+                {"Text", "Aa"}, {"Stickers", "☺"}, {"Music", "♫"},
+                {"Restyle", "✎"}, {"Effects", "✦"}, {"Mention", "@"},
+                {"Draw", "〰"}, {"Save", "↓"}, {"Label AI", "▣"}, {"More", "···"}
+        };
+        for (String[] tool : tools) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
+            row.setContentDescription(tool[0]);
+            TextView label = new TextView(this);
+            label.setText(tool[0]);
+            label.setTextColor(Color.WHITE);
+            label.setTextSize(10);
+            label.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
+            label.setShadowLayer(dp(2), 0, dp(1), 0xCC000000);
+            label.setMaxLines(1);
+            label.setPadding(0, 0, dp(5), 0);
+            row.addView(label, new LinearLayout.LayoutParams(dp(57), -2));
+
+            TextView icon = new TextView(this);
+            icon.setText(tool[1]);
+            icon.setTextColor(Color.WHITE);
+            icon.setTextSize(tool[1].length() > 1 ? 13 : 20);
+            icon.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            icon.setGravity(android.view.Gravity.CENTER);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(0xCC25272B);
+            circle.setStroke(dp(1), 0x66FFFFFF);
+            icon.setBackground(circle);
+            row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+            row.setOnClickListener(v -> onStatusEditorTool(tool[0], row));
+            editorToolRail.addView(row, new LinearLayout.LayoutParams(-2, 0, 1f));
+        }
+        android.widget.FrameLayout.LayoutParams railLp =
+                new android.widget.FrameLayout.LayoutParams(-2, -1,
+                        android.view.Gravity.TOP | android.view.Gravity.END);
+        stickerOverlayFrame.addView(editorToolRail, railLp);
+        editorToolRail.bringToFront();
+    }
+
+    private void onStatusEditorTool(String action, View anchor) {
+        if (pickedImage == null && pickedVideo == null) {
+            toast("Pehle photo ya video select karo");
+            return;
+        }
+        if (pickedVideo != null) {
+            if ("Text".equals(action) || "Mention".equals(action)
+                    || "Restyle".equals(action) || "Effects".equals(action)
+                    || "Draw".equals(action)) {
+                // ReelEditor already bakes these edits into video output.
+                openAdvanceEditingForPickedVideo();
+                return;
+            }
+            if ("Label AI".equals(action)) {
+                toast("AI label abhi photo status ke liye available hai");
+                return;
+            }
+        }
+        switch (action) {
+            case "Text":
+                showEditorTextDialog(false);
+                break;
+            case "Stickers":
+            case "Music":
+                openStickerPicker();
+                break;
+            case "Restyle":
+            case "Effects":
+                openAdvanceEditingForPickedMedia();
+                break;
+            case "Mention":
+                showEditorTextDialog(true);
+                break;
+            case "Draw":
+                editorDrawMode = !editorDrawMode;
+                if (drawingOverlay != null) drawingOverlay.setDrawEnabled(editorDrawMode);
+                if (anchor != null) anchor.setSelected(editorDrawMode);
+                toast(editorDrawMode ? "Draw mode on — photo par ungli se draw karo" : "Draw mode off");
+                break;
+            case "Save":
+                saveEditorPreviewToGallery();
+                break;
+            case "Label AI":
+                toggleAiLabel();
+                break;
+            case "More":
+                showEditorMoreMenu(anchor);
+                break;
+        }
+    }
+
+    private void showEditorTextDialog(boolean mentionOnly) {
+        EditText input = new EditText(this);
+        input.setMinLines(2);
+        input.setMaxLines(5);
+        input.setHint(mentionOnly ? "@username" : "Type something");
+        String current = editorTextOverlay == null ? "" : editorTextOverlay.getText().toString();
+        if (mentionOnly && !current.startsWith("@")) current = "";
+        input.setText(current);
+        input.setSelection(input.length());
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(mentionOnly ? "Add mention" : "Add text")
+                .setView(input)
+                .setPositiveButton("Done", (dialog, which) -> {
+                    String entered = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (mentionOnly && !entered.isEmpty() && !entered.startsWith("@")) entered = "@" + entered;
+                    if (!entered.isEmpty()) {
+                        if (mentionOnly) {
+                            String existing = binding.etText.getText() == null
+                                    ? "" : binding.etText.getText().toString().trim();
+                            String combined = existing.isEmpty() ? entered : existing + " " + entered;
+                            binding.etText.setText(combined); // keep server-side mention resolution working
+                            setEditorTextOverlay(combined);
+                        } else {
+                            setEditorTextOverlay(entered);
+                        }
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .create());
+    }
+
+    private void setEditorTextOverlay(String text) {
+        if (stickerOverlayFrame == null) return;
+        if (text == null || text.trim().isEmpty()) {
+            if (editorTextOverlay != null) stickerOverlayFrame.removeView(editorTextOverlay);
+            editorTextOverlay = null;
+            return;
+        }
+        if (editorTextOverlay == null) {
+            editorTextOverlay = new TextView(this);
+            editorTextOverlay.setTextColor(Color.WHITE);
+            editorTextOverlay.setTextSize(30);
+            editorTextOverlay.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            editorTextOverlay.setGravity(android.view.Gravity.CENTER);
+            editorTextOverlay.setShadowLayer(dp(4), 0, dp(2), Color.BLACK);
+            editorTextOverlay.setPadding(dp(12), dp(8), dp(12), dp(8));
+            editorTextOverlay.setMaxWidth(Math.max(dp(120), stickerOverlayFrame.getWidth() - dp(105)));
+            android.widget.FrameLayout.LayoutParams textLp =
+                    new android.widget.FrameLayout.LayoutParams(-2, -2,
+                            android.view.Gravity.CENTER);
+            stickerOverlayFrame.addView(editorTextOverlay, textLp);
+            editorTextOverlay.setOnTouchListener(new View.OnTouchListener() {
+                float downX, downY;
+                @Override public boolean onTouch(View view, android.view.MotionEvent event) {
+                    switch (event.getActionMasked()) {
+                        case android.view.MotionEvent.ACTION_DOWN:
+                        {
+                            int[] parentLocation = new int[2];
+                            stickerOverlayFrame.getLocationOnScreen(parentLocation);
+                            downX = event.getRawX() - parentLocation[0] - view.getX();
+                            downY = event.getRawY() - parentLocation[1] - view.getY();
+                            return true;
+                        }
+                        case android.view.MotionEvent.ACTION_MOVE:
+                        {
+                            int[] currentParentLocation = new int[2];
+                            stickerOverlayFrame.getLocationOnScreen(currentParentLocation);
+                            view.setX(Math.max(0, Math.min(stickerOverlayFrame.getWidth() - view.getWidth(),
+                                    event.getRawX() - currentParentLocation[0] - downX)));
+                            view.setY(Math.max(0, Math.min(stickerOverlayFrame.getHeight() - view.getHeight(),
+                                    event.getRawY() - currentParentLocation[1] - downY)));
+                            return true;
+                        }
+                        case android.view.MotionEvent.ACTION_UP:
+                        case android.view.MotionEvent.ACTION_CANCEL:
+                            return true;
+                    }
+                    return true;
+                }
+            });
+        }
+        editorTextOverlay.setText(text);
+        editorTextOverlay.setVisibility(View.VISIBLE);
+        if (editorToolRail != null) editorToolRail.bringToFront();
+    }
+
+    private void toggleAiLabel() {
+        editorAiLabelEnabled = !editorAiLabelEnabled;
+        if (editorAiLabel == null && stickerOverlayFrame != null) {
+            editorAiLabel = new TextView(this);
+            editorAiLabel.setText("AI-generated");
+            editorAiLabel.setTextColor(Color.WHITE);
+            editorAiLabel.setTextSize(11);
+            editorAiLabel.setPadding(dp(10), dp(6), dp(10), dp(6));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0xCC202124);
+            bg.setCornerRadius(dp(16));
+            editorAiLabel.setBackground(bg);
+            stickerOverlayFrame.addView(editorAiLabel,
+                    new android.widget.FrameLayout.LayoutParams(-2, -2,
+                            android.view.Gravity.BOTTOM | android.view.Gravity.START));
+        }
+        if (editorAiLabel != null) editorAiLabel.setVisibility(editorAiLabelEnabled ? View.VISIBLE : View.GONE);
+        if (editorToolRail != null) editorToolRail.bringToFront();
+        toast(editorAiLabelEnabled ? "AI label added to preview" : "AI label removed");
+    }
+
+    private void showEditorMoreMenu(View anchor) {
+        if (anchor == null) anchor = editorToolRail;
+        if (anchor == null) return;
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        menu.getMenu().add("Reset photo position");
+        menu.getMenu().add("Clear drawing");
+        menu.getMenu().add("Remove text");
+        menu.setOnMenuItemClickListener(item -> {
+            String title = item.getTitle().toString();
+            if ("Reset photo position".equals(title)) {
+                editorMediaScale = 1f;
+                binding.ivPreview.setScaleX(1f);
+                binding.ivPreview.setScaleY(1f);
+                binding.ivPreview.setTranslationX(0f);
+                binding.ivPreview.setTranslationY(0f);
+            } else if ("Clear drawing".equals(title) && drawingOverlay != null) {
+                drawingOverlay.clearDrawing();
+            } else if ("Remove text".equals(title)) {
+                setEditorTextOverlay("");
+            }
+            return true;
+        });
+        menu.show();
+    }
+
+    private void saveEditorPreviewToGallery() {
+        if (pickedImage == null || stickerOverlayFrame == null) {
+            toast("Gallery save is available for photos");
+            return;
+        }
+        if (android.os.Build.VERSION.SDK_INT < 29
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            if (legacySavePermissionLauncher != null)
+                legacySavePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            return;
+        }
+        final Bitmap preview;
+        try {
+            preview = renderStoryCanvas(true);
+        } catch (Exception e) {
+            toast("Preview is still loading — try again in a moment");
+            return;
+        }
+        new Thread(() -> {
+            Uri savedUri = null;
+            try {
+                String name = "CallX_Status_" + System.currentTimeMillis() + ".jpg";
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Images.Media.DISPLAY_NAME, name);
+                    values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH,
+                            android.os.Environment.DIRECTORY_PICTURES + "/CallX/Statuses");
+                    values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                    savedUri = getContentResolver().insert(
+                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                    if (savedUri == null) throw new java.io.IOException("Could not create gallery image");
+                    try (java.io.OutputStream out = getContentResolver().openOutputStream(savedUri)) {
+                        if (out == null || !preview.compress(Bitmap.CompressFormat.JPEG, 94, out))
+                            throw new java.io.IOException("Could not write gallery image");
+                    }
+                    ContentValues ready = new ContentValues();
+                    ready.put(MediaStore.Images.Media.IS_PENDING, 0);
+                    getContentResolver().update(savedUri, ready, null, null);
+                } else {
+                    String path = MediaStore.Images.Media.insertImage(
+                            getContentResolver(), preview, name, "CallX status preview");
+                    if (path == null) throw new java.io.IOException("Could not save gallery image");
+                    savedUri = Uri.parse(path);
+                }
+            } catch (Exception e) {
+                if (savedUri != null) {
+                    try { getContentResolver().delete(savedUri, null, null); } catch (Exception ignored) {}
+                }
+            } finally {
+                preview.recycle();
+            }
+            final Uri result = savedUri;
+            runOnUiThread(() -> {
+                if (result != null) toast("Saved to Pictures/CallX/Statuses");
+                else toast("Could not save story preview");
+            });
+        }, "status-gallery-save").start();
+    }
+
+    /**
+     * Snapshot the actual editor layers at story ratio. Tool buttons and
+     * media controls are excluded; interactive stickers are excluded for
+     * status uploads (they are stored as JSON and rendered by the viewer).
+     */
+    private Bitmap renderStoryCanvas(boolean includeStickers) {
+        if (stickerOverlayFrame == null || stickerOverlayFrame.getWidth() <= 0
+                || stickerOverlayFrame.getHeight() <= 0
+                || binding.ivPreview.getDrawable() == null
+                || editorBlurBackground == null || editorBlurBackground.getDrawable() == null) {
+            throw new IllegalStateException("Editor layers are not ready");
+        }
+        final int outputWidth = 1080;
+        final int outputHeight = Math.max(1, Math.round(outputWidth
+                * stickerOverlayFrame.getHeight() / (float) stickerOverlayFrame.getWidth()));
+        Bitmap output = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
+        canvas.scale(outputWidth / (float) stickerOverlayFrame.getWidth(),
+                outputHeight / (float) stickerOverlayFrame.getHeight());
+
+        ArrayList<View> hidden = new ArrayList<>();
+        ArrayList<Integer> oldVisibility = new ArrayList<>();
+        int frameVisibility = stickerOverlayFrame.getVisibility();
+        if (frameVisibility != View.VISIBLE) stickerOverlayFrame.setVisibility(View.VISIBLE);
+        hideForSnapshot(editorToolRail, hidden, oldVisibility);
+        hideForSnapshot(binding.btnDiscardMedia, hidden, oldVisibility);
+        hideForSnapshot(binding.ivVideoHint, hidden, oldVisibility);
+        if (!includeStickers) {
+            for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
+                View child = stickerOverlayFrame.getChildAt(i);
+                if (child instanceof StatusStickerOverlayView)
+                    hideForSnapshot(child, hidden, oldVisibility);
+            }
+        }
+        hideForSnapshot(stickerSizeBar, hidden, oldVisibility);
+        try {
+            stickerOverlayFrame.draw(canvas);
+        } finally {
+            for (int i = 0; i < hidden.size(); i++)
+                hidden.get(i).setVisibility(oldVisibility.get(i));
+            if (frameVisibility != View.VISIBLE)
+                stickerOverlayFrame.setVisibility(frameVisibility);
+        }
+        return output;
+    }
+
+    private void hideForSnapshot(View view, ArrayList<View> hidden, ArrayList<Integer> oldVisibility) {
+        if (view == null || view.getVisibility() != View.VISIBLE) return;
+        hidden.add(view);
+        oldVisibility.add(view.getVisibility());
+        view.setVisibility(View.GONE);
     }
 
     /**
@@ -817,6 +1306,7 @@ public class NewStatusActivity extends AppCompatActivity {
         lp.topMargin = (stickerStackBottomPx < 0) ? (dp * 16) : (stickerStackBottomPx + gap);
         if (replacedTopMargin >= 0) lp.topMargin = replacedTopMargin; // replaced music sticker → same spot
         stickerOverlayFrame.addView(stickerView, lp);
+        if (editorToolRail != null) editorToolRail.bringToFront();
 
         // Enable drag + pinch-resize + long-press-remove
         stickerView.attachDragToParent(stickerOverlayFrame);
@@ -1446,6 +1936,7 @@ public class NewStatusActivity extends AppCompatActivity {
         pendingSingleVideoEditCaption = (existingCaption == null || existingCaption.isEmpty())
                 ? null : existingCaption;
         pendingAdvanceEditWizardJump = true;
+        preserveStoryOverlaysOnNextPhoto = true;
         reelCameraLauncher.launch(photoEditIntent);
     }
 
@@ -1482,6 +1973,7 @@ public class NewStatusActivity extends AppCompatActivity {
             // allow_media_edit_fallback hop) — don't leave the Advance
             // Editing flag armed for some unrelated later result.
             pendingAdvanceEditWizardJump = false;
+            preserveStoryOverlaysOnNextPhoto = false;
             return;
         }
         Intent data = result.getData();
@@ -1992,44 +2484,137 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
     private void showImagePreview(Uri uri) {
+        boolean changedMedia = editorMediaUri == null || !editorMediaUri.equals(uri);
+        if (changedMedia) {
+            editorMediaUri = uri;
+            editorMediaScale = 1f;
+            editorPhotoMode = true;
+            editorDrawMode = false;
+            if (!preserveStoryOverlaysOnNextPhoto) {
+                editorAiLabelEnabled = false;
+                if (drawingOverlay != null) drawingOverlay.clearDrawing();
+                if (editorTextOverlay != null) {
+                    stickerOverlayFrame.removeView(editorTextOverlay);
+                    editorTextOverlay = null;
+                }
+                if (editorAiLabel != null) {
+                    stickerOverlayFrame.removeView(editorAiLabel);
+                    editorAiLabel = null;
+                }
+            }
+            preserveStoryOverlaysOnNextPhoto = false;
+            if (drawingOverlay != null) drawingOverlay.setDrawEnabled(false);
+        }
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
         // Also show the overlay frame (so stickers are visible over the image)
         if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
-        // v238 BUG FIX: .centerCrop() here forcibly cropped the bitmap itself
-        // regardless of the ImageView's own scaleType — switched to
-        // .fitCenter() so the full photo/layout collage is always visible,
-        // matching the taller fitCenter box in the layout.
+        if (editorBlurBackground != null) {
+            editorBlurBackground.setVisibility(View.VISIBLE);
+            Glide.with(this).load(uri)
+                    .apply(new RequestOptions().transform(new CenterCrop(),
+                            new StatusBlurTransformation(12)))
+                    .into(editorBlurBackground);
+        }
         Glide.with(this).load(uri).fitCenter().into(binding.ivPreview);
+        binding.ivPreview.setScaleX(1f);
+        binding.ivPreview.setScaleY(1f);
+        binding.ivPreview.setTranslationX(0f);
+        binding.ivPreview.setTranslationY(0f);
+        editorMediaScale = 1f;
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
+        sizeStoryCanvas();
+        String text = binding.etText.getText() == null ? "" : binding.etText.getText().toString().trim();
+        if (editorTextOverlay != null) setEditorTextOverlay(editorTextOverlay.getText().toString());
+        else if (!text.isEmpty()) setEditorTextOverlay(text);
         refreshStepPreview();
+        if (wizardStep == 0) showWizardStep(1);
     }
     private void showVideoPreview(Uri uri) {
         // ✅ FIX: default-clear any earlier custom thumbnail pick — only
         // handleReelCameraResult() re-arms it, right after this call, when
         // the Reel Edit screen actually returned one for THIS video.
         pendingCustomThumbnailFile = null;
+        boolean changedMedia = editorMediaUri == null || !editorMediaUri.equals(uri);
+        if (changedMedia) {
+            editorMediaUri = uri;
+            editorMediaScale = 1f;
+            editorDrawMode = false;
+            if (drawingOverlay != null) {
+                drawingOverlay.clearDrawing();
+                drawingOverlay.setDrawEnabled(false);
+            }
+            if (editorTextOverlay != null) {
+                stickerOverlayFrame.removeView(editorTextOverlay);
+                editorTextOverlay = null;
+            }
+            if (editorAiLabel != null) {
+                stickerOverlayFrame.removeView(editorAiLabel);
+                editorAiLabel = null;
+                editorAiLabelEnabled = false;
+            }
+        }
+        editorPhotoMode = false; // video transforms are handled in the existing Reel editor
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.VISIBLE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
         if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
+        if (editorBlurBackground != null) {
+            editorBlurBackground.setVisibility(View.VISIBLE);
+            Glide.with(this).load(uri)
+                    .apply(new RequestOptions().transform(new CenterCrop(),
+                            new StatusBlurTransformation(12)))
+                    .into(editorBlurBackground);
+        }
         Glide.with(this).load(uri).fitCenter().into(binding.ivPreview);
+        binding.ivPreview.setScaleX(1f);
+        binding.ivPreview.setScaleY(1f);
+        binding.ivPreview.setTranslationX(0f);
+        binding.ivPreview.setTranslationY(0f);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
+        sizeStoryCanvas();
         refreshStepPreview();
+        if (wizardStep == 0) showWizardStep(1);
     }
     private void discardMedia() {
         pickedImage = null; pickedVideo = null; cameraImageUri = null;
+        editorMediaUri = null;
+        editorPhotoMode = false;
+        editorMediaScale = 1f;
+        editorDrawMode = false;
+        editorAiLabelEnabled = false;
+        if (drawingOverlay != null) {
+            drawingOverlay.clearDrawing();
+            drawingOverlay.setDrawEnabled(false);
+        }
+        if (editorTextOverlay != null) {
+            stickerOverlayFrame.removeView(editorTextOverlay);
+            editorTextOverlay = null;
+        }
+        if (editorAiLabel != null) {
+            stickerOverlayFrame.removeView(editorAiLabel);
+            editorAiLabel = null;
+        }
+        if (editorBlurBackground != null) {
+            Glide.with(this).clear(editorBlurBackground);
+            editorBlurBackground.setVisibility(View.GONE);
+        }
         binding.btnPickImage.setTag(null);
         pendingCustomThumbnailFile = null;
         binding.ivPreview.setVisibility(View.GONE);
+        binding.ivPreview.setScaleX(1f);
+        binding.ivPreview.setScaleY(1f);
+        binding.ivPreview.setTranslationX(0f);
+        binding.ivPreview.setTranslationY(0f);
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.GONE);
         binding.captionGroup.setVisibility(View.GONE);
         showBgColorPicker();
         refreshStepPreview();
+        if (wizardStep == 1) showWizardStep(0);
     }
 
     /** Returns a JSON array string of all added sticker configs, or "" if none. */
@@ -2144,12 +2729,80 @@ public class NewStatusActivity extends AppCompatActivity {
             // GIF / sticker — store as sticker type
             saveStatus("gif", pickedImage.toString(), null, txt, caption, uid, name, photo);
         } else if (pickedImage != null) {
-            compressAndUploadImage(pickedImage, caption, txt, uid, name, photo);
+            prepareAndUploadEditedPhoto(pickedImage, caption, txt, uid, name, photo, 0);
         } else if (pickedVideo != null) {
             compressAndUploadVideo(pickedVideo, caption, txt, uid, name, photo);
         } else {
             saveStatus("text", null, null, txt, caption, uid, name, photo);
         }
+    }
+
+    /**
+     * Wait for both Glide layers, then bake the exact photo canvas (blurred
+     * background + transformed foreground + text/drawing) before compression
+     * and upload. Sticker cards stay as their existing JSON overlays so the
+     * status viewer does not render them twice.
+     */
+    private void prepareAndUploadEditedPhoto(Uri source, String caption, String txt,
+                                             String uid, String name, String photo, int attempt) {
+        if (!editorPhotoMode || stickerOverlayFrame == null) {
+            compressAndUploadImage(source, caption, txt, uid, name, photo);
+            return;
+        }
+        boolean ready = editorMediaUri != null && editorMediaUri.equals(source)
+                && stickerOverlayFrame.getWidth() > 0 && stickerOverlayFrame.getHeight() > 0
+                && binding.ivPreview.getDrawable() != null
+                && editorBlurBackground != null && editorBlurBackground.getDrawable() != null;
+        if (!ready) {
+            if (attempt < 40 && stickerOverlayFrame != null) {
+                stickerOverlayFrame.postDelayed(() ->
+                        prepareAndUploadEditedPhoto(source, caption, txt, uid, name, photo, attempt + 1), 100);
+                return;
+            }
+            setPosting(false);
+            toast("Story preview load nahi hua — photo dubara select karke try karo");
+            return;
+        }
+
+        final Bitmap composed;
+        try {
+            composed = renderStoryCanvas(false);
+        } catch (Exception e) {
+            setPosting(false);
+            toast("Story preview prepare nahi hua: " + e.getMessage());
+            return;
+        }
+        setHint("Preparing story image…");
+        new Thread(() -> {
+            java.io.File baked = null;
+            try {
+                java.io.File dir = new java.io.File(getCacheDir(), "media_edit_out");
+                if (!dir.exists() && !dir.mkdirs()) throw new java.io.IOException("Cannot create cache folder");
+                baked = new java.io.File(dir, "status_story_" + System.currentTimeMillis() + ".jpg");
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(baked)) {
+                    if (!composed.compress(Bitmap.CompressFormat.JPEG, 94, out))
+                        throw new java.io.IOException("Could not encode story image");
+                }
+            } catch (Exception e) {
+                if (baked != null) try { baked.delete(); } catch (Exception ignored) {}
+                runOnUiThread(() -> {
+                    composed.recycle();
+                    setPosting(false);
+                    toast("Story image prepare nahi hua: " + e.getMessage());
+                });
+                return;
+            }
+            composed.recycle();
+            java.io.File result = baked;
+            runOnUiThread(() -> {
+                if (!isFinishing() && pickedImage != null && source.equals(pickedImage))
+                    compressAndUploadImage(Uri.fromFile(result), caption, txt, uid, name, photo);
+                else {
+                    result.delete();
+                    setPosting(false);
+                }
+            });
+        }, "status-story-compose").start();
     }
     // Photo size from ImageCompressor → stored on the status (mediaWidth/mediaHeight) so
     // viewers can reserve the right aspect box. Consumed (reset) by saveStatus/saveBatchStatus.
