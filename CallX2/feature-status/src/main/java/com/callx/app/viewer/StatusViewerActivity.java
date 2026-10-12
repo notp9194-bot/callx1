@@ -767,6 +767,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       @Override
       protected void onDestroy() {
+          removeSwitchSnapshot();
           detachAddYoursCounts();
           detachLiveStatusListener();
           detachRepliesListener();
@@ -1491,18 +1492,20 @@ import com.callx.app.utils.AlertDialogStyler;
       private com.callx.app.cache.StatusMediaPreloader videoPreloader; // lazily created, shut down in onDestroy
 
       /** Warms the player cache with the first ~2MB of the NEXT status's video. */
-      private void prefetchNextVideo(String url) {
+      private void prefetchNextVideo(String url) { prefetchNextVideo(url, true); }
+      private void prefetchNextVideo(String url, boolean standby) {
           if (url == null || url.isEmpty()) return;
           try {
               if (videoPreloader == null) videoPreloader = new com.callx.app.cache.StatusMediaPreloader(this);
               videoPreloader.preloadVideoUrl(url);
           } catch (Exception ignored) {}
-          prepareStandby(url); // standby ExoPlayer pre-buffers it too → video→video swap instead of a cold start
+          if (standby) prepareStandby(url); // standby ExoPlayer pre-buffers it too → video→video swap instead of a cold start
       }
 
       /** Warms Glide's cache with the NEXT status's photo so swiping/auto-advance is instant. */
       private void prefetchNextImage() {
           if (isFinishing() || isDestroyed()) return;
+          prefetchAdjacentQueueEntries(); // v581: next AND previous person's first story, so a swipe lands on a ready frame
           if (idx + 1 < items.size()) {
               prefetchItem(items.get(idx + 1));
               // Photos are short (~5 s): also warm the one after that when it is a photo (cheap, small win).
@@ -1522,7 +1525,21 @@ import com.callx.app.utils.AlertDialogStyler;
               if (!next.isEmpty()) prefetchItem(next.get(0));
           } catch (Exception ignored) {}
       }
-      private void prefetchItem(StatusItem n) {
+      /** Once per queue entry: warm the first story (photo/backdrop/poster/video head) of the next and previous person. */
+      private void prefetchAdjacentQueueEntries() {
+          if (isHighlightMode || queueOwnerUids.isEmpty() || adjacentPrefetchedFor == queuePos) return;
+          adjacentPrefetchedFor = queuePos;
+          try {
+              com.callx.app.cache.StatusCacheManager m = com.callx.app.cache.StatusCacheManager.getInstance(this);
+              for (int p : new int[]{queuePos + 1, queuePos - 1}) {
+                  if (p < 0 || p >= queueOwnerUids.size()) continue;
+                  List<StatusItem> l = m.getStatuses(queueOwnerUids.get(p));
+                  if (!l.isEmpty()) prefetchItem(l.get(0), false); // no standby player: it belongs to THIS person's next segment
+              }
+          } catch (Exception ignored) {}
+      }
+      private void prefetchItem(StatusItem n) { prefetchItem(n, true); }
+      private void prefetchItem(StatusItem n, boolean standby) {
           if (n == null || n.type == null) return;
           String url = null;
           switch (n.type) {
@@ -1530,7 +1547,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   url = n.mediaUrl; break;
               case "video": case "reel_story": case "reel_clip":
                   if (n.mediaUrl == null || n.mediaUrl.isEmpty()) url = n.thumbnailUrl;
-                  else { prefetchNextVideo(n.mediaUrl); preloadVideoPoster(n); } // plays via ExoPlayer — warm its cache + poster
+                  else { prefetchNextVideo(n.mediaUrl, standby); preloadVideoPoster(n); } // plays via ExoPlayer — warm its cache + poster
                   break;
               case "link":
                   url = n.linkImageUrl; break;
@@ -1538,7 +1555,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   boolean video = n.resharedMediaType != null && !n.resharedMediaType.isEmpty()
                           ? "video".equals(n.resharedMediaType) : looksLikeVideoUrl(n.mediaUrl);
                   if (n.mediaUrl != null && !n.mediaUrl.isEmpty() && !video) url = n.mediaUrl;
-                  else if (n.mediaUrl != null && !n.mediaUrl.isEmpty()) { prefetchNextVideo(n.mediaUrl); preloadVideoPoster(n); }
+                  else if (n.mediaUrl != null && !n.mediaUrl.isEmpty()) { prefetchNextVideo(n.mediaUrl, standby); preloadVideoPoster(n); }
                   break;
               }
               default: break;
@@ -3001,27 +3018,97 @@ import com.callx.app.utils.AlertDialogStyler;
           if (forward) goToNextQueueEntryOrFinish();
           else goToPreviousQueueEntry();
       }
-      /** Instagram-style cube turn between people: the incoming person's card swings in
-       *  around the screen edge it comes from (right edge when going forward, left when back). */
-      private void playUserSwitchTransition(final boolean forward) {
+      // v581: user-switch cube turn. Two fixes for the "screen goes black then bright again" flash:
+      //  (1) the outgoing card is frozen into a bitmap snapshot that swings OUT while the new card swings IN
+      //      (the real hideAllContent()/load() work happens behind it, never visible);
+      //  (2) no alpha dip any more (old: column alpha 0.4 + crossFadeIn() root alpha 0 -> black window bg).
+      // Flip the sign of CUBE_ANGLE to reverse the turning direction.
+      private static final float CUBE_ANGLE = 70f;
+      private static final long  CUBE_MS    = 280L;
+      private boolean userSwitchPending;   // next showCurrent()/crossFadeIn() must not dip the root alpha
+      private ImageView switchSnapView;    // outgoing-card snapshot overlay (null when idle)
+      private int adjacentPrefetchedFor = -1;
+
+      /** Freezes the current viewer (backdrop + card + chrome) into a half-res bitmap. Null on any failure. */
+      @Nullable private android.graphics.Bitmap captureViewerSnapshot() {
+          try {
+              final View root = binding.getRoot();
+              final int w = root.getWidth(), h = root.getHeight();
+              if (w <= 0 || h <= 0) return null;
+              final float sc = 0.5f;
+              android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+                      Math.max(1, (int) (w * sc)), Math.max(1, (int) (h * sc)), android.graphics.Bitmap.Config.ARGB_8888);
+              android.graphics.Canvas c = new android.graphics.Canvas(bmp);
+              c.scale(sc, sc);
+              root.draw(c);
+              // A TextureView (video) draws nothing on a software canvas -> copy its current frame in by hand.
+              try {
+                  View vs = binding.playerView.getVisibility() == View.VISIBLE ? binding.playerView.getVideoSurfaceView() : null;
+                  if (vs instanceof TextureView && vs.getWidth() > 0 && vs.getHeight() > 0) {
+                      android.graphics.Bitmap frame = ((TextureView) vs).getBitmap(
+                              Math.max(1, (int) (vs.getWidth() * sc)), Math.max(1, (int) (vs.getHeight() * sc)));
+                      if (frame != null) {
+                          int[] a = new int[2], b = new int[2];
+                          vs.getLocationInWindow(a); root.getLocationInWindow(b);
+                          float x = a[0] - b[0], y = a[1] - b[1];
+                          c.drawBitmap(frame, null, new android.graphics.RectF(x, y, x + vs.getWidth(), y + vs.getHeight()), null);
+                      }
+                  }
+              } catch (Throwable ignored) {}
+              return bmp;
+          } catch (Throwable t) { return null; }
+      }
+      private void removeSwitchSnapshot() {
+          if (switchSnapView == null) return;
+          try {
+              switchSnapView.animate().cancel();
+              if (switchSnapView.getParent() instanceof ViewGroup) ((ViewGroup) switchSnapView.getParent()).removeView(switchSnapView);
+          } catch (Exception ignored) {}
+          switchSnapView = null;
+      }
+      /** Instagram-style cube turn between people: the incoming person's card swings in around the screen
+       *  edge it comes from (left edge when going forward, right when back) while the frozen outgoing card
+       *  swings away around the opposite edge. */
+      private void playUserSwitchTransition(final boolean forward, @Nullable android.graphics.Bitmap outgoing) {
           final View col = binding.llViewerColumn;
+          final ViewGroup root = (ViewGroup) binding.getRoot();
+          final float cam = getResources().getDisplayMetrics().density * 8000f;
           col.animate().cancel();
-          columnHwLayerOn(); // v507: cube turn runs on a GPU texture
+          removeSwitchSnapshot();
+          columnHwLayerOn(); // cube turn runs on a GPU texture
           col.setScaleX(1f); col.setScaleY(1f); col.setTranslationX(0f); col.setTranslationY(0f);
-          col.setCameraDistance(getResources().getDisplayMetrics().density * 8000f);
+          col.setCameraDistance(cam);
           col.setPivotX(forward ? 0f : col.getWidth());
           col.setPivotY(col.getHeight() / 2f);
-          col.setRotationY(forward ? 70f : -70f);
-          col.setAlpha(0.4f);
-          col.animate().rotationY(0f).alpha(1f).setDuration(280L)
+          col.setRotationY(forward ? CUBE_ANGLE : -CUBE_ANGLE);
+          col.setAlpha(1f); // no dim
+          col.animate().rotationY(0f).setDuration(CUBE_MS)
                   .setInterpolator(new android.view.animation.DecelerateInterpolator())
                   .withEndAction(() -> { col.setPivotX(col.getWidth() / 2f); col.setRotationY(0f); columnHwLayerOff(); })
+                  .start();
+          if (outgoing == null) return;
+          final ImageView snap = new ImageView(this);
+          snap.setScaleType(ImageView.ScaleType.FIT_XY);
+          snap.setImageBitmap(outgoing);
+          snap.setClickable(false); snap.setFocusable(false);
+          snap.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+          root.addView(snap, new FrameLayout.LayoutParams(
+                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+          snap.setCameraDistance(cam);
+          snap.setPivotX(forward ? root.getWidth() : 0f);
+          snap.setPivotY(root.getHeight() / 2f);
+          switchSnapView = snap;
+          snap.animate().rotationY(forward ? -CUBE_ANGLE : CUBE_ANGLE).alpha(0f).setDuration(CUBE_MS)
+                  .setInterpolator(new android.view.animation.AccelerateInterpolator(1.3f))
+                  .withEndAction(this::removeSwitchSnapshot)
                   .start();
       }
       /** Tears down the current owner/album's on-screen state and loads the
        *  queue entry at the given position, resetting playback to its first
        *  segment. */
       private void switchQueueEntry(int pos) {
+          final android.graphics.Bitmap outgoingSnap = captureViewerSnapshot(); // BEFORE anything is torn down
+          userSwitchPending = true;
           releasePlayer(); stopProgress();
           detachLiveStatusListener();
           items.clear();
@@ -3030,7 +3117,7 @@ import com.callx.app.utils.AlertDialogStyler;
           viewStartTime = 0;
           reactionBurstPlayedFor.clear();
           hideAllContent();
-          playUserSwitchTransition(pos > queuePos);
+          playUserSwitchTransition(pos > queuePos, outgoingSnap);
           queuePos = pos;
           if (isHighlightMode) {
               highlightAlbumId = queueAlbumIds.get(pos);
@@ -3097,6 +3184,7 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.getRoot().startAnimation(fade);
       }
       private void crossFadeIn() {
+          if (userSwitchPending) { userSwitchPending = false; return; } // v581: cube turn animates it; root alpha 0 = black flash
           binding.getRoot().setAlpha(0f);
           binding.getRoot().animate().alpha(1f).setDuration(150).start();
       }
