@@ -118,21 +118,54 @@ public class StatusFragment extends BaseFragment {
 
         // ── Search ───────────────────────────────────────────────────────
         etSearch = v.findViewById(R.id.et_status_search);
-        View btnSearchClear = v.findViewById(R.id.btn_status_search_clear);
+        final View btnSearchClear = v.findViewById(R.id.btn_status_search_clear);
+        final View btnSearchOpen  = v.findViewById(R.id.btn_status_search_open);
+        final View searchBox      = v.findViewById(R.id.fl_status_search);
+        final TextView titleView  = v.findViewById(R.id.tv_status_title);
+        if (titleView != null) {
+            androidx.core.view.ViewCompat.setAccessibilityHeading(titleView, true);
+            // 21sp title: stop it growing past the 1.3x font-scale size (huge fonts would crowd the icons).
+            if (getResources().getConfiguration().fontScale > 1.3f)
+                titleView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 21f * 1.3f);
+        }
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
                     searchQuery = s.toString().trim().toLowerCase();
                     rebuildStatusAdapterNow();
-                    if (btnSearchClear != null)
-                        btnSearchClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
                 }
                 @Override public void afterTextChanged(Editable s) {}
             });
         }
+        // v561: search is an icon in the top row; tapping it swaps title + icon for the inline field.
+        if (btnSearchOpen != null && searchBox != null) {
+            btnSearchOpen.setOnClickListener(x -> {
+                searchBox.setVisibility(View.VISIBLE);
+                btnSearchOpen.setVisibility(View.GONE);
+                if (titleView != null) titleView.setVisibility(View.GONE);
+                if (etSearch != null) {
+                    etSearch.requestFocus();
+                    android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                            requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.showSoftInput(etSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                }
+            });
+        }
         if (btnSearchClear != null)
-            btnSearchClear.setOnClickListener(x -> { if (etSearch != null) etSearch.setText(""); });
+            btnSearchClear.setOnClickListener(x -> {
+                if (etSearch != null && etSearch.length() > 0) { etSearch.setText(""); return; } // 1st tap: clear text
+                // 2nd tap (already empty): close the field, bring back title + icon
+                if (searchBox != null) searchBox.setVisibility(View.GONE);
+                if (btnSearchOpen != null) btnSearchOpen.setVisibility(View.VISIBLE);
+                if (titleView != null) titleView.setVisibility(View.VISIBLE);
+                if (etSearch != null) {
+                    etSearch.clearFocus();
+                    android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                            requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+                }
+            });
 
         // ── Status privacy shortcut (v51) ───────────────────────────────
         View btnPrivacy = v.findViewById(R.id.btn_status_privacy);

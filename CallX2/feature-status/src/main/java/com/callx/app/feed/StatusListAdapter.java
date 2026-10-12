@@ -1038,7 +1038,7 @@ package com.callx.app.feed;
       static class StatusCardAdapter extends RecyclerView.Adapter<StatusCardAdapter.VH> {
           /** Theme-aware (values / values-night) colour lookup for the card tokens. */
           private static int col(Context ctx, int res) { return androidx.core.content.ContextCompat.getColor(ctx, res); }
-          // Card body = 116dp x 160dp (182dp row minus the 22dp avatar overlap) — decode at that size, not 480x853.
+          // Card body = status_card_width x status_card_height (112x180dp phone, 140x224dp tablet) — decode at that size, not 480x853.
           /** Card body size (below the avatar overlap) in px, from @dimen so tablets get bigger cards. */
           private static int bodyW(Context c) { return Math.round(c.getResources().getDimension(R.dimen.status_card_width)); }
           private static int bodyH(Context c) {

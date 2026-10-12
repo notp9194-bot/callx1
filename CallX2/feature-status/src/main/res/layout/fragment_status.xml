@@ -11,25 +11,40 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- Search bar row (v51) — modern pill search field + privacy shortcut icon -->
+        <!-- v561 top row: "Status" title (left) + search icon + privacy shortcut. Tapping the search icon swaps
+             the title/icon for the inline search field in this SAME row (no separate full-width search bar). -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="4dp">
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="2dp">
 
-            <!-- Search bar (v50) — modern pill-shaped field, matches the search bar
-                 style used across Reels/Chat/X (bg_search_field rounded surface,
-                 leading icon, inline clear button) instead of the old boxed
-                 Material outline. -->
+            <TextView
+                android:id="@+id/tv_status_title"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:text="@string/status_carousel_title"
+                android:textSize="21sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.01"
+                android:textColor="?attr/colorOnSurface"/>
+
+            <!-- Inline search field (hidden until the search icon is tapped). Close/clear button is always visible
+                 while open: clears the text first, closes the field when already empty. -->
             <FrameLayout
+                android:id="@+id/fl_status_search"
                 android:layout_width="0dp"
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:layout_marginStart="12dp"
-                android:background="@drawable/bg_search_field">
+                android:background="@drawable/bg_search_field"
+                android:visibility="gone">
 
                 <ImageView
                     android:layout_width="20dp"
@@ -39,7 +54,7 @@
                     android:src="@drawable/ic_search"
                     android:alpha="0.6"
                     app:tint="?attr/colorOnSurfaceVariant"
-                    android:contentDescription="Search"/>
+                    android:importantForAccessibility="no"/>
 
                 <EditText
                     android:id="@+id/et_status_search"
@@ -66,17 +81,25 @@
                     android:tint="?attr/colorOnSurfaceVariant"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:padding="8dp"
-                    android:visibility="gone"
-                    android:contentDescription="Clear search"/>
+                    android:contentDescription="Close search"/>
             </FrameLayout>
 
-            <!-- Status privacy shortcut (v51) — was only reachable from inside
-                 NewStatusActivity before; now one tap from the Status tab too. -->
+            <ImageButton
+                android:id="@+id/btn_status_search_open"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_search"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="10dp"
+                android:tint="?attr/colorOnSurfaceVariant"
+                android:contentDescription="Search statuses"/>
+
+            <!-- Status privacy shortcut (v51) -->
             <ImageButton
                 android:id="@+id/btn_status_privacy"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="4dp"
                 android:layout_marginEnd="12dp"
                 android:src="@drawable/ic_shield"
                 android:background="?attr/selectableItemBackgroundBorderless"

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v556: flat card, 22dp corners, no stroke. Used with clipToOutline on a plain FrameLayout. -->
+<!-- v556: flat card, 16dp corners (@dimen/status_card_radius), no stroke. Used with clipToOutline on a plain FrameLayout. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="@color/status_card_body_bg"/>
-    <corners android:radius="22dp"/>
+    <corners android:radius="@dimen/status_card_radius"/>
 </shape>

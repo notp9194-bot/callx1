@@ -5,19 +5,7 @@
     android:orientation="vertical"
     android:background="?attr/colorSurface">
 
-    <TextView
-        android:id="@+id/tv_carousel_title"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="16dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="8dp"
-        android:text="@string/status_carousel_title"
-        android:textSize="21sp"
-        android:textStyle="bold"
-        android:fontFamily="sans-serif-medium"
-        android:letterSpacing="0.01"
-        android:textColor="?attr/colorOnSurface"/>
+    <!-- v561: the "Status" title moved into the top bar (fragment_status.xml) -->
 
     <com.callx.app.feed.NestedScrollableHost
         android:layout_width="match_parent"
