@@ -275,6 +275,12 @@ import com.callx.app.utils.AlertDialogStyler;
       private final View.OnLayoutChangeListener quickReactionBarListener =
               (v, l, t, r, bt, ol, ot, or, ob) -> syncQuickReactionInsets();
       private boolean     columnHwLayerOn = false;
+      // v583: user-switch perf — shared interpolator (no per-swipe alloc), deferred live listener,
+      // and "already warmed neighbours for this queue position" marker.
+      private static final android.view.animation.Interpolator CUBE_INTERP =
+              new android.view.animation.DecelerateInterpolator();
+      private int liveAttachSeq = 0;
+      private int adjacentWarmedPos = Integer.MIN_VALUE;
       // v508: last-reply bubble is a ViewStub (only inflated once a status really has replies)
       private View        lastReplyBubbleView;
       private String      lastReplySig;      // newest-3 signature → skip rebind/animation when nothing changed
@@ -842,7 +848,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void load(String uid) {
           if (isHighlightMode) { loadHighlightAlbum(uid); return; }
-          attachLiveStatusListener(uid);
+          scheduleLiveStatusListener(uid); // v583: after first frame, not before it
           // FAST PATH: StatusCacheManager is an app-wide, always-listening (CallxApp) copy of every
           // contact's active statuses, already sorted. Open straight from it — no Firebase round-trip
           // before the first frame. Falls through to the network read when the cache has nothing for
@@ -994,7 +1000,19 @@ import com.callx.app.utils.AlertDialogStyler;
           };
           liveStatusRef.addValueEventListener(liveStatusListener);
       }
+      /** v583: the live-status ValueEventListener re-reads + parses the owner's whole status node on
+       *  the main thread the moment it attaches. Attach it AFTER the first frame of the new owner
+       *  (and drop it if the user already swiped on) so it never sits in the swipe's critical path. */
+      private void scheduleLiveStatusListener(final String uid) {
+          if (uid == null) return;
+          final int token = ++liveAttachSeq;
+          android.view.Choreographer.getInstance().postFrameCallback(t -> handler.postDelayed(() -> {
+              if (token != liveAttachSeq || isFinishing() || isDestroyed() || !uid.equals(ownerUid)) return;
+              attachLiveStatusListener(uid);
+          }, 120L));
+      }
       private void detachLiveStatusListener() {
+          liveAttachSeq++; // cancels any pending scheduled attach
           if (liveStatusRef != null && liveStatusListener != null)
               liveStatusRef.removeEventListener(liveStatusListener);
           liveStatusRef = null; liveStatusListener = null;
@@ -1073,6 +1091,7 @@ import com.callx.app.utils.AlertDialogStyler;
           updateExpiryLabel(s);
           updateMentionChip(s);
           deferAfterFirstFrame(seq, () -> playReactionBurstIfAny(shown));
+          deferAfterFirstFrame(seq, this::prefetchAdjacentQueueEntries); // v583: both neighbours, once per owner
           if (s.id != null && !s.id.isEmpty() && myUid != null && !myUid.equals(ownerUid))
               if (!seenInSession.contains(s.id)) seenInSession.add(s.id);
           binding.btnMute.setVisibility(View.GONE);
@@ -1490,13 +1509,14 @@ import com.callx.app.utils.AlertDialogStyler;
       private com.callx.app.cache.StatusMediaPreloader videoPreloader; // lazily created, shut down in onDestroy
 
       /** Warms the player cache with the first ~2MB of the NEXT status's video. */
-      private void prefetchNextVideo(String url) {
+      private void prefetchNextVideo(String url) { prefetchNextVideo(url, true); }
+      private void prefetchNextVideo(String url, boolean standby) {
           if (url == null || url.isEmpty()) return;
           try {
               if (videoPreloader == null) videoPreloader = new com.callx.app.cache.StatusMediaPreloader(this);
               videoPreloader.preloadVideoUrl(url);
           } catch (Exception ignored) {}
-          prepareStandby(url); // standby ExoPlayer pre-buffers it too → video→video swap instead of a cold start
+          if (standby) prepareStandby(url); // standby ExoPlayer pre-buffers it too → video→video swap instead of a cold start
       }
 
       /** Warms Glide's cache with the NEXT status's photo so swiping/auto-advance is instant. */
@@ -1514,14 +1534,29 @@ import com.callx.app.utils.AlertDialogStyler;
        *  first story (media + blurred backdrop) is already being fetched, so the cube turn lands
        *  on a ready frame instead of an empty card. Reads the app-wide cache — no extra Firebase read. */
       private void prefetchNextQueueEntry() {
-          if (isHighlightMode || !hasNextInQueue()) return;
+          if (isHighlightMode) return;
+          warmQueueEntry(queuePos + 1);
+      }
+      /** v583: warm BOTH the next and the previous owner's first status as soon as an owner opens —
+       *  a swipe can happen at any moment, not only on the last segment. Once per queue position. */
+      private void prefetchAdjacentQueueEntries() {
+          if (isHighlightMode || isFinishing() || isDestroyed() || adjacentWarmedPos == queuePos) return;
+          adjacentWarmedPos = queuePos;
+          warmQueueEntry(queuePos + 1);
+          warmQueueEntry(queuePos - 1);
+      }
+      private void warmQueueEntry(int pos) {
+          if (pos < 0 || pos >= queueOwnerUids.size()) return;
           try {
-              List<StatusItem> next = com.callx.app.cache.StatusCacheManager.getInstance(this)
-                      .getStatuses(queueOwnerUids.get(queuePos + 1));
-              if (!next.isEmpty()) prefetchItem(next.get(0));
+              List<StatusItem> l = com.callx.app.cache.StatusCacheManager.getInstance(this)
+                      .getStatuses(queueOwnerUids.get(pos));
+              if (!l.isEmpty()) prefetchItem(l.get(0), true);
           } catch (Exception ignored) {}
       }
-      private void prefetchItem(StatusItem n) {
+      private void prefetchItem(StatusItem n) { prefetchItem(n, false); }
+      /** adjacent=true (other owner's first status): HIGH priority, and never touches the standby
+       *  ExoPlayer (it is reserved for THIS owner's next segment). */
+      private void prefetchItem(StatusItem n, final boolean adjacent) {
           if (n == null || n.type == null) return;
           String url = null;
           switch (n.type) {
@@ -1529,7 +1564,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   url = n.mediaUrl; break;
               case "video": case "reel_story": case "reel_clip":
                   if (n.mediaUrl == null || n.mediaUrl.isEmpty()) url = n.thumbnailUrl;
-                  else { prefetchNextVideo(n.mediaUrl); preloadVideoPoster(n); } // plays via ExoPlayer — warm its cache + poster
+                  else { prefetchNextVideo(n.mediaUrl, !adjacent); preloadVideoPoster(n); } // plays via ExoPlayer — warm its cache + poster
                   break;
               case "link":
                   url = n.linkImageUrl; break;
@@ -1537,7 +1572,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   boolean video = n.resharedMediaType != null && !n.resharedMediaType.isEmpty()
                           ? "video".equals(n.resharedMediaType) : looksLikeVideoUrl(n.mediaUrl);
                   if (n.mediaUrl != null && !n.mediaUrl.isEmpty() && !video) url = n.mediaUrl;
-                  else if (n.mediaUrl != null && !n.mediaUrl.isEmpty()) { prefetchNextVideo(n.mediaUrl); preloadVideoPoster(n); }
+                  else if (n.mediaUrl != null && !n.mediaUrl.isEmpty()) { prefetchNextVideo(n.mediaUrl, !adjacent); preloadVideoPoster(n); }
                   break;
               }
               default: break;
@@ -1546,9 +1581,11 @@ import com.callx.app.utils.AlertDialogStyler;
           try {
               Glide.with(this).asBitmap().load(url)
                       .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                      .priority(adjacent ? com.bumptech.glide.Priority.HIGH : com.bumptech.glide.Priority.NORMAL)
                       .apply(imgBgOptions()).preload(); // same key as loadRootBackdrop()
               Glide.with(this).load(url)
                       .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                      .priority(adjacent ? com.bumptech.glide.Priority.HIGH : com.bumptech.glide.Priority.NORMAL)
                       .apply(imgFgOptions()).preload();
           } catch (Exception ignored) {}
       }
@@ -3015,8 +3052,8 @@ import com.callx.app.utils.AlertDialogStyler;
           col.setRotationY(forward ? 70f : -70f);
           col.setTranslationX(forward ? col.getWidth() * 0.25f : -col.getWidth() * 0.25f);
           col.setAlpha(1f); // v581: no alpha dip during the cube turn
-          col.animate().rotationY(0f).translationX(0f).setDuration(280L)
-                  .setInterpolator(new android.view.animation.DecelerateInterpolator())
+          col.animate().rotationY(0f).translationX(0f).setDuration(250L)
+                  .setInterpolator(CUBE_INTERP)
                   .withEndAction(() -> { col.setPivotX(col.getWidth() / 2f); col.setRotationY(0f); col.setTranslationX(0f); columnHwLayerOff(); })
                   .start();
       }
@@ -3031,7 +3068,17 @@ import com.callx.app.utils.AlertDialogStyler;
           targetStatusId = null; // only meant for the FIRST owner we opened on
           viewStartTime = 0;
           reactionBurstPlayedFor.clear();
-          // v581: no hideAllContent() here — keep the previous frame until showCurrent() swaps it.
+          // v581/v583: keep the previous frame only when the new owner is served from the in-memory
+          // cache (showCurrent() swaps it synchronously, same frame). On a cache miss / highlight
+          // album the data arrives later, so clear now instead of rotating the OLD user's content in.
+          boolean cacheReady = false;
+          if (!isHighlightMode) {
+              try {
+                  cacheReady = !com.callx.app.cache.StatusCacheManager.getInstance(this)
+                          .getStatuses(queueOwnerUids.get(pos)).isEmpty();
+              } catch (Exception ignored) {}
+          }
+          if (!cacheReady) hideAllContent();
           playUserSwitchTransition(pos > queuePos);
           queuePos = pos;
           if (isHighlightMode) {
