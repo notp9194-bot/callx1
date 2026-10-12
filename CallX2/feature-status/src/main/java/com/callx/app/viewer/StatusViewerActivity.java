@@ -1122,8 +1122,8 @@ import com.callx.app.utils.AlertDialogStyler;
                           final String cName = s.resharedFromOwnerName;
                           final String cUser = s.resharedFromOwnerUsername;
                           // @username when we have it; otherwise the display name WITHOUT an "@" (names contain spaces)
-                          final String shown = (cUser != null && !cUser.isEmpty()) ? "@" + cUser : cName;
-                          ((android.widget.TextView) flReshare.findViewById(R.id.tv_reshare_chip_text)).setText("\u21BB " + shown);
+                          final String chipLabel = (cUser != null && !cUser.isEmpty()) ? "@" + cUser : cName;
+                          ((android.widget.TextView) flReshare.findViewById(R.id.tv_reshare_chip_text)).setText("\u21BB " + chipLabel);
                           final android.widget.ImageView cAv = flReshare.findViewById(R.id.iv_reshare_chip_avatar);
                           if (cAv != null) {
                               if (s.resharedFromOwnerAvatar != null && !s.resharedFromOwnerAvatar.isEmpty()) {
@@ -1141,7 +1141,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           chip.setContentDescription("View original story by " + cName);
                           final String cUid = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
                           final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
-                          chip.setOnClickListener(v -> openOriginalStory(cUid, cId, shown));
+                          chip.setOnClickListener(v -> openOriginalStory(cUid, cId, chipLabel));
                           return;
                       }
                       if (chip != null) chip.setVisibility(android.view.View.GONE);
