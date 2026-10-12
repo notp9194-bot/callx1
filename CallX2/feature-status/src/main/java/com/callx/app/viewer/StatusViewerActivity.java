@@ -3008,13 +3008,16 @@ import com.callx.app.utils.AlertDialogStyler;
           columnHwLayerOn(); // v507: cube turn runs on a GPU texture
           col.setScaleX(1f); col.setScaleY(1f); col.setTranslationX(0f); col.setTranslationY(0f);
           col.setCameraDistance(getResources().getDisplayMetrics().density * 8000f);
-          col.setPivotX(forward ? 0f : col.getWidth());
+          // v582: direction fixed — forward (left swipe) = new card hinges on its RIGHT edge and
+          // opens toward the left (next page); back (right swipe) = hinges on LEFT edge.
+          col.setPivotX(forward ? col.getWidth() : 0f);
           col.setPivotY(col.getHeight() / 2f);
-          col.setRotationY(forward ? -70f : 70f);
+          col.setRotationY(forward ? 70f : -70f);
+          col.setTranslationX(forward ? col.getWidth() * 0.25f : -col.getWidth() * 0.25f);
           col.setAlpha(1f); // v581: no alpha dip during the cube turn
-          col.animate().rotationY(0f).setDuration(280L)
+          col.animate().rotationY(0f).translationX(0f).setDuration(280L)
                   .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                  .withEndAction(() -> { col.setPivotX(col.getWidth() / 2f); col.setRotationY(0f); columnHwLayerOff(); })
+                  .withEndAction(() -> { col.setPivotX(col.getWidth() / 2f); col.setRotationY(0f); col.setTranslationX(0f); columnHwLayerOff(); })
                   .start();
       }
       /** Tears down the current owner/album's on-screen state and loads the
