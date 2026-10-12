@@ -157,7 +157,10 @@ public class MainActivity extends AppCompatActivity
     // Firebase listeners — attached only while MainActivity is started.
     private ValueEventListener unreadChatsListener;
     private ValueEventListener missedCallsListener;
-    private ValueEventListener unseenStatusListener;
+    private ValueEventListener unseenStatusListener; // statusSeen/{me} (live)
+    // v554: unseen-status badge listens per contact (status/{uid}) instead of the whole status root.
+    private final java.util.Map<String, ValueEventListener> statusBadgeListeners = new java.util.HashMap<>();
+    private final java.util.Map<String, DataSnapshot> statusBadgeSnaps = new java.util.HashMap<>();
     private ValueEventListener unreadGroupsListener;
     private ValueEventListener unreadReelNotifsListener;
     private final java.util.Map<DatabaseReference, ChildEventListener>
@@ -1027,6 +1030,7 @@ public class MainActivity extends AppCompatActivity
                 setBadge(R.id.nav_chats, (int) total);
                 notifChatUnread = threads;
                 updateNotifBadge();
+                syncStatusBadgeListeners(uid, snap); // v554: per-contact status listeners follow the contact list
                 if (!storyListenersLoading && storyStatusListeners.isEmpty()) {
                     storyListenersLoading = true;
                     loadContactUidsForStoryNotif(uid, snap);
@@ -1060,37 +1064,23 @@ public class MainActivity extends AppCompatActivity
         // 3. Unseen statuses → nav_status badge
         //    Cross-references statusSeen/{myUid}/{ownerUid}/{statusId} for accurate count.
         //    Only items whose timestamp is within 24 h AND not in statusSeen are "unseen".
+        // Seen map is live: marking a story seen updates the badge immediately.
+        // Contact status listeners are attached by syncStatusBadgeListeners() (called from the contacts listener above).
         unseenStatusListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot allStatusSnap) {
-                // Fetch our seen map first, then compute the badge count
-                FirebaseUtils.getStatusSeenRef(uid).addListenerForSingleValueEvent(
-                    new ValueEventListener() {
-                        @Override public void onDataChange(DataSnapshot seenSnap) {
-                            // Build: ownerUid → Set<statusId>
-                            java.util.Map<String, java.util.Set<String>> seenMap
-                                = new java.util.HashMap<>();
-                            for (DataSnapshot ownerNode : seenSnap.getChildren()) {
-                                java.util.Set<String> ids = new java.util.HashSet<>();
-                                for (DataSnapshot idNode : ownerNode.getChildren())
-                                    ids.add(idNode.getKey());
-                                seenMap.put(ownerNode.getKey(), ids);
-                            }
-                            // FIX: snapshot + seenMap yaad rakho taaki story expire
-                            // hone pe bina Firebase write ke badge dobara count ho sake.
-                            lastStatusSnap = allStatusSnap;
-                            lastStatusSeenMap = seenMap;
-                            int count = computeUnseenStatusCount(uid, allStatusSnap, seenMap);
-                            setBadge(R.id.nav_status, count);
-                            // Also update the header notification ball
-                            notifStatusUnread = count;
-                            updateNotifBadge();
-                        }
-                        @Override public void onCancelled(DatabaseError e) {}
-                    });
+            @Override public void onDataChange(DataSnapshot seenSnap) {
+                java.util.Map<String, java.util.Set<String>> seenMap = new java.util.HashMap<>();
+                for (DataSnapshot ownerNode : seenSnap.getChildren()) {
+                    java.util.Set<String> ids = new java.util.HashSet<>();
+                    for (DataSnapshot idNode : ownerNode.getChildren())
+                        ids.add(idNode.getKey());
+                    seenMap.put(ownerNode.getKey(), ids);
+                }
+                lastStatusSeenMap = seenMap;
+                scheduleStatusBadgeRecount();
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
-        FirebaseUtils.getStatusRef().addValueEventListener(unseenStatusListener);
+        FirebaseUtils.getStatusSeenRef(uid).addValueEventListener(unseenStatusListener);
 
         // 4. Unread group messages → nav_groups badge (index shifted — was #4, now after 4b)
         unreadGroupsListener = new ValueEventListener() {
@@ -1131,20 +1121,64 @@ public class MainActivity extends AppCompatActivity
     }
 
     // ── Status badge: expiry-aware count ───────────────────────────────────
-    private DataSnapshot lastStatusSnap;
     private java.util.Map<String, java.util.Set<String>> lastStatusSeenMap;
     private final android.os.Handler statusBadgeHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable statusBadgeRecount = new Runnable() {
         @Override public void run() {
             String u = badgeListenersUid;
-            if (u == null || lastStatusSnap == null || lastStatusSeenMap == null) return;
-            int c = computeUnseenStatusCount(u, lastStatusSnap, lastStatusSeenMap);
+            if (u == null || lastStatusSeenMap == null) return;
+            // Contacts attached but no snapshot landed yet -> wait, don't flash a 0 badge.
+            if (!statusBadgeListeners.isEmpty() && statusBadgeSnaps.isEmpty()) return;
+            int c = computeUnseenStatusCount(u, statusBadgeSnaps, lastStatusSeenMap);
             setBadge(R.id.nav_status, c);
             notifStatusUnread = c;
             updateNotifBadge();
         }
     };
+
+    /** Coalesces bursts of per-contact snapshots into one recount. */
+    private void scheduleStatusBadgeRecount() {
+        statusBadgeHandler.removeCallbacks(statusBadgeRecount);
+        statusBadgeHandler.postDelayed(statusBadgeRecount, 60L);
+    }
+
+    /** Keeps one status/{uid} listener per contact (adds new ones, drops removed ones). */
+    private void syncStatusBadgeListeners(String myUid, DataSnapshot contactsSnap) {
+        if (!badgeListenersAttached || !myUid.equals(badgeListenersUid)) return;
+        java.util.Set<String> want = new java.util.HashSet<>();
+        for (DataSnapshot c : contactsSnap.getChildren()) {
+            String k = c.getKey();
+            if (k != null && !k.isEmpty() && !k.equals(myUid)) want.add(k);
+        }
+        boolean changed = false;
+        for (java.util.Iterator<java.util.Map.Entry<String, ValueEventListener>> it =
+                 statusBadgeListeners.entrySet().iterator(); it.hasNext(); ) {
+            java.util.Map.Entry<String, ValueEventListener> e = it.next();
+            if (want.contains(e.getKey())) continue;
+            FirebaseUtils.getStatusRef().child(e.getKey()).removeEventListener(e.getValue());
+            statusBadgeSnaps.remove(e.getKey());
+            it.remove();
+            changed = true;
+        }
+        for (final String contactUid : want) {
+            if (statusBadgeListeners.containsKey(contactUid)) continue;
+            ValueEventListener l = new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    statusBadgeSnaps.put(contactUid, snap);
+                    scheduleStatusBadgeRecount();
+                }
+                @Override public void onCancelled(DatabaseError e) {
+                    statusBadgeSnaps.remove(contactUid);
+                    scheduleStatusBadgeRecount();
+                }
+            };
+            statusBadgeListeners.put(contactUid, l);
+            FirebaseUtils.getStatusRef().child(contactUid).addValueEventListener(l);
+            changed = true;
+        }
+        if (changed) scheduleStatusBadgeRecount();
+    }
 
     /**
      * Unseen story count (own stories skip). Ek story tabhi count hoti hai jab:
@@ -1153,13 +1187,13 @@ public class MainActivity extends AppCompatActivity
      *  - statusSeen me na ho
      * Saath hi agli expiry pe recount schedule karta hai.
      */
-    private int computeUnseenStatusCount(String myUid, DataSnapshot allStatusSnap,
+    private int computeUnseenStatusCount(String myUid, java.util.Map<String, DataSnapshot> ownerSnaps,
                                          java.util.Map<String, java.util.Set<String>> seenMap) {
         final long now = System.currentTimeMillis();
         final long cutoff = now - java.util.concurrent.TimeUnit.HOURS.toMillis(24);
         long nextExpiry = Long.MAX_VALUE;
         int count = 0;
-        for (DataSnapshot ownerSnap : allStatusSnap.getChildren()) {
+        for (DataSnapshot ownerSnap : ownerSnaps.values()) {
             String ownerUid = ownerSnap.getKey();
             if (myUid.equals(ownerUid)) continue; // skip own statuses
             java.util.Set<String> seen = seenMap.get(ownerUid);
@@ -1188,8 +1222,11 @@ public class MainActivity extends AppCompatActivity
 
     private void detachBadgeListeners() {
         statusBadgeHandler.removeCallbacks(statusBadgeRecount);
-        lastStatusSnap = null;
         lastStatusSeenMap = null;
+        for (java.util.Map.Entry<String, ValueEventListener> e : statusBadgeListeners.entrySet())
+            FirebaseUtils.getStatusRef().child(e.getKey()).removeEventListener(e.getValue());
+        statusBadgeListeners.clear();
+        statusBadgeSnaps.clear();
         String uid = badgeListenersUid;
         if (uid != null) {
             if (unreadChatsListener != null) {
@@ -1199,7 +1236,7 @@ public class MainActivity extends AppCompatActivity
                 FirebaseUtils.getCallsRef(uid).removeEventListener(missedCallsListener);
             }
             if (unseenStatusListener != null) {
-                FirebaseUtils.getStatusRef().removeEventListener(unseenStatusListener);
+                FirebaseUtils.getStatusSeenRef(uid).removeEventListener(unseenStatusListener);
             }
             if (unreadGroupsListener != null) {
                 FirebaseUtils.getUserGroupsRef(uid).removeEventListener(unreadGroupsListener);

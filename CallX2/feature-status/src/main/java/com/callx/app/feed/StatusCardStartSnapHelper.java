@@ -32,6 +32,31 @@ public final class StatusCardStartSnapHelper extends LinearSnapHelper {
         return out;
     }
 
+    /**
+     * Fling target, start-aligned like {@link #findSnapView}: a forward fling lands on the card after the
+     * first visible one (+1 more card per ~5000 px/s, max 2 extra); a backward fling lands on the cut-off
+     * first card, or the previous one if it is already flush. Without this, LinearSnapHelper's centre-based
+     * target made fast flings settle 1-2 cards off. NO_POSITION → plain fling + idle snap (end of list).
+     */
+    @Override
+    public int findTargetSnapPosition(RecyclerView.LayoutManager lm, int velocityX, int velocityY) {
+        if (!(lm instanceof LinearLayoutManager)) return super.findTargetSnapPosition(lm, velocityX, velocityY);
+        LinearLayoutManager llm = (LinearLayoutManager) lm;
+        final int count = llm.getItemCount();
+        if (count == 0) return RecyclerView.NO_POSITION;
+        final int first = llm.findFirstVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION) return RecyclerView.NO_POSITION;
+        final int extra = Math.min(2, Math.abs(velocityX) / 5000);
+        if (velocityX > 0) {
+            if (llm.findLastCompletelyVisibleItemPosition() == count - 1) return RecyclerView.NO_POSITION; // end: don't pull back
+            return Math.min(count - 1, first + 1 + extra);
+        }
+        View fv = llm.findViewByPosition(first);
+        OrientationHelper oh = helper(lm);
+        boolean flush = fv == null || oh.getDecoratedStart(fv) >= oh.getStartAfterPadding();
+        return Math.max(0, (flush ? first - 1 : first) - extra);
+    }
+
     @Nullable
     @Override
     public View findSnapView(RecyclerView.LayoutManager lm) {

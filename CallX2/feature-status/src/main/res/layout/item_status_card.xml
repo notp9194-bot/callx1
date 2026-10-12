@@ -9,22 +9,16 @@
     android:layout_marginTop="8dp"
     android:layout_marginBottom="10dp">
 
-    <!-- Card body: status image + vignette + gradient scrim + name, thin premium border -->
-    <com.google.android.material.card.MaterialCardView
+    <!-- Card body (v554): plain FrameLayout + rounded bg + clipToOutline instead of MaterialCardView
+         with a nested FrameLayout — fewer views to inflate/measure/draw. -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_marginTop="@dimen/status_card_avatar_overlap"
-        app:cardCornerRadius="18dp"
-        app:cardElevation="3dp"
-        app:cardBackgroundColor="@color/status_card_body_bg"
-        app:strokeWidth="1dp"
-        app:strokeColor="@color/status_card_stroke"
-        app:rippleColor="@color/status_card_ripple"
+        android:background="@drawable/bg_status_card_body"
+        android:clipToOutline="true"
+        android:elevation="1dp"
         android:foreground="?attr/selectableItemBackground">
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent">
 
             <ImageView
                 android:id="@+id/iv_card_bg"
@@ -33,25 +27,11 @@
                 android:scaleType="centerCrop"
                 android:background="@color/status_card_placeholder"/>
 
-            <!-- Soft top vignette for depth -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_gravity="top"
-                android:background="@drawable/bg_status_card_top_scrim"/>
-
-            <!-- Bottom scrim so the name stays readable on bright photos -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="76dp"
-                android:layout_gravity="bottom"
-                android:background="@drawable/bg_status_card_bottom_scrim"/>
-
-            <!-- Hairline inner edge highlight — gives the glass/premium finish -->
+            <!-- Top vignette + bottom name scrim + hairline inner edge, merged into one layer-list view -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@drawable/bg_status_card_inner_stroke"/>
+                android:background="@drawable/bg_status_card_overlay"/>
 
             <!-- Text-status preview (shown only on text cards) -->
             <TextView
@@ -115,8 +95,6 @@
                     android:textStyle="bold"
                     android:maxLines="2"
                     android:ellipsize="end"
-                    android:shadowColor="#CC000000"
-                    android:shadowRadius="5"
                     android:letterSpacing="0.01"
                     tools:text="Name"/>
 
@@ -129,18 +107,15 @@
                     android:textColor="#D9FFFFFF"
                     android:textSize="10.5sp"
                     android:maxLines="1"
-                    android:shadowColor="#CC000000"
-                    android:shadowRadius="4"
                     android:visibility="gone"/>
             </LinearLayout>
 
-        </FrameLayout>
-    </com.google.android.material.card.MaterialCardView>
+    </FrameLayout>
 
     <!-- Avatar + ring, overlapping the top edge of the card.
          background = transparent oval so the elevation shadow (if any) follows
          the round shape instead of defaulting to a rectangle; elevation (4dp) is set
-         higher than the card's 3dp so this always draws in front of it. -->
+         higher than the card's 1dp so this always draws in front of it. -->
     <FrameLayout
         android:id="@+id/fl_avatar"
         android:layout_width="48dp"

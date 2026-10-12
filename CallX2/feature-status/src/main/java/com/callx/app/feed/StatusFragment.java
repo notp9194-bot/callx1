@@ -78,12 +78,28 @@ public class StatusFragment extends BaseFragment {
     private final android.os.Handler statusExpirySweepHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable statusExpirySweepRunnable = this::sweepExpiredStatuses;
     private long lastTimeLabelRefreshMs = 0L;
-    private ValueEventListener statusListener;
+    // v555: wall-clock time at which the first visible "5m ago"/"2h ago" label changes. The sweep only
+    // rebuilds for labels when this is due (was: full rebuild every 60s even if no label would change).
+    private long nextLabelChangeMs = Long.MAX_VALUE;
+    // v554: per-contact listeners (status/{uid}) instead of one listener on the whole status root.
+    private final Map<String, ValueEventListener> statusListeners = new HashMap<>();
+    private final Set<String> pendingFirst = new HashSet<>();        // watched uids whose first snapshot hasn't landed yet
+    private final Set<String> firstValueDelivered = new HashSet<>(); // uids whose live (Firebase) snapshot has landed
+    private volatile int statusListenerGen = 0;                               // invalidates in-flight background parses on detach
+    // v554: one shared worker for snapshot parse + Room I/O (was: new thread per call, never shut down).
+    private static final java.util.concurrent.ExecutorService STATUS_IO =
+        Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "status-io");
+            t.setPriority(Thread.NORM_PRIORITY - 1);
+            return t;
+        });
     private ValueEventListener seenListener;
     private ValueEventListener highlightsListener;
     private final java.util.Set<String> blockedUids = new java.util.HashSet<>();
 
     private com.callx.app.cache.StatusMediaPreloader mediaPreloader;
+    private long lastPreloadSig = 0L;                                        // see rebuildStatusAdapterNow()
+    private com.callx.app.cache.StatusMediaPreloader preloadedBy;           // preloader instance the last sig was run on
     private EditText etSearch;
     private androidx.swiperefreshlayout.widget.SwipeRefreshLayout swipeRefresh;
     private String   searchQuery = "";
@@ -108,7 +124,7 @@ public class StatusFragment extends BaseFragment {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
                     searchQuery = s.toString().trim().toLowerCase();
-                    rebuildStatusAdapter();
+                    rebuildStatusAdapterNow();
                     if (btnSearchClear != null)
                         btnSearchClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
                 }
@@ -311,6 +327,7 @@ public class StatusFragment extends BaseFragment {
     @Override public void onStop() {
         removeListeners();
         statusExpirySweepHandler.removeCallbacks(statusExpirySweepRunnable);
+        rebuildHandler.removeCallbacks(rebuildRunnable);
         if (getContext() != null)
             com.callx.app.cache.StatusCacheManager
                 .getInstance(getContext()).removeObserver(statusCacheObserver);
@@ -392,13 +409,13 @@ public class StatusFragment extends BaseFragment {
             if (myUid().equals(uid)) { if (myStatuses.isEmpty()) myStatuses.addAll(items2); }
             else { if (!statusMap.containsKey(uid)) statusMap.put(uid, items2); }
         }
-        rebuildStatusAdapter();
+        rebuildStatusAdapterNow();
     }
 
     private void loadFromRoom() {
         if (getContext() == null || !isAuthenticated()) return;
         com.callx.app.db.AppDatabase db = com.callx.app.db.AppDatabase.getInstance(getContext());
-        Executors.newSingleThreadExecutor().execute(() -> {
+        STATUS_IO.execute(() -> {
             long now = System.currentTimeMillis();
             List<com.callx.app.db.entity.StatusEntity> cached =
                 db.statusDao().getActiveStatuses(now);
@@ -413,11 +430,18 @@ public class StatusFragment extends BaseFragment {
             }
             if (getActivity() != null) {
                 getActivity().runOnUiThread(() -> {
-                    if (statusMap.isEmpty() && myStatuses.isEmpty()) {
-                        statusMap.putAll(roomMap);
-                        myStatuses.addAll(roomMine);
-                        rebuildStatusAdapter();
+                    // v554: Firebase now lands per contact, so seed per uid — only uids whose
+                    // live snapshot hasn't arrived yet (never overwrite fresher data).
+                    boolean changed = false;
+                    for (Map.Entry<String, List<StatusItem>> re : roomMap.entrySet()) {
+                        String u = re.getKey();
+                        if (firstValueDelivered.contains(u) || blockedUids.contains(u) || statusMap.containsKey(u)) continue;
+                        statusMap.put(u, re.getValue()); changed = true;
                     }
+                    if (!roomMine.isEmpty() && myStatuses.isEmpty() && !firstValueDelivered.contains(myUid())) {
+                        myStatuses.addAll(roomMine); changed = true;
+                    }
+                    if (changed) rebuildStatusAdapterNow();
                 });
             }
         });
@@ -454,40 +478,87 @@ public class StatusFragment extends BaseFragment {
             });
     }
 
+    /**
+     * v554: one listener per watched uid on status/{uid} (Firebase multiplexes them on a single
+     * connection) instead of one on the whole "status" root. Only the contact whose data changed is
+     * downloaded and re-parsed; non-contacts' statuses are never fetched. Parse runs on STATUS_IO,
+     * only the final per-uid result is applied on the main thread.
+     */
     private void attachStatusListener(Set<String> watchedUids) {
-        statusListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                long now = System.currentTimeMillis();
-                // Parse into temp holders first: one bad child must not leave the maps half-cleared.
-                Map<String, List<StatusItem>> newMap = new LinkedHashMap<>();
-                List<StatusItem> newMine = new ArrayList<>();
-                for (DataSnapshot userSnap : snap.getChildren()) {
-                    String uid = userSnap.getKey();
-                    if (uid == null || !watchedUids.contains(uid)) continue;
-                    List<StatusItem> items2 = new ArrayList<>();
-                    for (DataSnapshot stSnap : userSnap.getChildren()) {
-                        StatusItem item;
-                        try { item = stSnap.getValue(StatusItem.class); }
-                        catch (Exception parseErr) { continue; }
-                        if (item == null || (item.deleted != null && item.deleted)) continue;
-                        if (item.expiresAt != null && item.expiresAt < now) continue;
-                        items2.add(item);
-                    }
-                    items2.sort((a, b) -> Long.compare(
-                        a.timestamp == null ? 0 : a.timestamp,
-                        b.timestamp == null ? 0 : b.timestamp));
-                    if (uid.equals(myUid())) newMine.addAll(items2);
-                    else if (!items2.isEmpty() && !blockedUids.contains(uid))
-                        newMap.put(uid, items2);
+        detachStatusListeners();
+        final int gen = statusListenerGen; // detach bumped it
+        final String me = myUid();
+        // Drop cached/room-seeded uids that are no longer watched (unfollowed / blocked).
+        for (Iterator<String> it = statusMap.keySet().iterator(); it.hasNext(); ) {
+            String u = it.next();
+            if (!watchedUids.contains(u) || blockedUids.contains(u)) it.remove();
+        }
+        firstValueDelivered.clear();
+        pendingFirst.clear();
+        for (String uid : watchedUids) {
+            if (uid == null || uid.isEmpty()) continue;
+            if (!uid.equals(me) && blockedUids.contains(uid)) continue;
+            pendingFirst.add(uid);
+        }
+        for (String uid : new ArrayList<>(pendingFirst)) {
+            ValueEventListener l = new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    STATUS_IO.execute(() -> {
+                        if (gen != statusListenerGen) return;
+                        final List<StatusItem> items2 = parseUserStatuses(snap);
+                        rebuildHandler.post(() -> applyUserStatuses(gen, uid, items2));
+                    });
                 }
-                statusMap.clear(); myStatuses.clear();
-                statusMap.putAll(newMap); myStatuses.addAll(newMine);
-                rebuildStatusAdapter();
-                saveToRoom();
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getStatusRef().addValueEventListener(statusListener);
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    rebuildHandler.post(() -> applyUserStatuses(gen, uid, Collections.emptyList()));
+                }
+            };
+            statusListeners.put(uid, l);
+            FirebaseUtils.getStatusRef().child(uid).addValueEventListener(l);
+        }
+    }
+
+    /** Background thread: DataSnapshot -> filtered, time-sorted items of one user. */
+    private static List<StatusItem> parseUserStatuses(DataSnapshot userSnap) {
+        long now = System.currentTimeMillis();
+        List<StatusItem> items2 = new ArrayList<>();
+        for (DataSnapshot stSnap : userSnap.getChildren()) {
+            StatusItem item;
+            try { item = stSnap.getValue(StatusItem.class); }
+            catch (Exception parseErr) { continue; }
+            if (item == null || (item.deleted != null && item.deleted)) continue;
+            if (item.expiresAt != null && item.expiresAt < now) continue;
+            items2.add(item);
+        }
+        items2.sort((a, b) -> Long.compare(
+            a.timestamp == null ? 0 : a.timestamp,
+            b.timestamp == null ? 0 : b.timestamp));
+        return items2;
+    }
+
+    /** Main thread: merge one user's parsed result into the maps, then debounced rebuild (+ Room save once all first values are in). */
+    private void applyUserStatuses(int gen, String uid, List<StatusItem> items2) {
+        if (gen != statusListenerGen || getContext() == null) return;
+        firstValueDelivered.add(uid);
+        pendingFirst.remove(uid);
+        if (uid.equals(myUid())) {
+            myStatuses.clear();
+            myStatuses.addAll(items2);
+        } else if (items2.isEmpty() || blockedUids.contains(uid)) {
+            statusMap.remove(uid);
+        } else {
+            statusMap.put(uid, items2);
+        }
+        rebuildStatusAdapter();
+        // Room cleanup deletes rows missing from the maps — only safe once every uid reported once.
+        if (pendingFirst.isEmpty()) scheduleSaveToRoom();
+    }
+
+    private void detachStatusListeners() {
+        statusListenerGen++;
+        for (Map.Entry<String, ValueEventListener> e : statusListeners.entrySet())
+            FirebaseUtils.getStatusRef().child(e.getKey()).removeEventListener(e.getValue());
+        statusListeners.clear();
     }
 
     private void attachSeenListener() {
@@ -571,10 +642,7 @@ public class StatusFragment extends BaseFragment {
     }
 
     private void removeListeners() {
-        if (statusListener != null) {
-            FirebaseUtils.getStatusRef().removeEventListener(statusListener);
-            statusListener = null;
-        }
+        detachStatusListeners();
         if (seenListener != null) {
             FirebaseUtils.db().getReference("statusSeen").child(myUid())
                 .removeEventListener(seenListener);
@@ -623,23 +691,41 @@ public class StatusFragment extends BaseFragment {
             else if (delta < nextExpiryDelta) nextExpiryDelta = delta;
         }
 
-        // Also rebuild about once a minute so the cards' "5m ago" labels stay fresh.
+        // v555: rebuild for time labels only when a visible label actually changes (minute / hour boundary).
         boolean hasData = !statusMap.isEmpty() || !myStatuses.isEmpty();
-        if (changed || (hasData && now - lastTimeLabelRefreshMs >= 60_000L)) {
+        if (changed || (hasData && now >= nextLabelChangeMs)) {
             lastTimeLabelRefreshMs = now;
             rebuildStatusAdapter();
         }
+        final long labelDelta = nextLabelChangeMs == Long.MAX_VALUE ? Long.MAX_VALUE : Math.max(0L, nextLabelChangeMs - now);
+        final long soonest = Math.min(nextExpiryDelta, labelDelta);
 
-        long nextRun = nextExpiryDelta == Long.MAX_VALUE
+        long nextRun = soonest == Long.MAX_VALUE
                 ? 60_000L
-                : Math.max(5_000L, Math.min(60_000L, nextExpiryDelta + 1_000L));
+                : Math.max(5_000L, Math.min(60_000L, soonest + 1_000L));
         statusExpirySweepHandler.postDelayed(statusExpirySweepRunnable, nextRun);
     }
 
+    // Perf: Firebase/Room/seen/sweep callbacks arrive in bursts and each used to run the full
+    // map loop + sort + diff on the main thread. Coalesce them into one rebuild per ~80ms.
+    private static final long REBUILD_DEBOUNCE_MS = 80L;
+    private final android.os.Handler rebuildHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable rebuildRunnable = this::rebuildStatusAdapterNow;
+
+    /** Debounced rebuild — for data callbacks (Firebase, seen map, expiry sweep). */
     private void rebuildStatusAdapter() {
+        rebuildHandler.removeCallbacks(rebuildRunnable);
+        rebuildHandler.postDelayed(rebuildRunnable, REBUILD_DEBOUNCE_MS);
+    }
+
+    /** Immediate rebuild — first paint (cache/Room seed), search typing and direct user actions (hide/mute/close-friend). */
+    private void rebuildStatusAdapterNow() {
+        rebuildHandler.removeCallbacks(rebuildRunnable);
         if (getContext() == null) return;
         Set<String> mutedSet  = StatusMuteManager.getMutedSet(getContext());
         Set<String> hiddenSet = StatusHideManager.getHiddenSet(getContext()); // v236
+        // Perf: isCloseFriend() copies the whole prefs set per call (O(n^2) here) — read it ONCE per rebuild.
+        final Set<String> closeFriendSet = StatusCloseFriendsManager.getLocalList(getContext());
         List<StatusListAdapter.Entry> unseen = new ArrayList<>();
         List<StatusListAdapter.Entry> seen   = new ArrayList<>();
         List<StatusListAdapter.Entry> muted  = new ArrayList<>();
@@ -661,7 +747,7 @@ public class StatusFragment extends BaseFragment {
                 latestReaction = latest.reactions.values().iterator().next();
             boolean isMutedContact  = mutedSet.contains(uid);
             boolean isHiddenContact = hiddenSet.contains(uid); // v236
-            boolean isCF = StatusCloseFriendsManager.isCloseFriend(getContext(), uid);
+            boolean isCF = closeFriendSet.contains(uid);
             StatusListAdapter.Entry entry = new StatusListAdapter.Entry(
                 uid, latest.ownerName, latest.ownerPhoto,
                 latest.timestamp, items2.size(), unseenCount,
@@ -691,12 +777,45 @@ public class StatusFragment extends BaseFragment {
         for (StatusListAdapter.Entry en : unseen) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
         for (StatusListAdapter.Entry en : seen)   { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
         statusAdapter.update(unseen, seen, muted, hidden.size());
+        nextLabelChangeMs = computeNextLabelChangeMs(System.currentTimeMillis());
         if (mediaPreloader != null) {
+            // Perf: skip the preload loop on time-only rebuilds (the once-a-minute label refresh) —
+            // only re-run when the unseen contacts / their latest status actually changed, or the preloader is new.
+            long sig = 17;
             for (StatusListAdapter.Entry en : unseen) {
                 List<StatusItem> it = statusMap.get(en.ownerUid);
-                if (it != null) mediaPreloader.preloadContactStatuses(it);
+                if (it == null || it.isEmpty()) continue;
+                StatusItem lastItem = it.get(it.size() - 1);
+                sig = sig * 31 + en.ownerUid.hashCode();
+                sig = sig * 31 + it.size();
+                sig = sig * 31 + (lastItem.id != null ? lastItem.id.hashCode() : 0);
+            }
+            if (sig != lastPreloadSig || preloadedBy != mediaPreloader) {
+                lastPreloadSig = sig;
+                preloadedBy = mediaPreloader;
+                for (StatusListAdapter.Entry en : unseen) {
+                    List<StatusItem> it = statusMap.get(en.ownerUid);
+                    if (it != null) mediaPreloader.preloadContactStatuses(it);
+                }
             }
         }
+    }
+
+    /** Earliest wall-clock time a card's time label changes: minute labels tick each minute (<1h), then each hour. Mirrors CardItem.timeKey. */
+    private long computeNextLabelChangeMs(long now) {
+        long next = Long.MAX_VALUE;
+        for (List<StatusItem> l : statusMap.values()) next = Math.min(next, nextLabelChangeOf(l, now));
+        next = Math.min(next, nextLabelChangeOf(myStatuses, now));
+        return next;
+    }
+
+    private static long nextLabelChangeOf(List<StatusItem> items2, long now) {
+        if (items2 == null || items2.isEmpty()) return Long.MAX_VALUE;
+        StatusItem latest = items2.get(items2.size() - 1);
+        Long t = latest.timestamp;
+        if (t == null || t <= 0) return Long.MAX_VALUE;
+        long mins = Math.max(0L, (now - t) / 60_000L);
+        return mins < 60 ? t + (mins + 1) * 60_000L : t + ((mins / 60L) + 1) * 3_600_000L;
     }
 
     // ── v236: Hide status feature ───────────────────────────────────────────
@@ -736,7 +855,7 @@ public class StatusFragment extends BaseFragment {
             "New statuses from " + name + " won't appear under recent updates anymore.",
             "Hide", () -> {
                 StatusHideManager.hide(getContext(), ownerUid);
-                rebuildStatusAdapter();
+                rebuildStatusAdapterNow();
             },
             null, null,
             "Cancel");
@@ -757,7 +876,7 @@ public class StatusFragment extends BaseFragment {
                         StatusMuteManager.isMuted(getContext(), ownerUid)
                             ? ownerName + " muted" : ownerName + " unmuted",
                         Toast.LENGTH_SHORT).show();
-                    rebuildStatusAdapter();
+                    rebuildStatusAdapterNow();
                 } else if (which == 1) {
                     StatusCloseFriendsManager.toggle(getContext(), myUid(), ownerUid);
                     Toast.makeText(getContext(),
@@ -765,22 +884,31 @@ public class StatusFragment extends BaseFragment {
                             ? ownerName + " added to Close Friends ⭐"
                             : ownerName + " removed from Close Friends",
                         Toast.LENGTH_SHORT).show();
-                    rebuildStatusAdapter();
+                    rebuildStatusAdapterNow();
                 } else if (which == 2) {
                     confirmHideContact(ownerUid, ownerName); // v236
                 }
             }).create());
     }
 
+    private static final long SAVE_ROOM_DEBOUNCE_MS = 600L;
+    private final Runnable saveToRoomRunnable = this::saveToRoom;
+    /** Per-contact snapshots arrive in bursts — coalesce into one Room write. */
+    private void scheduleSaveToRoom() {
+        rebuildHandler.removeCallbacks(saveToRoomRunnable);
+        rebuildHandler.postDelayed(saveToRoomRunnable, SAVE_ROOM_DEBOUNCE_MS);
+    }
+
     private void saveToRoom() {
         if (getContext() == null) return;
-        List<com.callx.app.db.entity.StatusEntity> toSave = new ArrayList<>();
-        for (StatusItem si : myStatuses) toSave.add(itemToEntity(si));
-        for (List<StatusItem> items2 : statusMap.values())
-            for (StatusItem si : items2) toSave.add(itemToEntity(si));
+        // Main thread only copies references; entity conversion + DB I/O run on STATUS_IO.
+        final List<StatusItem> items = new ArrayList<>(myStatuses);
+        for (List<StatusItem> items2 : statusMap.values()) items.addAll(items2);
         final com.callx.app.db.AppDatabase db =
             com.callx.app.db.AppDatabase.getInstance(getContext());
-        Executors.newSingleThreadExecutor().execute(() -> {
+        STATUS_IO.execute(() -> {
+            List<com.callx.app.db.entity.StatusEntity> toSave = new ArrayList<>(items.size());
+            for (StatusItem si : items) toSave.add(itemToEntity(si));
             // Drop rows Firebase no longer has (deleted / expired) so a cold start can't resurrect them.
             Set<String> keep = new HashSet<>();
             for (com.callx.app.db.entity.StatusEntity e : toSave) keep.add(e.id);

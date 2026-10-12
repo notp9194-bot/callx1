@@ -29,7 +29,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:paddingStart="8dp"
+            android:paddingStart="16dp"
             android:paddingBottom="8dp"
             android:importantForAccessibility="no"
             android:visibility="gone">
@@ -44,12 +44,27 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:clipToPadding="false"
-            android:paddingStart="8dp"
-            android:paddingEnd="10dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
             android:paddingBottom="8dp"
-            android:overScrollMode="never"
-            android:requiresFadingEdge="horizontal"
-            android:fadingEdgeLength="20dp"/>
+            android:overScrollMode="never"/>
+
+        <!-- Edge fades as plain gradient overlays (no offscreen layer, unlike requiresFadingEdge).
+             Colours + visibility are driven from CarouselVH.updateFades(). -->
+        <View
+            android:id="@+id/fade_left"
+            android:layout_width="20dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="left"
+            android:importantForAccessibility="no"
+            android:visibility="invisible"/>
+        <View
+            android:id="@+id/fade_right"
+            android:layout_width="20dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="right"
+            android:importantForAccessibility="no"
+            android:visibility="invisible"/>
 
     </com.callx.app.feed.NestedScrollableHost>
 
