@@ -892,13 +892,7 @@ package com.callx.app.feed;
               super(v);
               rvCarousel = v.findViewById(R.id.rv_status_carousel);
               llSkeleton = v.findViewById(R.id.ll_status_skeleton);
-              TextView title = v.findViewById(R.id.tv_carousel_title);
-              if (title != null) {
-                  androidx.core.view.ViewCompat.setAccessibilityHeading(title, true); // TalkBack heading navigation
-                  // 21sp title: stop it growing past the 1.3x font-scale size (huge fonts push the cards off-screen).
-                  if (v.getResources().getConfiguration().fontScale > 1.3f)
-                      title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 21f * 1.3f);
-              }
+              // v561: title moved to the top bar (fragment_status.xml); no tv_carousel_title here anymore.
               // Skeleton safety-net timeout must not outlive the view: cancel on detach, re-arm on attach
               // if the skeleton is still showing (offline / never-arriving data would otherwise stick forever).
               v.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
