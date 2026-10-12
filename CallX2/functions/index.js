@@ -2293,3 +2293,146 @@ exports.onStatusReshared = functions.database
     }
     return null;
   });
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Add Yours chains (Instagram "Add Yours" template)  — v578
+//
+//  The CLIENT only writes the status (its stickersJson carries { type:"addyours", chainId, prompt, ... }).
+//  Everything below is server-owned so counts/indexes can't be forged (rules: addYoursChains* are read-only):
+//    addYoursChains/{chainId}              = { prompt, originUid, originName, originStatusId, createdAt, count, template?, lastJoinAt, lastPushAt }
+//    addYoursChainEntries/{chainId}/{uid}  = { statusId, ts, expiresAt, name, photo, thumb, type, bg, text, isOrigin, listed }
+//  • one entry per user per chain (key = uid); re-joining is only possible once the previous status has expired
+//  • count = people who joined (the chain starter is NOT counted); deleting your status withdraws you (count - 1)
+//  • "listed" = status privacy is "everyone" (only those show in the chain screen's grid; all are counted)
+// ═════════════════════════════════════════════════════════════════════════════
+const ADDYOURS_ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
+
+function extractAddYoursSticker(st) {
+  if (!st || typeof st.stickersJson !== "string" || !st.stickersJson) return null;
+  let arr;
+  try { arr = JSON.parse(st.stickersJson); } catch (e) { return null; }
+  if (!Array.isArray(arr)) return null;
+  for (const s of arr) {
+    if (s && s.type === "addyours" && typeof s.chainId === "string" && ADDYOURS_ID_RE.test(s.chainId)) return s;
+  }
+  return null;
+}
+
+exports.onStatusCreatedAddYours = functions.database
+  .ref("/status/{ownerUid}/{statusId}")
+  .onCreate(async (snapshot, context) => {
+    const { ownerUid, statusId } = context.params;
+    const st = snapshot.val() || {};
+    if (st.deleted === true) return null;
+    const now = Date.now();
+    if (st.expiresAt && st.expiresAt < now) return null;
+
+    const sticker = extractAddYoursSticker(st);
+    if (!sticker) return null;
+
+    const db = getDatabase();
+    const chainId = sticker.chainId;
+    const claimedOrigin = typeof sticker.originUid === "string" ? sticker.originUid : "";
+    const prompt = String(sticker.prompt || "Add Yours").slice(0, 80);
+
+    // 1) Chain doc: created exactly once, by the first status that carries this chainId.
+    //    Later statuses can NOT overwrite it (an attacker can't claim someone else's chain).
+    const fresh = {
+      prompt,
+      originUid: claimedOrigin === "" ? ownerUid : claimedOrigin,
+      originName: claimedOrigin === "" ? String(st.ownerName || "").slice(0, 60)
+                                       : String(sticker.originName || "").slice(0, 60),
+      originStatusId: claimedOrigin === "" ? statusId : "",
+      createdAt: now,
+      count: 0,
+    };
+    if (sticker.template && typeof sticker.template === "object" && JSON.stringify(sticker.template).length <= 2000) {
+      fresh.template = sticker.template;
+    }
+    const chainRef = db.ref("addYoursChains").child(chainId);
+    const chainTx = await chainRef.transaction((cur) => (cur ? cur : fresh));
+    const chain = chainTx.snapshot.val() || fresh;
+
+    // 2) Entry (one per user per chain). A previous entry whose status already expired may be replaced.
+    const isOriginStatus = chain.originUid === ownerUid && (!chain.originStatusId || chain.originStatusId === statusId);
+    const thumb = st.thumbnailUrl || (st.type === "image" ? st.mediaUrl : "") || "";
+    const entry = {
+      statusId,
+      ts: st.timestamp || now,
+      expiresAt: st.expiresAt || null,
+      name: String(st.ownerName || "").slice(0, 60),
+      photo: st.ownerPhoto || "",
+      thumb,
+      type: st.type || "",
+      bg: st.bgColor || "",
+      text: st.type === "text" ? String(st.text || "").slice(0, 60) : "",
+      isOrigin: isOriginStatus,
+      listed: st.privacy === "everyone",
+    };
+    let wasNew = true;
+    const entryRef = db.ref("addYoursChainEntries").child(chainId).child(ownerUid);
+    const entryTx = await entryRef.transaction((cur) => {
+      wasNew = !cur;
+      if (cur && !(cur.expiresAt && cur.expiresAt < now)) return undefined; // already joined, still live (or trigger retry)
+      return entry;
+    });
+    if (!entryTx.committed) return null;
+
+    // 3) Count: only brand-new participants, never the chain starter.
+    if (isOriginStatus || !wasNew) return null;
+    await chainRef.child("count").transaction((c) => (typeof c === "number" ? c : 0) + 1);
+    await chainRef.child("lastJoinAt").set(now);
+
+    // 4) Tell the chain starter (in-app row + throttled push, max 1 push / 5 min / chain).
+    const originUid = chain.originUid;
+    if (!originUid || originUid === ownerUid) return null;
+    const blocked = await db.ref("blocks").child(originUid).child(ownerUid).once("value");
+    if (blocked.exists()) return null;
+
+    const ownerName = st.ownerName || "Someone";
+    const ownerPhoto = st.ownerPhoto || "";
+    const body = `added yours to "${chain.prompt || prompt}"`;
+    await db.ref("statusNotifications").child(originUid).child(`addyours_${chainId}_${ownerUid}`).set({
+      fromUid: ownerUid, fromName: ownerName, fromPhoto: ownerPhoto, fromThumb: thumb || ownerPhoto,
+      type: "status_mention", // reuses the existing status-mention row + push (opens the exact status)
+      statusId, chainId, body, timestamp: now, read: false,
+    });
+
+    const push = await chainRef.child("lastPushAt").transaction((t) => (!t || now - t > 5 * 60 * 1000) ? now : undefined);
+    if (!push.committed) return null;
+    const tokSnap = await db.ref("users").child(originUid).child("fcmToken").once("value");
+    if (!tokSnap.exists()) return null;
+    try {
+      await getMessaging().send({
+        token: tokSnap.val(),
+        data: {
+          type: "status_mention", fromUid: ownerUid, fromName: ownerName,
+          fromPhoto: ownerPhoto, fromThumb: thumb || ownerPhoto, statusId, body,
+        },
+        android: { priority: "high" },
+      });
+    } catch (err) {
+      console.error(`addyours push failed for ${originUid}:`, err.message || err);
+    }
+    return null;
+  });
+
+/** Deleting your own status withdraws you from the chain (entry removed, count - 1). Expiry does NOT do this. */
+exports.onStatusDeletedAddYours = functions.database
+  .ref("/status/{ownerUid}/{statusId}")
+  .onDelete(async (snapshot, context) => {
+    const { ownerUid, statusId } = context.params;
+    const sticker = extractAddYoursSticker(snapshot.val() || {});
+    if (!sticker) return null;
+    const db = getDatabase();
+    const entryRef = db.ref("addYoursChainEntries").child(sticker.chainId).child(ownerUid);
+    const cur = await entryRef.once("value");
+    if (!cur.exists() || cur.val().statusId !== statusId) return null;
+    await entryRef.remove();
+    if (cur.val().isOrigin !== true) {
+      await db.ref("addYoursChains").child(sticker.chainId).child("count")
+        .transaction((c) => Math.max(0, (typeof c === "number" ? c : 0) - 1));
+    }
+    return null;
+  });

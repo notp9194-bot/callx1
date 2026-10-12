@@ -263,6 +263,9 @@ public class StatusStickerOverlayView extends LinearLayout {
 
     // ── Add Yours sticker data (prompt + chain-origin attribution) ──────────
     private String addYoursPrompt, addYoursOriginUid, addYoursOriginName;
+    // v578: chain id (counter / chain screen), template JSON carried along the chain, live "N added" label
+    private String addYoursChainId, addYoursTemplateJson;
+    private TextView tvAddYoursCount;
 
     private StatusStickerOverlayView(Context ctx) {
         super(ctx);
@@ -489,6 +492,26 @@ public class StatusStickerOverlayView extends LinearLayout {
 
     /** The display name of whoever started this chain, or "" if this status IS the origin. Null for other types. */
     public String getAddYoursOriginName() { return "addyours".equals(stickerType) ? addYoursOriginName : null; }
+
+    /** Chain id shared by every story in this Add Yours chain, or "" for stickers made before v578. Null for other types. */
+    public String getAddYoursChainId() { return "addyours".equals(stickerType) ? addYoursChainId : null; }
+
+    /** Template JSON ({bgColor,fontStyle,textColor,textAlign,scale,...}) the chain starter shared, or "" if none. Null for other types. */
+    public String getAddYoursTemplateJson() { return "addyours".equals(stickerType) ? addYoursTemplateJson : null; }
+
+    /** Updates the "N added" label (hidden while the count is 0). */
+    public void setAddYoursCount(long count) {
+        if (tvAddYoursCount == null) return;
+        if (count <= 0) { tvAddYoursCount.setVisibility(View.GONE); return; }
+        tvAddYoursCount.setText(count == 1 ? "1 person added" : count + " people added");
+        tvAddYoursCount.setVisibility(View.VISIBLE);
+    }
+
+    /** Viewer only: tapping the "N added" label opens the chain screen (the composer leaves it non-clickable so drag still works). */
+    public void setOnAddYoursCountClick(final Runnable r) {
+        if (tvAddYoursCount == null) return;
+        tvAddYoursCount.setOnClickListener(r == null ? null : v -> r.run());
+    }
 
     /** True once this viewer has released the slider (or had a prior value restored). */
     public boolean isSliderAnswered() { return sliderAnswered; }
@@ -1637,6 +1660,11 @@ public class StatusStickerOverlayView extends LinearLayout {
         v.addYoursPrompt     = prompt;
         v.addYoursOriginUid  = originUid;
         v.addYoursOriginName = originName;
+        v.addYoursChainId    = jsonStr(json, "chainId", "");
+        try {
+            org.json.JSONObject tplObj = new org.json.JSONObject(json).optJSONObject("template");
+            v.addYoursTemplateJson = tplObj != null ? tplObj.toString() : "";
+        } catch (Exception e) { v.addYoursTemplateJson = ""; }
 
         TextView tvPlus = new TextView(ctx);
         tvPlus.setText("\u2795"); // ➕
@@ -1681,6 +1709,24 @@ public class StatusStickerOverlayView extends LinearLayout {
             tvOrigin.setGravity(android.view.Gravity.CENTER);
             v.addView(tvOrigin);
         }
+
+        // v578: live "N people added" label (filled by AddYoursHelper.attachCount in the viewer; hidden at 0)
+        TextView tvCount = new TextView(ctx);
+        tvCount.setTextColor(0xFFFFFFFF);
+        tvCount.setTextSize(11);
+        tvCount.setTypeface(null, Typeface.BOLD);
+        tvCount.setGravity(android.view.Gravity.CENTER);
+        tvCount.setPadding(dp * 10, dp * 4, dp * 10, dp * 4);
+        android.graphics.drawable.GradientDrawable countBg = new android.graphics.drawable.GradientDrawable();
+        countBg.setCornerRadius(dp * 12);
+        countBg.setColor(0x33FFFFFF);
+        tvCount.setBackground(countBg);
+        tvCount.setVisibility(View.GONE);
+        LinearLayout.LayoutParams countLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        countLp.topMargin = dp * 8;
+        v.addView(tvCount, countLp);
+        v.tvAddYoursCount = tvCount;
 
         return v;
     }

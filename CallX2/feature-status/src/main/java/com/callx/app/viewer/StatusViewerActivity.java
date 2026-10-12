@@ -767,6 +767,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       @Override
       protected void onDestroy() {
+          detachAddYoursCounts();
           detachLiveStatusListener();
           detachRepliesListener();
           releasePlayer();
@@ -1919,6 +1920,7 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.tvCaption.setVisibility(View.GONE);
           // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref
           binding.tvLocationTag.setVisibility(View.GONE);
+          detachAddYoursCounts(); // v578: live "N added" listeners of the previous status
           if (stickerOverlayView != null) stickerOverlayView.removeAllViews();
           stickerZoomScrim = null; // just got removed along with everything else above
           videoUnderMusic = false; // new status → its own video starts at normal volume
@@ -2276,6 +2278,7 @@ import com.callx.app.utils.AlertDialogStyler;
               for (int i = 0; i < arr.length(); i++) {
                   String stickerJson = arr.getJSONObject(i).toString();
                   StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(this, stickerJson);
+                  if ("addyours".equals(sticker.getStickerType())) bindAddYoursCount(sticker);
 
                   // Frame may not have been measured yet on the very first status
                   // shown — fall back to screen size so the ratio math below still
@@ -2521,7 +2524,7 @@ import com.callx.app.utils.AlertDialogStyler;
 
                   if ("addyours".equals(sticker.getStickerType())
                           && myUid != null && !myUid.equals(ownerUid)) {
-                      armStickerZoomGate(sticker, () -> openAddYoursComposer(sticker));
+                      armStickerZoomGate(sticker, () -> openAddYoursComposer(sticker, item.id));
                   }
               }
           } catch (Exception e) {
@@ -2707,8 +2710,8 @@ import com.callx.app.utils.AlertDialogStyler;
        * origin (meaning the current status is itself a chain reply), that
        * origin is preserved rather than being overwritten with this ownerUid.
        */
-      private void openAddYoursComposer(StatusStickerOverlayView sticker) {
-          String prompt = sticker.getAddYoursPrompt();
+      private void openAddYoursComposer(final StatusStickerOverlayView sticker, final String statusId) {
+          final String prompt = sticker.getAddYoursPrompt();
           if (prompt == null || prompt.isEmpty()) { settleStickerReaction(sticker); return; }
           String originUid  = sticker.getAddYoursOriginUid();
           String originName = sticker.getAddYoursOriginName();
@@ -2716,23 +2719,63 @@ import com.callx.app.utils.AlertDialogStyler;
               originUid  = ownerUid;
               originName = ownerName;
           }
-          try {
-              org.json.JSONObject o = new org.json.JSONObject();
-              o.put("type", "addyours");
-              o.put("prompt", prompt);
-              o.put("originUid", originUid);
-              o.put("originName", originName != null ? originName : "");
+          final String fOriginUid = originUid, fOriginName = originName;
+          final String chainId = com.callx.app.stickers.AddYoursHelper.resolveChainId(sticker, ownerUid, statusId);
+          pauseProgress();
+          // v578: one join per user per chain. If I already added mine -> show the chain instead of the composer.
+          // A slow/offline check must never trap the viewer, so after 2.5s we simply open the composer.
+          final java.util.concurrent.atomic.AtomicBoolean handled = new java.util.concurrent.atomic.AtomicBoolean(false);
+          final Runnable onTimeout = () -> {
+              if (handled.compareAndSet(false, true))
+                  launchAddYoursComposer(sticker, chainId, prompt, fOriginUid, fOriginName);
+          };
+          handler.postDelayed(onTimeout, 2500L);
+          com.callx.app.stickers.AddYoursHelper.checkJoined(chainId, myUid, joined -> {
+              if (!handled.compareAndSet(false, true)) return;
+              handler.removeCallbacks(onTimeout);
+              if (isFinishing() || isDestroyed()) return;
+              if (joined) {
+                  android.widget.Toast.makeText(this, "You've already added yours", android.widget.Toast.LENGTH_SHORT).show();
+                  com.callx.app.stickers.AddYoursHelper.openChain(this, chainId, prompt); // onResume() settles the sticker
+              } else {
+                  launchAddYoursComposer(sticker, chainId, prompt, fOriginUid, fOriginName);
+              }
+          });
+      }
 
+      /** Opens NewStatusActivity pre-loaded with the chain's sticker (+ the starter's template look). */
+      private void launchAddYoursComposer(StatusStickerOverlayView sticker, String chainId, String prompt,
+                                          String originUid, String originName) {
+          if (isFinishing() || isDestroyed()) return;
+          try {
+              String json = com.callx.app.stickers.AddYoursHelper.buildJoinJson(
+                      prompt, chainId, originUid, originName, sticker.getAddYoursTemplateJson());
               Intent intent = new Intent(this, com.callx.app.compose.NewStatusActivity.class);
-              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_STICKER_JSON, o.toString());
+              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_STICKER_JSON, json);
               intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_PREFILL_TOAST,
                       "Adding to " + (originName != null && !originName.isEmpty() ? originName : "their") + "'s prompt");
               pauseProgress();
               startActivity(intent); // onResume() will settle the sticker (shrink + resume) once we come back
           } catch (Exception ignored) {
-              // Malformed data — sticker just stays inert.
+              // Malformed data -- sticker just stays inert.
               settleStickerReaction(sticker);
           }
+      }
+
+      // v578: live "N people added" label on Add Yours stickers (+ tap -> chain screen)
+      private final ArrayList<Runnable> addYoursCountDetachers = new ArrayList<>(2);
+      private void bindAddYoursCount(final StatusStickerOverlayView sticker) {
+          final String cid = sticker.getAddYoursChainId();
+          if (cid == null || cid.isEmpty()) return; // pre-v578 sticker: no chain -> no counter
+          addYoursCountDetachers.add(com.callx.app.stickers.AddYoursHelper.attachCount(cid, sticker));
+          sticker.setOnAddYoursCountClick(() -> {
+              pauseProgress(); // onResume() resumes when we come back
+              com.callx.app.stickers.AddYoursHelper.openChain(this, cid, sticker.getAddYoursPrompt());
+          });
+      }
+      private void detachAddYoursCounts() {
+          for (Runnable r : addYoursCountDetachers) { try { r.run(); } catch (Exception ignored) {} }
+          addYoursCountDetachers.clear();
       }
 
       // Caption: 3 lines + "…"; tap (only when actually truncated) expands it into a

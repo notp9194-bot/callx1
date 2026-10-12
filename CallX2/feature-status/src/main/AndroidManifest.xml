@@ -242,6 +242,13 @@
         <!-- View a status (own or another user's), reached explicitly from
              StatusFragment/StatusListAdapter, and implicitly via
              ACTION_OPEN_STATUS from status-reply/reaction quote taps in chat. -->
+        <!-- v578: Add Yours chain screen (prompt, "N people added", grid of every story in the chain) -->
+        <activity
+            android:name="com.callx.app.viewer.AddYoursChainActivity"
+            android:theme="@style/Theme.CallX.NoActionBar"
+            android:screenOrientation="portrait"
+            android:exported="false"/>
+
         <activity
             android:name="com.callx.app.viewer.StatusViewerActivity"
             android:theme="@style/Theme.CallX.StatusViewer"

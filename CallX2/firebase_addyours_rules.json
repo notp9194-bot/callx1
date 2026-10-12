@@ -1,0 +1,18 @@
+{
+  "_comment": "Merge these two nodes into the top-level \"rules\" object of your deployed Realtime Database rules. Both trees are written ONLY by Cloud Functions (onStatusCreatedAddYours / onStatusDeletedAddYours, Admin SDK bypasses rules), so clients can read but never write -> counts and entries can't be forged.",
+  "rules": {
+    "addYoursChains": {
+      "$chainId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "addYoursChainEntries": {
+      "$chainId": {
+        ".read": "auth != null",
+        ".indexOn": ["ts"],
+        ".write": false
+      }
+    }
+  }
+}

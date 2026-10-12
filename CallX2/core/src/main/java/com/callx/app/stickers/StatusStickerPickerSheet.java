@@ -784,6 +784,16 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         subLp.topMargin = dp * 10;
         layout.addView(sub, subLp);
 
+        // v578: let the poster share their look (background, font, sticker spot) as a reusable template
+        final android.widget.CheckBox cbTpl = new android.widget.CheckBox(ctx);
+        cbTpl.setText("Share my style as a template");
+        cbTpl.setTextSize(13);
+        cbTpl.setChecked(true);
+        LinearLayout.LayoutParams tplLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tplLp.topMargin = dp * 8;
+        layout.addView(cbTpl, tplLp);
+
         // Quick-fill suggestion chips — tapping one just fills the field, doesn't submit.
         String[] suggestions = {"My study era 📚", "Rate my fit 👗", "Song of the day 🎵", "POV: today 📍"};
         LinearLayout chipRow = new LinearLayout(ctx);
@@ -818,8 +828,12 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
                 if (prompt.isEmpty()) {
                     Toast.makeText(ctx, "Add a prompt", Toast.LENGTH_SHORT).show(); return;
                 }
+                // v578: chainId ties every story that joins this prompt together (counter + chain screen);
+                // tpl=true makes NewStatusActivity snapshot the poster's look into the sticker when posting.
                 String json = "{\"type\":\"addyours\",\"prompt\":\"" + esc(prompt)
-                    + "\",\"originUid\":\"\",\"originName\":\"\"}";
+                    + "\",\"chainId\":\"" + AddYoursHelper.newChainId()
+                    + "\",\"tpl\":" + cbTpl.isChecked()
+                    + ",\"originUid\":\"\",\"originName\":\"\"}";
                 if (listener != null) listener.onSelected(new StickerResult("addyours", json));
             })
             .setNegativeButton("Cancel", null)

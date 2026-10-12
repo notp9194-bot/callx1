@@ -1437,16 +1437,10 @@ public class ReelPlayerFragment extends Fragment
         // "use this sound"/"participate" action uses, with a toast naming whose
         // prompt is being continued.
         if ("addyours".equals(stickerType) && !isOwner) {
+            // v578: shared with the other Add Yours tap handlers (core AddYoursHelper) instead of a pasted copy
             armVideoStickerZoomGate(sticker, () -> {
-                String prompt = sticker.getAddYoursPrompt();
-                if (prompt == null || prompt.isEmpty()) return;
-                String origin = sticker.getAddYoursOriginName();
-                android.widget.Toast.makeText(ctx,
-                        "Adding to " + (origin != null && !origin.isEmpty() ? origin : "their") + "'s prompt",
-                        android.widget.Toast.LENGTH_SHORT).show();
-                try {
-                    ctx.startActivity(new Intent(ctx, com.callx.app.camera.ReelCameraActivity.class));
-                } catch (Exception ignored) {}
+                com.callx.app.stickers.AddYoursHelper.onReelTap(ctx, sticker, () ->
+                        ctx.startActivity(new Intent(ctx, com.callx.app.camera.ReelCameraActivity.class)));
             });
         }
     }

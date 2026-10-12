@@ -603,6 +603,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 addStickerOverlay(prefillJson);
             });
         }
+        applyAddYoursTemplate(prefillJson); // v578: same look as the chain starter's story
 
         String toastMsg = getIntent().getStringExtra(EXTRA_PREFILL_TOAST);
         if (toastMsg != null && !toastMsg.isEmpty()) {
@@ -819,6 +820,20 @@ public class NewStatusActivity extends AppCompatActivity {
 
         // Enable drag + pinch-resize + long-press-remove
         stickerView.attachDragToParent(stickerOverlayFrame);
+        if (stickerView.hasSavedPosition()) {
+            // v578: Add Yours template → same spot as the original sticker (ratios of the overlay frame).
+            final StatusStickerOverlayView sv = stickerView;
+            sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                @Override public void onGlobalLayout() {
+                    final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+                    if (sv.getWidth() == 0 || fw == 0 || fh == 0) return;
+                    sv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    if (sv.getParent() != stickerOverlayFrame) return;
+                    sv.setX(sv.getSavedPosXRatio() * fw);
+                    sv.setY(sv.getSavedPosYRatio() * fh);
+                }
+            });
+        }
         stickerView.setOnStickerTappedListener(this::showStickerSizeBar);
         stickerOverlayFrame.setOnClickListener(v -> hideStickerSizeBar());
 
@@ -2024,11 +2039,74 @@ public class NewStatusActivity extends AppCompatActivity {
         for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
             View child = stickerOverlayFrame.getChildAt(i);
             if (child instanceof com.callx.app.stickers.StatusStickerOverlayView) {
-                jsons.add(((com.callx.app.stickers.StatusStickerOverlayView) child).toJsonWithScale());
+                com.callx.app.stickers.StatusStickerOverlayView sv =
+                        (com.callx.app.stickers.StatusStickerOverlayView) child;
+                String j = sv.toJsonWithScale();
+                if ("addyours".equals(sv.getStickerType())) j = withAddYoursTemplate(j);
+                jsons.add(j);
             }
         }
         if (jsons.isEmpty()) return "";
         return "[" + android.text.TextUtils.join(",", jsons) + "]";
+    }
+
+    /**
+     * v578: the chain STARTER's Add Yours sticker (tpl=true, no originUid yet) gets a "template" snapshot baked in:
+     * sticker size/rotation/position always, plus background / font / text colour / alignment when this is a text
+     * status. Joiners get the same look pre-applied (applyAddYoursTemplate). "tpl" itself is dropped from the post.
+     */
+    private String withAddYoursTemplate(String stickerJson) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(stickerJson);
+            boolean wantsTpl = o.optBoolean("tpl", false);
+            o.remove("tpl");
+            if (wantsTpl && o.optString("originUid", "").isEmpty() && !o.has("template")) {
+                org.json.JSONObject t = new org.json.JSONObject();
+                if (pickedImage == null && pickedVideo == null) { // text status: style is part of the look
+                    t.put("bgColor",   String.format("#%08X", selectedBgColor));
+                    t.put("textColor", String.format("#%08X", selectedTextColor));
+                    t.put("fontStyle", selectedFontStyle != null ? selectedFontStyle : "default");
+                    t.put("textAlign", selectedTextAlign != null ? selectedTextAlign : "center");
+                }
+                t.put("scale",       o.optDouble("scale", 1.0));
+                t.put("rotationDeg", o.optDouble("rotationDeg", 0.0));
+                if (o.has("posXRatio") && o.has("posYRatio")) {
+                    t.put("posXRatio", o.optDouble("posXRatio", -1));
+                    t.put("posYRatio", o.optDouble("posYRatio", -1));
+                }
+                o.put("template", t);
+            }
+            return o.toString();
+        } catch (Exception e) {
+            return stickerJson;
+        }
+    }
+
+    /** v578: pre-applies the chain starter's text-status look (background, font, colour, alignment) for a joiner. */
+    private void applyAddYoursTemplate(String stickerJson) {
+        try {
+            org.json.JSONObject t = new org.json.JSONObject(stickerJson).optJSONObject("template");
+            if (t == null) return;
+            String bg = t.optString("bgColor", "");
+            if (!bg.isEmpty()) {
+                int c = android.graphics.Color.parseColor(bg);
+                for (int i = 0; i < BG_COLORS.length; i++) {
+                    if (BG_COLORS[i] == c) {
+                        selectedBgColor = c;
+                        selectedTextColor = TEXT_COLORS_FOR_BG[i];
+                        highlightSwatch(i);
+                        break;
+                    }
+                }
+            }
+            String tc = t.optString("textColor", "");
+            if (!tc.isEmpty()) selectedTextColor = android.graphics.Color.parseColor(tc);
+            String font = t.optString("fontStyle", "");
+            if (!font.isEmpty()) setFont(font);
+            String align = t.optString("textAlign", "");
+            if (!align.isEmpty()) setTextAlign(align);
+            updateTextStatusPreview();
+        } catch (Exception ignored) { /* bad/legacy template → plain composer */ }
     }
     // ── Post ──────────────────────────────────────────────────────────────
     private void post() {
