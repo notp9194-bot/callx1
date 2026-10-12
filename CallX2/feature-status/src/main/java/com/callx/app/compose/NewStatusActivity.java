@@ -42,7 +42,7 @@ import com.callx.app.viewer.StatusAudioFocusHelper;
 import com.callx.app.viewer.StatusMusicClip;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 /**
- * NewStatusActivity v27 — Story-canvas photo editor + existing status creation flow.
+ * NewStatusActivity v28 — Smooth story-canvas gestures + status creation flow.
  *
  * ORIGINAL features:
  *   ✅ Text status + 10 bg color presets + font styles
@@ -76,8 +76,9 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
  *   ✅ Multiple stickers supported simultaneously
  *   ✅ Sticker JSON serialized and stored with the status post
  *
- * v27 story editor:
+ * v28 story editor:
  *   ✅ 9:16 live canvas with a blurred/dimmed copy behind the sharp photo
+ *   ✅ Stable full-canvas pinch/drag, pinch-centre anchoring and no lift jump
  *   ✅ Pinch/drag transforms baked into the uploaded photo
  *   ✅ Right-side story tools for text, stickers/music, effects, mentions,
  *      drawing, gallery save, AI label and reset/clear actions
@@ -177,6 +178,7 @@ public class NewStatusActivity extends AppCompatActivity {
     /** Instagram-style editor state for a picked photo. */
     private ImageView editorBlurBackground;
     private LinearLayout editorToolRail;
+    private View mediaGestureOverlay;
     private StatusDrawOverlayView drawingOverlay;
     private TextView editorTextOverlay;
     private TextView editorAiLabel;
@@ -624,9 +626,17 @@ public class NewStatusActivity extends AppCompatActivity {
         if (frame instanceof android.widget.FrameLayout) {
             stickerOverlayFrame = (android.widget.FrameLayout) frame;
             editorBlurBackground = binding.getRoot().findViewById(R.id.iv_preview_blur_bg);
+            mediaGestureOverlay = new View(this);
+            mediaGestureOverlay.setBackgroundColor(Color.TRANSPARENT);
+            mediaGestureOverlay.setClickable(true);
+            mediaGestureOverlay.setContentDescription("Pinch with two fingers to resize; drag to move photo");
+            stickerOverlayFrame.addView(mediaGestureOverlay, 2,
+                    new android.widget.FrameLayout.LayoutParams(
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
             drawingOverlay = new StatusDrawOverlayView(this);
             drawingOverlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            stickerOverlayFrame.addView(drawingOverlay, 2, new android.widget.FrameLayout.LayoutParams(
+            stickerOverlayFrame.addView(drawingOverlay, 3, new android.widget.FrameLayout.LayoutParams(
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
             sizeStoryCanvas();
@@ -650,57 +660,74 @@ public class NewStatusActivity extends AppCompatActivity {
         });
     }
 
+    private int editorGesturePointerCount;
     private float editorLastTouchX, editorLastTouchY;
-    private android.view.ScaleGestureDetector editorScaleDetector;
+    private float editorPinchStartDistance;
+    private float editorPinchStartMidX, editorPinchStartMidY;
+    private float editorPinchStartScale;
+    private float editorPinchStartTranslationX, editorPinchStartTranslationY;
 
-    /** Pinch scales around the fingers; one-finger drag repositions only the sharp media layer. */
+    /**
+     * Gestures run on a full-canvas transparent layer rather than on the
+     * transformed ImageView. That keeps pointer coordinates stable at every
+     * zoom level and still lets users grab the photo after zooming it smaller.
+     */
     private void setupEditorGestures() {
-        if (binding.ivPreview == null) return;
-        editorScaleDetector = new android.view.ScaleGestureDetector(this,
-                new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                    @Override public boolean onScale(android.view.ScaleGestureDetector detector) {
-                        if (!editorPhotoMode) return false;
-                        float previous = editorMediaScale;
-                        float next = Math.max(0.35f, Math.min(4f, previous * detector.getScaleFactor()));
-                        float focusX = detector.getFocusX() - binding.ivPreview.getWidth() / 2f;
-                        float focusY = detector.getFocusY() - binding.ivPreview.getHeight() / 2f;
-                        float ratio = next / Math.max(0.01f, previous);
-                        binding.ivPreview.setTranslationX(
-                                binding.ivPreview.getTranslationX() + focusX * (1f - ratio));
-                        binding.ivPreview.setTranslationY(
-                                binding.ivPreview.getTranslationY() + focusY * (1f - ratio));
-                        editorMediaScale = next;
-                        applyEditorMediaTransform();
-                        return true;
-                    }
-                });
+        if (mediaGestureOverlay == null || binding.ivPreview == null) return;
         binding.ivPreview.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        binding.ivPreview.setOnTouchListener((view, event) -> {
+        mediaGestureOverlay.setOnTouchListener((view, event) -> {
             if (!editorPhotoMode) return false;
-            editorScaleDetector.onTouchEvent(event);
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
-                    editorLastTouchX = event.getX();
-                    editorLastTouchY = event.getY();
-                    return true;
-                case android.view.MotionEvent.ACTION_MOVE:
-                    if (!editorScaleDetector.isInProgress() && event.getPointerCount() == 1) {
-                        float dx = event.getX() - editorLastTouchX;
-                        float dy = event.getY() - editorLastTouchY;
-                        binding.ivPreview.setTranslationX(binding.ivPreview.getTranslationX() + dx);
-                        binding.ivPreview.setTranslationY(binding.ivPreview.getTranslationY() + dy);
-                        clampEditorTranslation();
-                    }
+                    editorGesturePointerCount = 1;
                     editorLastTouchX = event.getX();
                     editorLastTouchY = event.getY();
                     return true;
                 case android.view.MotionEvent.ACTION_POINTER_DOWN:
+                    if (event.getPointerCount() >= 2) beginEditorPinch(event);
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (event.getPointerCount() >= 2) {
+                        if (editorGesturePointerCount != 2) beginEditorPinch(event);
+                        updateEditorPinch(event);
+                    } else if (event.getPointerCount() == 1) {
+                        // Rebase when a pinch becomes a one-finger drag so
+                        // lifting one finger never causes a sudden photo jump.
+                        if (editorGesturePointerCount != 1) {
+                            editorGesturePointerCount = 1;
+                            editorLastTouchX = event.getX(0);
+                            editorLastTouchY = event.getY(0);
+                            return true;
+                        }
+                        float dx = event.getX(0) - editorLastTouchX;
+                        float dy = event.getY(0) - editorLastTouchY;
+                        if (Math.abs(dx) < 0.25f) dx = 0f;
+                        if (Math.abs(dy) < 0.25f) dy = 0f;
+                        binding.ivPreview.setTranslationX(
+                                binding.ivPreview.getTranslationX() + dx * 0.98f);
+                        binding.ivPreview.setTranslationY(
+                                binding.ivPreview.getTranslationY() + dy * 0.98f);
+                        clampEditorTranslation();
+                    }
+                    if (event.getPointerCount() == 1) {
+                        editorLastTouchX = event.getX(0);
+                        editorLastTouchY = event.getY(0);
+                    }
+                    return true;
                 case android.view.MotionEvent.ACTION_POINTER_UP:
-                    editorLastTouchX = event.getX(0);
-                    editorLastTouchY = event.getY(0);
+                    if (event.getPointerCount() == 2) {
+                        int remaining = event.getActionIndex() == 0 ? 1 : 0;
+                        editorGesturePointerCount = 1;
+                        editorLastTouchX = event.getX(remaining);
+                        editorLastTouchY = event.getY(remaining);
+                    } else {
+                        // Rebase safely if an extra pointer is also involved.
+                        editorGesturePointerCount = 0;
+                    }
                     return true;
                 case android.view.MotionEvent.ACTION_UP:
                 case android.view.MotionEvent.ACTION_CANCEL:
+                    editorGesturePointerCount = 0;
                     return true;
                 default:
                     return true;
@@ -708,17 +735,49 @@ public class NewStatusActivity extends AppCompatActivity {
         });
     }
 
-    private void applyEditorMediaTransform() {
-        if (binding == null || binding.ivPreview == null) return;
-        binding.ivPreview.setScaleX(editorMediaScale);
-        binding.ivPreview.setScaleY(editorMediaScale);
+    private void beginEditorPinch(android.view.MotionEvent event) {
+        if (event.getPointerCount() < 2 || stickerOverlayFrame == null) return;
+        float x1 = event.getX(0), y1 = event.getY(0);
+        float x2 = event.getX(1), y2 = event.getY(1);
+        editorPinchStartDistance = (float) Math.hypot(x2 - x1, y2 - y1);
+        if (editorPinchStartDistance < 1f) editorPinchStartDistance = 1f;
+        editorPinchStartMidX = (x1 + x2) * 0.5f;
+        editorPinchStartMidY = (y1 + y2) * 0.5f;
+        editorPinchStartScale = editorMediaScale;
+        editorPinchStartTranslationX = binding.ivPreview.getTranslationX();
+        editorPinchStartTranslationY = binding.ivPreview.getTranslationY();
+        editorGesturePointerCount = 2;
+    }
+
+    /** Scale from the original pinch baseline and keep the content under the midpoint anchored. */
+    private void updateEditorPinch(android.view.MotionEvent event) {
+        if (event.getPointerCount() < 2 || editorPinchStartDistance <= 0f
+                || stickerOverlayFrame == null) return;
+        float x1 = event.getX(0), y1 = event.getY(0);
+        float x2 = event.getX(1), y2 = event.getY(1);
+        float midpointX = (x1 + x2) * 0.5f;
+        float midpointY = (y1 + y2) * 0.5f;
+        float distance = (float) Math.hypot(x2 - x1, y2 - y1);
+        float ratio = distance / editorPinchStartDistance;
+        float nextScale = Math.max(0.15f, Math.min(5f, editorPinchStartScale * ratio));
+        float effectiveRatio = nextScale / Math.max(0.01f, editorPinchStartScale);
+        float centerX = stickerOverlayFrame.getWidth() * 0.5f;
+        float centerY = stickerOverlayFrame.getHeight() * 0.5f;
+        float startAnchorX = editorPinchStartMidX - centerX - editorPinchStartTranslationX;
+        float startAnchorY = editorPinchStartMidY - centerY - editorPinchStartTranslationY;
+
+        editorMediaScale = nextScale;
+        binding.ivPreview.setScaleX(nextScale);
+        binding.ivPreview.setScaleY(nextScale);
+        binding.ivPreview.setTranslationX(midpointX - centerX - effectiveRatio * startAnchorX);
+        binding.ivPreview.setTranslationY(midpointY - centerY - effectiveRatio * startAnchorY);
         clampEditorTranslation();
     }
 
     private void clampEditorTranslation() {
         if (binding == null || binding.ivPreview == null || stickerOverlayFrame == null) return;
-        float maxX = stickerOverlayFrame.getWidth() * 0.70f;
-        float maxY = stickerOverlayFrame.getHeight() * 0.70f;
+        float maxX = stickerOverlayFrame.getWidth() * editorMediaScale * 0.5f;
+        float maxY = stickerOverlayFrame.getHeight() * editorMediaScale * 0.5f;
         float x = Math.max(-maxX, Math.min(maxX, binding.ivPreview.getTranslationX()));
         float y = Math.max(-maxY, Math.min(maxY, binding.ivPreview.getTranslationY()));
         binding.ivPreview.setTranslationX(x);
@@ -2488,6 +2547,8 @@ public class NewStatusActivity extends AppCompatActivity {
         if (changedMedia) {
             editorMediaUri = uri;
             editorMediaScale = 1f;
+            editorGesturePointerCount = 0;
+            editorPinchStartDistance = 0f;
             editorPhotoMode = true;
             editorDrawMode = false;
             if (!preserveStoryOverlaysOnNextPhoto) {
@@ -2584,6 +2645,8 @@ public class NewStatusActivity extends AppCompatActivity {
         editorMediaUri = null;
         editorPhotoMode = false;
         editorMediaScale = 1f;
+        editorGesturePointerCount = 0;
+        editorPinchStartDistance = 0f;
         editorDrawMode = false;
         editorAiLabelEnabled = false;
         if (drawingOverlay != null) {
