@@ -2635,3 +2635,4 @@ HPLcom/callx/app/views/MusicTickerView;->*(**)**
 HPLcom/callx/app/models/StatusItem;->*(**)**
 HPLcom/callx/app/interactions/StatusRepliesBottomSheet;->*(**)**
 HPLcom/callx/app/interactions/StatusForwardBottomSheet;->*(**)**
+HSPLcom/callx/app/feed/StatusCardPrewarm;->*(**)**

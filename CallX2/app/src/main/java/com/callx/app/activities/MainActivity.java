@@ -1167,6 +1167,7 @@ public class MainActivity extends AppCompatActivity
                 @Override public void onDataChange(DataSnapshot snap) {
                     statusBadgeSnaps.put(contactUid, snap);
                     scheduleStatusBadgeRecount();
+                    prewarmStatusCard(snap); // v557: card image ready in Glide's cache before the Status tab opens
                 }
                 @Override public void onCancelled(DatabaseError e) {
                     statusBadgeSnaps.remove(contactUid);
@@ -1178,6 +1179,28 @@ public class MainActivity extends AppCompatActivity
             changed = true;
         }
         if (changed) scheduleStatusBadgeRecount();
+    }
+
+    /** v557: preload the contact's latest live status thumb with the exact request the carousel card will use. */
+    private void prewarmStatusCard(DataSnapshot ownerSnap) {
+        try {
+            final long now = System.currentTimeMillis();
+            final long cutoff = now - java.util.concurrent.TimeUnit.HOURS.toMillis(24);
+            DataSnapshot best = null; long bestTs = -1L;
+            for (DataSnapshot st : ownerSnap.getChildren()) {
+                if (Boolean.TRUE.equals(st.child("deleted").getValue(Boolean.class))) continue;
+                Long exp = st.child("expiresAt").getValue(Long.class);
+                Long ts  = st.child("timestamp").getValue(Long.class);
+                if (ts == null) continue;
+                if (exp != null ? exp < now : ts <= cutoff) continue;
+                if (ts > bestTs) { bestTs = ts; best = st; }
+            }
+            if (best == null) return;
+            com.callx.app.feed.StatusCardPrewarm.warm(getApplicationContext(),
+                    best.child("type").getValue(String.class),
+                    best.child("thumbnailUrl").getValue(String.class),
+                    best.child("mediaUrl").getValue(String.class));
+        } catch (Exception ignored) { /* warm-up is best effort */ }
     }
 
     /**

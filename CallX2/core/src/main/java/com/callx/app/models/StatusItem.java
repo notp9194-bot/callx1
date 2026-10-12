@@ -54,6 +54,8 @@ public class StatusItem {
     public String  caption;
     public String  mediaUrl;
     public String  thumbnailUrl;
+    /** v557: ~25-byte ThumbHash (base64) of the media, shown as an instant blurred placeholder on the carousel card. */
+    public String  thumbHash;
     public int     mediaWidth;
     public int     mediaHeight;
     public int     durationSec;      // video duration hint in seconds
@@ -313,6 +315,7 @@ public class StatusItem {
         if (caption != null)          m.put("caption", caption);
         if (mediaUrl != null)         m.put("mediaUrl", mediaUrl);
         if (thumbnailUrl != null)     m.put("thumbnailUrl", thumbnailUrl);
+        if (thumbHash != null)        m.put("thumbHash", thumbHash);
         if (mediaWidth != 0)          m.put("mediaWidth", mediaWidth);
         if (mediaHeight != 0)         m.put("mediaHeight", mediaHeight);
         if (durationSec != 0)         m.put("durationSec", durationSec);

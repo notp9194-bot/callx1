@@ -424,6 +424,7 @@ public class StatusFragment extends BaseFragment {
             Map<String, List<StatusItem>> roomMap = new LinkedHashMap<>();
             List<StatusItem> roomMine = new ArrayList<>();
             for (com.callx.app.db.entity.StatusEntity e : cached) {
+                if (e == null || e.ownerUid == null || e.ownerUid.isEmpty()) continue; // v558: orphan Room row (null owner) crashed the rebuild
                 StatusItem item = entityToItem(e);
                 if (myUid().equals(e.ownerUid)) roomMine.add(item);
                 else roomMap.computeIfAbsent(e.ownerUid, k -> new ArrayList<>()).add(item);
@@ -786,7 +787,7 @@ public class StatusFragment extends BaseFragment {
                 List<StatusItem> it = statusMap.get(en.ownerUid);
                 if (it == null || it.isEmpty()) continue;
                 StatusItem lastItem = it.get(it.size() - 1);
-                sig = sig * 31 + en.ownerUid.hashCode();
+                sig = sig * 31 + java.util.Objects.hashCode(en.ownerUid);
                 sig = sig * 31 + it.size();
                 sig = sig * 31 + (lastItem.id != null ? lastItem.id.hashCode() : 0);
             }

@@ -124,6 +124,7 @@ package com.callx.app.feed;
           CardItem withPreview(StatusItem latest) {
               if (latest == null) return this;
               type = latest.type; bgColor2 = latest.bgColor2; textColor = latest.textColor;
+              thumbHash = latest.thumbHash; // v557: instant blurred placeholder (not part of sameBase — never forces a rebind)
               if ("text".equals(latest.type) && latest.text != null) {
                   String t = latest.text.trim();
                   previewText = t.length() > 90 ? t.substring(0, 90) + "\u2026" : t;
@@ -145,6 +146,10 @@ package com.callx.app.feed;
           }
           /** Memo for StatusCardAdapter#bgUrlFor (URL building is string-heavy); keyed by resolved avatar version. */
           String bgUrlCache; long bgUrlVer;
+          /** v557: ThumbHash of the latest media (null = none). */
+          String thumbHash;
+          /** v557: memo for the small avatar URL (StatusAvatarBinder.url is string-heavy), keyed by avatar version. */
+          String avUrlCache; long avUrlVer = Long.MIN_VALUE; boolean avUrlSet;
           boolean isVideo() { return "video".equals(type) || "reel_clip".equals(type); }
           boolean isTextCard() { return "text".equals(type) && (thumbUrl == null || thumbUrl.isEmpty()); }
           boolean sameIdentity(CardItem o) {
@@ -357,9 +362,13 @@ package com.callx.app.feed;
       private static boolean nz(String x) { return x != null && !x.isEmpty(); }
       /** Thumb for a card: text statuses have none; a video's mediaUrl is NOT an image, so only its thumbnail counts. */
       public static String cardThumb(StatusItem s) {
-          if (s == null || "text".equals(s.type)) return null;
-          if ("video".equals(s.type) || "reel_clip".equals(s.type)) return nz(s.thumbnailUrl) ? s.thumbnailUrl : null;
-          return nz(s.thumbnailUrl) ? s.thumbnailUrl : (nz(s.mediaUrl) ? s.mediaUrl : null);
+          return s == null ? null : cardThumb(s.type, s.thumbnailUrl, s.mediaUrl);
+      }
+      /** Same rule on raw fields (v557: shared with StatusCardPrewarm so warm-up and bind pick the identical URL). */
+      public static String cardThumb(String type, String thumbnailUrl, String mediaUrl) {
+          if (type == null || "text".equals(type)) return null;
+          if ("video".equals(type) || "reel_clip".equals(type)) return nz(thumbnailUrl) ? thumbnailUrl : null;
+          return nz(thumbnailUrl) ? thumbnailUrl : (nz(mediaUrl) ? mediaUrl : null);
       }
       /** Own avatar: item's photo, else the already-loaded FirebaseAuth photo (sync, no network call). */
       private static String myPhotoFallback(String photo) {
@@ -1037,6 +1046,26 @@ package com.callx.app.feed;
                       - c.getResources().getDimension(R.dimen.status_card_avatar_overlap));
           }
 
+          /** Card body size in px (public to the package: StatusCardPrewarm must request the exact same size as bind). */
+          static int[] cardSize(Context c) { return new int[]{ bodyW(c), bodyH(c) }; }
+          /** Card body size in dp, for the server-side crop (w_/h_ + dpr_ are applied by the CDN). */
+          private static int dpOf(Context c, float px) {
+              return Math.max(1, Math.round(px / c.getResources().getDisplayMetrics().density));
+          }
+          /**
+           * v557: media thumb -> exact-size card crop on the CDN (see AvatarUrlBuilder#buildCard).
+           * Non-Cloudinary / unrecognised URLs come back unchanged.
+           */
+          static String cardThumbUrl(Context ctx, String thumb) {
+              if (thumb == null || thumb.isEmpty()) return thumb;
+              final int[] px = cardSize(ctx);
+              try {
+                  final String u = com.callx.app.utils.AvatarUrlBuilder.buildCard(ctx, thumb,
+                          dpOf(ctx, px[0]), dpOf(ctx, px[1]));
+                  return (u == null || u.isEmpty()) ? thumb : u;
+              } catch (Exception e) { return thumb; }
+          }
+
           // Card body size is constant per configuration — resolve @dimen once, not on every bind/scroll event.
           private int dimKey = -1, cachedBw, cachedBh;
           private void ensureDims(Context c) {
@@ -1117,9 +1146,27 @@ package com.callx.app.feed;
                   };
 
           /** Glide request shared by bind + preload so both hit the same cache key. */
-          private static com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> cardReq(Context ctx, String url, int w, int h) {
-              return Glide.with(ctx).load(url).centerCrop().override(w, h)
-                      .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565);
+          static com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> cardReq(Context ctx, String url, int w, int h) {
+              final com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> rb =
+                      Glide.with(ctx).load(url).centerCrop().override(w, h);
+              // v557: API 26+ -> app default (ARGB_8888 promoted to a HARDWARE bitmap: no per-card texture upload on
+              // first draw, no 565 banding). RGB_565 stays only for API < 26 / low-RAM devices (or CARD_HW_BITMAPS=false).
+              return useRgb565(ctx) ? rb.format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565) : rb;
+          }
+          /** Kill switch: set false to go back to RGB_565 everywhere (v556 behaviour). */
+          private static final boolean CARD_HW_BITMAPS = true;
+          private static int sCardFmt = -1; // 0 = app default (HW on 26+), 1 = RGB_565
+          private static boolean useRgb565(Context ctx) {
+              if (sCardFmt < 0) {
+                  boolean low = false;
+                  try {
+                      final android.app.ActivityManager am = (android.app.ActivityManager)
+                              ctx.getApplicationContext().getSystemService(Context.ACTIVITY_SERVICE);
+                      low = am != null && am.isLowRamDevice();
+                  } catch (Exception ignored) {}
+                  sCardFmt = (!CARD_HW_BITMAPS || android.os.Build.VERSION.SDK_INT < 26 || low) ? 1 : 0;
+              }
+              return sCardFmt == 1;
           }
 
           /** Scroll-direction aware preloader: warms the next few cards just outside the viewport. */
@@ -1191,7 +1238,7 @@ package com.callx.app.feed;
               final float fontScale = ctx.getResources().getConfiguration().fontScale;
               h.tvTime.setText(timeTxt);
               h.tvTime.setVisibility(showTime(c, timeTxt, fontScale) ? View.VISIBLE : View.GONE);
-              h.itemView.setContentDescription(describe(ctx, c));
+              // v557: content description is produced lazily by the accessibility delegate (see onCreateViewHolder).
           }
 
           /** DiffUtil update (computed on a background thread) — only changed cards re-bind, scroll position is kept. */
@@ -1226,7 +1273,14 @@ package com.callx.app.feed;
           }
 
           static String bgUrlFor(Context ctx, CardItem c) {
-              if (c.thumbUrl != null && !c.thumbUrl.isEmpty()) return c.thumbUrl; // media thumbnail, as-is
+              if (c.thumbUrl != null && !c.thumbUrl.isEmpty()) {
+                  // v557: media thumb -> exact card-size CDN crop (was: as-is, i.e. 320px limit thumb or even the full mediaUrl).
+                  // bgUrlVer = -2 marks "thumb URL memoized" (the avatar path below keys on the avatar version, always >= 0).
+                  if (c.bgUrlCache != null && c.bgUrlVer == -2L) return c.bgUrlCache;
+                  final String t = cardThumbUrl(ctx, c.thumbUrl);
+                  c.bgUrlCache = t; c.bgUrlVer = -2L;
+                  return t;
+              }
               if (c.ownerPhoto == null || c.ownerPhoto.isEmpty()) return null;
               // Memoized per card + avatar version: bind, prefetch and the scroll preloader all ask for the same URL.
               final long ver = resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion);
@@ -1325,6 +1379,9 @@ package com.callx.app.feed;
                       return false;
                   }
               };
+              // v557: setMaxLines() calls requestLayout() on every invocation — set it once here, not on every bind.
+              h.tvName.setMaxLines(1);
+              h.tvPreview.setMaxLines(ctx.getResources().getConfiguration().fontScale >= 1.3f ? 3 : 5);
               attachPressFeedback(h.itemView);
               h.itemView.setOnClickListener(v -> { if (h.item != null && onClick != null) onClick.accept(h.item); });
               h.itemView.setOnLongClickListener(v -> {
@@ -1351,7 +1408,10 @@ package com.callx.app.feed;
                                   @NonNull androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
                               super.onInitializeAccessibilityNodeInfo(host, info);
                               final CardItem c = h.item;
-                              if (c == null || c.isMine || c.isHiddenTile) return;
+                              if (c == null) return;
+                              // v557: description is built here, on demand (TalkBack), not on every bind.
+                              info.setContentDescription(describe(host.getContext(), c));
+                              if (c.isMine || c.isHiddenTile) return;
                               info.addAction(new androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat(
                                       androidx.core.view.accessibility.AccessibilityNodeInfoCompat.ACTION_LONG_CLICK,
                                       host.getContext().getString(c.isMuted ? R.string.status_card_action_unmute : R.string.status_card_action_mute)));
@@ -1374,6 +1434,7 @@ package com.callx.app.feed;
                   h.ivBg.setImageResource(com.callx.app.core.R.drawable.ic_eye_off);
                   h.ivBg.setScaleType(ImageView.ScaleType.CENTER);
                   h.ivBg.setBackgroundColor(col(ctx, R.color.status_card_hidden_bg));
+                  h.hiddenStyle = true;
                   h.ivBg.setColorFilter(col(ctx, R.color.status_card_glyph));
                   h.ivMuted.setVisibility(View.GONE);
                   h.ring.setVisibility(View.GONE);
@@ -1382,7 +1443,6 @@ package com.callx.app.feed;
                   h.ivAddBadge.setVisibility(View.GONE);
                   h.ivAddBig.setVisibility(View.GONE);
                   if (h.flAvatar != null) h.flAvatar.setVisibility(View.GONE);
-                  h.itemView.setContentDescription(describe(ctx, c));
                   h.tvPreview.setVisibility(View.GONE);
                   h.ivType.setVisibility(View.GONE);
                   h.ivBg.setAlpha(1f);
@@ -1391,7 +1451,9 @@ package com.callx.app.feed;
               // Reset flags a recycled hidden-tile VH may have left behind
               h.ivBg.setScaleType(ImageView.ScaleType.CENTER_CROP);
               h.ivBg.setColorFilter(null);
-              h.ivBg.setBackgroundColor(col(ctx, R.color.status_card_placeholder));
+              // v557: setBackgroundColor() allocates a ColorDrawable + invalidates — only needed after a hidden-tile bind
+              // (the XML already sets this colour on a fresh holder).
+              if (h.hiddenStyle) { h.ivBg.setBackgroundColor(col(ctx, R.color.status_card_placeholder)); h.hiddenStyle = false; }
               h.ring.setVisibility(View.VISIBLE);
               h.ivAvatar.setVisibility(View.VISIBLE);
               if (h.flAvatar != null) h.flAvatar.setVisibility(View.VISIBLE);
@@ -1403,8 +1465,6 @@ package com.callx.app.feed;
               h.tvTime.setText(timeTxt);
               // Large system font: keep the name to 1 line and drop the time so the card never clips.
               final float fontScale = ctx.getResources().getConfiguration().fontScale;
-              h.tvName.setMaxLines(1);
-              h.tvPreview.setMaxLines(fontScale >= 1.3f ? 3 : 5);
               h.tvTime.setVisibility(showTime(c, timeTxt, fontScale) ? View.VISIBLE : View.GONE);
               h.ivCf.setVisibility(c.isCloseFriend && !c.isMine ? View.VISIBLE : View.GONE);
 
@@ -1443,6 +1503,8 @@ package com.callx.app.feed;
                           .listener(h.bgListener)
                           .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.with(BG_TRANSITION))
                           .into(h.ivBg);
+                  // v557: ThumbHash blur-up while the real image is on its way (L1 hit = applied in this same bind).
+                  if (c.thumbHash != null && h.bgKey == null) applyThumbHash(h, c.thumbHash, bgKey);
                   }
               } else {
                   // No media and no photo: faint centered person glyph on the dark card.
@@ -1468,11 +1530,15 @@ package com.callx.app.feed;
               // (see onViewAttachedToWindow/onViewRecycled below).
               // v554: skip the rebind when this holder already has a real (on-screen) bind of the same URL
               // (DiffUtil rebinds for unseen/time changes would otherwise redo L2 lookup + Glide request).
-              final String avUrl = StatusAvatarBinder.url(ctx, c.ownerPhoto,
-                      resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion));
+              // v557: version resolved once; URL memoized on the card (per avatar version) like bgUrlCache.
+              final long avVer = resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion);
+              if (!c.avUrlSet || c.avUrlVer != avVer) {
+                  c.avUrlCache = StatusAvatarBinder.url(ctx, c.ownerPhoto, avVer);
+                  c.avUrlVer = avVer; c.avUrlSet = true;
+              }
+              final String avUrl = c.avUrlCache;
               if (!addTile && (avUrl == null || !avUrl.equals(h.avatarKey) || !avUrl.equals(h.ivAvatar.getTag()))) {
-                  StatusAvatarBinder.bindGated(ctx, h.ivAvatar, c.ownerPhoto,
-                          resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion), R.drawable.ic_person);
+                  StatusAvatarBinder.bindGated(ctx, h.ivAvatar, c.ownerPhoto, avVer, R.drawable.ic_person);
                   h.avatarKey = (avUrl != null && h.ivAvatar.isAttachedToWindow()) ? avUrl : null;
               }
 
@@ -1542,7 +1608,15 @@ package com.callx.app.feed;
                   h.flAvatar.setImportantForAccessibility(c.isMine
                           ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
               }
-              h.itemView.setContentDescription(describe(ctx, c));
+              // v557: itemView content description now comes from the accessibility delegate (on demand).
+          }
+
+          /** v557: ThumbHash (24x38 ~ card aspect) as the card's temporary image; never overwrites a real image. */
+          private static void applyThumbHash(final VH h, String hash, final String key) {
+              com.callx.app.utils.ThumbHashPlaceholder.getAsync(hash, 24, 38, bmp -> {
+                  if (bmp == null || h.bgKey != null || !key.equals(h.bgPendingKey)) return; // real image in / holder rebound
+                  h.ivBg.setImageDrawable(new android.graphics.drawable.BitmapDrawable(h.ivBg.getResources(), bmp));
+              });
           }
 
           @Override public int getItemCount() { return cards.size(); }
@@ -1588,6 +1662,7 @@ package com.callx.app.feed;
               int ringKey = -1;                                // identifies the ring drawable currently set (-1 = unknown)
               String avatarKey;                                // URL of the last real (attached) avatar bind; null = needs a bind
               String bgKey, bgPendingKey;                      // bg image really shown / being loaded (url@WxH); null = needs a load
+              boolean hiddenStyle;                             // v557: ivBg currently carries the hidden-tile background colour
               VH(View v) {
                   super(v);
                   ivBg       = v.findViewById(R.id.iv_card_bg);

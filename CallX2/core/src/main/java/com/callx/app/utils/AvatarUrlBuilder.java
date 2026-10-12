@@ -247,6 +247,42 @@ public final class AvatarUrlBuilder {
         return "3.0";
     }
 
+    // ── v557: status carousel card (100x160dp) server-side crop ─────────────
+    private static final java.util.regex.Pattern CARD_VERSION = java.util.regex.Pattern.compile("/v\\d+/");
+    private static final java.util.regex.Pattern CARD_OLD_LIMIT =
+            java.util.regex.Pattern.compile("^c_limit,w_\\d+,h_\\d+,q_auto,f_auto/$");
+
+    /**
+     * Exact-size card crop: {@code w_<wDp>,h_<hDp>,c_fill,g_auto,dpr_<bucket>,q_auto<:level>,f_webp}.
+     * The CDN delivers just the pixels the card needs (no client-side centerCrop work, far fewer bytes
+     * than the old 320px c_limit thumb or a full-size mediaUrl fallback).
+     *
+     * Safe by construction: non-Cloudinary URLs, URLs without a version segment, and URLs that already carry a
+     * transformation chain we don't recognise are returned unchanged. The legacy
+     * {@code c_limit,w_N,h_N,q_auto,f_auto} thumb chain is replaced (cropping from the original, not from the
+     * 320px derivative). WebP (not AVIF) on purpose: first-hit derivative generation on a brand-new status is
+     * much faster than AVIF encoding.
+     */
+    public static String buildCard(Context ctx, String url, int wDp, int hDp) {
+        if (url == null || url.isEmpty() || wDp <= 0 || hDp <= 0) return url;
+        final String marker = "/upload/";
+        final int idx = url.indexOf(marker);
+        if (idx < 0) return url;
+        final java.util.regex.Matcher m = CARD_VERSION.matcher(url);
+        if (!m.find(idx)) return url;
+        final int tStart = idx + marker.length();
+        final int verSlash = m.start();
+        if (verSlash < tStart - 1) return url;
+        final String chain = url.substring(tStart, verSlash + 1);
+        final String kept;
+        if (chain.isEmpty()) kept = "";
+        else if (CARD_OLD_LIMIT.matcher(chain).matches()) kept = "";
+        else return url; // unknown chain (eager/video derivative etc.) — don't stack transforms on it
+        final String qAuto = AvatarNetworkQuality.qAutoParam(AvatarNetworkQuality.current(ctx));
+        final String t = "w_" + wDp + ",h_" + hDp + ",c_fill,g_auto,dpr_" + dprBucket(ctx) + "," + qAuto + ",f_webp/";
+        return url.substring(0, tStart) + kept + t + url.substring(verSlash + 1);
+    }
+
     public static int dpToPx(Context ctx, int dp) {
         return (int) (dp * ctx.getResources().getDisplayMetrics().density);
     }

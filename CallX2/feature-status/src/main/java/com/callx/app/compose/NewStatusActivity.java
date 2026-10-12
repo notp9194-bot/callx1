@@ -2076,6 +2076,9 @@ public class NewStatusActivity extends AppCompatActivity {
     // Photo size from ImageCompressor → stored on the status (mediaWidth/mediaHeight) so
     // viewers can reserve the right aspect box. Consumed (reset) by saveStatus/saveBatchStatus.
     private int pendingMediaW = 0, pendingMediaH = 0;
+    /** v557: ThumbHash of the media being uploaded (computed off-thread at upload start, consumed by saveStatus/saveBatchStatus). */
+    private volatile String pendingThumbHash;
+    private volatile int thumbHashGen;
     private static final int STATUS_PHOTO_THUMB_PX = 320;
     // Stories are viewed full-screen: use ImageCompressor's HD tier (1920x2560 @ q92, ~3MB cap)
     // instead of Standard (1280x1920 @ q80, 800KB cap) so photos stay as sharp as Instagram's.
@@ -2131,6 +2134,10 @@ public class NewStatusActivity extends AppCompatActivity {
                                 String uid, String name, String photo, java.io.File thumbFile,
                                 boolean forceCustomThumb) {
         String rt = "video".equals(type) ? "video" : "image";
+        pendingThumbHash = null;
+        final int hashGen = ++thumbHashGen; // a late result for an already-saved item must not leak into the next one
+        StatusThumbHashHelper.computeAsync(this, uri, "video".equals(type), thumbFile,
+                h -> { if (hashGen == thumbHashGen) pendingThumbHash = h; });
         CloudinaryUploader.upload(this, uri, "callx/status", rt, new CloudinaryUploader.UploadCallback() {
             @Override public void onSuccess(CloudinaryUploader.Result r) {
                 runOnUiThread(() -> {
@@ -2193,6 +2200,8 @@ public class NewStatusActivity extends AppCompatActivity {
         item.caption          = caption.isEmpty() ? null : caption;
         item.mediaUrl         = mediaUrl;
         item.thumbnailUrl     = thumbUrl;
+        if ("image".equals(type) || "video".equals(type)) item.thumbHash = pendingThumbHash;
+        pendingThumbHash = null; thumbHashGen++;
         if ("image".equals(type) && pendingMediaW > 0 && pendingMediaH > 0) {
             item.mediaWidth = pendingMediaW; item.mediaHeight = pendingMediaH;
         }
@@ -2363,6 +2372,10 @@ public class NewStatusActivity extends AppCompatActivity {
     private void uploadBatchAndSave(Uri uri, String type, String caption, String uid, String name,
                                      String photo, java.io.File thumbFile) {
         String rt = "video".equals(type) ? "video" : "image";
+        pendingThumbHash = null;
+        final int hashGen = ++thumbHashGen; // a late result for an already-saved item must not leak into the next one
+        StatusThumbHashHelper.computeAsync(this, uri, "video".equals(type), thumbFile,
+                h -> { if (hashGen == thumbHashGen) pendingThumbHash = h; });
         CloudinaryUploader.upload(this, uri, "callx/status", rt, new CloudinaryUploader.UploadCallback() {
             @Override public void onSuccess(CloudinaryUploader.Result r) {
                 runOnUiThread(() -> {
@@ -2396,6 +2409,8 @@ public class NewStatusActivity extends AppCompatActivity {
         item.caption        = (caption == null || caption.isEmpty()) ? null : caption;
         item.mediaUrl       = mediaUrl;
         item.thumbnailUrl   = thumbUrl;
+        if ("image".equals(type) || "video".equals(type)) item.thumbHash = pendingThumbHash;
+        pendingThumbHash = null; thumbHashGen++;
         if ("image".equals(type) && pendingMediaW > 0 && pendingMediaH > 0) {
             item.mediaWidth = pendingMediaW; item.mediaHeight = pendingMediaH;
         }
