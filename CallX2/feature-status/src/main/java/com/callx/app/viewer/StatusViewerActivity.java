@@ -3011,7 +3011,7 @@ import com.callx.app.utils.AlertDialogStyler;
           col.setCameraDistance(getResources().getDisplayMetrics().density * 8000f);
           col.setPivotX(forward ? 0f : col.getWidth());
           col.setPivotY(col.getHeight() / 2f);
-          col.setRotationY(forward ? -70f : 70f);
+          col.setRotationY(forward ? 70f : -70f);
           col.setAlpha(0.4f);
           col.animate().rotationY(0f).alpha(1f).setDuration(280L)
                   .setInterpolator(new android.view.animation.DecelerateInterpolator())
