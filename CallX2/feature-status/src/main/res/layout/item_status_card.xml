@@ -6,18 +6,16 @@
     android:layout_height="@dimen/status_card_height"
     android:layout_marginStart="8dp"
     android:layout_marginEnd="6dp"
-    android:layout_marginTop="8dp"
-    android:layout_marginBottom="10dp">
+    android:layout_marginTop="4dp"
+    android:layout_marginBottom="4dp">
 
     <!-- Card body (v554): plain FrameLayout + rounded bg + clipToOutline instead of MaterialCardView
          with a nested FrameLayout — fewer views to inflate/measure/draw. -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="@dimen/status_card_avatar_overlap"
         android:background="@drawable/bg_status_card_body"
         android:clipToOutline="true"
-        android:elevation="1dp"
         android:foreground="?attr/selectableItemBackground">
 
             <ImageView
@@ -27,7 +25,7 @@
                 android:scaleType="centerCrop"
                 android:background="@color/status_card_placeholder"/>
 
-            <!-- Top vignette + bottom name scrim + hairline inner edge, merged into one layer-list view -->
+            <!-- Top vignette + bottom name scrim, merged into one layer-list view -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -41,7 +39,7 @@
                 android:gravity="center"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
-                android:paddingTop="30dp"
+                android:paddingTop="56dp"
                 android:paddingBottom="38dp"
                 android:textColor="@android:color/white"
                 android:textSize="13sp"
@@ -63,17 +61,30 @@
                 android:background="@drawable/bg_status_card_type_badge"
                 android:visibility="gone"/>
 
-            <!-- Muted badge (top-start, mirrors the video badge) -->
+            <!-- Muted badge (top-end, under the video badge — top-start is the avatar) -->
             <ImageView
                 android:id="@+id/iv_card_muted"
                 android:layout_width="20dp"
                 android:layout_height="20dp"
-                android:layout_gravity="top|start"
-                android:layout_marginTop="8dp"
-                android:layout_marginStart="8dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="34dp"
+                android:layout_marginEnd="8dp"
                 android:padding="3dp"
                 android:src="@drawable/ic_status_card_muted"
                 android:background="@drawable/bg_status_card_type_badge"
+                android:visibility="gone"/>
+
+            <!-- "Add status" tile: big + circle (shown only on my card when I have no status yet) -->
+            <ImageView
+                android:id="@+id/iv_card_add_big"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_gravity="center_horizontal|bottom"
+                android:layout_marginBottom="44dp"
+                android:padding="8dp"
+                android:src="@android:drawable/ic_input_add"
+                android:tint="@android:color/white"
+                android:background="@drawable/bg_status_card_add_badge"
                 android:visibility="gone"/>
 
             <LinearLayout
@@ -90,10 +101,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="@android:color/white"
-                    android:textSize="12.5sp"
+                    android:textSize="13sp"
                     android:fontFamily="sans-serif-medium"
-                    android:textStyle="bold"
-                    android:maxLines="2"
+                    android:maxLines="1"
                     android:ellipsize="end"
                     android:letterSpacing="0.01"
                     tools:text="Name"/>
@@ -112,26 +122,25 @@
 
     </FrameLayout>
 
-    <!-- Avatar + ring, overlapping the top edge of the card.
-         background = transparent oval so the elevation shadow (if any) follows
-         the round shape instead of defaulting to a rectangle; elevation (4dp) is set
-         higher than the card's 1dp so this always draws in front of it. -->
+    <!-- Avatar + ring INSIDE the card, top-start (v556). Ring 1.5dp, 2dp transparent gap, avatar = ring - 7dp.
+         No separate elevation layer: it draws above the card body simply by being later in the FrameLayout. -->
     <FrameLayout
         android:id="@+id/fl_avatar"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="center_horizontal|top"
-        android:elevation="4dp">
+        android:layout_width="@dimen/status_card_avatar_ring"
+        android:layout_height="@dimen/status_card_avatar_ring"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="8dp">
 
         <ImageView
             android:id="@+id/ring"
-            android:layout_width="48dp"
-            android:layout_height="48dp"/>
+            android:layout_width="@dimen/status_card_avatar_ring"
+            android:layout_height="@dimen/status_card_avatar_ring"/>
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_card_avatar"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="@dimen/status_card_avatar"
+            android:layout_height="@dimen/status_card_avatar"
             android:layout_gravity="center"
             android:src="@drawable/ic_person"/>
 
@@ -141,8 +150,8 @@
              anywhere on the avatar/badge corner reliably starts a new status. -->
         <ImageView
             android:id="@+id/iv_card_add"
-            android:layout_width="17dp"
-            android:layout_height="17dp"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
             android:layout_gravity="bottom|end"
             android:src="@android:drawable/ic_input_add"
             android:tint="@android:color/white"
@@ -153,8 +162,8 @@
         <!-- Close-friends star badge (contacts only) -->
         <ImageView
             android:id="@+id/iv_card_cf"
-            android:layout_width="17dp"
-            android:layout_height="17dp"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
             android:layout_gravity="bottom|end"
             android:padding="3dp"
             android:src="@drawable/ic_status_card_cf_star"

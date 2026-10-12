@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Tablets: bigger cards -->
-    <dimen name="status_card_width">140dp</dimen>
-    <dimen name="status_card_height">216dp</dimen>
-    <dimen name="status_card_avatar_overlap">22dp</dimen>
+    <dimen name="status_card_width">128dp</dimen>
+    <dimen name="status_card_height">200dp</dimen>
+    <dimen name="status_card_avatar_overlap">0dp</dimen>
+    <!-- v556: avatar sits INSIDE the card (top-start). ring box = 1.5dp stroke + 2dp transparent gap + avatar:
+         avatar = ring - 2*(1.5 + 2) -->
+    <dimen name="status_card_avatar_ring">52dp</dimen>
+    <dimen name="status_card_avatar">45dp</dimen>
+    <dimen name="status_card_radius">22dp</dimen>
 </resources>

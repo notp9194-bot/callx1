@@ -1089,6 +1089,20 @@ package com.callx.app.feed;
           private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
           private int submitGen = 0;
 
+          // v556: seen/muted cards recede via a colour filter (no alpha -> no offscreen layer) + shared typefaces.
+          private static final android.graphics.PorterDuffColorFilter DIM_SEEN =
+                  new android.graphics.PorterDuffColorFilter(0x4D000000, android.graphics.PorterDuff.Mode.SRC_ATOP);
+          private static final android.graphics.PorterDuffColorFilter DIM_MUTED =
+                  new android.graphics.PorterDuffColorFilter(0x8C000000, android.graphics.PorterDuff.Mode.SRC_ATOP);
+          private static final android.graphics.Typeface TF_NAME_SEEN =
+                  android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL);
+          private static final android.graphics.Typeface TF_NAME_UNSEEN =
+                  android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD);
+          /** Time label only on unseen contact cards (fresh-ness matters there); seen/mine stay clean. */
+          private static boolean showTime(CardItem c, String timeTxt, float fontScale) {
+              return timeTxt != null && c.unseen && !c.isMine && !c.isMuted && fontScale < 1.8f;
+          }
+
           // v555: cross-fade only for a real network arrival. Memory/disk hits swap instantly (no extra draw pass while scrolling).
           private static final com.bumptech.glide.request.transition.TransitionFactory<android.graphics.drawable.Drawable> BG_TRANSITION =
                   new com.bumptech.glide.request.transition.TransitionFactory<android.graphics.drawable.Drawable>() {
@@ -1166,12 +1180,6 @@ package com.callx.app.feed;
               h.ring.animate().cancel();
               h.ring.setAlpha(0.15f);
               h.ring.animate().alpha(ringTo).setDuration(240).start();
-              if (!c.isMuted && !c.isHiddenTile) {
-                  final float bgTo = h.ivBg.getAlpha();
-                  h.ivBg.animate().cancel();
-                  h.ivBg.setAlpha(bgTo < 1f ? 1f : 0.72f);
-                  h.ivBg.animate().alpha(bgTo).setDuration(240).start();
-              }
           }
 
           /** Partial bind for {@link #PAYLOAD_TIME}: image, ring and avatar stay exactly as they are. */
@@ -1182,7 +1190,7 @@ package com.callx.app.feed;
               final String timeTxt = timeLabel(ctx, c.timeKey);
               final float fontScale = ctx.getResources().getConfiguration().fontScale;
               h.tvTime.setText(timeTxt);
-              h.tvTime.setVisibility(timeTxt != null && fontScale < 1.8f ? View.VISIBLE : View.GONE);
+              h.tvTime.setVisibility(showTime(c, timeTxt, fontScale) ? View.VISIBLE : View.GONE);
               h.itemView.setContentDescription(describe(ctx, c));
           }
 
@@ -1372,6 +1380,7 @@ package com.callx.app.feed;
                   h.ringKey = -1;
                   h.ivAvatar.setVisibility(View.GONE);
                   h.ivAddBadge.setVisibility(View.GONE);
+                  h.ivAddBig.setVisibility(View.GONE);
                   if (h.flAvatar != null) h.flAvatar.setVisibility(View.GONE);
                   h.itemView.setContentDescription(describe(ctx, c));
                   h.tvPreview.setVisibility(View.GONE);
@@ -1387,14 +1396,16 @@ package com.callx.app.feed;
               h.ivAvatar.setVisibility(View.VISIBLE);
               if (h.flAvatar != null) h.flAvatar.setVisibility(View.VISIBLE);
 
-              h.tvName.setText(c.isMine ? ctx.getString(R.string.status_card_my_status) : (c.ownerName != null ? c.ownerName : ""));
+              final boolean addTile = c.isMine && !c.hasStatus; // v556: "Add status" tile (my photo full-bleed + big +)
+              h.tvName.setText(c.isMine ? ctx.getString(addTile ? R.string.status_card_add_status : R.string.status_card_my_status)
+                      : (c.ownerName != null ? c.ownerName : ""));
               final String timeTxt = timeLabel(ctx, c.timeKey);
               h.tvTime.setText(timeTxt);
               // Large system font: keep the name to 1 line and drop the time so the card never clips.
               final float fontScale = ctx.getResources().getConfiguration().fontScale;
-              h.tvName.setMaxLines(fontScale >= 1.3f ? 1 : 2);
+              h.tvName.setMaxLines(1);
               h.tvPreview.setMaxLines(fontScale >= 1.3f ? 3 : 5);
-              h.tvTime.setVisibility(timeTxt != null && fontScale < 1.8f ? View.VISIBLE : View.GONE);
+              h.tvTime.setVisibility(showTime(c, timeTxt, fontScale) ? View.VISIBLE : View.GONE);
               h.ivCf.setVisibility(c.isCloseFriend && !c.isMine ? View.VISIBLE : View.GONE);
 
               // Card background image: latest status media, or the owner's profile photo,
@@ -1442,8 +1453,13 @@ package com.callx.app.feed;
                   h.ivBg.setImageResource(R.drawable.ic_person);
               }
               // Seen / muted cards recede; unseen name is bold.
-              h.ivBg.setAlpha(c.isMuted ? 0.55f : (!c.isMine && !c.unseen) ? 0.72f : 1f);
-              h.tvName.setTypeface(null, (c.unseen || c.isMine) ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+              // v556: dim via colour filter (not alpha). Glyph/placeholder state keeps its own filter.
+              h.ivBg.setAlpha(1f);
+              if (h.ivBg.getScaleType() != ImageView.ScaleType.CENTER) {
+                  if (c.isMuted) h.ivBg.setColorFilter(DIM_MUTED);
+                  else if (!c.isMine && !c.unseen) h.ivBg.setColorFilter(DIM_SEEN);
+              }
+              h.tvName.setTypeface((c.unseen || c.isMine) ? TF_NAME_UNSEEN : TF_NAME_SEEN);
 
               // FIX (deep avatar pipeline + isVisible gate) — same
               // StatusAvatarBinder pipeline as the vertical contact rows;
@@ -1454,23 +1470,26 @@ package com.callx.app.feed;
               // (DiffUtil rebinds for unseen/time changes would otherwise redo L2 lookup + Glide request).
               final String avUrl = StatusAvatarBinder.url(ctx, c.ownerPhoto,
                       resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion));
-              if (avUrl == null || !avUrl.equals(h.avatarKey) || !avUrl.equals(h.ivAvatar.getTag())) {
+              if (!addTile && (avUrl == null || !avUrl.equals(h.avatarKey) || !avUrl.equals(h.ivAvatar.getTag()))) {
                   StatusAvatarBinder.bindGated(ctx, h.ivAvatar, c.ownerPhoto,
                           resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion), R.drawable.ic_person);
                   h.avatarKey = (avUrl != null && h.ivAvatar.isAttachedToWindow()) ? avUrl : null;
               }
 
               if (c.isMine && !c.hasStatus) {
-                  // "Add status" tile — grey ring, plus badge, no status yet
+                  // "Add status" tile: my photo full-bleed + big + circle (no small avatar/ring)
                   h.ring.setVisibility(View.GONE);
                   h.ringKey = -1;
-                  h.ivAddBadge.setVisibility(View.VISIBLE);
+                  if (h.flAvatar != null) h.flAvatar.setVisibility(View.GONE);
+                  h.ivAddBadge.setVisibility(View.GONE);
+                  h.ivAddBig.setVisibility(View.VISIBLE);
               } else {
                   // Single ring only — the SAME 3-state story ring StoryRingApplier gives the reel
                   // search-history / followers rows: gradient = unseen, flat gray = seen.
                   // Perf: ring drawable is rebuilt only when its shape/state key changes (ringKey).
                   final boolean showUnseen = !c.isMuted && (c.unseen || c.isMine);
                   h.ring.setVisibility(View.VISIBLE);
+                  h.ivAddBig.setVisibility(View.GONE);
                   final int segN = c.segTotal;
                   final int segCap = com.callx.app.utils.StatusSegmentedRingDrawable.MAX_SEGMENTS;
                   final int key;
@@ -1557,7 +1576,7 @@ package com.callx.app.feed;
           }
 
           static class VH extends RecyclerView.ViewHolder {
-              ImageView ivBg, ring, ivAddBadge, ivType, ivMuted, ivCf;
+              ImageView ivBg, ring, ivAddBadge, ivType, ivMuted, ivCf, ivAddBig;
               TextView tvTime;
               TextView tvPreview;
               CircleImageView ivAvatar;
@@ -1580,11 +1599,13 @@ package com.callx.app.feed;
                   ivType     = v.findViewById(R.id.iv_card_type);
                   ivMuted    = v.findViewById(R.id.iv_card_muted);
                   ivCf       = v.findViewById(R.id.iv_card_cf);
+                  ivAddBig   = v.findViewById(R.id.iv_card_add_big);
                   tvTime     = v.findViewById(R.id.tv_card_time);
                   tvPreview  = v.findViewById(R.id.tv_card_preview);
                   ivType.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                   ivMuted.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                   ivCf.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                  ivAddBig.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                   tvTime.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                   tvPreview.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                   // The card announces itself as one element (see describe()); children are decorative.

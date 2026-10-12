@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="status_card_my_status">My Status</string>
+    <string name="status_card_add_status">Add status</string>
     <string name="status_card_hidden">Hidden</string>
     <string name="status_card_muted_toast">%1$s is muted. Long press to unmute.</string>
     <string name="status_card_kind_video">video status</string>

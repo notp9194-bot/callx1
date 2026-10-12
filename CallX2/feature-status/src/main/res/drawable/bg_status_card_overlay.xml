@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v554: top vignette + bottom name scrim + hairline inner edge in ONE view (was 3 overlay Views). -->
+<!-- v556: top vignette (keeps the top-left avatar ring legible on bright images) + bottom name scrim in ONE view. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:gravity="top|fill_horizontal" android:height="56dp"
+    <item android:gravity="top|fill_horizontal" android:height="64dp"
         android:drawable="@drawable/bg_status_card_top_scrim"/>
-    <item android:gravity="bottom|fill_horizontal" android:height="76dp"
+    <item android:gravity="bottom|fill_horizontal" android:height="84dp"
         android:drawable="@drawable/bg_status_card_bottom_scrim"/>
-    <item android:drawable="@drawable/bg_status_card_inner_stroke"/>
 </layer-list>

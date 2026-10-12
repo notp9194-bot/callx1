@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Status carousel card: outer box (incl. avatar overlap) and how far the avatar overlaps the body. -->
-    <dimen name="status_card_width">116dp</dimen>
-    <dimen name="status_card_height">182dp</dimen>
-    <dimen name="status_card_avatar_overlap">22dp</dimen>
+    <dimen name="status_card_width">100dp</dimen>
+    <dimen name="status_card_height">160dp</dimen>
+    <dimen name="status_card_avatar_overlap">0dp</dimen>
+    <!-- v556: avatar sits INSIDE the card (top-start). ring box = 1.5dp stroke + 2dp transparent gap + avatar:
+         avatar = ring - 2*(1.5 + 2) -->
+    <dimen name="status_card_avatar_ring">44dp</dimen>
+    <dimen name="status_card_avatar">37dp</dimen>
+    <dimen name="status_card_radius">22dp</dimen>
 </resources>
