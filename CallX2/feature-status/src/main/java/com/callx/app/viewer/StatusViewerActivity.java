@@ -3950,9 +3950,9 @@ import com.callx.app.utils.AlertDialogStyler;
 
       // ═════════════════════════════════════════════════════════════════════
       //  Live comment stack (Instagram-style)
-      //   • a new comment slides up from the bottom (fade + 14dp rise)
-      //   • older comments are pushed up smoothly (FLIP: layout jumps, views animate from the old spot)
-      //   • each comment fades out on its OWN timer (LIVE_ROW_VISIBLE_MS); max LIVE_MAX_ROWS at once
+      //   • v576: ONE comment at a time, no background (like Instagram): nothing → small avatar + text zoom
+      //     in (scale+fade+rise) → stays ~2s → zooms back out → next queued comment appears
+      //   • comments that arrive while one is showing wait in livePending (FIFO)
       //   • timers freeze while the story is held/paused (pauseLiveRows/resumeLiveRows)
       //   • tapping a row opens the same replies sheet as the avatar pill
       //
@@ -3967,11 +3967,15 @@ import com.callx.app.utils.AlertDialogStyler;
       //   • rows animate with a hardware layer only while they fade (withLayer); the container is a
       //     NoOverlapLinearLayout, so chrome-hide alpha never forces an offscreen layer
       // ═════════════════════════════════════════════════════════════════════
-      private static final int  LIVE_MAX_ROWS        = 3;
+      private static final int  LIVE_MAX_ROWS        = 1;   // one visible comment at a time
+      private static final int  LIVE_QUEUE_MAX       = 3;   // newest N waiting/shown on first bind
       private static final int  LIVE_POOL_MAX        = 3;
       private static final int  LIVE_TEXT_MAX_CHARS  = 140;
-      private static final long LIVE_ROW_VISIBLE_MS  = 2_000L;
-      private static final long LIVE_STAGGER_MS      = 140L;
+      private static final long LIVE_ENTER_MS        = 280L;
+      private static final long LIVE_EXIT_MS         = 200L;
+      private static final long LIVE_GAP_MS          = 220L; // empty beat between two comments
+      private static final long LIVE_ROW_VISIBLE_MS  = LIVE_ENTER_MS + 2_000L; // ~2s fully visible after the zoom-in
+      private static final float LIVE_ZOOM_FROM      = 0.6f;
       private static final android.view.animation.Interpolator LIVE_DECEL =
               new android.view.animation.DecelerateInterpolator(1.6f);
       private static final android.view.animation.Interpolator LIVE_ACCEL =
@@ -3982,8 +3986,10 @@ import com.callx.app.utils.AlertDialogStyler;
       private final ArrayList<LiveRow> liveRows = new ArrayList<>(LIVE_MAX_ROWS + 1);
       private final java.util.HashSet<String> liveShownKeys = new java.util.HashSet<>();
       private final ArrayDeque<View> livePool = new ArrayDeque<>(LIVE_POOL_MAX + 1);
-      private final ArrayList<View> flipPending = new ArrayList<>(2);
-      private boolean flipArmed, livePrewarmed;
+      private final ArrayDeque<StatusItem.ReplyPreview> livePending = new ArrayDeque<>();
+      private View liveBubble;
+      private boolean liveBusy, livePrewarmed; // liveBusy: a row is entering/showing/exiting (or in the gap)
+      private final Runnable liveGapRunnable = () -> { liveBusy = false; drainLiveQueue(); };
       private int liveRisePx = -1;
 
       private static String liveKey(StatusItem.ReplyPreview r) {
@@ -4022,59 +4028,24 @@ import com.callx.app.utils.AlertDialogStyler;
               return false; // one-shot
           });
       }
-      /** One FLIP pass for every row added since the last frame: bottom → top, so each row/older row gets the
-       *  summed shift of the rows below it. New rows rise + fade in; older rows glide up from their old spot. */
-      private final android.view.ViewTreeObserver.OnPreDrawListener flipPreDraw =
-              new android.view.ViewTreeObserver.OnPreDrawListener() {
-          @Override public boolean onPreDraw() {
-              flipArmed = false;
-              final android.widget.LinearLayout box = binding.llLiveComments;
-              final android.view.ViewTreeObserver o = box.getViewTreeObserver();
-              if (o.isAlive()) o.removeOnPreDrawListener(this);
-              float acc = 0f;
-              for (int i = box.getChildCount() - 1; i >= 0; i--) {
-                  final View c = box.getChildAt(i);
-                  if (flipPending.contains(c)) {
-                      final android.widget.LinearLayout.LayoutParams lp =
-                              (android.widget.LinearLayout.LayoutParams) c.getLayoutParams();
-                      c.animate().cancel();
-                      c.setTranslationY(liveRisePx() + acc);
-                      c.animate().alpha(1f).translationY(0f).setDuration(260L)
-                              .setInterpolator(LIVE_DECEL).withLayer().start();
-                      acc += c.getHeight() + lp.topMargin;
-                  } else if (acc > 0f) {
-                      c.animate().cancel();
-                      c.setTranslationY(c.getTranslationY() + acc);
-                      c.animate().translationY(0f).setDuration(260L).setInterpolator(LIVE_DECEL).start();
-                  }
-              }
-              flipPending.clear();
-              return true;
-          }
-      };
-
-      /** Adds rows for comments not shown yet (all newest-3 on first bind, only the new ones afterwards), oldest first. */
+      /** Queues comments not shown yet (oldest first); they play one after another. */
       private void updateLiveComments(List<StatusItem.ReplyPreview> newestFirst, final View bubble) {
-          final int n = Math.min(LIVE_MAX_ROWS, newestFirst.size());
-          int freshCount = 0;
-          // oldest → newest; count first so the common "one new comment" path allocates no list at all
-          for (int i = n - 1; i >= 0; i--) {
-              StatusItem.ReplyPreview r = newestFirst.get(i);
-              if (!liveShownKeys.contains(liveKey(r))) freshCount++;
-          }
-          if (freshCount == 0) return;
-          final int seq = showSeq;
-          int k = 0;
+          final int n = Math.min(LIVE_QUEUE_MAX, newestFirst.size());
+          boolean added = false;
           for (int i = n - 1; i >= 0; i--) {
               final StatusItem.ReplyPreview r = newestFirst.get(i);
               if (!liveShownKeys.add(liveKey(r))) continue;
-              if (k == 0) addLiveRow(r, bubble);
-              else handler.postDelayed(() -> {
-                  if (isFinishing() || isDestroyed() || seq != showSeq) return;
-                  addLiveRow(r, bubble);
-              }, LIVE_STAGGER_MS * k);
-              k++;
+              livePending.addLast(r);
+              added = true;
           }
+          while (livePending.size() > LIVE_QUEUE_MAX) livePending.pollFirst(); // never fall far behind
+          liveBubble = bubble;
+          if (added) drainLiveQueue();
+      }
+      private void drainLiveQueue() {
+          if (isFinishing() || isDestroyed() || binding == null) return;
+          if (liveBusy || livePending.isEmpty() || liveBubble == null) return;
+          addLiveRow(livePending.pollFirst(), liveBubble);
       }
       private void bindLiveRow(View row, StatusItem.ReplyPreview r) {
           final android.widget.ImageView av = row.findViewById(R.id.iv_live_avatar);
@@ -4115,13 +4086,10 @@ import com.callx.app.utils.AlertDialogStyler;
       private void addLiveRow(StatusItem.ReplyPreview r, final View bubble) {
           if (isFinishing() || isDestroyed()) return;
           final android.widget.LinearLayout box = binding.llLiveComments;
-          // Cap: oldest rows leave quickly to make room.
-          while (liveRows.size() >= LIVE_MAX_ROWS) removeLiveRow(liveRows.get(0), true);
+          liveBusy = true;
           final View row = obtainLiveRow();
           bindLiveRow(row, r);
           row.setOnClickListener(v -> bubble.performClick()); // same replies sheet as the pill
-          row.setAlpha(0f);
-          row.setTranslationY(0f);
           final LiveRow lr = new LiveRow();
           lr.v = row;
           lr.exit = () -> removeLiveRow(lr, false);
@@ -4130,53 +4098,50 @@ import com.callx.app.utils.AlertDialogStyler;
           liveRows.add(lr);
           box.setAlpha(chromeHidden ? 0f : 1f);
           if (box.getVisibility() != View.VISIBLE) box.setVisibility(View.VISIBLE);
+          // start state: invisible, small, slightly low → zooms up into place around the avatar
+          row.animate().cancel();
+          row.setAlpha(0f);
+          row.setScaleX(LIVE_ZOOM_FROM);
+          row.setScaleY(LIVE_ZOOM_FROM);
+          row.setPivotX(dpToPx(14));
+          row.setPivotY(dpToPx(12));
+          row.setTranslationY(liveRisePx());
           box.addView(row);
-          flipPending.add(row);
-          if (!flipArmed) { flipArmed = true; box.getViewTreeObserver().addOnPreDrawListener(flipPreDraw); }
+          row.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+                  .setDuration(LIVE_ENTER_MS).setInterpolator(LIVE_DECEL).withLayer().start();
       }
-      /** Fades the row out (its own timer ran out, or it was evicted) and glides the rows above it down into the gap. */
+      /** Zooms the row back out (its timer ran out), removes it, then plays the next queued comment after a short gap. */
       private void removeLiveRow(final LiveRow lr, boolean quick) {
           if (lr == null || !liveRows.remove(lr)) return;
           handler.removeCallbacks(lr.exit);
           final android.widget.LinearLayout box = binding.llLiveComments;
           final View row = lr.v;
-          if (row.getParent() != box) return;
+          if (row.getParent() != box) { liveBusy = false; return; }
           row.animate().cancel();
-          row.animate().alpha(0f).translationY(-liveRisePx() / 2f).setDuration(quick ? 120L : 240L)
+          row.animate().alpha(0f).scaleX(LIVE_ZOOM_FROM).scaleY(LIVE_ZOOM_FROM).translationY(liveRisePx() / 2f)
+                  .setDuration(quick ? 100L : LIVE_EXIT_MS)
                   .setInterpolator(LIVE_ACCEL).withLayer()
                   .withEndAction(() -> {
-                      if (row.getParent() != box) return;
-                      final int at = box.indexOfChild(row);
-                      final android.widget.LinearLayout.LayoutParams lp =
-                              (android.widget.LinearLayout.LayoutParams) row.getLayoutParams();
-                      final float shift = row.getHeight() + lp.topMargin;
+                      if (row.getParent() != box) return; // clearLiveComments() already reset everything
                       box.removeView(row);
                       recycleLiveRow(row);
-                      if (box.getChildCount() == 0) { box.setVisibility(View.GONE); return; }
-                      // rows ABOVE the removed one drop down by `shift` at layout time → start them high, glide to 0
-                      for (int i = 0; i < at && i < box.getChildCount(); i++) {
-                          final View above = box.getChildAt(i);
-                          above.animate().cancel();
-                          above.setTranslationY(above.getTranslationY() - shift);
-                          above.animate().translationY(0f).setDuration(220L).setInterpolator(LIVE_DECEL).start();
-                      }
+                      if (box.getChildCount() == 0) box.setVisibility(View.GONE);
+                      handler.postDelayed(liveGapRunnable, LIVE_GAP_MS);
                   }).start();
       }
       private void clearLiveComments() {
-          if (liveRows.isEmpty() && flipPending.isEmpty() && liveShownKeys.isEmpty()
+          if (liveRows.isEmpty() && livePending.isEmpty() && liveShownKeys.isEmpty() && !liveBusy
                   && (binding == null || binding.llLiveComments == null || binding.llLiveComments.getChildCount() == 0)) return;
           for (LiveRow lr : liveRows) handler.removeCallbacks(lr.exit);
+          handler.removeCallbacks(liveGapRunnable);
           if (binding != null && binding.llLiveComments != null) {
               final android.widget.LinearLayout box = binding.llLiveComments;
-              if (flipArmed) {
-                  final android.view.ViewTreeObserver o = box.getViewTreeObserver();
-                  if (o.isAlive()) o.removeOnPreDrawListener(flipPreDraw);
-              }
               box.removeAllViews();
               box.setVisibility(View.GONE);
           }
-          flipArmed = false;
-          flipPending.clear();
+          livePending.clear();
+          liveBusy = false;
+          liveBubble = null;
           for (LiveRow lr : liveRows) recycleLiveRow(lr.v);
           liveRows.clear();
           liveShownKeys.clear();

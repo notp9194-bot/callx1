@@ -1,25 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One floating "live comment" row (Instagram-style): avatar + bold name + comment text in a dark pill.
-     Created by StatusViewerActivity#buildLiveRow() and stacked inside ll_live_comments. -->
+<!-- v576: One floating "live comment" (Instagram-style): small 20dp avatar + bold name + comment text,
+     NO background. Readability comes from the text shadow + the bottom gradient of ll_bottom_chrome.
+     Shown one at a time (zoom in -> ~2s -> zoom out) by StatusViewerActivity#addLiveRow()/removeLiveRow(). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:layout_marginTop="4dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingStart="6dp"
-    android:paddingEnd="12dp"
-    android:paddingTop="6dp"
-    android:paddingBottom="6dp"
-    android:background="@drawable/bg_status_reply_pill"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp"
     android:clickable="true"
     android:focusable="false"
     android:importantForAccessibility="no">
 
     <de.hdodenhof.circleimageview.CircleImageView
         android:id="@+id/iv_live_avatar"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
         android:src="@drawable/ic_person"/>
 
     <TextView
@@ -31,6 +29,10 @@
         android:maxLines="2"
         android:ellipsize="end"
         android:textColor="@color/white"
-        android:textSize="13sp"/>
+        android:textSize="13sp"
+        android:shadowColor="#B3000000"
+        android:shadowRadius="4"
+        android:shadowDx="0"
+        android:shadowDy="1"/>
 
 </LinearLayout>
