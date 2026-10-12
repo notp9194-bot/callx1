@@ -150,12 +150,12 @@ class CallsAndStatusBenchmark {
         statusTab.click()
 
         device.wait(
-            Until.hasObject(By.res(TARGET_PACKAGE, "recyclerStatus")),
+            Until.hasObject(By.res(TARGET_PACKAGE, "rv_status")),
             5_000L
         )
         Thread.sleep(500)
 
-        val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerStatus"))
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_status"))
             ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView"))
             ?: return@measureRepeated
 
@@ -192,14 +192,14 @@ class CallsAndStatusBenchmark {
             ?: device.findObject(By.text("Status"))
             ?: return@measureRepeated
         statusTab.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerStatus")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_status")), 5_000L)
         Thread.sleep(400)
 
-        val firstStatus = device.findObject(By.res(TARGET_PACKAGE, "recyclerStatus"))
-            ?.children?.firstOrNull()
-            ?: return@measureRepeated
+        // child 0 is the "My status" / add row (opens the composer, not the viewer) → prefer the next row.
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_status")) ?: return@measureRepeated
+        val firstStatus = rv.children.getOrNull(1) ?: rv.children.firstOrNull() ?: return@measureRepeated
         firstStatus.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "statusViewerContainer")), 4_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "et_reply")), 4_000L)
         Thread.sleep(500)
         device.pressBack()
     }

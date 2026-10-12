@@ -290,9 +290,9 @@ private fun MacrobenchmarkScope.journeyOpenStatusTab() {
     val tab = device.findObject(By.res(TARGET_PACKAGE, "tabStatus"))
         ?: device.findObject(By.text("Status")) ?: return
     tab.click()
-    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerStatus")), TIMEOUT)
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_status")), TIMEOUT)
     Thread.sleep(SETTLE)
-    val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerStatus"))
+    val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_status"))
         ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView")) ?: return
     rv.scroll(Direction.DOWN, 0.7f, 800)
     Thread.sleep(300)
@@ -312,7 +312,6 @@ private fun MacrobenchmarkScope.journeyScrollStatusCarousel() {
 // then drag it closed (exercises applyDrag / closeByDrag / next() / showCurrent()).
 private fun MacrobenchmarkScope.journeyOpenStatusViewer() {
     val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_status"))
-        ?: device.findObject(By.res(TARGET_PACKAGE, "recyclerStatus"))
         ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView")) ?: return
     // child 0 is usually "My status" / add; prefer the next row, fall back to the first.
     val row = rv.children.getOrNull(1) ?: rv.children.firstOrNull() ?: return

@@ -30,6 +30,7 @@ public final class StatusReshareHelper {
     public static final String EXTRA_CAPTION        = StoryReshareActivity.EXTRA_CAPTION;
     public static final String EXTRA_MEDIA_TYPE     = StoryReshareActivity.EXTRA_MEDIA_TYPE;
     public static final String EXTRA_ALLOW_RESHARE  = StoryReshareActivity.EXTRA_ALLOW_RESHARE;
+    public static final String EXTRA_STICKERS_JSON  = StoryReshareActivity.EXTRA_STICKERS_JSON;
     // ── Original text-status content (WhatsApp preserves this on repost even
     //    when there's no mediaUrl/thumbnailUrl to show, e.g. plain text statuses) ──
     public static final String EXTRA_ORIGINAL_TEXT       = "EXTRA_ORIGINAL_TEXT";
@@ -102,6 +103,11 @@ public final class StatusReshareHelper {
         i.putExtra(EXTRA_ORIGINAL_TEXT,       safeStr(status.text));
         i.putExtra(EXTRA_ORIGINAL_BG_COLOR,   safeStr(status.bgColor));
         i.putExtra(EXTRA_ORIGINAL_TEXT_COLOR, safeStr(status.textColor));
+        // Music + interactive stickers (StatusItem.stickersJson). Guarded: a Binder transaction must stay small.
+        if (status.stickersJson != null && !status.stickersJson.isEmpty()
+                && status.stickersJson.length() < 100_000) {
+            i.putExtra(EXTRA_STICKERS_JSON, status.stickersJson);
+        }
         return i;
     }
 

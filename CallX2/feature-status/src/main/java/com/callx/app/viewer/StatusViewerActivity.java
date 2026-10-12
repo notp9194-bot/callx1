@@ -123,6 +123,15 @@ import com.callx.app.utils.AlertDialogStyler;
       private int     idx         = 0;
       private ExoPlayer player;                    // ONE instance reused for every video status (destroyed in onDestroy)
       private Player.Listener playerListener;      // the current video's listener (swapped per status)
+      // ── Standby player (video → video advance) ───────────────────────────
+      // A SECOND ExoPlayer pre-prepares (and pre-buffers) the NEXT video while the current status
+      // plays; when that video's turn comes the two players are swapped (ping-pong) instead of
+      // resetting one player and re-opening the source. Only ever 2 players. Kill switch: set
+      // STANDBY_PLAYER_ENABLED=false to get the old single-player behaviour back.
+      private static final boolean STANDBY_PLAYER_ENABLED = true;
+      private ExoPlayer standbyPlayer;             // idle, or holding `standbyUrl` prepared-but-paused
+      private String    standbyUrl;                // null = standbyPlayer is idle
+      private boolean   videoFrameRendered;        // first frame of the CURRENT video is on screen
       // Separate audio-only player for a 🎵 music sticker's linked preview
       // clip — independent of `player` above (which only ever holds the
       // status's own video track). Autoplays as soon as the status carrying
@@ -555,6 +564,8 @@ import com.callx.app.utils.AlertDialogStyler;
       @Override
       protected void onCreate(Bundle savedInstanceState) {
           super.onCreate(savedInstanceState);
+          android.os.Trace.beginSection("StatusViewer#open"); // macrobenchmark TraceSectionMetric
+          warmDecoderInfoAsync(); // codec list query off the main thread → first video builds its decoder faster
           overridePendingTransition(0, 0); // v508: no system open animation (theme also disables it) → faster first paint
           binding = ActivityStatusViewerBinding.inflate(getLayoutInflater());
           setContentView(binding.getRoot());
@@ -569,7 +580,7 @@ import com.callx.app.utils.AlertDialogStyler;
           singleStatusOnly = getIntent().getBooleanExtra(EXTRA_SINGLE_STATUS_ONLY, false);
           highlightAlbumId = getIntent().getStringExtra(EXTRA_HIGHLIGHT_ALBUM_ID);
           isHighlightMode = highlightAlbumId != null && !highlightAlbumId.isEmpty();
-          if (ownerUid == null) { finish(); return; }
+          if (ownerUid == null) { android.os.Trace.endSection(); finish(); return; }
           // v40 — resolve the continuous-playback queue (if the caller sent
           // one) and figure out where in it we're starting, so
           // goToNextQueueEntryOrFinish()/goToPreviousQueueEntry() know what
@@ -615,11 +626,34 @@ import com.callx.app.utils.AlertDialogStyler;
           com.callx.app.utils.VerifiedBadgeUtils.bindForUid(
               (android.widget.ImageView) findViewById(R.id.iv_owner_verified), ownerUid);
           spinView = new StorySpinViewController(this);
-          spinView.attachTargets(binding.ivStatus, binding.playerView);
+          spinView.attachTargets(binding.ivStatus, binding.playerView, binding.ivVideoPoster);
           setupStabilizerButton();
           setupMediaRoundedCorners();
           bindOwnerAvatar(null); // instant: tray's own URL (L2/L3 cache hit), before the status list even loads
           load(ownerUid);
+          android.os.Trace.endSection();
+      }
+
+      // ── Decoder warm-up ───────────────────────────────────────────────────
+      // MediaCodecUtil caches the codec list per MIME type; the FIRST query walks the whole
+      // MediaCodecList (tens of ms, sometimes 100+ on low-end devices). ExoPlayer would do it on
+      // the first video's critical path, so we do it once per process on a background thread.
+      private static final java.util.concurrent.atomic.AtomicBoolean DECODERS_WARMED =
+              new java.util.concurrent.atomic.AtomicBoolean(false);
+      @OptIn(markerClass = UnstableApi.class)
+      private static void warmDecoderInfoAsync() {
+          if (!DECODERS_WARMED.compareAndSet(false, true)) return;
+          Thread t = new Thread(() -> {
+              try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); }
+              catch (Throwable ignored) {}
+              for (String mime : new String[]{"video/avc", "video/hevc", "audio/mp4a-latm"}) {
+                  try {
+                      androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(mime, false, false);
+                  } catch (Throwable ignored) {}
+              }
+          }, "status-decoder-warm");
+          t.setDaemon(true);
+          t.start();
       }
 
       // Rounds the visible corners of the story media itself (photo/gif/video),
@@ -737,6 +771,7 @@ import com.callx.app.utils.AlertDialogStyler;
           detachRepliesListener();
           releasePlayer();
           destroyPlayer();
+          releaseStandby();
           if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
           if (binding.tvStatusSongName != null) binding.tvStatusSongName.release();
           stopProgress();
@@ -1030,6 +1065,7 @@ import com.callx.app.utils.AlertDialogStyler;
               lastReplyBubbleView.setVisibility(View.GONE);
               lastReplyBubbleView.setTranslationY(0f);
           }
+          clearLiveComments(); // previous status's floating comments must not linger
           lastReplyShown = false; lastReplySig = null; lastReplyExiting = false; replyCollapsed = false;
           final StatusItem shown = s;
           deferAfterFirstFrame(seq, () -> updateLastReplyOverlay(shown));
@@ -1460,12 +1496,18 @@ import com.callx.app.utils.AlertDialogStyler;
               if (videoPreloader == null) videoPreloader = new com.callx.app.cache.StatusMediaPreloader(this);
               videoPreloader.preloadVideoUrl(url);
           } catch (Exception ignored) {}
+          prepareStandby(url); // standby ExoPlayer pre-buffers it too → video→video swap instead of a cold start
       }
 
       /** Warms Glide's cache with the NEXT status's photo so swiping/auto-advance is instant. */
       private void prefetchNextImage() {
           if (isFinishing() || isDestroyed()) return;
-          if (idx + 1 < items.size()) { prefetchItem(items.get(idx + 1)); return; }
+          if (idx + 1 < items.size()) {
+              prefetchItem(items.get(idx + 1));
+              // Photos are short (~5 s): also warm the one after that when it is a photo (cheap, small win).
+              if (idx + 2 < items.size() && "image".equals(items.get(idx + 2).type)) prefetchItem(items.get(idx + 2));
+              return;
+          }
           prefetchNextQueueEntry(); // last segment of this person → warm the NEXT person's first one
       }
       /** Instagram-style: while the last story of the current person plays, the next person's
@@ -1487,7 +1529,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   url = n.mediaUrl; break;
               case "video": case "reel_story": case "reel_clip":
                   if (n.mediaUrl == null || n.mediaUrl.isEmpty()) url = n.thumbnailUrl;
-                  else prefetchNextVideo(n.mediaUrl); // plays via ExoPlayer — warm its cache
+                  else { prefetchNextVideo(n.mediaUrl); preloadVideoPoster(n); } // plays via ExoPlayer — warm its cache + poster
                   break;
               case "link":
                   url = n.linkImageUrl; break;
@@ -1495,7 +1537,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   boolean video = n.resharedMediaType != null && !n.resharedMediaType.isEmpty()
                           ? "video".equals(n.resharedMediaType) : looksLikeVideoUrl(n.mediaUrl);
                   if (n.mediaUrl != null && !n.mediaUrl.isEmpty() && !video) url = n.mediaUrl;
-                  else if (n.mediaUrl != null && !n.mediaUrl.isEmpty()) prefetchNextVideo(n.mediaUrl);
+                  else if (n.mediaUrl != null && !n.mediaUrl.isEmpty()) { prefetchNextVideo(n.mediaUrl); preloadVideoPoster(n); }
                   break;
               }
               default: break;
@@ -1686,38 +1728,145 @@ import com.callx.app.utils.AlertDialogStyler;
           };
       }
       @OptIn(markerClass = UnstableApi.class)
+      private ExoPlayer buildStatusPlayer() {
+          // Small start-up buffers so a 5–30 s story begins after ~0.5 s of data instead of ExoPlayer's 2.5 s default.
+          return new ExoPlayer.Builder(this)
+                  .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                          .setBufferDurationsMs(2_500, 15_000, 500, 1_000)
+                          .build())
+                  .build();
+      }
+      @OptIn(markerClass = UnstableApi.class)
+      private void setStatusMedia(ExoPlayer p, String url) {
+          if (StatusVideoCacheManager.isInitialized()) {
+              CacheDataSource.Factory cf = StatusVideoCacheManager.getCacheDataSourceFactory();
+              ProgressiveMediaSource ms = new ProgressiveMediaSource.Factory(cf)
+                      .createMediaSource(MediaItem.fromUri(Uri.parse(url)));
+              p.setMediaSource(ms);
+          } else {
+              p.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
+          }
+      }
+      /** Pre-prepares the NEXT video on the standby player (paused). Main thread. */
+      private void prepareStandby(String url) {
+          if (!STANDBY_PLAYER_ENABLED || url == null || url.isEmpty()) return;
+          if (isFinishing() || isDestroyed() || url.equals(standbyUrl)) return;
+          try {
+              if (standbyPlayer == null) standbyPlayer = buildStatusPlayer();
+              standbyPlayer.stop();
+              standbyPlayer.clearMediaItems();
+              standbyPlayer.setPlayWhenReady(false);
+              setStatusMedia(standbyPlayer, url);
+              standbyPlayer.prepare();
+              standbyUrl = url;
+          } catch (Exception e) {
+              releaseStandby();
+          }
+      }
+      /** The standby player if it holds exactly `url` and is already buffered/ready, else null. */
+      private ExoPlayer takeReadyStandby(String url) {
+          if (!STANDBY_PLAYER_ENABLED || standbyPlayer == null || url == null || !url.equals(standbyUrl)) return null;
+          try {
+              if (standbyPlayer.getPlaybackState() == Player.STATE_READY && standbyPlayer.getPlayerError() == null)
+                  return standbyPlayer;
+          } catch (Exception ignored) {}
+          return null;
+      }
+      private void releaseStandby() {
+          if (standbyPlayer != null) { try { standbyPlayer.release(); } catch (Exception ignored) {} }
+          standbyPlayer = null; standbyUrl = null;
+      }
+
+      // ── Video poster (no black frame before the first video frame) ───────
+      private com.bumptech.glide.request.RequestOptions posterOptions() {
+          final android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+          return new com.bumptech.glide.request.RequestOptions()
+                  .override(Math.max(1, dm.widthPixels / 2), Math.max(1, dm.heightPixels / 2))
+                  .transform(new com.bumptech.glide.load.resource.bitmap.FitCenter(),
+                          new com.bumptech.glide.load.resource.bitmap.RoundedCorners(Math.max(1, mediaCornerPx() / 2)));
+      }
+      private void showVideoPoster(StatusItem s) {
+          final String thumb = s.thumbnailUrl;
+          if (thumb == null || thumb.isEmpty() || binding.ivVideoPoster == null) return;
+          final int seq = showSeq;
+          binding.ivVideoPoster.setVisibility(View.VISIBLE);
+          Glide.with(this).load(thumb)
+                  .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                  .apply(posterOptions())
+                  .dontAnimate()
+                  .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                      @Override public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
+                              com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                          return false;
+                      }
+                      @Override public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model,
+                              com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                              com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                          // The video's first frame (or a newer status) beat the poster → don't paint it over live video.
+                          if (videoFrameRendered || seq != showSeq) {
+                              binding.ivVideoPoster.setVisibility(View.GONE);
+                              return true;
+                          }
+                          return false;
+                      }
+                  })
+                  .into(binding.ivVideoPoster);
+      }
+      private void hideVideoPoster() {
+          if (binding == null || binding.ivVideoPoster == null) return;
+          if (binding.ivVideoPoster.getVisibility() == View.VISIBLE) {
+              binding.ivVideoPoster.setVisibility(View.GONE);
+              if (!isDestroyed()) Glide.with(this).clear(binding.ivVideoPoster); // free the bitmap
+          }
+      }
+      /** Warms Glide with the next video's poster so it paints instantly when that video opens. */
+      private void preloadVideoPoster(StatusItem n) {
+          if (n == null || n.thumbnailUrl == null || n.thumbnailUrl.isEmpty()) return;
+          try {
+              Glide.with(this).load(n.thumbnailUrl)
+                      .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                      .apply(posterOptions()).preload();
+          } catch (Exception ignored) {}
+      }
+
+      @OptIn(markerClass = UnstableApi.class)
       private void showVideoStatus(StatusItem s) {
           binding.playerView.setVisibility(View.VISIBLE);
           binding.btnMute.setVisibility(View.VISIBLE);
           releasePlayer(); // stops + resets the shared player and detaches the previous video's listener
-          if (player == null) {
-              // Built once: no per-status player/decoder/thread setup. Small start-up buffers so a
-              // 5–30 s story begins after ~0.5 s of data instead of ExoPlayer's 2.5 s default.
-              player = new ExoPlayer.Builder(this)
-                      .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                              .setBufferDurationsMs(2_500, 15_000, 500, 1_000)
-                              .build())
-                      .build();
+          videoFrameRendered = false;
+          showVideoPoster(s);
+          // Video → video: if the standby player already holds THIS video prepared, swap to it (the
+          // old player goes idle and becomes the next standby). Otherwise the normal single-player path.
+          boolean swapped = false;
+          ExoPlayer ready = takeReadyStandby(s.mediaUrl);
+          if (ready != null) {
+              ExoPlayer old = player;
+              player = ready;
+              standbyPlayer = old; // already stopped + cleared by releasePlayer() (null if there was none)
+              standbyUrl = null;
+              swapped = true;
           }
+          if (player == null) player = buildStatusPlayer(); // built once: no per-status player/decoder/thread setup
           binding.playerView.setPlayer(player); // no-op when it's already attached
-          if (StatusVideoCacheManager.isInitialized()) {
-              CacheDataSource.Factory cf = StatusVideoCacheManager.getCacheDataSourceFactory();
-              ProgressiveMediaSource ms = new ProgressiveMediaSource.Factory(cf)
-                      .createMediaSource(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
-              player.setMediaSource(ms);
-          } else {
-              player.setMediaItem(MediaItem.fromUri(Uri.parse(s.mediaUrl)));
-          }
+          if (!swapped) setStatusMedia(player, s.mediaUrl);
           applyVideoVolume();
           long estimated = s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L;
           final String statusIdForLog = s.id;
+          final Runnable onReady = () -> {
+              if (player == null) return;
+              long real = player.getDuration();
+              long dur = (real > 0 && real != Long.MIN_VALUE) ? Math.min(real, 30_000L) : estimated;
+              stopProgress(); startProgress(dur);
+          };
           playerListener = new Player.Listener() {
               @Override public void onPlaybackStateChanged(int state) {
-                  if (state == Player.STATE_READY) {
-                      long real = player.getDuration();
-                      long dur = (real > 0 && real != Long.MIN_VALUE) ? Math.min(real, 30_000L) : estimated;
-                      stopProgress(); startProgress(dur);
-                  } else if (state == Player.STATE_ENDED) { next(); }
+                  if (state == Player.STATE_READY) onReady.run();
+                  else if (state == Player.STATE_ENDED) { next(); }
+              }
+              @Override public void onRenderedFirstFrame() {
+                  videoFrameRendered = true;
+                  hideVideoPoster();
               }
               // Previously unhandled — ExoPlayer delivers a bad/unsupported
               // media URL (e.g. a reshared IMAGE wrongly routed here, a dead
@@ -1737,8 +1886,14 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           };
           player.addListener(playerListener);
-          player.prepare(); player.setPlayWhenReady(true);
-          startProgress(estimated);
+          if (swapped) {
+              player.setPlayWhenReady(true);
+              // Already buffered: STATE_READY won't be re-delivered to the listener we just added.
+              if (player.getPlaybackState() == Player.STATE_READY) onReady.run(); else startProgress(estimated);
+          } else {
+              player.prepare(); player.setPlayWhenReady(true);
+              startProgress(estimated);
+          }
           showCaption(s.caption);
       }
       /** Same blurred/dimmed copy as iv_status_bg, but spanning the WHOLE window (status bar,
@@ -1760,6 +1915,7 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.ivStatus.setVisibility(View.GONE);
           binding.ivStatusBg.setVisibility(View.GONE);
           binding.playerView.setVisibility(View.GONE);
+          hideVideoPoster(); // a previous video's poster must never linger over the next status
           binding.tvCaption.setVisibility(View.GONE);
           // FIX: was findViewWithTag("tv_location_tag") — always null — now binding ref
           binding.tvLocationTag.setVisibility(View.GONE);
@@ -2193,7 +2349,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                                       cur, stickerIndex, sticker.getQuizQuestion(),
                                                       selectedText, selectedIndex, isCorrect);
                                               // Give the viewer a beat to see the ✓/✗ reveal, then shrink back and resume.
-                                              new Handler(Looper.getMainLooper())
+                                              handler
                                                       .postDelayed(() -> settleStickerReaction(sticker), 1200);
                                           });
                                       }
@@ -2271,7 +2427,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                                       ownerUid, statusId, stickerIndex, myUid).removeValue();
                                           }
                                           // Give the viewer a beat to see the bell toggle, then shrink back and resume.
-                                          new Handler(Looper.getMainLooper())
+                                          handler
                                                   .postDelayed(() -> settleStickerReaction(sticker), 500);
                                       });
                                   });
@@ -2308,7 +2464,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                                       selectedOption, selectedText);
                                               revealPollWithCounts(sticker, ownerUid, statusId, stickerIndex, selectedOption);
                                               // Give the viewer a beat to see the % split, then shrink back and resume.
-                                              new Handler(Looper.getMainLooper())
+                                              handler
                                                       .postDelayed(() -> settleStickerReaction(sticker), 1200);
                                           });
                                       }
@@ -2344,7 +2500,7 @@ import com.callx.app.utils.AlertDialogStyler;
                                                       sticker.getSliderEmoji(), value);
                                               revealSliderWithAverage(sticker, ownerUid, statusId, stickerIndex, value);
                                               // Give the viewer a beat to see the average, then shrink back and resume.
-                                              new Handler(Looper.getMainLooper())
+                                              handler
                                                       .postDelayed(() -> settleStickerReaction(sticker), 1200);
                                           });
                                       }
@@ -2664,6 +2820,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void pauseProgress() {
           if (paused) return; paused = true;
+          pauseLiveRows();
           if (replyOverlayAutoHide != null && replyHideAtMs > 0 && !lastReplyExiting) {
               replyHideRemainingMs = Math.max(600L, replyHideAtMs - android.os.SystemClock.uptimeMillis());
               handler.removeCallbacks(replyOverlayAutoHide);
@@ -2676,6 +2833,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void resumeProgress() {
           if (!paused) return; paused = false;
+          resumeLiveRows();
           if (replyHidePending && replyOverlayAutoHide != null) { replyHidePending = false; scheduleReplyHide(replyHideRemainingMs); }
           if (player != null) player.setPlayWhenReady(true);
           cancelMusicHold();      // viewer resumed → progress is driven by remainingMs below
@@ -2713,6 +2871,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       /** Call once a sticker's reaction is done — shrinks it back and resumes. */
       private void settleStickerReaction(StatusStickerOverlayView sticker) {
+          if (isFinishing() || isDestroyed()) return;
           hideStickerZoomScrim();
           sticker.restoreFromZoom(this::resumeProgress);
       }
@@ -2937,6 +3096,11 @@ import com.callx.app.utils.AlertDialogStyler;
               rb.animate().alpha(hide ? 0f : 1f).translationY(0f).setDuration(hide ? 150L : 200L).start();
               rb.setClickable(!hide);
               setReplyHitSlop(!hide);
+          }
+          // Live comment stack hides/shows with the chrome too.
+          if (binding.llLiveComments != null && binding.llLiveComments.getVisibility() == View.VISIBLE) {
+              binding.llLiveComments.animate().cancel();
+              binding.llLiveComments.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
           }
       }
       private void applyDrag(float dx, float dy) {
@@ -3592,11 +3756,13 @@ import com.callx.app.utils.AlertDialogStyler;
       private void updateLastReplyOverlay(StatusItem s) {
           detachRepliesListener();
           if (s == null || s.id == null || s.id.isEmpty()) {
+              clearLiveComments();
               setReplyHitSlop(false);
               if (lastReplyBubbleView != null) lastReplyBubbleView.setVisibility(View.GONE);
               lastReplyShown = false; lastReplySig = null; lastReplyExiting = false; replyCollapsed = false;
               return;
           }
+          prewarmLiveRows(); // 2 pooled comment rows inflated once, while the main thread is idle
           // Bubble only shows the newest 3 commenters + newest text → listen to just those 3
           // (was: the whole replies node, re-downloaded + re-parsed on every new comment).
           // Needs ".indexOn": ["timestamp"] on status/$uid/$statusId/replies.
@@ -3669,6 +3835,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (replyOverlayAutoHide != null) handler.removeCallbacks(replyOverlayAutoHide);
           if (newestFirst.isEmpty()) {
               // No replies → never inflate the bubble; just reset it if it was shown before.
+              clearLiveComments();
               if (lastReplyBubbleView != null) {
                   setReplyHitSlop(false);
                   lastReplyBubbleView.setVisibility(View.GONE);
@@ -3746,8 +3913,10 @@ import com.callx.app.utils.AlertDialogStyler;
                   + (hasMore ? ". More comments." : "") + " Double tap to view all comments.");
           bubble.animate().cancel();
           bubble.setVisibility(View.VISIBLE);
-          if (firstShow) { replyCollapsed = false; if (lastReplyTextTv != null) lastReplyTextTv.setVisibility(View.VISIBLE); }
-          else setReplyCollapsed(false);
+          // The pill is now just the persistent avatar stack (+ badge, always tappable). The comment TEXT
+          // lives in the live stack above it (updateLiveComments), so the pill never shows text.
+          replyCollapsed = true;
+          if (lastReplyTextTv != null) lastReplyTextTv.setVisibility(View.GONE);
           final float risePx = dpToPx(8);
           if (firstShow) {
               // Entry: fade + 8dp rise (GPU layer only for the 220ms the animation runs).
@@ -3757,14 +3926,9 @@ import com.callx.app.utils.AlertDialogStyler;
                       .setInterpolator(new android.view.animation.DecelerateInterpolator())
                       .withLayer().start();
           } else {
-              // New comment while visible: bubble stays, text cross-fades, newest avatar pops in.
+              // New comment while visible: newest avatar pops in.
               bubble.setAlpha(chromeHidden ? 0f : 1f);
               bubble.setTranslationY(0f);
-              if (lastReplyTextTv != null) {
-                  lastReplyTextTv.animate().cancel();
-                  lastReplyTextTv.setAlpha(0f);
-                  lastReplyTextTv.animate().alpha(1f).setDuration(160L).withLayer().start();
-              }
               final android.widget.ImageView top = lastReplyAvatars != null ? lastReplyAvatars[lastReplyAvatars.length - 1] : null;
               if (top != null && top.getVisibility() == View.VISIBLE) {
                   top.animate().cancel();
@@ -3781,14 +3945,262 @@ import com.callx.app.utils.AlertDialogStyler;
               pauseProgress();
               com.callx.app.interactions.StatusRepliesBottomSheet.show(this, ownerUid, myUid, s, this::resumeProgress);
           });
-          replyOverlayAutoHide = () -> {
-              // v7: never vanish — collapse to the avatar stack (+ badge). It stays tappable, so existing
-              // comments are always reachable; a new comment expands it again.
-              replyHideAtMs = 0;
-              setReplyCollapsed(true);
-          };
-          if (paused) { replyHidePending = true; replyHideRemainingMs = REPLY_OVERLAY_AUTO_HIDE_MS; }
-          else scheduleReplyHide(REPLY_OVERLAY_AUTO_HIDE_MS);
+          updateLiveComments(newestFirst, bubble);
+      }
+
+      // ═════════════════════════════════════════════════════════════════════
+      //  Live comment stack (Instagram-style)
+      //   • a new comment slides up from the bottom (fade + 14dp rise)
+      //   • older comments are pushed up smoothly (FLIP: layout jumps, views animate from the old spot)
+      //   • each comment fades out on its OWN timer (LIVE_ROW_VISIBLE_MS); max LIVE_MAX_ROWS at once
+      //   • timers freeze while the story is held/paused (pauseLiveRows/resumeLiveRows)
+      //   • tapping a row opens the same replies sheet as the avatar pill
+      //
+      //  PERF:
+      //   • row views are POOLED (max 3 alive + a small pool) — a comment never inflates a layout after
+      //     the first ones; 2 rows are pre-inflated once per activity from an idle handler, so even the
+      //     very first comment skips the inflate on the main thread
+      //   • one shared pre-draw listener for the FLIP (no per-comment listener/anonymous class), and
+      //     several rows added in the same frame are handled in a single bottom→top pass
+      //   • shared static interpolators, cached dp values, avatar reload skipped when the URL is unchanged,
+      //     comment text capped (140 chars) before the span/StaticLayout work
+      //   • rows animate with a hardware layer only while they fade (withLayer); the container is a
+      //     NoOverlapLinearLayout, so chrome-hide alpha never forces an offscreen layer
+      // ═════════════════════════════════════════════════════════════════════
+      private static final int  LIVE_MAX_ROWS        = 3;
+      private static final int  LIVE_POOL_MAX        = 3;
+      private static final int  LIVE_TEXT_MAX_CHARS  = 140;
+      private static final long LIVE_ROW_VISIBLE_MS  = 2_000L;
+      private static final long LIVE_STAGGER_MS      = 140L;
+      private static final android.view.animation.Interpolator LIVE_DECEL =
+              new android.view.animation.DecelerateInterpolator(1.6f);
+      private static final android.view.animation.Interpolator LIVE_ACCEL =
+              new android.view.animation.AccelerateInterpolator();
+      private static final class LiveRow {
+          View v; Runnable exit; long deadline; long remaining;
+      }
+      private final ArrayList<LiveRow> liveRows = new ArrayList<>(LIVE_MAX_ROWS + 1);
+      private final java.util.HashSet<String> liveShownKeys = new java.util.HashSet<>();
+      private final ArrayDeque<View> livePool = new ArrayDeque<>(LIVE_POOL_MAX + 1);
+      private final ArrayList<View> flipPending = new ArrayList<>(2);
+      private boolean flipArmed, livePrewarmed;
+      private int liveRisePx = -1;
+
+      private static String liveKey(StatusItem.ReplyPreview r) {
+          return r.uid + "|" + r.timestamp;
+      }
+      private int liveRisePx() {
+          if (liveRisePx < 0) liveRisePx = dpToPx(14);
+          return liveRisePx;
+      }
+      private View inflateLiveRow() {
+          return getLayoutInflater().inflate(R.layout.item_status_live_comment, binding.llLiveComments, false);
+      }
+      private View obtainLiveRow() {
+          View v = livePool.pollFirst();
+          return v != null ? v : inflateLiveRow();
+      }
+      private void recycleLiveRow(View v) {
+          v.animate().cancel();
+          v.setAlpha(0f);
+          v.setTranslationY(0f);
+          v.setOnClickListener(null);
+          if (livePool.size() < LIVE_POOL_MAX) livePool.addLast(v);
+      }
+      /** Inflates 2 rows once per activity while the main thread is idle (first comment then has no inflate cost). */
+      private void prewarmLiveRows() {
+          if (livePrewarmed) return;
+          livePrewarmed = true;
+          Looper.myQueue().addIdleHandler(() -> {
+              if (!isFinishing() && !isDestroyed() && binding != null) {
+                  while (livePool.size() < 2) {
+                      View v = inflateLiveRow();
+                      v.setAlpha(0f);
+                      livePool.addLast(v);
+                  }
+              }
+              return false; // one-shot
+          });
+      }
+      /** One FLIP pass for every row added since the last frame: bottom → top, so each row/older row gets the
+       *  summed shift of the rows below it. New rows rise + fade in; older rows glide up from their old spot. */
+      private final android.view.ViewTreeObserver.OnPreDrawListener flipPreDraw =
+              new android.view.ViewTreeObserver.OnPreDrawListener() {
+          @Override public boolean onPreDraw() {
+              flipArmed = false;
+              final android.widget.LinearLayout box = binding.llLiveComments;
+              final android.view.ViewTreeObserver o = box.getViewTreeObserver();
+              if (o.isAlive()) o.removeOnPreDrawListener(this);
+              float acc = 0f;
+              for (int i = box.getChildCount() - 1; i >= 0; i--) {
+                  final View c = box.getChildAt(i);
+                  if (flipPending.contains(c)) {
+                      final android.widget.LinearLayout.LayoutParams lp =
+                              (android.widget.LinearLayout.LayoutParams) c.getLayoutParams();
+                      c.animate().cancel();
+                      c.setTranslationY(liveRisePx() + acc);
+                      c.animate().alpha(1f).translationY(0f).setDuration(260L)
+                              .setInterpolator(LIVE_DECEL).withLayer().start();
+                      acc += c.getHeight() + lp.topMargin;
+                  } else if (acc > 0f) {
+                      c.animate().cancel();
+                      c.setTranslationY(c.getTranslationY() + acc);
+                      c.animate().translationY(0f).setDuration(260L).setInterpolator(LIVE_DECEL).start();
+                  }
+              }
+              flipPending.clear();
+              return true;
+          }
+      };
+
+      /** Adds rows for comments not shown yet (all newest-3 on first bind, only the new ones afterwards), oldest first. */
+      private void updateLiveComments(List<StatusItem.ReplyPreview> newestFirst, final View bubble) {
+          final int n = Math.min(LIVE_MAX_ROWS, newestFirst.size());
+          int freshCount = 0;
+          // oldest → newest; count first so the common "one new comment" path allocates no list at all
+          for (int i = n - 1; i >= 0; i--) {
+              StatusItem.ReplyPreview r = newestFirst.get(i);
+              if (!liveShownKeys.contains(liveKey(r))) freshCount++;
+          }
+          if (freshCount == 0) return;
+          final int seq = showSeq;
+          int k = 0;
+          for (int i = n - 1; i >= 0; i--) {
+              final StatusItem.ReplyPreview r = newestFirst.get(i);
+              if (!liveShownKeys.add(liveKey(r))) continue;
+              if (k == 0) addLiveRow(r, bubble);
+              else handler.postDelayed(() -> {
+                  if (isFinishing() || isDestroyed() || seq != showSeq) return;
+                  addLiveRow(r, bubble);
+              }, LIVE_STAGGER_MS * k);
+              k++;
+          }
+      }
+      private void bindLiveRow(View row, StatusItem.ReplyPreview r) {
+          final android.widget.ImageView av = row.findViewById(R.id.iv_live_avatar);
+          final TextView tv = row.findViewById(R.id.tv_live_text);
+          String who = r.name != null && !r.name.isEmpty() ? r.name : "Someone";
+          if (who.length() > 14) who = who.substring(0, 13).trim() + "\u2026";
+          String body = r.text != null ? r.text.replace('\n', ' ') : "";
+          if (body.length() > LIVE_TEXT_MAX_CHARS) body = body.substring(0, LIVE_TEXT_MAX_CHARS).trim() + "\u2026";
+          final android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(who);
+          sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, who.length(),
+                  android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+          sb.append("  ");
+          final int bs = sb.length();
+          sb.append(body);
+          sb.setSpan(new android.text.style.ForegroundColorSpan(0xCCFFFFFF), bs, sb.length(),
+                  android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+          tv.setText(sb);
+          final String url = r.avatarUrl;
+          if (url != null && !url.isEmpty()) {
+              if (!url.equals(av.getTag(R.id.iv_live_avatar))) { // pooled row already shows this avatar → no reload
+                  av.setTag(R.id.iv_live_avatar, url);
+                  // same TINY cache key as the avatar pill / replies sheet → already warm
+                  final int px = com.callx.app.utils.AvatarUrlBuilder.tierPx(this, com.callx.app.utils.AvatarSizeTier.TINY);
+                  Glide.with(this)
+                          .load(com.callx.app.utils.AvatarUrlBuilder.buildResponsive(
+                                  this, url, com.callx.app.utils.AvatarSizeTier.TINY))
+                          .apply(new com.bumptech.glide.request.RequestOptions()
+                                  .override(px, px)
+                                  .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                                  .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE))
+                          .into(av);
+              }
+          } else if (av.getTag(R.id.iv_live_avatar) != null) {
+              av.setTag(R.id.iv_live_avatar, null);
+              av.setImageResource(R.drawable.ic_person);
+          }
+      }
+      private void addLiveRow(StatusItem.ReplyPreview r, final View bubble) {
+          if (isFinishing() || isDestroyed()) return;
+          final android.widget.LinearLayout box = binding.llLiveComments;
+          // Cap: oldest rows leave quickly to make room.
+          while (liveRows.size() >= LIVE_MAX_ROWS) removeLiveRow(liveRows.get(0), true);
+          final View row = obtainLiveRow();
+          bindLiveRow(row, r);
+          row.setOnClickListener(v -> bubble.performClick()); // same replies sheet as the pill
+          row.setAlpha(0f);
+          row.setTranslationY(0f);
+          final LiveRow lr = new LiveRow();
+          lr.v = row;
+          lr.exit = () -> removeLiveRow(lr, false);
+          if (paused) { lr.deadline = 0; lr.remaining = LIVE_ROW_VISIBLE_MS; }
+          else { lr.deadline = android.os.SystemClock.uptimeMillis() + LIVE_ROW_VISIBLE_MS; handler.postDelayed(lr.exit, LIVE_ROW_VISIBLE_MS); }
+          liveRows.add(lr);
+          box.setAlpha(chromeHidden ? 0f : 1f);
+          if (box.getVisibility() != View.VISIBLE) box.setVisibility(View.VISIBLE);
+          box.addView(row);
+          flipPending.add(row);
+          if (!flipArmed) { flipArmed = true; box.getViewTreeObserver().addOnPreDrawListener(flipPreDraw); }
+      }
+      /** Fades the row out (its own timer ran out, or it was evicted) and glides the rows above it down into the gap. */
+      private void removeLiveRow(final LiveRow lr, boolean quick) {
+          if (lr == null || !liveRows.remove(lr)) return;
+          handler.removeCallbacks(lr.exit);
+          final android.widget.LinearLayout box = binding.llLiveComments;
+          final View row = lr.v;
+          if (row.getParent() != box) return;
+          row.animate().cancel();
+          row.animate().alpha(0f).translationY(-liveRisePx() / 2f).setDuration(quick ? 120L : 240L)
+                  .setInterpolator(LIVE_ACCEL).withLayer()
+                  .withEndAction(() -> {
+                      if (row.getParent() != box) return;
+                      final int at = box.indexOfChild(row);
+                      final android.widget.LinearLayout.LayoutParams lp =
+                              (android.widget.LinearLayout.LayoutParams) row.getLayoutParams();
+                      final float shift = row.getHeight() + lp.topMargin;
+                      box.removeView(row);
+                      recycleLiveRow(row);
+                      if (box.getChildCount() == 0) { box.setVisibility(View.GONE); return; }
+                      // rows ABOVE the removed one drop down by `shift` at layout time → start them high, glide to 0
+                      for (int i = 0; i < at && i < box.getChildCount(); i++) {
+                          final View above = box.getChildAt(i);
+                          above.animate().cancel();
+                          above.setTranslationY(above.getTranslationY() - shift);
+                          above.animate().translationY(0f).setDuration(220L).setInterpolator(LIVE_DECEL).start();
+                      }
+                  }).start();
+      }
+      private void clearLiveComments() {
+          if (liveRows.isEmpty() && flipPending.isEmpty() && liveShownKeys.isEmpty()
+                  && (binding == null || binding.llLiveComments == null || binding.llLiveComments.getChildCount() == 0)) return;
+          for (LiveRow lr : liveRows) handler.removeCallbacks(lr.exit);
+          if (binding != null && binding.llLiveComments != null) {
+              final android.widget.LinearLayout box = binding.llLiveComments;
+              if (flipArmed) {
+                  final android.view.ViewTreeObserver o = box.getViewTreeObserver();
+                  if (o.isAlive()) o.removeOnPreDrawListener(flipPreDraw);
+              }
+              box.removeAllViews();
+              box.setVisibility(View.GONE);
+          }
+          flipArmed = false;
+          flipPending.clear();
+          for (LiveRow lr : liveRows) recycleLiveRow(lr.v);
+          liveRows.clear();
+          liveShownKeys.clear();
+      }
+      private void pauseLiveRows() {
+          if (liveRows.isEmpty()) return;
+          final long now = android.os.SystemClock.uptimeMillis();
+          for (LiveRow lr : liveRows) {
+              if (lr.deadline > 0) {
+                  lr.remaining = Math.max(600L, lr.deadline - now);
+                  lr.deadline = 0;
+                  handler.removeCallbacks(lr.exit);
+              }
+          }
+      }
+      private void resumeLiveRows() {
+          if (liveRows.isEmpty()) return;
+          final long now = android.os.SystemClock.uptimeMillis();
+          for (LiveRow lr : liveRows) {
+              if (lr.deadline == 0 && lr.remaining > 0) {
+                  lr.deadline = now + lr.remaining;
+                  handler.postDelayed(lr.exit, lr.remaining);
+              }
+          }
       }
       private void detachRepliesListener() {
           if (repliesSyncQuery != null) {

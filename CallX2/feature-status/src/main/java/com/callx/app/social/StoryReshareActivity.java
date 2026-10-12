@@ -39,9 +39,12 @@ public class StoryReshareActivity extends AppCompatActivity {
     public static final String EXTRA_CAPTION = "EXTRA_CAPTION";
     public static final String EXTRA_MEDIA_TYPE = "EXTRA_MEDIA_TYPE";
     public static final String EXTRA_ALLOW_RESHARE = "EXTRA_ALLOW_RESHARE";
+    /** Original status's interactive stickers (music/poll/quiz/countdown/...) as StatusItem.stickersJson — carried to the repost. */
+    public static final String EXTRA_STICKERS_JSON = "EXTRA_STICKERS_JSON";
 
     private String contentType, contentId, ownerUid, ownerName, ownerAvatar, mediaUrl, thumbUrl, originalCaption, mediaType;
     private String originalText, originalBgColor, originalTextColor;
+    private String originalStickersJson;
     private String myUid, myName, myPhoto = "";
     private String selectedColor = "#1A1A2E";
     /** True when we're rendering a plain-text status (no media at all) as the reshare preview. */
@@ -92,6 +95,7 @@ public class StoryReshareActivity extends AppCompatActivity {
         originalText = getIntent().getStringExtra("EXTRA_ORIGINAL_TEXT");
         originalBgColor = getIntent().getStringExtra("EXTRA_ORIGINAL_BG_COLOR");
         originalTextColor = getIntent().getStringExtra("EXTRA_ORIGINAL_TEXT_COLOR");
+        originalStickersJson = getIntent().getStringExtra(EXTRA_STICKERS_JSON);
     }
 
     private void bindViews() {
@@ -301,6 +305,11 @@ public class StoryReshareActivity extends AppCompatActivity {
             data.put("text", originalText != null ? originalText : "");
             if (originalBgColor != null && !originalBgColor.isEmpty()) data.put("bgColor", originalBgColor);
             if (originalTextColor != null && !originalTextColor.isEmpty()) data.put("textColor", originalTextColor);
+        }
+        // Repost keeps the original's music + interactive stickers (same JSON the viewer's renderStickers() reads).
+        // Votes/answers are NOT copied: they live under status/{owner}/{statusId}/..., so the repost starts fresh.
+        if (originalStickersJson != null && !originalStickersJson.isEmpty()) {
+            data.put("stickersJson", originalStickersJson);
         }
         data.put("stickerText", etTextOverlay.getText().toString());
         data.put("caption", etCaption.getText().toString());

@@ -59,6 +59,17 @@
           app:surface_type="texture_view"
           android:visibility="gone"/>
 
+      <!-- Video poster: the status thumbnail covers the (black) TextureView until the first
+           video frame is rendered (Player.Listener#onRenderedFirstFrame hides it), so a video
+           never opens on a black frame. Same rounded fitCenter geometry as iv_status. -->
+      <ImageView
+          android:id="@+id/iv_video_poster"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:scaleType="fitCenter"
+          android:importantForAccessibility="no"
+          android:visibility="gone"/>
+
       <!-- Instagram-style floating reaction replay — plays once when this
            status/reel-as-status has received emoji reactions. Purely
            visual, never intercepts touch. See
@@ -164,7 +175,7 @@
                   android:layout_height="wrap_content"
                   android:layout_weight="1"
                   android:orientation="vertical"
-                  android:layout_marginStart="10dp">
+                  android:layout_marginStart="15dp">
 
                   <LinearLayout
                       android:layout_width="wrap_content"
@@ -344,6 +355,19 @@
               android:clickable="true"
               android:focusable="true"
               android:background="?attr/selectableItemBackground"
+              android:visibility="gone"/>
+
+          <!-- Live comment stack (Instagram-style): newest row slides in at the bottom, older rows are pushed
+               up, each row fades out on its own timer. Filled by StatusViewerActivity#updateLiveComments().
+               Sits directly above the avatar pill below. -->
+          <com.callx.app.viewer.NoOverlapLinearLayout
+              android:id="@+id/ll_live_comments"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="start"
+              android:layout_marginBottom="6dp"
+              android:orientation="vertical"
+              android:clipChildren="false"
               android:visibility="gone"/>
 
           <!-- Latest-replies overlay — v508: ViewStub, inflated the first time a status has replies
