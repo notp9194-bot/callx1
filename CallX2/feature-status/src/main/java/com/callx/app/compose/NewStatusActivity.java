@@ -42,7 +42,7 @@ import com.callx.app.viewer.StatusAudioFocusHelper;
 import com.callx.app.viewer.StatusMusicClip;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 /**
- * NewStatusActivity v28 — Smooth story-canvas gestures + status creation flow.
+ * NewStatusActivity v29 — Story gestures protected from parent scroll interception.
  *
  * ORIGINAL features:
  *   ✅ Text status + 10 bg color presets + font styles
@@ -76,9 +76,10 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
  *   ✅ Multiple stickers supported simultaneously
  *   ✅ Sticker JSON serialized and stored with the status post
  *
- * v28 story editor:
+ * v29 story editor:
  *   ✅ 9:16 live canvas with a blurred/dimmed copy behind the sharp photo
  *   ✅ Stable full-canvas pinch/drag, pinch-centre anchoring and no lift jump
+ *   ✅ Locks parent scrolling while photo gestures are active
  *   ✅ Pinch/drag transforms baked into the uploaded photo
  *   ✅ Right-side story tools for text, stickers/music, effects, mentions,
  *      drawing, gallery save, AI label and reset/clear actions
@@ -679,11 +680,13 @@ public class NewStatusActivity extends AppCompatActivity {
             if (!editorPhotoMode) return false;
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
+                    setEditorGestureScrollLock(true);
                     editorGesturePointerCount = 1;
                     editorLastTouchX = event.getX();
                     editorLastTouchY = event.getY();
                     return true;
                 case android.view.MotionEvent.ACTION_POINTER_DOWN:
+                    setEditorGestureScrollLock(true);
                     if (event.getPointerCount() >= 2) beginEditorPinch(event);
                     return true;
                 case android.view.MotionEvent.ACTION_MOVE:
@@ -728,11 +731,26 @@ public class NewStatusActivity extends AppCompatActivity {
                 case android.view.MotionEvent.ACTION_UP:
                 case android.view.MotionEvent.ACTION_CANCEL:
                     editorGesturePointerCount = 0;
+                    setEditorGestureScrollLock(false);
                     return true;
                 default:
                     return true;
             }
         });
+    }
+
+    /**
+     * The story canvas sits inside a NestedScrollView. Keep its vertical
+     * drag/pinch stream here until all fingers are lifted so the parent cannot
+     * steal ACTION_MOVE events and freeze the media transform.
+     */
+    private void setEditorGestureScrollLock(boolean locked) {
+        if (mediaGestureOverlay == null) return;
+        android.view.ViewParent parent = mediaGestureOverlay.getParent();
+        while (parent != null) {
+            parent.requestDisallowInterceptTouchEvent(locked);
+            parent = parent.getParent();
+        }
     }
 
     private void beginEditorPinch(android.view.MotionEvent event) {
