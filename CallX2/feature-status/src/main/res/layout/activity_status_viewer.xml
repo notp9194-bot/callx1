@@ -317,6 +317,33 @@
           android:paddingStart="14dp"
           android:paddingEnd="14dp">
 
+          <!-- v576: ORDER MATTERS. ll_bottom_chrome is bottom-anchored, so anything that grows (live comments)
+               must sit ABOVE the static text. Caption/location/seen-by are last = pinned to the bottom,
+               comment rows grow upward and never push the caption. -->
+          <!-- Live comment stack (Instagram-style): newest row slides in at the bottom, older rows are pushed
+               up, each row fades out on its own timer. Filled by StatusViewerActivity#updateLiveComments().
+               Sits directly above the avatar pill below. -->
+          <com.callx.app.viewer.NoOverlapLinearLayout
+              android:id="@+id/ll_live_comments"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="start"
+              android:layout_marginBottom="6dp"
+              android:orientation="vertical"
+              android:clipChildren="false"
+              android:visibility="gone"/>
+
+          <!-- Latest-replies overlay — v508: ViewStub, inflated the first time a status has replies
+               (view_status_last_reply_bubble.xml; Instagram-style stacked avatars + newest comment). -->
+          <ViewStub
+              android:id="@+id/stub_last_reply_bubble"
+              android:inflatedId="@+id/ll_last_reply_bubble"
+              android:layout="@layout/view_status_last_reply_bubble"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="start"
+              android:layout_marginBottom="8dp"/>
+
           <!-- FIX: Location tag — was findViewWithTag("tv_location_tag"), now proper ID -->
           <TextView
               android:id="@+id/tv_location_tag"
@@ -356,30 +383,6 @@
               android:focusable="true"
               android:background="?attr/selectableItemBackground"
               android:visibility="gone"/>
-
-          <!-- Live comment stack (Instagram-style): newest row slides in at the bottom, older rows are pushed
-               up, each row fades out on its own timer. Filled by StatusViewerActivity#updateLiveComments().
-               Sits directly above the avatar pill below. -->
-          <com.callx.app.viewer.NoOverlapLinearLayout
-              android:id="@+id/ll_live_comments"
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:layout_gravity="start"
-              android:layout_marginBottom="6dp"
-              android:orientation="vertical"
-              android:clipChildren="false"
-              android:visibility="gone"/>
-
-          <!-- Latest-replies overlay — v508: ViewStub, inflated the first time a status has replies
-               (view_status_last_reply_bubble.xml; Instagram-style stacked avatars + newest comment). -->
-          <ViewStub
-              android:id="@+id/stub_last_reply_bubble"
-              android:inflatedId="@+id/ll_last_reply_bubble"
-              android:layout="@layout/view_status_last_reply_bubble"
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:layout_gravity="start"
-              android:layout_marginBottom="8dp"/>
 
 
       </com.callx.app.viewer.NoOverlapLinearLayout>
