@@ -2689,7 +2689,14 @@ import com.callx.app.utils.AlertDialogStyler;
                           @NonNull androidx.fragment.app.FragmentManager fm,
                           @NonNull androidx.fragment.app.Fragment f) {
                       if (f == sheet) {
-                          settleStickerReaction(sticker);
+                          // The sheet's own preview player takes (permanent) audio focus, so our helper got
+                          // AUDIOFOCUS_LOSS, abandoned focus and left musicFocusLost = true with nothing
+                          // ever clearing it → resumeMusicPlayback() bailed out and the status stayed silent.
+                          // The sheet is gone now: clear that stale state so resume re-requests focus + starts.
+                          musicFocusLost = false;
+                          musicDucked = false;
+                          applyMusicVolume();
+                          settleStickerReaction(sticker); // → resumeProgress() → resumeMusicPlayback()
                           fm.unregisterFragmentLifecycleCallbacks(this);
                       }
                   }
