@@ -601,12 +601,6 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
-        <!-- Audio Mixer (original vol + music vol + voiceover recording) -->
-        <activity android:name=".activities.ReelAudioMixerActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:configChanges="orientation|screenSize|keyboardHidden"/>
-
         <!-- Auto-Captions / Subtitles Editor -->
         <activity android:name=".activities.ReelSubtitlesActivity"
             android:exported="false"

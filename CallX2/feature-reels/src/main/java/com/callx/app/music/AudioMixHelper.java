@@ -272,11 +272,31 @@ public class AudioMixHelper {
         final Handler h = new Handler(Looper.getMainLooper());
         executor.execute(() -> {
             boolean s;
-            try { s = isMostlySilent(extractPcmFromVideo(videoPath)); }
+            try { s = isSourceSilent(context, videoPath); }
             catch (Exception e) { s = false; }
             final boolean r = s;
             h.post(() -> cb.accept(r));
         });
+    }
+
+    /**
+     * Silent check for a file path OR a content:// / file:// / http(s) URI (Status passes a content URI).
+     * No audio track → silent. Otherwise only the first ~5s are decoded and measured, so a long
+     * gallery video isn't fully decoded just to show a hint.
+     */
+    private static boolean isSourceSilent(Context context, String source) throws Exception {
+        MediaExtractor ex = new MediaExtractor();
+        try {
+            if (source.startsWith("content://") || source.startsWith("file://")
+                    || source.startsWith("http://") || source.startsWith("https://")) {
+                ex.setDataSource(context, android.net.Uri.parse(source), null);
+            } else {
+                ex.setDataSource(source);
+            }
+            return isMostlySilent(extractPcmFromExtractor(ex, 44100 * 5, 0));
+        } finally {
+            try { ex.release(); } catch (Exception ignored) {}
+        }
     }
 
     private static String doMixWithConfig(
@@ -610,6 +630,11 @@ public class AudioMixHelper {
     private static short[] extractPcmFromFile(String filePath, int maxSamples, int startOffsetMs) throws Exception {
         MediaExtractor extractor = new MediaExtractor();
         extractor.setDataSource(filePath);
+        return extractPcmFromExtractor(extractor, maxSamples, startOffsetMs);
+    }
+
+    /** Same as above but on an already-opened extractor (file path or Uri). Releases the extractor. */
+    private static short[] extractPcmFromExtractor(MediaExtractor extractor, int maxSamples, int startOffsetMs) throws Exception {
 
         int audioTrack = -1;
         for (int i = 0; i < extractor.getTrackCount(); i++) {
@@ -700,6 +725,11 @@ public class AudioMixHelper {
                 }
                 codec.releaseOutputBuffer(outIdx, false);
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                    outputDone = true;
+                }
+                // bounded callers (e.g. silence check) don't need the whole file decoded
+                if (maxSamples != Integer.MAX_VALUE
+                        && rawSamples.size() >= (long) maxSamples * Math.max(1, srcSampleRate / 44100 + 1)) {
                     outputDone = true;
                 }
             }

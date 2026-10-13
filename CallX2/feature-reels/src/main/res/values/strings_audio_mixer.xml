@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Audio Mixer (ReelAudioMixerActivity) — shared by Reels and Status. -->
+<resources>
+    <string name="mixer_label_original">ORIGINAL AUDIO</string>
+    <string name="mixer_label_music">BACKGROUND MUSIC</string>
+    <string name="mixer_label_voiceover">VOICEOVER</string>
+    <string name="mixer_label_advanced">ADVANCED</string>
+    <string name="mixer_fade_in">Fade in</string>
+    <string name="mixer_fade_out">Fade out</string>
+    <string name="mixer_fade_off">Off</string>
+    <string name="mixer_fade_05">0.5s</string>
+    <string name="mixer_fade_1">1s</string>
+    <string name="mixer_fade_2">2s</string>
+    <string name="mixer_normalize">Normalize</string>
+    <string name="mixer_pitch_fmt">Pitch: %1$+.1f semitones</string>
+</resources>

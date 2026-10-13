@@ -207,9 +207,10 @@
 
                 <!-- Original Audio -->
                 <TextView
+                    android:id="@+id/tv_mixer_orig_label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="ORIGINAL AUDIO"
+                    android:text="@string/mixer_label_original"
                     android:textSize="11sp"
                     android:fontFamily="sans-serif-medium"
                     android:letterSpacing="0.1"
@@ -217,6 +218,7 @@
                     android:layout_marginBottom="8dp"/>
 
                 <LinearLayout
+                    android:id="@+id/layout_mixer_orig_row"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
@@ -258,7 +260,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="BACKGROUND MUSIC"
+                    android:text="@string/mixer_label_music"
                     android:textSize="11sp"
                     android:fontFamily="sans-serif-medium"
                     android:letterSpacing="0.1"
@@ -313,7 +315,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="VOICEOVER"
+                        android:text="@string/mixer_label_voiceover"
                         android:textSize="11sp"
                         android:fontFamily="sans-serif-medium"
                         android:letterSpacing="0.1"
@@ -388,8 +390,238 @@
                     </LinearLayout>
 
                 </LinearLayout>
-                <!-- injectAdvancedControls() appends Fade In/Out, Normalize and
-                     Pitch controls here at runtime, right after layout_voiceover_row. -->
+
+                <!-- Advanced: Fade in/out, Normalize, Pitch (replaces the old runtime-built views) -->
+                <LinearLayout
+                    android:id="@+id/layout_mixer_advanced"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/mixer_label_advanced"
+                        android:textSize="11sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:letterSpacing="0.1"
+                        android:textColor="@color/trim_text_muted"
+                        android:layout_marginBottom="8dp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_trim_subcard"
+                        android:padding="10dp"
+                        android:layout_marginBottom="10dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/mixer_fade_in"
+                            android:textColor="@color/trim_text_primary"
+                            android:textSize="13sp"
+                            android:layout_marginBottom="8dp"/>
+
+                        <RadioGroup
+                            android:id="@+id/rg_fade_in"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <RadioButton
+                                android:id="@+id/rb_fade_in_off"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:text="@string/mixer_fade_off"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"
+                                android:checked="true"/>
+                            <RadioButton
+                                android:id="@+id/rb_fade_in_500"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:text="@string/mixer_fade_05"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"/>
+                            <RadioButton
+                                android:id="@+id/rb_fade_in_1000"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:text="@string/mixer_fade_1"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"/>
+                            <RadioButton
+                                android:id="@+id/rb_fade_in_2000"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="0dp"
+                                android:text="@string/mixer_fade_2"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"/>
+                        </RadioGroup>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_trim_subcard"
+                        android:padding="10dp"
+                        android:layout_marginBottom="10dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/mixer_fade_out"
+                            android:textColor="@color/trim_text_primary"
+                            android:textSize="13sp"
+                            android:layout_marginBottom="8dp"/>
+
+                        <RadioGroup
+                            android:id="@+id/rg_fade_out"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <RadioButton
+                                android:id="@+id/rb_fade_out_off"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:text="@string/mixer_fade_off"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"
+                                android:checked="true"/>
+                            <RadioButton
+                                android:id="@+id/rb_fade_out_500"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:text="@string/mixer_fade_05"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"/>
+                            <RadioButton
+                                android:id="@+id/rb_fade_out_1000"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp"
+                                android:text="@string/mixer_fade_1"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"/>
+                            <RadioButton
+                                android:id="@+id/rb_fade_out_2000"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="0dp"
+                                android:text="@string/mixer_fade_2"
+                                android:gravity="center"
+                                android:textColor="@color/trim_text_primary"
+                                android:textSize="12sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:background="@drawable/selector_trim_chip_bg"
+                                android:button="@drawable/selector_trim_chip_check"
+                                android:paddingStart="10dp"
+                                android:drawablePadding="4dp"/>
+                        </RadioGroup>
+                    </LinearLayout>
+
+                    <!-- Normalize (hidden in Status mode — needs offline processing) -->
+                    <CheckBox
+                        android:id="@+id/cb_mixer_normalize"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="@string/mixer_normalize"
+                        android:textColor="@color/trim_text_primary"
+                        android:textSize="13sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:background="@drawable/selector_trim_chip_bg"
+                        android:button="@drawable/selector_trim_chip_check"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:drawablePadding="8dp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_trim_subcard"
+                        android:padding="10dp"
+                        android:layout_marginBottom="16dp">
+
+                        <TextView
+                            android:id="@+id/tv_mixer_pitch_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/mixer_pitch_fmt"
+                            android:textColor="@color/trim_text_primary"
+                            android:textSize="13sp"/>
+
+                        <SeekBar
+                            android:id="@+id/sb_mixer_pitch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:max="120"
+                            android:progressTint="@color/trim_gradient_end"
+                            android:thumbTint="@color/trim_gradient_end"/>
+                    </LinearLayout>
+                </LinearLayout>
 
             </LinearLayout>
         </ScrollView>
