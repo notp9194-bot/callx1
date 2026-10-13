@@ -56,6 +56,19 @@
         android:background="@drawable/bg_drag_handle"/>
 
     <!--
+        top_swap — expanded_header and icon_grid_section OVERLAP here, so this
+        container's height is max(both) and NEVER changes while the sheet is
+        dragged (they crossfade with alpha/translation only, never GONE/VISIBLE).
+        The old GONE toggle changed top_content's height mid-drag and made the
+        whole sheet content jump. The Recents grid is slid up over the freed
+        space instead (see AttachSheetRecentMediaBinder.Layouter).
+    -->
+    <FrameLayout
+        android:id="@+id/top_swap"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+    <!--
         expanded_header — crossfades IN as the icon grid / strip crossfade
         OUT (see ChatMediaController#setupRecentMedia's BottomSheetBehavior
         BottomSheetCallback). Gone at rest so it takes no space at peek.
@@ -69,7 +82,8 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingBottom="12dp"
-        android:visibility="gone"
+        android:layout_gravity="top"
+        android:visibility="invisible"
         android:alpha="0">
 
         <ImageView
@@ -77,7 +91,7 @@
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:src="@drawable/ic_close"
-            android:contentDescription="Close"/>
+            android:contentDescription="@string/attach_close"/>
 
         <!--
             recents_dropdown_row — tapping anywhere on "Recents ▾" opens the
@@ -105,7 +119,7 @@
                 android:id="@+id/recents_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Recents"
+                android:text="@string/attach_folder_recents"
                 android:textColor="@color/text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold"
@@ -117,14 +131,14 @@
                 android:layout_height="22dp"
                 android:layout_marginStart="2dp"
                 android:src="@drawable/ic_chevron_down"
-                android:contentDescription="Choose folder"/>
+                android:contentDescription="@string/attach_choose_folder"/>
         </LinearLayout>
 
         <TextView
             android:id="@+id/btn_hd_toggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="HD"
+            android:text="@string/attach_hd"
             android:textColor="@color/text_secondary"
             android:textSize="11sp"
             android:textStyle="bold"
@@ -166,7 +180,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_gallery"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Gallery" android:textSize="11sp"
+                android:text="@string/attach_opt_gallery" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -179,7 +193,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_location_pin"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Location" android:textSize="11sp"
+                android:text="@string/attach_opt_location" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -192,7 +206,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_person"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Contact" android:textSize="11sp"
+                android:text="@string/attach_opt_contact" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -205,7 +219,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_document"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Document" android:textSize="11sp"
+                android:text="@string/attach_opt_document" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -229,7 +243,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_poll"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Poll" android:textSize="11sp"
+                android:text="@string/attach_opt_poll" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -242,7 +256,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_payment"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Payment" android:textSize="11sp"
+                android:text="@string/attach_opt_payment" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -255,7 +269,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_event"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Event" android:textSize="11sp"
+                android:text="@string/attach_opt_event" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -268,7 +282,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_ai_images"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="AI images" android:textSize="11sp"
+                android:text="@string/attach_opt_ai_images" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -292,7 +306,7 @@
                     android:layout_gravity="center" android:src="@drawable/ic_mic"/>
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Audio" android:textSize="11sp"
+                android:text="@string/attach_opt_audio" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
 
@@ -305,6 +319,9 @@
 
     </LinearLayout>
     <!-- /icon_grid_section -->
+
+    </FrameLayout>
+    <!-- /top_swap -->
 
     </LinearLayout>
     <!-- /top_content — collapsed (peek) state ends here. Peek height is
@@ -338,9 +355,29 @@
         android:layout_marginTop="24dp"
         android:layout_marginBottom="24dp"
         android:gravity="center"
-        android:text="No recent photos or videos"
+        android:text="@string/attach_empty_no_media"
         android:textColor="@color/text_secondary"
         android:textSize="13sp"
+        android:visibility="gone"/>
+
+    <!-- Shown only while media permission is missing/denied (see AttachSheetRecentMediaBinder). -->
+    <TextView
+        android:id="@+id/btn_recents_allow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="24dp"
+        android:background="@drawable/bg_hd_toggle_inactive"
+        android:clickable="true"
+        android:focusable="true"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:text="@string/attach_allow_access"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp"
+        android:textStyle="bold"
         android:visibility="gone"/>
 
     </LinearLayout>
@@ -402,7 +439,7 @@
             android:padding="8dp"
             android:src="@drawable/ic_edit"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Edit"
+            android:contentDescription="@string/attach_edit"
             android:clickable="true"
             android:focusable="true"/>
 

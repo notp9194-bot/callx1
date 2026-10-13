@@ -70,7 +70,7 @@ final class AttachFolderAdapter extends RecyclerView.Adapter<AttachFolderAdapter
             h.thumb.setImageResource(isMoreApps ? R.drawable.ic_more_apps_folder : R.drawable.ic_more_apps_stack);
         } else {
             h.count.setVisibility(View.VISIBLE);
-            h.count.setText(formatCount(folder.itemCount));
+            h.count.setText(formatCount(h.count.getContext(), folder.itemCount));
             boolean isSelected = (folder.filterKey == null ? "" : folder.filterKey).equals(selectedKey);
             h.check.setVisibility(isSelected ? View.VISIBLE : View.INVISIBLE);
             h.chevron.setVisibility(View.GONE);
@@ -96,8 +96,10 @@ final class AttachFolderAdapter extends RecyclerView.Adapter<AttachFolderAdapter
         return folders.size();
     }
 
-    private static String formatCount(int count) {
-        return String.format(Locale.US, "%,d item%s", count, count == 1 ? "" : "s");
+    private static String formatCount(android.content.Context ctx, int count) {
+        return count == 1
+                ? ctx.getString(com.callx.app.chat.R.string.attach_folder_items_one)
+                : ctx.getString(com.callx.app.chat.R.string.attach_folder_items_many, count);
     }
 
     static final class VH extends RecyclerView.ViewHolder {

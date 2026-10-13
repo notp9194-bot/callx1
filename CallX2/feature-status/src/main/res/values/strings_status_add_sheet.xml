@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_add_text">Text</string>
+    <string name="status_add_music">Music</string>
+    <string name="status_add_layout">Layout</string>
+    <string name="status_add_voice">Voice</string>
+    <string name="status_add_ai_images">AI images</string>
+</resources>

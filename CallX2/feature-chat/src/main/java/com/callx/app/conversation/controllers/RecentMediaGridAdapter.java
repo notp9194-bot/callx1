@@ -9,6 +9,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.core.view.ViewCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
@@ -45,7 +46,8 @@ import java.util.Map;
  *    so onBindViewHolder can skip the Glide call entirely and just flip
  *    the selection scrim/badge (see onBindViewHolder(payloads) below).
  *  - Thumbnails are decoded pre-downsampled to the actual cell size
- *    (.override()) instead of full MediaStore resolution, and use
+ *    (.override(), same options + same Drawable request type for bind AND
+ *    preload so Glide's cache keys match) instead of full MediaStore resolution, and use
  *    RGB_565 (no alpha needed for photos) to halve per-bitmap memory —
  *    both cut CPU/GC pressure while flinging.
  *  - A single RequestOptions instance is built once and reused for every
@@ -136,6 +138,11 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         if (pos != null) notifyItemChanged(pos + offset(), PAYLOAD_SELECTION);
     }
 
+    /** Last media item currently loaded (the keyset-paging cursor), or null if none. */
+    public RecentMediaLoader.Item getLastItem() {
+        return items.isEmpty() ? null : items.get(items.size() - 1);
+    }
+
     public int getLoadedCount() {
         return items.size();
     }
@@ -189,11 +196,14 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
             if (!selectionOnly) {
                 if (h.cameraIcon != null) h.cameraIcon.setVisibility(View.VISIBLE);
                 h.duration.setVisibility(View.GONE);
+                Glide.with(h.thumb).clear(h.thumb);
                 h.thumb.setImageDrawable(null);
                 h.thumb.setBackgroundResource(R.drawable.bg_media_thumb_camera);
             }
             h.selectionScrim.setVisibility(View.GONE);
             h.selectionBadge.setVisibility(View.GONE);
+            h.itemView.setContentDescription(h.itemView.getContext().getString(R.string.attach_camera));
+            ViewCompat.setStateDescription(h.itemView, null);
             return;
         }
 
@@ -204,19 +214,27 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         if (!selectionOnly) {
             if (h.cameraIcon != null) h.cameraIcon.setVisibility(View.GONE);
             h.thumb.setBackground(null);
-            Glide.with(h.thumb).load(item.uri).apply(thumbOptions).override(480, 853).into(h.thumb);
+            Glide.with(h.thumb).load(item.uri).apply(thumbOptions).into(h.thumb);
             if (item.isVideo) {
                 h.duration.setVisibility(View.VISIBLE);
                 h.duration.setText(formatDuration(item.durationMs));
+                h.itemView.setContentDescription(h.itemView.getContext().getString(
+                        R.string.attach_video_duration, formatDuration(item.durationMs)));
             } else {
                 h.duration.setVisibility(View.GONE);
+                h.itemView.setContentDescription(h.itemView.getContext().getString(R.string.attach_photo));
             }
         }
 
         boolean isSelected = selection.isSelected(item.uri);
         h.selectionScrim.setVisibility(isSelected ? View.VISIBLE : View.GONE);
         h.selectionBadge.setVisibility(isSelected ? View.VISIBLE : View.GONE);
-        if (isSelected) h.selectionBadgeText.setText(String.valueOf(selection.orderOf(item.uri)));
+        int order = isSelected ? selection.orderOf(item.uri) : 0;
+        if (isSelected) h.selectionBadgeText.setText(String.valueOf(order));
+        // Screen readers: announce "Selected, number N" / "Not selected" as the cell's state.
+        ViewCompat.setStateDescription(h.itemView, isSelected
+                ? h.itemView.getContext().getString(R.string.attach_selected_n, order)
+                : h.itemView.getContext().getString(R.string.attach_not_selected));
     }
 
     @Override
@@ -241,7 +259,7 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
     @Override
     public RequestBuilder<?> getPreloadRequestBuilder(@NonNull Uri uri) {
         RequestManager rm = Glide.with(context);
-        return rm.asBitmap().load(uri).apply(thumbOptions);
+        return rm.load(uri).apply(thumbOptions);
     }
 
     static class VH extends RecyclerView.ViewHolder {

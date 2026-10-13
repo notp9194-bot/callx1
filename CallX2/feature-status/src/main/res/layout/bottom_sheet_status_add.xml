@@ -61,7 +61,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Text"
+            android:text="@string/status_add_text"
             android:textColor="@color/text_primary"
             android:textSize="11sp"
             android:layout_marginTop="6dp"/>
@@ -95,7 +95,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Music"
+            android:text="@string/status_add_music"
             android:textColor="@color/text_primary"
             android:textSize="11sp"
             android:layout_marginTop="6dp"/>
@@ -129,7 +129,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Layout"
+            android:text="@string/status_add_layout"
             android:textColor="@color/text_primary"
             android:textSize="11sp"
             android:layout_marginTop="6dp"/>
@@ -163,7 +163,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Voice"
+            android:text="@string/status_add_voice"
             android:textColor="@color/text_primary"
             android:textSize="11sp"
             android:layout_marginTop="6dp"/>
@@ -197,7 +197,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AI images"
+            android:text="@string/status_add_ai_images"
             android:textColor="@color/text_primary"
             android:textSize="11sp"
             android:layout_marginTop="6dp"/>

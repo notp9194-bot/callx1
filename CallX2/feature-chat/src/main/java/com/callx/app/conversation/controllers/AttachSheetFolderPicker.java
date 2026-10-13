@@ -39,8 +39,16 @@ public final class AttachSheetFolderPicker {
     public static void showUnderAnchor(Activity activity, View anchor, View sheetRoot,
                                  ExecutorService executor, String currentFilterKey,
                                  OnFolderSelected callback) {
+        showUnderAnchor(activity, anchor, sheetRoot, executor, currentFilterKey,
+                RecentMediaLoader.MEDIA_ALL, callback);
+    }
+
+    /** @param mediaTypes RecentMediaLoader.MEDIA_ALL / MEDIA_IMAGES / MEDIA_VIDEOS — folder counts/covers respect it. */
+    public static void showUnderAnchor(Activity activity, View anchor, View sheetRoot,
+                                 ExecutorService executor, String currentFilterKey, int mediaTypes,
+                                 OnFolderSelected callback) {
         executor.execute(() -> {
-            List<RecentMediaLoader.Folder> folders = RecentMediaLoader.loadFolders(activity);
+            List<RecentMediaLoader.Folder> folders = RecentMediaLoader.loadFolders(activity, mediaTypes);
             activity.runOnUiThread(() -> {
                 if (folders.isEmpty()) return; // no media on device / no permission — nothing to pick from
                 show(activity, anchor, sheetRoot, folders, currentFilterKey, callback);

@@ -7,6 +7,8 @@ import android.net.Uri;
 import android.provider.MediaStore;
 import android.util.Log;
 
+import com.callx.app.chat.R;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -45,6 +47,8 @@ public final class RecentMediaLoader {
 
     /** Special filter key for the synthetic "Videos" folder (all videos, any bucket). */
     public static final String FILTER_VIDEOS = "__videos__";
+    /** Filter key for the merged "WhatsApp" folder (every bucket whose name contains "whatsapp"). */
+    public static final String FILTER_WHATSAPP = "__whatsapp__";
     /** Filter key meaning "no filter" — every image + video, newest first (the default "Recents" view). */
     public static final String FILTER_ALL = null;
 
@@ -54,6 +58,11 @@ public final class RecentMediaLoader {
     // the screenshot this feature was built from has ~4.9k total items).
     private static final int FOLDER_SCAN_LIMIT = 8000;
 
+    /** Which media types a surface wants (Config#mediaTypes in the binder). */
+    public static final int MEDIA_ALL = 0;
+    public static final int MEDIA_IMAGES = 1;
+    public static final int MEDIA_VIDEOS = 2;
+
     private RecentMediaLoader() {}
 
     public static final class Item {
@@ -62,6 +71,8 @@ public final class RecentMediaLoader {
         public final long durationMs;
         public final long dateAddedSec;
         public final String bucketName;
+        /** MediaStore row id (parsed from uri) — the keyset-paging tie-breaker. */
+        public final long id;
 
         Item(Uri uri, boolean isVideo, long durationMs, long dateAddedSec, String bucketName) {
             this.uri = uri;
@@ -69,6 +80,7 @@ public final class RecentMediaLoader {
             this.durationMs = durationMs;
             this.dateAddedSec = dateAddedSec;
             this.bucketName = bucketName == null ? "" : bucketName;
+            this.id = ContentUris.parseId(uri);
         }
     }
 
@@ -132,7 +144,7 @@ public final class RecentMediaLoader {
      * @param limit  page size
      * @param filter which folder to restrict to: {@link #FILTER_ALL} (everything),
      *               {@link #FILTER_VIDEOS} (every video regardless of folder), or
-     *               a bucket name (matched case-insensitively) as returned by
+     *               a exact bucket name as returned by
      *               {@link Folder#filterKey} for a real on-device folder.
      */
     public static List<Item> loadRecentPage(Context context, int offset, int limit, String filter) {
@@ -157,6 +169,37 @@ public final class RecentMediaLoader {
     }
 
     /**
+     * Keyset ("seek") paging: returns the page that comes strictly AFTER
+     * {@code after} in the grid's order (date_added DESC, images before videos
+     * on equal dates, then _id DESC); pass null for the first page.
+     * Unlike the offset version this never re-reads the growing prefix —
+     * every page costs the same no matter how deep the user has scrolled.
+     */
+    public static List<Item> loadPageAfter(Context context, Item after, int limit, String filter, int mediaTypes) {
+        int safeLimit = Math.max(1, limit);
+        boolean videosOnly = FILTER_VIDEOS.equals(filter) || mediaTypes == MEDIA_VIDEOS;
+        boolean imagesOnly = mediaTypes == MEDIA_IMAGES;
+        String bucketFilter = (filter != null && !FILTER_VIDEOS.equals(filter)) ? filter : null;
+
+        List<Item> images = videosOnly ? new ArrayList<>() : queryImages(context, safeLimit, bucketFilter, after);
+        List<Item> videos = imagesOnly ? new ArrayList<>() : queryVideos(context, safeLimit, bucketFilter, after);
+
+        List<Item> merged = new ArrayList<>(images.size() + videos.size());
+        merged.addAll(images);
+        merged.addAll(videos);
+        Collections.sort(merged, GRID_ORDER);
+        return merged.size() <= safeLimit ? merged : new ArrayList<>(merged.subList(0, safeLimit));
+    }
+
+    /** date_added DESC, images before videos, then _id DESC — must match the SQL ORDER BY + keyset clauses below. */
+    private static final java.util.Comparator<Item> GRID_ORDER = (a, b) -> {
+        int c = Long.compare(b.dateAddedSec, a.dateAddedSec);
+        if (c != 0) return c;
+        if (a.isVideo != b.isVideo) return a.isVideo ? 1 : -1;
+        return Long.compare(b.id, a.id);
+    };
+
+    /**
      * Builds the folder list for the "Recents ▾" dropdown: Recents (everything),
      * Camera, Videos, Screenshots, Downloads, WhatsApp — each only included if
      * it actually has at least one item on this device — followed by the two
@@ -167,97 +210,164 @@ public final class RecentMediaLoader {
      * AttachSheetRecentMediaBinder's ACTION_MORE_APPS / ACTION_SEE_MORE handling.
      */
     public static List<Folder> loadFolders(Context context) {
-        List<Item> images = queryImages(context, FOLDER_SCAN_LIMIT, null);
-        List<Item> videos = queryVideos(context, FOLDER_SCAN_LIMIT, null);
+        return loadFolders(context, MEDIA_ALL);
+    }
 
-        List<Item> merged = new ArrayList<>(images.size() + videos.size());
-        merged.addAll(images);
-        merged.addAll(videos);
-        Collections.sort(merged, (a, b) -> Long.compare(b.dateAddedSec, a.dateAddedSec));
+    /**
+     * Single lightweight pass per table: only counts rows and remembers the
+     * newest cover per bucket — no Item objects, no merge-sort of thousands of
+     * rows (the old version materialised up to 8000 Items per table every time
+     * the dropdown opened).
+     */
+    public static List<Folder> loadFolders(Context context, int mediaTypes) {
+        Scan scan = new Scan();
+        if (mediaTypes != MEDIA_VIDEOS) scanTable(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, false, scan);
+        if (mediaTypes != MEDIA_IMAGES) scanTable(context, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, scan);
 
         List<Folder> result = new ArrayList<>();
-        if (merged.isEmpty()) {
+        if (scan.total == 0) {
             // Even with nothing on-device yet, "More apps"/"See more" still work
             // (they hand off to system pickers, not this device's MediaStore).
-            result.add(Folder.action(ACTION_MORE_APPS, "More apps"));
-            result.add(Folder.action(ACTION_SEE_MORE, "See more"));
+            result.add(Folder.action(ACTION_MORE_APPS, context.getString(R.string.attach_folder_more_apps)));
+            result.add(Folder.action(ACTION_SEE_MORE, context.getString(R.string.attach_folder_see_more)));
             return result;
         }
 
         // Recents = everything, cover = newest item overall.
-        Item newestOverall = merged.get(0);
-        result.add(new Folder(FILTER_ALL, "Recents", newestOverall.uri, newestOverall.isVideo, merged.size()));
+        result.add(new Folder(FILTER_ALL, context.getString(R.string.attach_folder_recents),
+                scan.newestUri, scan.newestIsVideo, scan.total));
 
-        // Per-bucket aggregation (first occurrence in the date-desc list = newest → cover).
-        Map<String, BucketAgg> byBucket = new LinkedHashMap<>();
-        int videoTotal = 0;
-        Item newestVideo = null;
-        for (Item item : merged) {
-            if (item.isVideo) {
-                videoTotal++;
-                if (newestVideo == null) newestVideo = item;
-            }
-            String key = item.bucketName.trim().toLowerCase(Locale.US);
-            if (key.isEmpty()) continue;
-            BucketAgg agg = byBucket.get(key);
-            if (agg == null) {
-                agg = new BucketAgg(item.bucketName.trim(), item.uri, item.isVideo);
-                agg.coverDateHint = item.dateAddedSec;
-                byBucket.put(key, agg);
-            }
-            agg.count++;
-        }
+        Map<String, BucketAgg> byBucket = scan.byBucket;
 
-        BucketAgg camera = findBucket(byBucket, "camera");
-        if (camera != null) result.add(camera.toFolder("Camera"));
+        // Exact bucket names only — a "contains" match picked "Camera360" /
+        // "Downloads backup" style buckets for the wrong tile.
+        BucketAgg camera = findBucketExact(byBucket, "camera");
+        if (camera != null) result.add(camera.toFolder(context.getString(R.string.attach_folder_camera)));
 
         // Videos = synthetic "every video, any folder" entry, matching the
         // reference screenshot's dedicated Videos tile.
-        if (videoTotal > 0 && newestVideo != null) {
-            result.add(new Folder(FILTER_VIDEOS, "Videos", newestVideo.uri, true, videoTotal));
+        if (mediaTypes == MEDIA_ALL && scan.videoTotal > 0 && scan.newestVideoUri != null) {
+            result.add(new Folder(FILTER_VIDEOS, context.getString(R.string.attach_folder_videos),
+                    scan.newestVideoUri, true, scan.videoTotal));
         }
 
-        BucketAgg screenshots = findBucket(byBucket, "screenshot");
-        if (screenshots != null) result.add(screenshots.toFolder("Screenshots"));
+        BucketAgg screenshots = findBucketExact(byBucket, "screenshots", "screenshot");
+        if (screenshots != null) result.add(screenshots.toFolder(context.getString(R.string.attach_folder_screenshots)));
 
-        BucketAgg downloads = findBucket(byBucket, "download");
-        if (downloads != null) result.add(downloads.toFolder("Downloads"));
+        BucketAgg downloads = findBucketExact(byBucket, "download", "downloads");
+        if (downloads != null) result.add(downloads.toFolder(context.getString(R.string.attach_folder_downloads)));
 
         // WhatsApp media lives in split buckets ("WhatsApp Images", "WhatsApp
         // Video", "WhatsApp Animated Gifs", ...) — merge every bucket whose
         // name contains "whatsapp" into one tile, like the reference picker.
-        BucketAgg whatsapp = null;
+        Uri waCover = null;
+        boolean waCoverIsVideo = false;
+        long waCoverDate = Long.MIN_VALUE;
+        int waCount = 0;
         for (Map.Entry<String, BucketAgg> e : byBucket.entrySet()) {
             if (!e.getKey().contains("whatsapp")) continue;
             BucketAgg sub = e.getValue();
-            if (whatsapp == null) {
-                whatsapp = new BucketAgg("WhatsApp", sub.coverUri, sub.coverIsVideo);
-                whatsapp.count = 0;
-                whatsapp.coverDateHint = sub.coverDateHint;
-            }
-            whatsapp.count += sub.count;
-            if (sub.coverDateHint > whatsapp.coverDateHint || whatsapp.count == sub.count) {
-                whatsapp.coverUri = sub.coverUri;
-                whatsapp.coverIsVideo = sub.coverIsVideo;
-                whatsapp.coverDateHint = sub.coverDateHint;
+            waCount += sub.count;
+            if (waCover == null || sub.coverDateHint > waCoverDate) {
+                waCover = sub.coverUri;
+                waCoverIsVideo = sub.coverIsVideo;
+                waCoverDate = sub.coverDateHint;
             }
         }
-        if (whatsapp != null) {
-            result.add(new Folder("__whatsapp__", "WhatsApp", whatsapp.coverUri, whatsapp.coverIsVideo, whatsapp.count));
+        if (waCover != null) {
+            result.add(new Folder(FILTER_WHATSAPP, context.getString(R.string.attach_folder_whatsapp),
+                    waCover, waCoverIsVideo, waCount));
         }
 
         // Static action rows — always last, exactly like the reference screenshot.
-        result.add(Folder.action(ACTION_MORE_APPS, "More apps"));
-        result.add(Folder.action(ACTION_SEE_MORE, "See more"));
+        result.add(Folder.action(ACTION_MORE_APPS, context.getString(R.string.attach_folder_more_apps)));
+        result.add(Folder.action(ACTION_SEE_MORE, context.getString(R.string.attach_folder_see_more)));
 
         return result;
     }
 
-    private static BucketAgg findBucket(Map<String, BucketAgg> byBucket, String needle) {
-        for (Map.Entry<String, BucketAgg> e : byBucket.entrySet()) {
-            if (e.getKey().contains(needle)) return e.getValue();
+    /** Accumulator for loadFolders(): totals + per-bucket count/newest cover. */
+    private static final class Scan {
+        final Map<String, BucketAgg> byBucket = new LinkedHashMap<>();
+        int total, videoTotal;
+        long newestDate = Long.MIN_VALUE, newestVideoDate = Long.MIN_VALUE;
+        Uri newestUri, newestVideoUri;
+        boolean newestIsVideo;
+    }
+
+    private static void scanTable(Context context, Uri tableUri, boolean isVideo, Scan scan) {
+        String[] projection = {
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DATE_ADDED,
+                MediaStore.MediaColumns.BUCKET_DISPLAY_NAME
+        };
+        try (Cursor c = context.getContentResolver().query(tableUri, projection, null, null,
+                MediaStore.MediaColumns.DATE_ADDED + " DESC")) {
+            if (c == null) return;
+            int idIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID);
+            int dateIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED);
+            int bucketIdx = c.getColumnIndex(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME);
+            while (c.moveToNext()) {
+                long date = c.getLong(dateIdx);
+                scan.total++;
+                boolean first = scan.newestUri == null;
+                Uri uri = null; // built lazily — only rows that can become a cover need one
+                if (first || date > scan.newestDate) {
+                    uri = ContentUris.withAppendedId(tableUri, c.getLong(idIdx));
+                    scan.newestDate = date; scan.newestUri = uri; scan.newestIsVideo = isVideo;
+                }
+                if (isVideo) {
+                    scan.videoTotal++;
+                    if (scan.newestVideoUri == null || date > scan.newestVideoDate) {
+                        if (uri == null) uri = ContentUris.withAppendedId(tableUri, c.getLong(idIdx));
+                        scan.newestVideoDate = date; scan.newestVideoUri = uri;
+                    }
+                }
+                String name = bucketIdx >= 0 ? c.getString(bucketIdx) : null;
+                if (name == null) continue;
+                String trimmed = name.trim();
+                if (trimmed.isEmpty()) continue;
+                String key = trimmed.toLowerCase(Locale.US);
+                BucketAgg agg = scan.byBucket.get(key);
+                if (agg == null) {
+                    if (uri == null) uri = ContentUris.withAppendedId(tableUri, c.getLong(idIdx));
+                    agg = new BucketAgg(trimmed, uri, isVideo);
+                    agg.coverDateHint = date;
+                    scan.byBucket.put(key, agg);
+                } else if (date > agg.coverDateHint) {
+                    if (uri == null) uri = ContentUris.withAppendedId(tableUri, c.getLong(idIdx));
+                    agg.coverUri = uri; agg.coverIsVideo = isVideo; agg.coverDateHint = date;
+                }
+                agg.count++;
+            }
+        } catch (SecurityException | IllegalArgumentException e) {
+            Log.w(TAG, "scanTable failed", e);
+        }
+    }
+
+    private static BucketAgg findBucketExact(Map<String, BucketAgg> byBucket, String... names) {
+        for (String n : names) {
+            BucketAgg a = byBucket.get(n);
+            if (a != null) return a;
         }
         return null;
+    }
+
+    /**
+     * Builds the MediaStore selection for a bucket filter. Real folders are
+     * matched EXACTLY on the bucket name (the filter key is the real
+     * BUCKET_DISPLAY_NAME from loadFolders(), so no wildcard guessing);
+     * the synthetic WhatsApp folder matches every "*whatsapp*" bucket.
+     * The old code fed every key through LIKE '%key%' — "_" is a LIKE
+     * wildcard so "__whatsapp__" never matched anything (empty grid), and
+     * "Camera" also pulled in "Camera360".
+     * @return {selection, arg}
+     */
+    private static String[] bucketSelection(String column, String bucketFilter) {
+        if (FILTER_WHATSAPP.equals(bucketFilter)) {
+            return new String[]{"LOWER(" + column + ") LIKE ?", "%whatsapp%"};
+        }
+        return new String[]{column + " = ?", bucketFilter};
     }
 
     /** Mutable per-bucket accumulator used only while building loadFolders()'s result. */
@@ -283,20 +393,64 @@ public final class RecentMediaLoader {
         }
     }
 
+    /**
+     * Keyset clause for "rows strictly after {@code after}" in GRID_ORDER.
+     * Images sort before videos on equal dates, so: images after a VIDEO need
+     * date < d; videos after an IMAGE still include date == d.
+     * @return {clause, args...} or null when after == null
+     */
+    private static String[] keysetClause(boolean forVideoTable, Item after) {
+        if (after == null) return null;
+        String d = Long.toString(after.dateAddedSec);
+        String date = MediaStore.MediaColumns.DATE_ADDED;
+        String idCol = MediaStore.MediaColumns._ID;
+        if (forVideoTable == after.isVideo) { // same table: classic (date, id) seek
+            return new String[]{"(" + date + " < ? OR (" + date + " = ? AND " + idCol + " < ?))",
+                    d, d, Long.toString(after.id)};
+        }
+        if (forVideoTable) { // videos, last emitted was an image: same-date videos still pending
+            return new String[]{date + " <= ?", d};
+        }
+        return new String[]{date + " < ?", d}; // images, last emitted was a video: same-date images already out
+    }
+
+    /** ANDs a keyset clause onto an optional bucket selection. @return {selection, args...} */
+    private static String[] withKeyset(String selection, String[] args, String[] ks) {
+        String sel = selection == null ? ks[0] : "(" + selection + ") AND " + ks[0];
+        int base = args == null ? 0 : args.length;
+        String[] out = new String[1 + base + ks.length - 1];
+        out[0] = sel;
+        int n = 1;
+        if (args != null) for (String a : args) out[n++] = a;
+        for (int i = 1; i < ks.length; i++) out[n++] = ks[i];
+        return out;
+    }
+
     private static List<Item> queryImages(Context context, int limit, String bucketFilter) {
+        return queryImages(context, limit, bucketFilter, null);
+    }
+
+    private static List<Item> queryImages(Context context, int limit, String bucketFilter, Item after) {
         Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
         String[] projection = {
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DATE_ADDED,
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME
         };
-        String order = MediaStore.Images.Media.DATE_ADDED + " DESC";
+        String order = MediaStore.Images.Media.DATE_ADDED + " DESC, " + MediaStore.Images.Media._ID + " DESC";
 
         String selection = null;
         String[] selectionArgs = null;
         if (bucketFilter != null) {
-            selection = "LOWER(" + MediaStore.Images.Media.BUCKET_DISPLAY_NAME + ") LIKE ?";
-            selectionArgs = new String[]{"%" + bucketFilter.toLowerCase(Locale.US) + "%"};
+            String[] sel = bucketSelection(MediaStore.Images.Media.BUCKET_DISPLAY_NAME, bucketFilter);
+            selection = sel[0];
+            selectionArgs = new String[]{sel[1]};
+        }
+        String[] ks = keysetClause(false, after);
+        if (ks != null) {
+            String[] r = withKeyset(selection, selectionArgs, ks);
+            selection = r[0];
+            selectionArgs = java.util.Arrays.copyOfRange(r, 1, r.length);
         }
 
         List<Item> out = new ArrayList<>();
@@ -321,6 +475,10 @@ public final class RecentMediaLoader {
     }
 
     private static List<Item> queryVideos(Context context, int limit, String bucketFilter) {
+        return queryVideos(context, limit, bucketFilter, null);
+    }
+
+    private static List<Item> queryVideos(Context context, int limit, String bucketFilter, Item after) {
         Uri uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
         String[] projection = {
                 MediaStore.Video.Media._ID,
@@ -328,13 +486,20 @@ public final class RecentMediaLoader {
                 MediaStore.Video.Media.DURATION,
                 MediaStore.Video.Media.BUCKET_DISPLAY_NAME
         };
-        String order = MediaStore.Video.Media.DATE_ADDED + " DESC";
+        String order = MediaStore.Video.Media.DATE_ADDED + " DESC, " + MediaStore.Video.Media._ID + " DESC";
 
         String selection = null;
         String[] selectionArgs = null;
         if (bucketFilter != null) {
-            selection = "LOWER(" + MediaStore.Video.Media.BUCKET_DISPLAY_NAME + ") LIKE ?";
-            selectionArgs = new String[]{"%" + bucketFilter.toLowerCase(Locale.US) + "%"};
+            String[] sel = bucketSelection(MediaStore.Video.Media.BUCKET_DISPLAY_NAME, bucketFilter);
+            selection = sel[0];
+            selectionArgs = new String[]{sel[1]};
+        }
+        String[] ks = keysetClause(true, after);
+        if (ks != null) {
+            String[] r = withKeyset(selection, selectionArgs, ks);
+            selection = r[0];
+            selectionArgs = java.util.Arrays.copyOfRange(r, 1, r.length);
         }
 
         List<Item> out = new ArrayList<>();

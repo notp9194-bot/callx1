@@ -19,6 +19,9 @@ import java.util.Map;
  */
 public final class MediaSelectionState {
 
+    /** Default cap on items one send/post can carry. */
+    public static final int MAX_SELECTION = 30;
+
     public interface Listener {
         void onSelectionChanged();
     }
@@ -34,6 +37,15 @@ public final class MediaSelectionState {
         void onItemToggled(Uri uri);
     }
 
+    private final int maxSelection;
+
+    public MediaSelectionState() { this(MAX_SELECTION); }
+
+    /** @param maxSelection per-surface cap (AttachSheetRecentMediaBinder.Config#maxSelection). */
+    public MediaSelectionState(int maxSelection) { this.maxSelection = Math.max(1, maxSelection); }
+
+    public int maxSelection() { return maxSelection; }
+
     private final Map<Uri, RecentMediaLoader.Item> selected = new LinkedHashMap<>();
     private final List<Listener> listeners = new ArrayList<>();
     private final List<ToggleListener> toggleListeners = new ArrayList<>();
@@ -46,18 +58,38 @@ public final class MediaSelectionState {
         toggleListeners.add(l);
     }
 
-    /** Flips selection for this item. @return true if it's now selected. */
+    /** True when the cap (default MAX_SELECTION) items are already picked (a further add is refused). */
+    public boolean isFull() {
+        return selected.size() >= maxSelection;
+    }
+
+    /**
+     * Flips selection for this item. @return true if it's now selected.
+     * Adding past MAX_SELECTION is refused (returns false, nothing changes) —
+     * callers should check isFull() first to show a toast.
+     * Deselecting re-numbers every later badge, so each of those uris is
+     * notified too (otherwise their "#N" badges stayed stale).
+     */
     public boolean toggle(RecentMediaLoader.Item item) {
+        List<Uri> shifted = null;
         boolean nowSelected;
         if (selected.containsKey(item.uri)) {
+            shifted = new ArrayList<>();
+            boolean after = false;
+            for (Uri u : selected.keySet()) {
+                if (after) shifted.add(u);
+                else if (u.equals(item.uri)) after = true;
+            }
             selected.remove(item.uri);
             nowSelected = false;
         } else {
+            if (isFull()) return false;
             selected.put(item.uri, item);
             nowSelected = true;
         }
         notifyChanged();
         notifyToggled(item.uri);
+        if (shifted != null) for (Uri u : shifted) notifyToggled(u);
         return nowSelected;
     }
 

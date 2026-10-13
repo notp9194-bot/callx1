@@ -187,6 +187,16 @@ public class NewStatusActivity extends AppCompatActivity {
     private float editorMediaScale = 1f;
     private boolean editorPhotoMode;
     private boolean editorDrawMode;
+    // v587: draw toolbar state
+    private LinearLayout editorDrawBar;
+    private TextView editorDrawIcon;
+    private TextView editorUndoBtn, editorRedoBtn, editorEraserBtn;
+    private final java.util.ArrayList<GradientDrawable> editorSwatchBgs = new java.util.ArrayList<>();
+    private final java.util.ArrayList<TextView> editorSizeBtns = new java.util.ArrayList<>();
+    private static final int[] DRAW_COLORS = {0xFFFFFFFF, 0xFF000000, 0xFFFF3B30,
+            0xFFFFCC00, 0xFF34C759, 0xFF0A84FF, 0xFFFF2D92};
+    private static final int[] DRAW_SIZES_DP = {3, 6, 12};
+    private int editorDrawColorIdx = 0, editorDrawSizeIdx = 1;
     private boolean editorAiLabelEnabled;
     private boolean preserveStoryOverlaysOnNextPhoto;
     private ActivityResultLauncher<String> legacySavePermissionLauncher;
@@ -472,6 +482,8 @@ public class NewStatusActivity extends AppCompatActivity {
             // Give the story canvas more vertical room on the media-edit step.
             binding.statusWizardHeader.setVisibility(wizardStep == 1 ? View.GONE : View.VISIBLE);
         }
+        if (wizardStep != 1 && drawingOverlay != null) drawingOverlay.setDrawEnabled(false);
+        syncVideoPreviewPlayback();
         if (editorToolRail != null) {
             editorToolRail.setVisibility(wizardStep == 1 && (pickedImage != null || pickedVideo != null)
                     ? View.VISIBLE : View.GONE);
@@ -630,7 +642,7 @@ public class NewStatusActivity extends AppCompatActivity {
             mediaGestureOverlay = new View(this);
             mediaGestureOverlay.setBackgroundColor(Color.TRANSPARENT);
             mediaGestureOverlay.setClickable(true);
-            mediaGestureOverlay.setContentDescription("Pinch with two fingers to resize; drag to move photo");
+            mediaGestureOverlay.setContentDescription("Pinch to resize, twist to rotate, drag to move, double tap to reset");
             stickerOverlayFrame.addView(mediaGestureOverlay, 2,
                     new android.widget.FrameLayout.LayoutParams(
                             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
@@ -646,18 +658,39 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
-    /** Keep the editor canvas at story ratio so its preview and exported image match. */
+    /**
+     * Keep the editor canvas at story ratio so its preview and exported image match.
+     * v587: also cap the height to ~the visible screen (narrowing + centring the canvas)
+     * so the whole canvas fits without scrolling the page — the root cause of the
+     * NestedScrollView stealing draw / drag gestures.
+     */
     private void sizeStoryCanvas() {
         if (stickerOverlayFrame == null) return;
         stickerOverlayFrame.post(() -> {
-            int width = stickerOverlayFrame.getWidth();
-            if (width <= 0) return;
-            int storyHeight = Math.round(width * (16f / 9f));
+            if (stickerOverlayFrame == null) return;
+            View host = stickerOverlayFrame.getParent() instanceof View
+                    ? (View) stickerOverlayFrame.getParent() : null;
+            if (host == null) return;
+            int availW = host.getWidth() - host.getPaddingLeft() - host.getPaddingRight();
             ViewGroup.LayoutParams lp = stickerOverlayFrame.getLayoutParams();
-            if (lp != null && lp.height != storyHeight) {
-                lp.height = storyHeight;
-                stickerOverlayFrame.setLayoutParams(lp);
+            if (availW <= 0 || lp == null) return;
+            if (lp instanceof ViewGroup.MarginLayoutParams) {
+                availW -= ((ViewGroup.MarginLayoutParams) lp).leftMargin
+                        + ((ViewGroup.MarginLayoutParams) lp).rightMargin;
             }
+            int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.80f);
+            int h = Math.round(availW * (16f / 9f));
+            int w = ViewGroup.LayoutParams.MATCH_PARENT;
+            if (h > maxH) {
+                h = maxH;
+                w = Math.round(h * (9f / 16f));
+            }
+            boolean changed = lp.height != h || lp.width != w;
+            lp.height = h;
+            lp.width = w;
+            if (lp instanceof LinearLayout.LayoutParams)
+                ((LinearLayout.LayoutParams) lp).gravity = android.view.Gravity.CENTER_HORIZONTAL;
+            if (changed) stickerOverlayFrame.setLayoutParams(lp);
         });
     }
 
@@ -667,6 +700,14 @@ public class NewStatusActivity extends AppCompatActivity {
     private float editorPinchStartMidX, editorPinchStartMidY;
     private float editorPinchStartScale;
     private float editorPinchStartTranslationX, editorPinchStartTranslationY;
+    // v589: photo rotate + double-tap reset + tap detection
+    private float editorMediaRotation;
+    private float editorPinchStartAngle, editorPinchStartRotation;
+    private boolean editorRotationSnapped;
+    private boolean editorGestureMoved;
+    private long editorGestureDownAt;
+    private float editorDownX, editorDownY;
+    private android.view.GestureDetector editorDoubleTapDetector;
 
     /**
      * Gestures run on a full-canvas transparent layer rather than on the
@@ -676,17 +717,36 @@ public class NewStatusActivity extends AppCompatActivity {
     private void setupEditorGestures() {
         if (mediaGestureOverlay == null || binding.ivPreview == null) return;
         binding.ivPreview.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        final int tapSlop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+        editorDoubleTapDetector = new android.view.GestureDetector(this,
+                new android.view.GestureDetector.SimpleOnGestureListener() {
+                    @Override public boolean onDoubleTap(android.view.MotionEvent e) {
+                        if (editorPhotoMode) resetEditorMediaTransform(true);
+                        return true;
+                    }
+                });
+        mediaGestureOverlay.setOnClickListener(v -> {
+            hideStickerSizeBar();
+            if (!editorPhotoMode) toggleVideoPreview(); // tap on a video = play / pause
+        });
         mediaGestureOverlay.setOnTouchListener((view, event) -> {
             if (!editorPhotoMode) return false;
+            editorDoubleTapDetector.onTouchEvent(event);
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
+                    binding.ivPreview.animate().cancel(); // never fight a running reset animation
                     setEditorGestureScrollLock(true);
                     editorGesturePointerCount = 1;
                     editorLastTouchX = event.getX();
                     editorLastTouchY = event.getY();
+                    editorDownX = event.getX();
+                    editorDownY = event.getY();
+                    editorGestureMoved = false;
+                    editorGestureDownAt = event.getEventTime();
                     return true;
                 case android.view.MotionEvent.ACTION_POINTER_DOWN:
                     setEditorGestureScrollLock(true);
+                    editorGestureMoved = true;
                     if (event.getPointerCount() >= 2) beginEditorPinch(event);
                     return true;
                 case android.view.MotionEvent.ACTION_MOVE:
@@ -702,14 +762,13 @@ public class NewStatusActivity extends AppCompatActivity {
                             editorLastTouchY = event.getY(0);
                             return true;
                         }
+                        if (Math.hypot(event.getX(0) - editorDownX, event.getY(0) - editorDownY) > tapSlop)
+                            editorGestureMoved = true;
+                        // v589: 1:1 finger tracking (was dx*0.98 → photo trailed the finger)
                         float dx = event.getX(0) - editorLastTouchX;
                         float dy = event.getY(0) - editorLastTouchY;
-                        if (Math.abs(dx) < 0.25f) dx = 0f;
-                        if (Math.abs(dy) < 0.25f) dy = 0f;
-                        binding.ivPreview.setTranslationX(
-                                binding.ivPreview.getTranslationX() + dx * 0.98f);
-                        binding.ivPreview.setTranslationY(
-                                binding.ivPreview.getTranslationY() + dy * 0.98f);
+                        binding.ivPreview.setTranslationX(binding.ivPreview.getTranslationX() + dx);
+                        binding.ivPreview.setTranslationY(binding.ivPreview.getTranslationY() + dy);
                         clampEditorTranslation();
                     }
                     if (event.getPointerCount() == 1) {
@@ -732,6 +791,11 @@ public class NewStatusActivity extends AppCompatActivity {
                 case android.view.MotionEvent.ACTION_CANCEL:
                     editorGesturePointerCount = 0;
                     setEditorGestureScrollLock(false);
+                    // a plain tap on empty canvas dismisses the sticker size bar
+                    // (frame click never fired: this full-canvas layer consumes every touch)
+                    if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP
+                            && !editorGestureMoved
+                            && event.getEventTime() - editorGestureDownAt < 300) hideStickerSizeBar();
                     return true;
                 default:
                     return true;
@@ -764,6 +828,9 @@ public class NewStatusActivity extends AppCompatActivity {
         editorPinchStartScale = editorMediaScale;
         editorPinchStartTranslationX = binding.ivPreview.getTranslationX();
         editorPinchStartTranslationY = binding.ivPreview.getTranslationY();
+        editorPinchStartAngle = (float) Math.toDegrees(Math.atan2(y2 - y1, x2 - x1));
+        editorPinchStartRotation = editorMediaRotation;
+        editorRotationSnapped = false;
         editorGesturePointerCount = 2;
     }
 
@@ -784,12 +851,136 @@ public class NewStatusActivity extends AppCompatActivity {
         float startAnchorX = editorPinchStartMidX - centerX - editorPinchStartTranslationX;
         float startAnchorY = editorPinchStartMidY - centerY - editorPinchStartTranslationY;
 
+        // v589: two-finger twist rotates the photo; snaps to 0/90/180/270 within 4°.
+        float angle = (float) Math.toDegrees(Math.atan2(y2 - y1, x2 - x1));
+        float rotation = editorPinchStartRotation + (angle - editorPinchStartAngle);
+        float nearest = Math.round(rotation / 90f) * 90f;
+        if (Math.abs(rotation - nearest) < 4f) {
+            rotation = nearest;
+            if (!editorRotationSnapped) {
+                editorRotationSnapped = true;
+                binding.ivPreview.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+            }
+        } else {
+            editorRotationSnapped = false;
+        }
+        double rad = Math.toRadians(rotation - editorPinchStartRotation);
+        float cos = (float) Math.cos(rad), sin = (float) Math.sin(rad);
+        // keep the content point that started under the fingers' midpoint under it
+        float rotAnchorX = cos * startAnchorX - sin * startAnchorY;
+        float rotAnchorY = sin * startAnchorX + cos * startAnchorY;
+
         editorMediaScale = nextScale;
+        editorMediaRotation = rotation;
         binding.ivPreview.setScaleX(nextScale);
         binding.ivPreview.setScaleY(nextScale);
-        binding.ivPreview.setTranslationX(midpointX - centerX - effectiveRatio * startAnchorX);
-        binding.ivPreview.setTranslationY(midpointY - centerY - effectiveRatio * startAnchorY);
+        binding.ivPreview.setRotation(rotation);
+        binding.ivPreview.setTranslationX(midpointX - centerX - effectiveRatio * rotAnchorX);
+        binding.ivPreview.setTranslationY(midpointY - centerY - effectiveRatio * rotAnchorY);
         clampEditorTranslation();
+    }
+
+    // ── v589: real video preview in the status editor ─────────────────────
+    private VideoView editorVideoView;
+    private boolean editorVideoWantsPlay;
+    private boolean editorVideoToolHintShown;
+    private final java.util.HashMap<String, View> editorToolRows = new java.util.HashMap<>();
+
+    /** Plays the picked video (muted, looping) on the canvas; the Glide thumbnail stays underneath as fallback. */
+    private void startVideoPreview(Uri uri) {
+        if (stickerOverlayFrame == null || uri == null) return;
+        if (editorVideoView == null) {
+            editorVideoView = new VideoView(this);
+            editorVideoView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            // index 1: above the blurred backdrop, below the thumbnail / gesture / sticker layers
+            stickerOverlayFrame.addView(editorVideoView, 1, new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.Gravity.CENTER));
+        }
+        editorVideoView.setVisibility(View.VISIBLE);
+        binding.ivPreview.animate().cancel();
+        binding.ivPreview.setAlpha(1f);
+        editorVideoWantsPlay = true;
+        editorVideoView.setOnPreparedListener(mp -> {
+            mp.setLooping(true);
+            mp.setVolume(0f, 0f); // muted: a Music sticker may be previewing at the same time
+            mp.setOnInfoListener((m, what, extra) -> {
+                if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START)
+                    binding.ivPreview.animate().alpha(0f).setDuration(120).start(); // thumbnail → live frame
+                return false;
+            });
+            syncVideoPreviewPlayback();
+        });
+        editorVideoView.setOnErrorListener((mp, what, extra) -> {
+            stopVideoPreview(); // keep the static thumbnail
+            binding.ivVideoHint.setVisibility(View.VISIBLE);
+            return true;
+        });
+        try {
+            editorVideoView.setVideoURI(uri);
+        } catch (Exception e) {
+            stopVideoPreview();
+        }
+        binding.ivVideoHint.setVisibility(View.VISIBLE); // until the first frame is playing
+    }
+
+    private void stopVideoPreview() {
+        editorVideoWantsPlay = false;
+        if (editorVideoView != null) {
+            try { editorVideoView.stopPlayback(); } catch (Exception ignored) {}
+            editorVideoView.setVisibility(View.GONE);
+        }
+        if (binding != null && binding.ivPreview != null) {
+            binding.ivPreview.animate().cancel();
+            binding.ivPreview.setAlpha(1f);
+        }
+    }
+
+    /** Play only while the screen is in front, on the Edit step, and the person hasn't paused it. */
+    private void syncVideoPreviewPlayback() {
+        if (editorVideoView == null || editorVideoView.getVisibility() != View.VISIBLE) return;
+        boolean shouldPlay = editorVideoWantsPlay && composerResumed && wizardStep == 1;
+        try {
+            if (shouldPlay && !editorVideoView.isPlaying()) editorVideoView.start();
+            else if (!shouldPlay && editorVideoView.isPlaying()) editorVideoView.pause();
+        } catch (Exception ignored) {}
+        if (binding != null && binding.ivVideoHint != null && pickedVideo != null)
+            binding.ivVideoHint.setVisibility(editorVideoWantsPlay ? View.GONE : View.VISIBLE);
+    }
+
+    private void toggleVideoPreview() {
+        if (pickedVideo == null || editorVideoView == null
+                || editorVideoView.getVisibility() != View.VISIBLE) return;
+        editorVideoWantsPlay = !editorVideoWantsPlay;
+        syncVideoPreviewPlayback();
+    }
+
+    /** Photo-only tools (Save, Label AI) look disabled while a video is loaded. */
+    private void updateEditorRailForMedia() {
+        boolean video = pickedVideo != null;
+        for (String name : new String[]{"Save", "Label AI"}) {
+            View row = editorToolRows.get(name);
+            if (row != null) row.setAlpha(video ? 0.4f : 1f);
+        }
+    }
+
+    /** Back to the untransformed photo (double-tap, More → Reset photo position). */
+    private void resetEditorMediaTransform(boolean animate) {
+        editorMediaScale = 1f;
+        editorMediaRotation = 0f;
+        editorRotationSnapped = false;
+        if (binding == null || binding.ivPreview == null) return;
+        if (animate) {
+            binding.ivPreview.animate().scaleX(1f).scaleY(1f).translationX(0f).translationY(0f)
+                    .rotation(0f).setDuration(200).start();
+        } else {
+            binding.ivPreview.animate().cancel();
+            binding.ivPreview.setScaleX(1f);
+            binding.ivPreview.setScaleY(1f);
+            binding.ivPreview.setTranslationX(0f);
+            binding.ivPreview.setTranslationY(0f);
+            binding.ivPreview.setRotation(0f);
+        }
     }
 
     private void clampEditorTranslation() {
@@ -843,6 +1034,8 @@ public class NewStatusActivity extends AppCompatActivity {
             circle.setStroke(dp(1), 0x66FFFFFF);
             icon.setBackground(circle);
             row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+            if ("Draw".equals(tool[0])) editorDrawIcon = icon;
+            editorToolRows.put(tool[0], row);
             row.setOnClickListener(v -> onStatusEditorTool(tool[0], row));
             editorToolRail.addView(row, new LinearLayout.LayoutParams(-2, 0, 1f));
         }
@@ -851,6 +1044,159 @@ public class NewStatusActivity extends AppCompatActivity {
                         android.view.Gravity.TOP | android.view.Gravity.END);
         stickerOverlayFrame.addView(editorToolRail, railLp);
         editorToolRail.bringToFront();
+        buildDrawBar();
+    }
+
+    /** v587: highlighted (white) vs normal (dark) state for a rail icon. */
+    private void setRailIconActive(TextView icon, boolean active) {
+        if (icon == null) return;
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(active ? 0xFFFFFFFF : 0xCC25272B);
+        circle.setStroke(dp(1), active ? 0xFFFFFFFF : 0x66FFFFFF);
+        icon.setBackground(circle);
+        icon.setTextColor(active ? 0xFF111111 : Color.WHITE);
+    }
+
+    private TextView drawBarButton(String label, View.OnClickListener click) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(12);
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        t.setGravity(android.view.Gravity.CENTER);
+        t.setMinWidth(dp(44));
+        t.setMinHeight(dp(36));
+        t.setPadding(dp(8), dp(4), dp(8), dp(4));
+        t.setOnClickListener(click);
+        t.setContentDescription(label);
+        return t;
+    }
+
+    private void setDrawBarActive(TextView t, boolean active) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(14));
+        bg.setColor(active ? 0x55FFFFFF : Color.TRANSPARENT);
+        t.setBackground(bg);
+    }
+
+    /** v587: colour / size / eraser / undo-redo toolbar shown only while Draw mode is on. */
+    private void buildDrawBar() {
+        if (stickerOverlayFrame == null || drawingOverlay == null || editorDrawBar != null) return;
+        editorDrawBar = new LinearLayout(this);
+        editorDrawBar.setOrientation(LinearLayout.VERTICAL);
+        editorDrawBar.setPadding(dp(8), dp(6), dp(8), dp(6));
+        GradientDrawable barBg = new GradientDrawable();
+        barBg.setCornerRadius(dp(18));
+        barBg.setColor(0xE61A1A1A);
+        editorDrawBar.setBackground(barBg);
+        editorDrawBar.setVisibility(View.GONE);
+        editorDrawBar.setClickable(true); // never let touches fall through to the canvas
+
+        // Row 1 — colours
+        LinearLayout colors = new LinearLayout(this);
+        colors.setOrientation(LinearLayout.HORIZONTAL);
+        colors.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        editorSwatchBgs.clear();
+        for (int i = 0; i < DRAW_COLORS.length; i++) {
+            final int idx = i;
+            View sw = new View(this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(DRAW_COLORS[i]);
+            sw.setBackground(g);
+            editorSwatchBgs.add(g);
+            sw.setContentDescription("Brush colour " + (i + 1));
+            sw.setOnClickListener(v -> {
+                editorDrawColorIdx = idx;
+                drawingOverlay.setBrushColor(DRAW_COLORS[idx]);
+                refreshDrawBar();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(22), dp(22));
+            lp.setMargins(dp(1), dp(1), dp(1), dp(1));
+            colors.addView(sw, lp);
+        }
+        editorDrawBar.addView(colors, new LinearLayout.LayoutParams(-2, -2));
+
+        // Row 2 — brush size + eraser
+        LinearLayout sizes = new LinearLayout(this);
+        sizes.setOrientation(LinearLayout.HORIZONTAL);
+        sizes.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        editorSizeBtns.clear();
+        String[] sizeLabels = {"S", "M", "L"};
+        for (int i = 0; i < sizeLabels.length; i++) {
+            final int idx = i;
+            TextView b = drawBarButton(sizeLabels[i], v -> {
+                editorDrawSizeIdx = idx;
+                drawingOverlay.setBrushWidthPx(dp(DRAW_SIZES_DP[idx]));
+                refreshDrawBar();
+            });
+            editorSizeBtns.add(b);
+            sizes.addView(b, new LinearLayout.LayoutParams(-2, -2));
+        }
+        editorEraserBtn = drawBarButton("Erase", v -> {
+            drawingOverlay.setEraser(!drawingOverlay.isEraser());
+            if (!drawingOverlay.isEraser()) drawingOverlay.setBrushColor(DRAW_COLORS[editorDrawColorIdx]);
+            refreshDrawBar();
+        });
+        sizes.addView(editorEraserBtn, new LinearLayout.LayoutParams(-2, -2));
+        editorDrawBar.addView(sizes, new LinearLayout.LayoutParams(-2, -2));
+
+        // Row 3 — undo / redo / done
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        editorUndoBtn = drawBarButton("Undo", v -> drawingOverlay.undo());
+        editorRedoBtn = drawBarButton("Redo", v -> drawingOverlay.redo());
+        TextView done = drawBarButton("Done", v -> {
+            editorDrawMode = false;
+            drawingOverlay.setDrawEnabled(false);
+        });
+        actions.addView(editorUndoBtn, new LinearLayout.LayoutParams(-2, -2));
+        actions.addView(editorRedoBtn, new LinearLayout.LayoutParams(-2, -2));
+        actions.addView(done, new LinearLayout.LayoutParams(-2, -2));
+        editorDrawBar.addView(actions, new LinearLayout.LayoutParams(-2, -2));
+
+        android.widget.FrameLayout.LayoutParams barLp = new android.widget.FrameLayout.LayoutParams(
+                -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.START);
+        barLp.setMargins(dp(8), 0, 0, dp(12));
+        stickerOverlayFrame.addView(editorDrawBar, barLp);
+
+        drawingOverlay.setBrushColor(DRAW_COLORS[editorDrawColorIdx]);
+        drawingOverlay.setBrushWidthPx(dp(DRAW_SIZES_DP[editorDrawSizeIdx]));
+        drawingOverlay.setListener(new StatusDrawOverlayView.Listener() {
+            @Override public void onModeChanged(boolean enabled) {
+                editorDrawMode = enabled;
+                setRailIconActive(editorDrawIcon, enabled);
+                if (editorDrawBar == null) return;
+                editorDrawBar.setVisibility(enabled ? View.VISIBLE : View.GONE);
+                if (enabled) {
+                    // keep the bar clear of the right-hand tool rail
+                    editorDrawBar.bringToFront();
+                    refreshDrawBar();
+                }
+            }
+            @Override public void onHistoryChanged(boolean canUndo, boolean canRedo) {
+                if (editorUndoBtn != null) editorUndoBtn.setAlpha(canUndo ? 1f : 0.35f);
+                if (editorRedoBtn != null) editorRedoBtn.setAlpha(canRedo ? 1f : 0.35f);
+            }
+        });
+        setRailIconActive(editorDrawIcon, false);
+        refreshDrawBar();
+        if (editorUndoBtn != null) editorUndoBtn.setAlpha(0.35f);
+        if (editorRedoBtn != null) editorRedoBtn.setAlpha(0.35f);
+    }
+
+    private void refreshDrawBar() {
+        if (drawingOverlay == null) return;
+        boolean eraser = drawingOverlay.isEraser();
+        for (int i = 0; i < editorSwatchBgs.size(); i++) {
+            boolean sel = !eraser && i == editorDrawColorIdx;
+            editorSwatchBgs.get(i).setStroke(sel ? dp(3) : dp(1), sel ? 0xFFFFFFFF : 0x66FFFFFF);
+        }
+        for (int i = 0; i < editorSizeBtns.size(); i++)
+            setDrawBarActive(editorSizeBtns.get(i), i == editorDrawSizeIdx);
+        if (editorEraserBtn != null) setDrawBarActive(editorEraserBtn, eraser);
     }
 
     private void onStatusEditorTool(String action, View anchor) {
@@ -863,6 +1209,10 @@ public class NewStatusActivity extends AppCompatActivity {
                     || "Restyle".equals(action) || "Effects".equals(action)
                     || "Draw".equals(action)) {
                 // ReelEditor already bakes these edits into video output.
+                if (!editorVideoToolHintShown) {
+                    editorVideoToolHintShown = true;
+                    toast("Video par text/draw/effects Reel editor me hote hain");
+                }
                 openAdvanceEditingForPickedVideo();
                 return;
             }
@@ -887,10 +1237,10 @@ public class NewStatusActivity extends AppCompatActivity {
                 showEditorTextDialog(true);
                 break;
             case "Draw":
-                editorDrawMode = !editorDrawMode;
-                if (drawingOverlay != null) drawingOverlay.setDrawEnabled(editorDrawMode);
-                if (anchor != null) anchor.setSelected(editorDrawMode);
-                toast(editorDrawMode ? "Draw mode on — photo par ungli se draw karo" : "Draw mode off");
+                if (drawingOverlay != null) {
+                    editorDrawMode = !drawingOverlay.isDrawEnabled();
+                    drawingOverlay.setDrawEnabled(editorDrawMode); // listener updates bar + icon
+                }
                 break;
             case "Save":
                 saveEditorPreviewToGallery();
@@ -904,18 +1254,176 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
+    // ── v587: text tool style state ───────────────────────────────────────
+    private int editorTextColorIdx = 0;
+    private int editorTextFontIdx = 1;   // Bold (previous fixed look)
+    private int editorTextAlignIdx = 0;  // 0 center, 1 left, 2 right
+    private int editorTextBgMode = 0;    // 0 none, 1 solid, 2 dim
+    private int editorTextSizeSp = 30;
+    private static final String[] TEXT_FONT_NAMES = {"Classic", "Bold", "Serif", "Mono", "Italic"};
+    private static final String[] TEXT_ALIGN_NAMES = {"Center", "Left", "Right"};
+    private static final String[] TEXT_BG_NAMES = {"No bg", "Solid", "Dim"};
+
+    private Typeface editorTextTypeface(int idx) {
+        switch (idx) {
+            case 0: return Typeface.create(Typeface.DEFAULT, Typeface.NORMAL);
+            case 2: return Typeface.create(Typeface.SERIF, Typeface.BOLD);
+            case 3: return Typeface.create(Typeface.MONOSPACE, Typeface.BOLD);
+            case 4: return Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC);
+            default: return Typeface.create(Typeface.DEFAULT, Typeface.BOLD);
+        }
+    }
+
+    private static boolean isLightColor(int c) {
+        return (0.299f * Color.red(c) + 0.587f * Color.green(c) + 0.114f * Color.blue(c)) / 255f > 0.6f;
+    }
+
+    /** Applies the current text style to the on-canvas overlay or the dialog's live preview. */
+    private void applyEditorTextStyle(TextView tv) {
+        int color = DRAW_COLORS[editorTextColorIdx];
+        tv.setTypeface(editorTextTypeface(editorTextFontIdx));
+        tv.setTextSize(editorTextSizeSp);
+        int hg = editorTextAlignIdx == 1 ? android.view.Gravity.START
+                : editorTextAlignIdx == 2 ? android.view.Gravity.END
+                : android.view.Gravity.CENTER_HORIZONTAL;
+        tv.setGravity(android.view.Gravity.CENTER_VERTICAL | hg);
+        if (editorTextBgMode == 1) {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(color);
+            bg.setCornerRadius(dp(10));
+            tv.setBackground(bg);
+            tv.setTextColor(isLightColor(color) ? Color.BLACK : Color.WHITE);
+            tv.setShadowLayer(0, 0, 0, 0);
+        } else if (editorTextBgMode == 2) {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0x99000000);
+            bg.setCornerRadius(dp(10));
+            tv.setBackground(bg);
+            tv.setTextColor(color);
+            tv.setShadowLayer(0, 0, 0, 0);
+        } else {
+            tv.setBackground(null);
+            tv.setTextColor(color);
+            tv.setShadowLayer(dp(4), 0, dp(2), isLightColor(color) ? Color.BLACK : Color.WHITE);
+        }
+        tv.setPadding(dp(12), dp(8), dp(12), dp(8));
+    }
+
     private void showEditorTextDialog(boolean mentionOnly) {
+        // snapshot so Cancel / back restores the previous style
+        final int sColor = editorTextColorIdx, sFont = editorTextFontIdx, sAlign = editorTextAlignIdx,
+                sBg = editorTextBgMode, sSize = editorTextSizeSp;
+        final Runnable restore = () -> {
+            editorTextColorIdx = sColor; editorTextFontIdx = sFont; editorTextAlignIdx = sAlign;
+            editorTextBgMode = sBg; editorTextSizeSp = sSize;
+        };
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable rootBg = new GradientDrawable();
+        rootBg.setColor(0xFF1A1A1A);
+        rootBg.setCornerRadius(dp(16));
+        root.setBackground(rootBg);
+
         EditText input = new EditText(this);
         input.setMinLines(2);
         input.setMaxLines(5);
         input.setHint(mentionOnly ? "@username" : "Type something");
+        input.setHintTextColor(0x88FFFFFF);
         String current = editorTextOverlay == null ? "" : editorTextOverlay.getText().toString();
         if (mentionOnly && !current.startsWith("@")) current = "";
         input.setText(current);
         input.setSelection(input.length());
-        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
+        applyEditorTextStyle(input);
+        root.addView(input, new LinearLayout.LayoutParams(-1, -2));
+
+        // colours
+        LinearLayout colors = new LinearLayout(this);
+        colors.setOrientation(LinearLayout.HORIZONTAL);
+        colors.setGravity(android.view.Gravity.CENTER);
+        final java.util.ArrayList<GradientDrawable> swatches = new java.util.ArrayList<>();
+        final Runnable refreshSwatches = () -> {
+            for (int i = 0; i < swatches.size(); i++) {
+                boolean sel = i == editorTextColorIdx;
+                swatches.get(i).setStroke(sel ? dp(3) : dp(1), sel ? 0xFFFFFFFF : 0x66FFFFFF);
+            }
+        };
+        for (int i = 0; i < DRAW_COLORS.length; i++) {
+            final int idx = i;
+            View sw = new View(this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(DRAW_COLORS[i]);
+            sw.setBackground(g);
+            swatches.add(g);
+            sw.setContentDescription("Text colour " + (i + 1));
+            sw.setOnClickListener(v -> {
+                editorTextColorIdx = idx;
+                applyEditorTextStyle(input);
+                refreshSwatches.run();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(30));
+            lp.setMargins(dp(3), dp(10), dp(3), dp(6));
+            colors.addView(sw, lp);
+        }
+        refreshSwatches.run();
+        root.addView(colors, new LinearLayout.LayoutParams(-1, -2));
+
+        // font / align / background cyclers
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        chips.setGravity(android.view.Gravity.CENTER);
+        final TextView[] chip = new TextView[3];
+        final Runnable refreshChips = () -> {
+            chip[0].setText(TEXT_FONT_NAMES[editorTextFontIdx]);
+            chip[1].setText(TEXT_ALIGN_NAMES[editorTextAlignIdx]);
+            chip[2].setText(TEXT_BG_NAMES[editorTextBgMode]);
+        };
+        chip[0] = drawBarButton("", v -> {
+            editorTextFontIdx = (editorTextFontIdx + 1) % TEXT_FONT_NAMES.length;
+            applyEditorTextStyle(input);
+            ((TextView) v).setText(TEXT_FONT_NAMES[editorTextFontIdx]);
+        });
+        chip[1] = drawBarButton("", v -> {
+            editorTextAlignIdx = (editorTextAlignIdx + 1) % TEXT_ALIGN_NAMES.length;
+            applyEditorTextStyle(input);
+            ((TextView) v).setText(TEXT_ALIGN_NAMES[editorTextAlignIdx]);
+        });
+        chip[2] = drawBarButton("", v -> {
+            editorTextBgMode = (editorTextBgMode + 1) % TEXT_BG_NAMES.length;
+            applyEditorTextStyle(input);
+            ((TextView) v).setText(TEXT_BG_NAMES[editorTextBgMode]);
+        });
+        for (TextView c : chip) {
+            setDrawBarActive(c, true);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.setMargins(dp(4), 0, dp(4), 0);
+            chips.addView(c, lp);
+        }
+        refreshChips.run();
+        root.addView(chips, new LinearLayout.LayoutParams(-1, -2));
+
+        // size
+        SeekBar size = new SeekBar(this);
+        size.setMax(40); // 16sp … 56sp
+        size.setProgress(Math.max(0, Math.min(40, editorTextSizeSp - 16)));
+        size.setContentDescription("Text size");
+        size.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                editorTextSizeSp = 16 + progress;
+                applyEditorTextStyle(input);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+        LinearLayout.LayoutParams sizeLp = new LinearLayout.LayoutParams(-1, -2);
+        sizeLp.topMargin = dp(10);
+        root.addView(size, sizeLp);
+
+        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle(mentionOnly ? "Add mention" : "Add text")
-                .setView(input)
+                .setView(root)
                 .setPositiveButton("Done", (dialog, which) -> {
                     String entered = input.getText() == null ? "" : input.getText().toString().trim();
                     if (mentionOnly && !entered.isEmpty() && !entered.startsWith("@")) entered = "@" + entered;
@@ -929,10 +1437,16 @@ public class NewStatusActivity extends AppCompatActivity {
                         } else {
                             setEditorTextOverlay(entered);
                         }
+                    } else {
+                        restore.run();
                     }
                 })
-                .setNegativeButton("Cancel", null)
-                .create());
+                .setNegativeButton("Cancel", (dialog, which) -> restore.run())
+                .setOnCancelListener(dialog -> restore.run());
+        if (editorTextOverlay != null && !mentionOnly) {
+            builder.setNeutralButton("Remove", (dialog, which) -> setEditorTextOverlay(""));
+        }
+        AlertDialogStyler.showRounded(builder.create());
     }
 
     private void setEditorTextOverlay(String text) {
@@ -944,50 +1458,110 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         if (editorTextOverlay == null) {
             editorTextOverlay = new TextView(this);
-            editorTextOverlay.setTextColor(Color.WHITE);
-            editorTextOverlay.setTextSize(30);
-            editorTextOverlay.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            editorTextOverlay.setGravity(android.view.Gravity.CENTER);
-            editorTextOverlay.setShadowLayer(dp(4), 0, dp(2), Color.BLACK);
-            editorTextOverlay.setPadding(dp(12), dp(8), dp(12), dp(8));
-            editorTextOverlay.setMaxWidth(Math.max(dp(120), stickerOverlayFrame.getWidth() - dp(105)));
             android.widget.FrameLayout.LayoutParams textLp =
                     new android.widget.FrameLayout.LayoutParams(-2, -2,
                             android.view.Gravity.CENTER);
             stickerOverlayFrame.addView(editorTextOverlay, textLp);
-            editorTextOverlay.setOnTouchListener(new View.OnTouchListener() {
-                float downX, downY;
-                @Override public boolean onTouch(View view, android.view.MotionEvent event) {
-                    switch (event.getActionMasked()) {
-                        case android.view.MotionEvent.ACTION_DOWN:
-                        {
-                            int[] parentLocation = new int[2];
-                            stickerOverlayFrame.getLocationOnScreen(parentLocation);
-                            downX = event.getRawX() - parentLocation[0] - view.getX();
-                            downY = event.getRawY() - parentLocation[1] - view.getY();
-                            return true;
-                        }
-                        case android.view.MotionEvent.ACTION_MOVE:
-                        {
-                            int[] currentParentLocation = new int[2];
-                            stickerOverlayFrame.getLocationOnScreen(currentParentLocation);
-                            view.setX(Math.max(0, Math.min(stickerOverlayFrame.getWidth() - view.getWidth(),
-                                    event.getRawX() - currentParentLocation[0] - downX)));
-                            view.setY(Math.max(0, Math.min(stickerOverlayFrame.getHeight() - view.getHeight(),
-                                    event.getRawY() - currentParentLocation[1] - downY)));
-                            return true;
-                        }
-                        case android.view.MotionEvent.ACTION_UP:
-                        case android.view.MotionEvent.ACTION_CANCEL:
-                            return true;
-                    }
-                    return true;
-                }
-            });
+            editorTextOverlay.setContentDescription("Text overlay. Tap to edit, drag to move, pinch to resize and rotate.");
+            attachEditorTextGestures(editorTextOverlay);
         }
+        editorTextOverlay.setMaxWidth(Math.max(dp(120), stickerOverlayFrame.getWidth() - dp(105)));
+        applyEditorTextStyle(editorTextOverlay);
         editorTextOverlay.setText(text);
         editorTextOverlay.setVisibility(View.VISIBLE);
         if (editorToolRail != null) editorToolRail.bringToFront();
+        if (editorDrawBar != null && editorDrawBar.getVisibility() == View.VISIBLE) editorDrawBar.bringToFront();
+    }
+
+    /** Canvas-space (parent) position of pointer i — stays stable while the view itself rotates/scales. */
+    private float[] textPointerInParent(View v, android.view.MotionEvent e, int i) {
+        float[] pt = {e.getX(i), e.getY(i)};
+        v.getMatrix().mapPoints(pt);
+        pt[0] += v.getX();
+        pt[1] += v.getY();
+        return pt;
+    }
+
+    /** One finger: drag (tap = edit). Two fingers: pinch to resize + twist to rotate. */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void attachEditorTextGestures(final TextView tv) {
+        final int slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+        final float[] startRaw = new float[2], startPos = new float[2];
+        final float[] dist0 = {1f}, scale0 = {1f}, angle0 = {0f}, rot0 = {0f};
+        final boolean[] moved = {false}, rebase = {false};
+        final long[] downAt = {0L};
+        tv.setOnTouchListener((view, ev) -> {
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    setEditorGestureScrollLock(true);
+                    startRaw[0] = ev.getRawX(); startRaw[1] = ev.getRawY();
+                    startPos[0] = view.getX();  startPos[1] = view.getY();
+                    moved[0] = false; rebase[0] = false;
+                    downAt[0] = ev.getEventTime();
+                    return true;
+                case android.view.MotionEvent.ACTION_POINTER_DOWN:
+                    setEditorGestureScrollLock(true);
+                    moved[0] = true;
+                    rebase[0] = true;
+                    if (ev.getPointerCount() >= 2) {
+                        float[] a = textPointerInParent(view, ev, 0), b = textPointerInParent(view, ev, 1);
+                        dist0[0] = Math.max(1f, (float) Math.hypot(b[0] - a[0], b[1] - a[1]));
+                        angle0[0] = (float) Math.toDegrees(Math.atan2(b[1] - a[1], b[0] - a[0]));
+                        scale0[0] = view.getScaleX();
+                        rot0[0] = view.getRotation();
+                    }
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (ev.getPointerCount() >= 2) {
+                        float[] a = textPointerInParent(view, ev, 0), b = textPointerInParent(view, ev, 1);
+                        float dist = (float) Math.hypot(b[0] - a[0], b[1] - a[1]);
+                        float angle = (float) Math.toDegrees(Math.atan2(b[1] - a[1], b[0] - a[0]));
+                        float ns = Math.max(0.4f, Math.min(4f, scale0[0] * dist / dist0[0]));
+                        view.setScaleX(ns);
+                        view.setScaleY(ns);
+                        view.setRotation(rot0[0] + (angle - angle0[0]));
+                    } else if (ev.getPointerCount() == 1) {
+                        if (rebase[0]) {
+                            startRaw[0] = ev.getRawX(); startRaw[1] = ev.getRawY();
+                            startPos[0] = view.getX();  startPos[1] = view.getY();
+                            rebase[0] = false;
+                        } else {
+                            float dx = ev.getRawX() - startRaw[0], dy = ev.getRawY() - startRaw[1];
+                            if (!moved[0] && Math.hypot(dx, dy) < slop) return true;
+                            moved[0] = true;
+                            view.setX(startPos[0] + dx);
+                            view.setY(startPos[1] + dy);
+                            clampEditorTextPosition(view);
+                        }
+                    }
+                    return true;
+                case android.view.MotionEvent.ACTION_POINTER_UP:
+                    rebase[0] = true;
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                    setEditorGestureScrollLock(false);
+                    if (!moved[0] && ev.getEventTime() - downAt[0] < 300) {
+                        view.post(() -> showEditorTextDialog(false)); // tap → edit
+                    }
+                    return true;
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    setEditorGestureScrollLock(false);
+                    return true;
+                default:
+                    return true;
+            }
+        });
+    }
+
+    /** Keep the text's centre on the canvas and out of the right-hand tool-icon column. */
+    private void clampEditorTextPosition(View v) {
+        if (stickerOverlayFrame == null) return;
+        float fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+        float cx = v.getX() + v.getWidth() / 2f, cy = v.getY() + v.getHeight() / 2f;
+        cx = Math.max(dp(24), Math.min(fw - dp(48), cx));
+        cy = Math.max(dp(24), Math.min(fh - dp(24), cy));
+        v.setX(cx - v.getWidth() / 2f);
+        v.setY(cy - v.getHeight() / 2f);
     }
 
     private void toggleAiLabel() {
@@ -1021,11 +1595,7 @@ public class NewStatusActivity extends AppCompatActivity {
         menu.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
             if ("Reset photo position".equals(title)) {
-                editorMediaScale = 1f;
-                binding.ivPreview.setScaleX(1f);
-                binding.ivPreview.setScaleY(1f);
-                binding.ivPreview.setTranslationX(0f);
-                binding.ivPreview.setTranslationY(0f);
+                resetEditorMediaTransform(true);
             } else if ("Clear drawing".equals(title) && drawingOverlay != null) {
                 drawingOverlay.clearDrawing();
             } else if ("Remove text".equals(title)) {
@@ -1132,6 +1702,7 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         }
         hideForSnapshot(stickerSizeBar, hidden, oldVisibility);
+        hideForSnapshot(editorDrawBar, hidden, oldVisibility);
         try {
             stickerOverlayFrame.draw(canvas);
         } finally {
@@ -1379,8 +1950,8 @@ public class NewStatusActivity extends AppCompatActivity {
         // previously-added one (tracked in stickerStackBottomPx) plus a fixed
         // gap, so 4 stickers end up spaced apart down the story canvas instead
         // of overlapping. User can still drag any of them afterward.
-        int gap = dp * 14;
-        lp.topMargin = (stickerStackBottomPx < 0) ? (dp * 16) : (stickerStackBottomPx + gap);
+        int gap = dp(14); // composer-only placement → exact dp (width above stays in sync with StatusViewerActivity)
+        lp.topMargin = (stickerStackBottomPx < 0) ? dp(16) : (stickerStackBottomPx + gap);
         if (replacedTopMargin >= 0) lp.topMargin = replacedTopMargin; // replaced music sticker → same spot
         stickerOverlayFrame.addView(stickerView, lp);
         if (editorToolRail != null) editorToolRail.bringToFront();
@@ -1449,17 +2020,16 @@ public class NewStatusActivity extends AppCompatActivity {
      */
     private void showStickerSizeBar(com.callx.app.stickers.StatusStickerOverlayView sticker) {
         selectedSticker = sticker;
-        int dp = (int) getResources().getDisplayMetrics().density;
 
         if (stickerSizeBar == null) {
             stickerSizeBar = new LinearLayout(this);
             stickerSizeBar.setOrientation(LinearLayout.HORIZONTAL);
             stickerSizeBar.setGravity(android.view.Gravity.CENTER);
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setCornerRadius(dp * 20);
+            bg.setCornerRadius(dp(20));
             bg.setColor(0xDD1A1A1A);
             stickerSizeBar.setBackground(bg);
-            stickerSizeBar.setPadding(dp * 6, dp * 6, dp * 6, dp * 6);
+            stickerSizeBar.setPadding(dp(6), dp(6), dp(6), dp(6));
 
             String[] labels = {"S", "M", "L"};
             float[]  scales = {
@@ -1474,8 +2044,8 @@ public class NewStatusActivity extends AppCompatActivity {
                 btn.setTextSize(14);
                 btn.setGravity(android.view.Gravity.CENTER);
                 btn.setTypeface(null, android.graphics.Typeface.BOLD);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp * 40, dp * 40);
-                lp.leftMargin = i == 0 ? 0 : dp * 4;
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(40), dp(40));
+                lp.leftMargin = i == 0 ? 0 : dp(4);
                 float scale = scales[i];
                 btn.setOnClickListener(v -> {
                     if (selectedSticker != null) selectedSticker.animateToScale(scale);
@@ -1492,9 +2062,9 @@ public class NewStatusActivity extends AppCompatActivity {
         stickerSizeBar.bringToFront();
         // Position just above the tapped sticker (falls back near the top if it doesn't fit).
         stickerSizeBar.post(() -> {
-            float top = sticker.getY() - stickerSizeBar.getHeight() - dp * 8;
+            float top = sticker.getY() - stickerSizeBar.getHeight() - dp(8);
             ((android.widget.FrameLayout.LayoutParams) stickerSizeBar.getLayoutParams()).topMargin =
-                (int) Math.max(dp * 8, top);
+                (int) Math.max(dp(8), top);
             stickerSizeBar.requestLayout();
         });
     }
@@ -1507,11 +2077,13 @@ public class NewStatusActivity extends AppCompatActivity {
         super.onPause();
         saveDraft();
         composerResumed = false;
+        syncVideoPreviewPlayback();
         pauseMusicPreview(); // (6a) never keep playing in the background
     }
     @Override protected void onResume() {
         super.onResume();
         composerResumed = true;
+        syncVideoPreviewPlayback();
         resumeMusicPreview();
     }
     // ── Toolbar ───────────────────────────────────────────────────────────
@@ -1534,6 +2106,21 @@ public class NewStatusActivity extends AppCompatActivity {
     // the binder's early-return guard), so that grid was silently dead.
     // Now we inflate feature-chat's real bottom_sheet_attach.xml (the one
     // the binder actually supports) and inject just the chip row into it.
+    /**
+     * Status flavour of the shared attach sheet: no chat-only chips (Audio file
+     * send, Document, Poll, …), no view-once (statuses are already 24h), no HD
+     * toggle (Status always posts photos at the HD tier — STATUS_PHOTO_HD).
+     */
+    private com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Config statusSheetConfig() {
+        return new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Config()
+                .hide(com.callx.app.chat.R.id.opt_document, com.callx.app.chat.R.id.opt_poll,
+                        com.callx.app.chat.R.id.opt_contact, com.callx.app.chat.R.id.opt_location,
+                        com.callx.app.chat.R.id.opt_payment, com.callx.app.chat.R.id.opt_event,
+                        com.callx.app.chat.R.id.opt_ai_images, com.callx.app.chat.R.id.opt_audio)
+                .viewOnce(false)
+                .hdToggle(false);
+    }
+
     private void showStatusAddSheet() {
         BottomSheetDialog sheet = new BottomSheetDialog(this);
         View v = getLayoutInflater().inflate(com.callx.app.chat.R.layout.bottom_sheet_attach, null);
@@ -1543,18 +2130,9 @@ public class NewStatusActivity extends AppCompatActivity {
         // row below — hide those chat-only chips from the icon grid so
         // the sheet stays focused on media, same as the old (unused)
         // openStatusAttachSheet() did.
-        int[] chatOnlyOptionIds = {
-                com.callx.app.chat.R.id.opt_document, com.callx.app.chat.R.id.opt_poll,
-                com.callx.app.chat.R.id.opt_contact, com.callx.app.chat.R.id.opt_location,
-                com.callx.app.chat.R.id.opt_payment, com.callx.app.chat.R.id.opt_event,
-                com.callx.app.chat.R.id.opt_ai_images
-        };
-        for (int id : chatOnlyOptionIds) {
-            View opt = v.findViewById(id);
-            if (opt != null) opt.setVisibility(View.GONE);
-        }
+        // (hidden through the binder's Config below — see statusSheetConfig)
         View optGallery = v.findViewById(com.callx.app.chat.R.id.opt_gallery);
-        if (optGallery != null) optGallery.setOnClickListener(x -> { sheet.dismiss(); imagePicker.launch("image/*"); });
+        if (optGallery != null) optGallery.setOnClickListener(x -> { sheet.dismiss(); launchStatusMediaPicker(); });
 
         // Inject the 5-chip action row (Text/Music/Layout/Voice/AI images)
         // right below the drag handle, above the icon grid/Recents strip —
@@ -1617,10 +2195,7 @@ public class NewStatusActivity extends AppCompatActivity {
         // and GroupChatActivity use, wired to Status's own posting/edit flow.
         com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.bind(
                 this, sheet, v, statusAttachMediaExecutor,
-                // supportsViewOnce=false — Status doesn't need this toggle
-                // (already ephemeral/24h), so hide it entirely instead of
-                // leaving a dead control sitting in the sheet.
-                false,
+                statusSheetConfig(),
                 new com.callx.app.conversation.controllers.AttachSheetRecentMediaBinder.Callbacks() {
                     @Override public void onCameraTapped() {
                         sheet.dismiss();
@@ -1628,11 +2203,11 @@ public class NewStatusActivity extends AppCompatActivity {
                     }
                     @Override public void onMoreAppsRequested() {
                         sheet.dismiss();
-                        imagePicker.launch("image/*");
+                        launchStatusMoreAppsChooser();
                     }
                     @Override public void onSeeMoreRequested() {
                         sheet.dismiss();
-                        imagePicker.launch("image/*");
+                        launchStatusMediaPicker();
                     }
                     @Override public void onMediaSend(
                             java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items,
@@ -1888,7 +2463,41 @@ public class NewStatusActivity extends AppCompatActivity {
             java.util.concurrent.Executors.newSingleThreadExecutor();
 
     // ── Media pickers (gallery) ───────────────────────────────────────────
+    private ActivityResultLauncher<androidx.activity.result.PickVisualMediaRequest> statusMediaPicker;
+    private ActivityResultLauncher<Intent> statusMoreAppsChooser;
+
+    /** Gallery / "See more": system photo picker for photos AND videos. */
+    private void launchStatusMediaPicker() {
+        statusMediaPicker.launch(new androidx.activity.result.PickVisualMediaRequest.Builder()
+                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageAndVideo.INSTANCE)
+                .build());
+    }
+
+    /** "More apps": system file chooser limited to image/video. */
+    private void launchStatusMoreAppsChooser() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        statusMoreAppsChooser.launch(Intent.createChooser(intent, "Open with"));
+    }
+
+    /** Single pick from either picker: route by MIME type to the right preview. */
+    private void handleStatusPickedUri(Uri uri) {
+        if (uri == null) return;
+        String mime = getContentResolver().getType(uri);
+        showSinglePickedPreview(uri, mime != null && mime.startsWith("video"), null);
+    }
+
     private void setupMediaPickers() {
+        statusMediaPicker = registerForActivityResult(
+                new ActivityResultContracts.PickVisualMedia(), this::handleStatusPickedUri);
+        statusMoreAppsChooser = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), r -> {
+                    if (r.getResultCode() == RESULT_OK && r.getData() != null) {
+                        handleStatusPickedUri(r.getData().getData());
+                    }
+                });
         imagePicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri == null) return;
             pickedImage = uri; pickedVideo = null;
@@ -2561,6 +3170,7 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
     private void showImagePreview(Uri uri) {
+        stopVideoPreview();
         boolean changedMedia = editorMediaUri == null || !editorMediaUri.equals(uri);
         if (changedMedia) {
             editorMediaUri = uri;
@@ -2596,11 +3206,20 @@ public class NewStatusActivity extends AppCompatActivity {
                             new StatusBlurTransformation(12)))
                     .into(editorBlurBackground);
         }
-        Glide.with(this).load(uri).fitCenter().into(binding.ivPreview);
+        // v587: decode larger than the view so pinch-zoom (up to 5x) and the 1080px export stay sharp.
+        // AT_MOST never upscales small photos; hardware bitmaps are off because renderStoryCanvas()
+        // draws into a software Canvas (hardware bitmaps throw there).
+        Glide.with(this).load(uri).fitCenter()
+                .downsample(com.bumptech.glide.load.resource.bitmap.DownsampleStrategy.AT_MOST)
+                .override(1800, 3200)
+                .disallowHardwareConfig()
+                .into(binding.ivPreview);
         binding.ivPreview.setScaleX(1f);
         binding.ivPreview.setScaleY(1f);
         binding.ivPreview.setTranslationX(0f);
         binding.ivPreview.setTranslationY(0f);
+        binding.ivPreview.setRotation(0f);
+        editorMediaRotation = 0f;
         editorMediaScale = 1f;
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
@@ -2609,6 +3228,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (editorTextOverlay != null) setEditorTextOverlay(editorTextOverlay.getText().toString());
         else if (!text.isEmpty()) setEditorTextOverlay(text);
         refreshStepPreview();
+        updateEditorRailForMedia();
         if (wizardStep == 0) showWizardStep(1);
     }
     private void showVideoPreview(Uri uri) {
@@ -2652,14 +3272,20 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivPreview.setScaleY(1f);
         binding.ivPreview.setTranslationX(0f);
         binding.ivPreview.setTranslationY(0f);
+        binding.ivPreview.setRotation(0f);
+        editorMediaRotation = 0f;
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
         sizeStoryCanvas();
         refreshStepPreview();
+        updateEditorRailForMedia();
+        startVideoPreview(uri);
         if (wizardStep == 0) showWizardStep(1);
     }
     private void discardMedia() {
         pickedImage = null; pickedVideo = null; cameraImageUri = null;
+        stopVideoPreview();
+        updateEditorRailForMedia();
         editorMediaUri = null;
         editorPhotoMode = false;
         editorMediaScale = 1f;
@@ -2690,6 +3316,8 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivPreview.setScaleY(1f);
         binding.ivPreview.setTranslationX(0f);
         binding.ivPreview.setTranslationY(0f);
+        binding.ivPreview.setRotation(0f);
+        editorMediaRotation = 0f;
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.GONE);
         binding.captionGroup.setVisibility(View.GONE);
@@ -3354,6 +3982,7 @@ public class NewStatusActivity extends AppCompatActivity {
     protected void onDestroy() {
         if (activeStepRingSpin != null) activeStepRingSpin.cancel();
         stopMusicPreview(); // (6a) release MediaPlayer + audio focus
+        stopVideoPreview(); // v589: release the editor's VideoView player
         super.onDestroy();
     }
 }

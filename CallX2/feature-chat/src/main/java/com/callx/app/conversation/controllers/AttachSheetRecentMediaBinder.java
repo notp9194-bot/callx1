@@ -1,7 +1,10 @@
 package com.callx.app.conversation.controllers;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.ViewGroup;
@@ -9,6 +12,11 @@ import android.view.ViewTreeObserver;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.app.ActivityCompat;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -54,17 +62,8 @@ public final class AttachSheetRecentMediaBinder {
 
     private static final int RECENT_MEDIA_LIMIT = 60;
     private static final int GRID_PAGE_SIZE = 60;
-    // ★ FIX (same class of bug as reel share sheet): recents_grid's XML
-    // height is a HARDCODED 560dp regardless of how many actual photos/videos
-    // exist. If the device has very few (or the folder picked has very few),
-    // the grid still forces 560dp of space — mostly empty white area below
-    // the last real row — pushing the sheet's STATE_EXPANDED height (and
-    // thus how far up it climbs) far beyond what the actual content needs.
-    // GRID_MAX_HEIGHT_DP is the CEILING (unchanged default), but the grid's
-    // actual height is now clamped to real content via
-    // adjustGridHeightForItemCount() — same computeGridContentHeightPx()-style
-    // fix already applied to ReelShareSheetFragment.
-    private static final int GRID_MAX_HEIGHT_DP = 560;
+    // Sheet sizing now lives in Layouter (grid height = real available height,
+    // not a fixed 560dp); this is only the pre-layout fallback.
     // Fraction of the sheet's collapsed→expanded drag distance over which the
     // icon grid fades out and the "Recents" header fades in. Kept short
     // (first 35% of the drag) so the crossfade finishes well before the user
@@ -74,63 +73,150 @@ public final class AttachSheetRecentMediaBinder {
     // one full row (1.0) plus half of the next row peeking out, matching the
     // reference screenshot exactly.
     private static final float PEEK_GRID_ROWS = 1.5f;
-    // ★ FIX (attach-sheet overshoot, same bug as reel share sheet): the grid
-    // height clamp below (adjustGridHeightForItemCount) only shrinks the
-    // RecyclerView itself — it does NOT, by itself, guarantee
-    // BottomSheetBehavior's STATE_EXPANDED height shrinks to match. That's
-    // trusting fitToContents() to always re-measure correctly off a
-    // requestLayout() triggered mid-session (folder switch, paged-in load),
-    // which in practice can leave the sheet's expanded offset stale — it
-    // keeps climbing to the OLD (larger) height while the grid itself is
-    // already short, showing the leftover gap as empty space with the chat
-    // screen visible behind it. reclampSheetMaxHeight() below closes that
-    // gap by computing the sheet's real total content height ourselves
-    // (topContent + grid's current height + the fixed margins/padding
-    // between them) and feeding THAT straight into behavior.setMaxHeight()
-    // — so the expanded ceiling is never larger than what's actually on
-    // screen, regardless of whether fitToContents' own re-measure kept up.
     private static final int GRID_TOP_MARGIN_DP = 14; // recents_grid's layout_marginTop
     private static final int SHEET_BOTTOM_PADDING_DP = 12; // sheet_scroll_content's paddingBottom
 
     /**
-     * ★ FIX: clamps `grid`'s height to what the CURRENT item count actually
-     * needs (rows × cellPx), capped at GRID_MAX_HEIGHT_DP — never forces
-     * more space than there is content for. Safe to call repeatedly (first
-     * page load, every paged-in append, folder switch); a no-op if the
-     * computed height hasn't changed since last call.
+     * Owns every size-related decision for the sheet so they can't drift apart:
+     *
+     *  - FILL mode (enough media to fill the screen): the grid is sized to the
+     *    REAL available height (screen ceiling − fixed top area), not a
+     *    hardcoded 560dp. While dragging up, the icon grid / "Recents" header
+     *    only crossfade (alpha, never GONE — see top_swap in the layout), and
+     *    the grid slides up by the height the icon grid frees, so the sheet's
+     *    layout height never changes mid-drag (the old GONE toggle made the
+     *    whole content jump). At STATE_EXPANDED the grid's bottom lands exactly
+     *    on the sheet's bottom.
+     *  - NON-FILL mode (few items): no crossfade, no slide — the sheet is just
+     *    as tall as its content, like before.
+     *  - Bottom padding on the grid = nav-bar/keyboard inset (+ the floating
+     *    selection bar's height while something is selected) so the last row
+     *    is never hidden behind either.
+     *  - The selection bar's bottom margin follows the nav-bar / keyboard
+     *    inset, so the caption field is never covered by the IME.
      */
-    private static void adjustGridHeightForItemCount(RecyclerView grid, int itemCount, int cellPx, int maxHeightPx) {
-        int rows = Math.max(1, (itemCount + 3) / 4); // 4-column grid, round up
-        int contentPx = rows * cellPx;
-        int targetPx = Math.min(maxHeightPx, contentPx);
-        ViewGroup.LayoutParams lp = grid.getLayoutParams();
-        if (lp.height != targetPx) {
-            lp.height = targetPx;
-            grid.setLayoutParams(lp);
-        }
-    }
+    private static final class Layouter {
+        final AppCompatActivity activity;
+        final BottomSheetDialog sheet;
+        final BottomSheetBehavior<android.widget.FrameLayout> behavior;
+        final View topContent, iconGrid, header, selectionBar;
+        final View[] belowGrid; // recents_empty / allow button — shifted together with the grid
+        final RecyclerView grid;
+        final int cellPx;
+        RecentMediaGridAdapter adapter;
+        MediaSelectionState selection;
+        int navInset, imeInset;
+        boolean fill;
+        float lastSlide;
+        private final android.view.animation.Interpolator fadeEasing =
+                new android.view.animation.DecelerateInterpolator(1.6f);
 
-    /**
-     * ★ FIX: re-derives BottomSheetBehavior's maxHeight from the sheet's
-     * REAL current content height (topContent + grid's just-clamped height
-     * + the fixed spacing between them) instead of only the screen-based
-     * ceiling from computeMaxSheetHeightPx(). Whichever is smaller wins, so
-     * this can only ever tighten the ceiling toward actual content, never
-     * loosen it — a sheet with few photos can no longer expand past what
-     * it actually shows, closing the "climbs too high, empty area reveals
-     * the chat screen underneath" gap. No-op until topContent has been
-     * measured at least once (getHeight() > 0); the screen-based ceiling
-     * from bind()/the insets listener covers that brief window instead.
-     */
-    private static void reclampSheetMaxHeight(AppCompatActivity activity, BottomSheetDialog sheet,
-                                               BottomSheetBehavior<android.widget.FrameLayout> behavior,
-                                               View topContent, RecyclerView grid) {
-        if (topContent.getHeight() <= 0) return; // not laid out yet — screen ceiling already set elsewhere
-        int spacingPx = Math.round(dpToPx(activity, GRID_TOP_MARGIN_DP + SHEET_BOTTOM_PADDING_DP));
-        int realContentPx = topContent.getHeight() + grid.getLayoutParams().height + spacingPx;
-        int screenCeilingPx = computeMaxSheetHeightPx(activity, sheet);
-        int clampedPx = screenCeilingPx > 0 ? Math.min(screenCeilingPx, realContentPx) : realContentPx;
-        if (clampedPx > 0) behavior.setMaxHeight(clampedPx);
+        Layouter(AppCompatActivity activity, BottomSheetDialog sheet,
+                 BottomSheetBehavior<android.widget.FrameLayout> behavior, View topContent,
+                 View iconGrid, View header, View selectionBar, RecyclerView grid,
+                 int cellPx, View... belowGrid) {
+            this.activity = activity; this.sheet = sheet; this.behavior = behavior;
+            this.topContent = topContent; this.iconGrid = iconGrid; this.header = header;
+            this.selectionBar = selectionBar; this.grid = grid; this.cellPx = cellPx;
+            this.belowGrid = belowGrid;
+        }
+
+        private int dp(float v) { return Math.round(dpToPx(activity, v)); }
+
+        int bottomInset() { return Math.max(navInset, imeInset); }
+
+        /** Height the icon grid frees up when it crossfades to the (shorter) header. */
+        int delta() {
+            if (iconGrid == null || header == null) return 0;
+            return Math.max(0, iconGrid.getHeight() - header.getHeight());
+        }
+
+        int gridPadBottom() {
+            int pad = bottomInset();
+            if (selection != null && !selection.isEmpty() && selectionBar != null) {
+                int barH = selectionBar.getHeight() > 0 ? selectionBar.getHeight() : dp(66);
+                pad += barH + dp(20); // bar + its top/bottom margins
+            }
+            return pad;
+        }
+
+        void setInsets(int nav, int ime) {
+            if (nav == navInset && ime == imeInset) return;
+            navInset = nav; imeInset = ime;
+            update();
+        }
+
+        void update() {
+            // Selection bar rides above the nav bar / keyboard.
+            if (selectionBar != null && selectionBar.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) selectionBar.getLayoutParams();
+                int want = dp(10) + bottomInset();
+                if (mlp.bottomMargin != want) { mlp.bottomMargin = want; selectionBar.setLayoutParams(mlp); }
+            }
+            int padB = gridPadBottom();
+            if (grid.getPaddingBottom() != padB) {
+                grid.setPadding(grid.getPaddingLeft(), grid.getPaddingTop(), grid.getPaddingRight(), padB);
+            }
+
+            int count = adapter != null ? adapter.getItemCount() : 1;
+            int rows = Math.max(1, (count + 3) / 4);
+            int needed = rows * cellPx + padB;
+            int ceiling = computeMaxSheetHeightPx(activity, sheet);
+            int top = topContent.getHeight();
+            if (top <= 0) { // not laid out yet — first real update comes from the layout listener
+                setGridHeight(Math.min(needed, dp(560)));
+                if (ceiling > 0) behavior.setMaxHeight(ceiling);
+                return;
+            }
+
+            int d = delta();
+            int spacing = dp(GRID_TOP_MARGIN_DP + SHEET_BOTTOM_PADDING_DP);
+            int maxG = ceiling > 0 ? Math.max(cellPx, ceiling + d - top - spacing) : dp(560);
+            fill = d > 0 && ceiling > 0 && needed >= maxG;
+            int g = Math.min(maxG, needed);
+            setGridHeight(g);
+
+            // FILL: expanded sheet == ceiling (grid slid up by d). NON-FILL: sheet == its content.
+            int expandedH = fill ? ceiling : top + spacing + g;
+            if (ceiling > 0) expandedH = Math.min(ceiling, expandedH);
+            behavior.setMaxHeight(expandedH);
+            behavior.setPeekHeight(Math.min(top + Math.round(cellPx * PEEK_GRID_ROWS), expandedH));
+            onSlide(lastSlide); // re-apply visuals if fill/non-fill just flipped
+        }
+
+        private void setGridHeight(int px) {
+            ViewGroup.LayoutParams lp = grid.getLayoutParams();
+            if (lp.height != px) { lp.height = px; grid.setLayoutParams(lp); }
+        }
+
+        /** Drag progress 0 (peek) … 1 (expanded). Alpha/translation only — never touches layout. */
+        void onSlide(float slideOffset) {
+            lastSlide = slideOffset;
+            float t = fill ? Math.max(0f, Math.min(1f, slideOffset)) / FADE_FRACTION : 0f;
+            t = Math.max(0f, Math.min(1f, t));
+            float eased = fadeEasing.getInterpolation(t);
+            float drift = dpToPx(activity, 14f);
+
+            if (iconGrid != null) {
+                iconGrid.setAlpha(1f - eased);
+                iconGrid.setTranslationY(-drift * eased);
+                float scale = 1f - 0.04f * eased;
+                iconGrid.setScaleX(scale);
+                iconGrid.setScaleY(scale);
+                // INVISIBLE (not GONE): keeps top_swap's height constant; still blocks taps.
+                iconGrid.setVisibility(1f - eased <= 0.02f ? View.INVISIBLE : View.VISIBLE);
+            }
+            if (header != null) {
+                header.setAlpha(eased);
+                header.setTranslationY(drift * (1f - eased));
+                header.setVisibility(eased <= 0.02f ? View.INVISIBLE : View.VISIBLE);
+            }
+            // Grid slides up into the space the icon grid freed, only once the icons are mostly gone (no overlap).
+            float shiftT = fill ? Math.max(0f, Math.min(1f, (eased - 0.4f) / 0.6f)) : 0f;
+            float shift = delta() * shiftT;
+            grid.setTranslationY(-shift);
+            for (View v : belowGrid) if (v != null) v.setTranslationY(-shift);
+        }
     }
 
     public interface Callbacks {
@@ -170,12 +256,38 @@ public final class AttachSheetRecentMediaBinder {
         void onMediaEdit(List<RecentMediaLoader.Item> items, String caption, boolean isHD);
     }
 
+    /**
+     * Per-screen knobs, so a surface configures the shared sheet instead of
+     * reaching into its views after inflate (Status used to hide 7 chip ids by
+     * hand and still showed a dead Audio chip + HD toggle).
+     * Defaults = the full chat sheet.
+     */
+    public static final class Config {
+        int[] hiddenViewIds = new int[0];
+        int maxSelection = MediaSelectionState.MAX_SELECTION;
+        boolean supportsViewOnce = true;
+        boolean showHdToggle = true;
+        int mediaTypes = RecentMediaLoader.MEDIA_ALL;
+
+        /** Views (icon-grid chips, toggles, …) to hide for this surface. */
+        public Config hide(int... viewIds) { this.hiddenViewIds = viewIds; return this; }
+        /** Max items one send/post may carry (toast shown past it). */
+        public Config maxSelection(int max) { this.maxSelection = max; return this; }
+        /** false = hide the view-once toggle (surface has no view-once pipeline). */
+        public Config viewOnce(boolean enabled) { this.supportsViewOnce = enabled; return this; }
+        /** false = hide the HD toggle (surface ignores isHD). */
+        public Config hdToggle(boolean visible) { this.showHdToggle = visible; return this; }
+        /** RecentMediaLoader.MEDIA_ALL / MEDIA_IMAGES / MEDIA_VIDEOS. */
+        public Config mediaTypes(int types) { this.mediaTypes = types; return this; }
+    }
+
     public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
                              ExecutorService mediaQueryExecutor, Callbacks callbacks) {
-        bind(activity, sheet, sheetRoot, mediaQueryExecutor, true, callbacks);
+        bind(activity, sheet, sheetRoot, mediaQueryExecutor, new Config(), callbacks);
     }
 
     /**
+     * Back-compat overload.
      * @param supportsViewOnce whether this surface has a view-once pipeline
      *        wired up on the sending side (currently 1-1 chat only — group
      *        chat has no ChatViewOnceController equivalent yet). When false,
@@ -184,6 +296,16 @@ public final class AttachSheetRecentMediaBinder {
      */
     public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
                              ExecutorService mediaQueryExecutor, boolean supportsViewOnce, Callbacks callbacks) {
+        bind(activity, sheet, sheetRoot, mediaQueryExecutor, new Config().viewOnce(supportsViewOnce), callbacks);
+    }
+
+    public static void bind(AppCompatActivity activity, BottomSheetDialog sheet, View sheetRoot,
+                             ExecutorService mediaQueryExecutor, Config config, Callbacks callbacks) {
+        final Config cfg = config != null ? config : new Config();
+        for (int id : cfg.hiddenViewIds) {
+            View hidden = sheetRoot.findViewById(id);
+            if (hidden != null) hidden.setVisibility(View.GONE);
+        }
         RecyclerView grid       = sheetRoot.findViewById(R.id.recents_grid);
         View recentsEmpty       = sheetRoot.findViewById(R.id.recents_empty);
         View topContent         = sheetRoot.findViewById(R.id.top_content);
@@ -210,7 +332,7 @@ public final class AttachSheetRecentMediaBinder {
         // this one — active = purple, idle = grey.
         final boolean[] viewOnceEnabled = {false};
         if (viewOnceToggle instanceof ImageView) {
-            if (!supportsViewOnce) {
+            if (!cfg.supportsViewOnce) {
                 viewOnceToggle.setVisibility(View.GONE);
             } else {
                 updateViewOnceToggleVisual((ImageView) viewOnceToggle, false);
@@ -241,7 +363,7 @@ public final class AttachSheetRecentMediaBinder {
             WindowCompat.setDecorFitsSystemWindows(sheet.getWindow(), false);
         }
 
-        MediaSelectionState selection = new MediaSelectionState();
+        MediaSelectionState selection = new MediaSelectionState(cfg.maxSelection);
 
         // WhatsApp-style HD toggle — OFF by default (Standard/compressed
         // send), tapping flips it ON for this sheet session so the next
@@ -249,7 +371,9 @@ public final class AttachSheetRecentMediaBinder {
         // per-open-sheet UI flag; not persisted, same as WhatsApp resets
         // it back to Standard the next time you open the attach sheet.
         final boolean[] hdEnabled = {false};
-        if (hdToggle instanceof TextView) {
+        if (hdToggle != null && !cfg.showHdToggle) {
+            hdToggle.setVisibility(View.GONE);
+        } else if (hdToggle instanceof TextView) {
             updateHdToggleVisual((TextView) hdToggle, false);
             hdToggle.setOnClickListener(x -> {
                 hdEnabled[0] = !hdEnabled[0];
@@ -259,7 +383,6 @@ public final class AttachSheetRecentMediaBinder {
 
         DisplayMetrics dm = activity.getResources().getDisplayMetrics();
         int cellPx = dm.widthPixels / 4;
-        final int gridMaxHeightPx = Math.round(dpToPx(activity, GRID_MAX_HEIGHT_DP));
 
         // ★ ROOT-CAUSE FIX: Material's internal container one level up
         // (design_bottom_sheet — the actual view BottomSheetBehavior
@@ -330,13 +453,18 @@ public final class AttachSheetRecentMediaBinder {
         // very first STATE_EXPANDED (including the tap-while-collapsed
         // case a few lines down) already uses the correct ceiling instead
         // of a stale/estimated one.
+        final Layouter[] layouterHolder = new Layouter[1];
+        // Keyboard: lets the dialog window receive IME insets (edge-to-edge dialog → no automatic resize).
+        if (sheet.getWindow() != null) {
+            sheet.getWindow().setSoftInputMode(
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
         ViewCompat.setOnApplyWindowInsetsListener(sheetRoot, (view, windowInsets) -> {
-            // ★ FIX: prefer the real-content clamp once topContent has a
-            // measured height (see reclampSheetMaxHeight) — falls back to the
-            // plain screen ceiling only for this listener's very first firing,
-            // before topContent has been laid out at all.
-            if (topContent.getHeight() > 0) {
-                reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
+            Layouter l = layouterHolder[0];
+            if (l != null) {
+                l.setInsets(windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
+                        windowInsets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
+                l.update();
             } else {
                 int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity, sheet);
                 if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
@@ -346,6 +474,12 @@ public final class AttachSheetRecentMediaBinder {
         ViewCompat.requestApplyInsets(sheetRoot);
         // --------------------------------------------------------------------
         RecentMediaGridAdapter.Listener gridListener = item -> {
+            // Cap the batch (chat + status both post one message/status per item).
+            if (!selection.isSelected(item.uri) && selection.isFull()) {
+                Toast.makeText(activity, activity.getString(R.string.attach_selection_limit,
+                        selection.maxSelection()), Toast.LENGTH_SHORT).show();
+                return;
+            }
             selection.toggle(item);
             // Tapped while the sheet is still collapsed/peeking — smoothly
             // drive it up to the full Recents view, same as if the user had
@@ -367,8 +501,13 @@ public final class AttachSheetRecentMediaBinder {
         // 560dp showing just a camera tile in a sea of empty space) and
         // avoids a brief 560dp→shrink flash before the async first page
         // load above returns.
-        adjustGridHeightForItemCount(grid, gridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
-        reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
+        final Layouter layouter = new Layouter(activity, sheet, behavior, topContent, iconGridSection,
+                expandedHeader, selectionBar, grid, cellPx, recentsEmpty,
+                sheetRoot.findViewById(R.id.btn_recents_allow));
+        layouter.adapter = gridAdapter;
+        layouter.selection = selection;
+        layouterHolder[0] = layouter;
+        layouter.update();
         grid.setHasFixedSize(true);
         grid.setItemViewCacheSize(16);
         if (grid.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
@@ -405,7 +544,10 @@ public final class AttachSheetRecentMediaBinder {
         // constructor) — this listener only has to drive the floating
         // caption/send bar, which is a cheap alpha/visibility flip, not a
         // RecyclerView rebind.
-        selection.addListener(() -> updateSelectionBar(activity, selection, selectionBar, sendCount));
+        selection.addListener(() -> {
+            updateSelectionBar(activity, selection, selectionBar, sendCount);
+            layouter.update(); // grid bottom padding follows the bar
+        });
 
         if (sendBtn != null) {
             sendBtn.setOnClickListener(x -> {
@@ -430,7 +572,12 @@ public final class AttachSheetRecentMediaBinder {
             });
         }
 
-        boolean hasPerm = hasMediaReadPermission(activity);
+        // Permission can be granted LATER from the empty state's "Allow access"
+        // button, so access is a mutable flag and everything below (first-page
+        // load, infinite scroll, folder dropdown) checks it at run time instead
+        // of being wired only if the permission happened to exist at bind().
+        final boolean[] hasAccess = {hasMediaAccess(activity)};
+        View allowBtn = sheetRoot.findViewById(R.id.btn_recents_allow);
         // Guards against firing two overlapping "load next page" queries off
         // one fast fling, and against paging forever once MediaStore is dry.
         final boolean[] loadingMore = {false};
@@ -446,14 +593,18 @@ public final class AttachSheetRecentMediaBinder {
         // MediaStore update mid-session can't introduce duplicate items on re-load.
         final java.util.Set<String> submittedUriStrings = new java.util.LinkedHashSet<>();
 
-        if (hasPerm) {
+        {
             loadFirstPageHolder[0] = () -> {
+                if (!hasAccess[0]) {
+                    showEmptyState(recentsEmpty, allowBtn, false, true);
+                    return;
+                }
                 loadingMore[0] = false;
                 noMorePages[0] = false;
                 String filterAtRequestTime = currentFilter[0];
                 mediaQueryExecutor.execute(() -> {
                     List<RecentMediaLoader.Item> items =
-                            RecentMediaLoader.loadRecentPage(activity, 0, RECENT_MEDIA_LIMIT, filterAtRequestTime);
+                            RecentMediaLoader.loadPageAfter(activity, null, RECENT_MEDIA_LIMIT, filterAtRequestTime, cfg.mediaTypes);
                     if (activity.isFinishing() || activity.isDestroyed()) return;
                     activity.runOnUiThread(() -> {
                         if (activity.isFinishing() || activity.isDestroyed()) return;
@@ -468,10 +619,9 @@ public final class AttachSheetRecentMediaBinder {
                         // ★ FIX: clamp grid height to what this page's item
                         // count actually needs — getItemCount() already
                         // accounts for the camera-tile offset internally.
-                        adjustGridHeightForItemCount(grid, finalGridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
-                        reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
+                        layouter.update();
                         grid.scrollToPosition(0);
-                        if (recentsEmpty != null) recentsEmpty.setVisibility(deduped.isEmpty() ? View.VISIBLE : View.GONE);
+                        showEmptyState(recentsEmpty, allowBtn, deduped.isEmpty(), false);
                         if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
                     });
                 });
@@ -484,18 +634,20 @@ public final class AttachSheetRecentMediaBinder {
             // WhatsApp/Telegram use instead of loading everything up front.
             grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
-                    if (dy <= 0 || loadingMore[0] || noMorePages[0]) return;
+                    if (dy <= 0 || !hasAccess[0] || loadingMore[0] || noMorePages[0]) return;
                     GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
                     if (lm == null) return;
                     int lastVisible = lm.findLastVisibleItemPosition();
                     int total = finalGridAdapter.getLoadedCount();
                     if (lastVisible >= total - 8) { // ~2 rows from the end
                         loadingMore[0] = true;
-                        int offset = total;
+                        // Keyset cursor: continue strictly after the last loaded item
+                        // instead of re-reading an ever-growing offset prefix.
+                        final RecentMediaLoader.Item lastLoaded = finalGridAdapter.getLastItem();
                         String filterAtRequestTime = currentFilter[0];
                         mediaQueryExecutor.execute(() -> {
                             List<RecentMediaLoader.Item> more =
-                                    RecentMediaLoader.loadRecentPage(activity, offset, GRID_PAGE_SIZE, filterAtRequestTime);
+                                    RecentMediaLoader.loadPageAfter(activity, lastLoaded, GRID_PAGE_SIZE, filterAtRequestTime, cfg.mediaTypes);
                             if (activity.isFinishing() || activity.isDestroyed()) return;
                             activity.runOnUiThread(() -> {
                                 if (activity.isFinishing() || activity.isDestroyed()) return;
@@ -512,12 +664,11 @@ public final class AttachSheetRecentMediaBinder {
                                     if (!deduped.isEmpty()) finalGridAdapter.append(deduped);
                                     // ★ FIX: re-clamp as more pages load in —
                                     // grows the grid's height to match the
-                                    // NEW total (still capped at gridMaxHeightPx).
+                                    // NEW total.
                                     // getItemCount() (not getLoadedCount()) —
                                     // includes the +1 camera-tile offset, same
                                     // basis the other two call sites use.
-                                    adjustGridHeightForItemCount(grid, finalGridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
-                                    reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
+                                    layouter.update();
                                     if (more.size() < GRID_PAGE_SIZE) noMorePages[0] = true;
                                 }
                             });
@@ -533,9 +684,22 @@ public final class AttachSheetRecentMediaBinder {
         // new folder (see loadFirstPageHolder). Any selection made in the old
         // folder is intentionally left as-is — WhatsApp/Telegram both keep a
         // cross-folder selection alive the same way.
-        if (recentsDropdownRow != null && hasPerm) {
-            recentsDropdownRow.setOnClickListener(x -> AttachSheetFolderPicker.showUnderAnchor(
-                    activity, recentsDropdownRow, sheetRoot, mediaQueryExecutor, currentFilter[0],
+        if (allowBtn != null) {
+            allowBtn.setOnClickListener(x -> requestMediaAccess(activity, () -> {
+                hasAccess[0] = hasMediaAccess(activity);
+                if (hasAccess[0]) {
+                    if (loadFirstPageHolder[0] != null) loadFirstPageHolder[0].run();
+                } else {
+                    Toast.makeText(activity, R.string.attach_permission_denied, Toast.LENGTH_LONG).show();
+                    // "Don't ask again" (or denied twice): the system dialog won't
+                    // show any more — send them to the app's Settings page instead.
+                    if (!shouldShowRationale(activity)) openAppSettings(activity);
+                }
+            }));
+        }
+        if (recentsDropdownRow != null) {
+            recentsDropdownRow.setOnClickListener(x -> { if (!hasAccess[0]) return; AttachSheetFolderPicker.showUnderAnchor(
+                    activity, recentsDropdownRow, sheetRoot, mediaQueryExecutor, currentFilter[0], cfg.mediaTypes,
                     folder -> {
                         if (RecentMediaLoader.ACTION_MORE_APPS.equals(folder.filterKey)) {
                             sheet.dismiss();
@@ -550,7 +714,7 @@ public final class AttachSheetRecentMediaBinder {
                         currentFilter[0] = folder.filterKey;
                         if (recentsTitle != null) recentsTitle.setText(folder.name);
                         if (loadFirstPageHolder[0] != null) loadFirstPageHolder[0].run();
-                    }));
+                    }); });
         }
 
         // Peek height = top_content (drag handle + icon grid) PLUS
@@ -559,7 +723,6 @@ public final class AttachSheetRecentMediaBinder {
         // tile, and one full row of recent thumbnails with the next row
         // peeking out half-cut, matching the reference screenshot. Dragging
         // up past that reveals the rest of the grid (and pages in more).
-        final int peekGridPx = Math.round(cellPx * PEEK_GRID_ROWS);
         topContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override public void onGlobalLayout() {
                 if (topContent.getHeight() > 0) {
@@ -577,23 +740,8 @@ public final class AttachSheetRecentMediaBinder {
                     // first, so the refined ceiling is fully committed as its
                     // own clean frame before the sheet can respond to a gesture.
                     topContent.post(() -> {
-                        // ★ FIX: real-content clamp (see reclampSheetMaxHeight) takes
-                        // over from here — it can only be tighter than, never looser
-                        // than, the screen-based ceiling this used to set alone.
-                        reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
-
+                        layouter.update(); // maxHeight + peek from the real measured sizes
                         behavior.setSkipCollapsed(false);
-                        // ★ FIX: peek can't ask for more than the sheet's real total
-                        // content height either — with very few thumbnails the grid
-                        // itself may be shorter than PEEK_GRID_ROWS worth of rows, and
-                        // requesting a peek taller than the actual content produced the
-                        // same "empty area / chat screen peeking through" symptom at
-                        // the COLLAPSED state that the maxHeight clamp fixes for
-                        // STATE_EXPANDED.
-                        int spacingPx = Math.round(dpToPx(activity, GRID_TOP_MARGIN_DP + SHEET_BOTTOM_PADDING_DP));
-                        int realContentPx = topContent.getHeight() + grid.getLayoutParams().height + spacingPx;
-                        int desiredPeekPx = topContent.getHeight() + peekGridPx;
-                        behavior.setPeekHeight(Math.min(desiredPeekPx, realContentPx));
                         behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
                     });
                 }
@@ -615,33 +763,12 @@ public final class AttachSheetRecentMediaBinder {
         // scale on both layers (icon grid drifts up/shrinks slightly as it
         // leaves, header settles down/in as it arrives) — same idea as
         // Telegram's attach-sheet header swap, not just an opacity dissolve.
-        final android.view.animation.Interpolator fadeEasing = new android.view.animation.DecelerateInterpolator(1.6f);
-        final float driftPx = dpToPx(activity, 14f);
-
         if (iconGridSection != null || expandedHeader != null) {
             behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
                 @Override public void onStateChanged(@androidx.annotation.NonNull View bs, int newState) {}
 
                 @Override public void onSlide(@androidx.annotation.NonNull View bs, float slideOffset) {
-                    float t = Math.max(0f, Math.min(1f, slideOffset)) / FADE_FRACTION;
-                    t = Math.max(0f, Math.min(1f, t));
-                    float eased = fadeEasing.getInterpolation(t);
-                    float fadeOut = 1f - eased;
-                    float fadeIn  = eased;
-
-                    if (iconGridSection != null) {
-                        iconGridSection.setAlpha(fadeOut);
-                        iconGridSection.setTranslationY(-driftPx * eased);
-                        float scale = 1f - 0.04f * eased;
-                        iconGridSection.setScaleX(scale);
-                        iconGridSection.setScaleY(scale);
-                        iconGridSection.setVisibility(fadeOut <= 0.02f ? View.GONE : View.VISIBLE);
-                    }
-                    if (expandedHeader != null) {
-                        expandedHeader.setAlpha(fadeIn);
-                        expandedHeader.setTranslationY(driftPx * (1f - eased));
-                        expandedHeader.setVisibility(fadeIn <= 0.02f ? View.GONE : View.VISIBLE);
-                    }
+                    layouter.onSlide(slideOffset);
                 }
             });
         }
@@ -769,10 +896,79 @@ public final class AttachSheetRecentMediaBinder {
                 : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
     }
 
-    private static boolean hasMediaReadPermission(AppCompatActivity activity) {
-        String perm = android.os.Build.VERSION.SDK_INT >= 33
-                ? Manifest.permission.READ_MEDIA_IMAGES
-                : Manifest.permission.READ_EXTERNAL_STORAGE;
-        return ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED;
+    /** Permissions that unlock the Recents grid on this Android version. */
+    private static String[] mediaPermissions() {
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            return new String[]{Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"};
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            return new String[]{Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VIDEO};
+        }
+        return new String[]{Manifest.permission.READ_EXTERNAL_STORAGE};
+    }
+
+    /**
+     * True if ANY media access is granted — images, videos, or Android 14's
+     * "selected photos" (READ_MEDIA_VISUAL_USER_SELECTED, where MediaStore
+     * returns just the items the user picked). Images and videos are queried
+     * from separate tables, so one granted type is enough to show something;
+     * the denied table just throws SecurityException which the loader catches.
+     */
+    private static boolean hasMediaAccess(AppCompatActivity activity) {
+        for (String perm : mediaPermissions()) {
+            if (ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean shouldShowRationale(AppCompatActivity activity) {
+        for (String perm : mediaPermissions()) {
+            if (ActivityCompat.shouldShowRequestPermissionRationale(activity, perm)) return true;
+        }
+        return false;
+    }
+
+    private static void openAppSettings(AppCompatActivity activity) {
+        try {
+            activity.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", activity.getPackageName(), null)));
+        } catch (Exception ignored) { /* no settings activity — toast already explains */ }
+    }
+
+    /**
+     * Asks for the media permissions from inside an already-open sheet.
+     * registerForActivityResult() must normally run before the Activity is
+     * STARTED, which is long past by the time a sheet opens, so this goes
+     * through the registry directly (and unregisters itself after one result).
+     */
+    private static void requestMediaAccess(AppCompatActivity activity, Runnable onResult) {
+        final String key = "attach_sheet_media_perm_" + System.nanoTime();
+        final ActivityResultLauncher<String[]>[] holder = new ActivityResultLauncher[1];
+        holder[0] = activity.getActivityResultRegistry().register(key,
+                new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                    if (holder[0] != null) holder[0].unregister();
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
+                    onResult.run();
+                });
+        holder[0].launch(mediaPermissions());
+    }
+
+    /**
+     * Empty-state text + "Allow access" button.
+     * @param noMedia  access is fine but this folder/device has nothing to show
+     * @param noAccess permission missing — show the permission message + button
+     */
+    private static void showEmptyState(View emptyView, View allowBtn, boolean noMedia, boolean noAccess) {
+        if (emptyView instanceof TextView) {
+            ((TextView) emptyView).setText(noAccess ? R.string.attach_empty_no_permission
+                                                     : R.string.attach_empty_no_media);
+        }
+        if (emptyView != null) emptyView.setVisibility(noMedia || noAccess ? View.VISIBLE : View.GONE);
+        if (allowBtn != null) allowBtn.setVisibility(noAccess ? View.VISIBLE : View.GONE);
     }
 }
