@@ -15,4 +15,11 @@
     <color name="qa_card_light">#FFFFFF</color>
     <color name="qa_ring_status">#25D366</color>
     <color name="member_menu_destructive">#EF4444</color>
+
+    <!-- Attach sheet (Recents grid): theme-aware — dark values live in values-night. -->
+    <color name="attach_grid_line">#E2E5EA</color>
+    <color name="attach_thumb_placeholder">#E4E7EC</color>
+    <color name="attach_fast_scroll_thumb">#88000000</color>
+    <color name="attach_icon_idle">#8A8A8A</color>
+    <color name="attach_view_once_active">#6200EE</color>
 </resources>

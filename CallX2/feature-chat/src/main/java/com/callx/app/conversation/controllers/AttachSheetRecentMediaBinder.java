@@ -42,15 +42,14 @@ import java.util.concurrent.ExecutorService;
  * the sheet up reveals the rest.
  *
  * Tapping a thumbnail toggles a numbered multi-select (MediaSelectionState),
- * same as WhatsApp/Telegram. Tapping a thumbnail while the sheet is still
- * collapsed/peeking additionally drives the sheet straight to
- * STATE_EXPANDED so the just-picked item lands in full view still marked
- * selected — riding the exact same eased crossfade the drag gesture
- * already uses (BottomSheetBehavior animates programmatic setState() calls
- * the same way it animates a released drag), so the transition is smooth
- * rather than an instant cut. A floating caption/send bar (selection_bar)
- * appears once anything is selected and fires Callbacks#onMediaSend with
- * the full ordered selection.
+ * same as WhatsApp/Telegram. A tap no longer forces the sheet open: the
+ * caption/send bar (selection_bar) is pinned to the visible bottom edge
+ * even while the sheet is collapsed, and the sheet only expands when the
+ * user drags it or scrolls the grid. Once expanded, a strip of everything
+ * picked (across folders) shows above the caption field; long-pressing a
+ * thumbnail opens a larger preview; the grid has a fast-scroller and a
+ * floating month chip while scrolling. The bar fires Callbacks#onMediaSend
+ * with the full ordered selection.
  *
  * Both ChatMediaController (1-1 chat) and GroupChatActivity (group chat)
  * inflate the same bottom_sheet_attach.xml, so this is a single shared
@@ -102,7 +101,26 @@ public final class AttachSheetRecentMediaBinder {
         final View topContent, iconGrid, header, selectionBar;
         final View[] belowGrid; // recents_empty / allow button — shifted together with the grid
         final RecyclerView grid;
-        final int cellPx;
+        int cellPx;
+        int cols = 4;
+        GridLayoutManager gridLm;
+        int[] preloadSize;
+        View sheetRoot, dateChip;
+        RecyclerView strip;
+        SelectedPreviewStripAdapter stripAdapter;
+        boolean collapsed = true;
+        int lastStripCount;
+        int chipFirstPos = -2;
+        String chipLabel = "";
+        final java.text.SimpleDateFormat monthFmt;
+        final Runnable hideChip = new Runnable() {
+            @Override public void run() {
+                if (dateChip == null) return;
+                dateChip.animate().alpha(0f).setDuration(220).withEndAction(() -> {
+                    if (dateChip.getAlpha() <= 0.01f) dateChip.setVisibility(View.INVISIBLE);
+                }).start();
+            }
+        };
         RecentMediaGridAdapter adapter;
         MediaSelectionState selection;
         int navInset, imeInset;
@@ -119,9 +137,105 @@ public final class AttachSheetRecentMediaBinder {
             this.topContent = topContent; this.iconGrid = iconGrid; this.header = header;
             this.selectionBar = selectionBar; this.grid = grid; this.cellPx = cellPx;
             this.belowGrid = belowGrid;
+            java.util.Locale loc = java.util.Locale.getDefault();
+            this.monthFmt = new java.text.SimpleDateFormat(
+                    android.text.format.DateFormat.getBestDateTimePattern(loc, "MMMM yyyy"), loc);
         }
 
-        private int dp(float v) { return Math.round(dpToPx(activity, v)); }
+        /**
+         * Columns follow the real grid width (rotation, tablets, split-screen) instead of a fixed
+         * 4: ~90dp per cell, never fewer than 4. Cell = usable width / columns, so the grid always
+         * fills edge to edge. No-op when nothing changed, so the layout-change hook can't loop.
+         */
+        void applyColumns(int usableWidthPx) {
+            if (usableWidthPx <= 0) return;
+            int c = Math.max(4, usableWidthPx / dp(90));
+            int cell = usableWidthPx / c;
+            if (c == cols && cell == cellPx) return;
+            cols = c;
+            cellPx = cell;
+            if (gridLm != null) gridLm.setSpanCount(c);
+            if (adapter != null) adapter.setCellSize(cell);
+            if (preloadSize != null) { preloadSize[0] = cell; preloadSize[1] = cell; }
+            update();
+        }
+
+        /** Bar height incl. the preview strip when it is (about to be) shown. */
+        private int barHeight() {
+            int h = selectionBar != null ? selectionBar.getHeight() : 0;
+            if (h > 0) return h;
+            return dp(66) + (strip != null && strip.getVisibility() == View.VISIBLE ? dp(60) : 0);
+        }
+
+        /**
+         * Keeps the caption/send bar on the VISIBLE bottom edge. The bar is laid out at the
+         * sheet's bottom, which is off-screen while the sheet is collapsed; translation (no
+         * relayout) lifts it by exactly the hidden part, so a tap can select without expanding.
+         */
+        void pinBar() {
+            if (selectionBar == null || sheetRoot == null) return;
+            View container = (View) sheetRoot.getParent();
+            if (container == null || !(container.getParent() instanceof View)) return;
+            int parentH = ((View) container.getParent()).getHeight();
+            if (parentH <= 0) return;
+            int sheetBottom = container.getTop() + sheetRoot.getBottom();
+            selectionBar.setTranslationY(Math.min(0, parentH - sheetBottom));
+        }
+
+        /** Preview strip shows only outside the collapsed peek (it would cover the grid there). */
+        void refreshStrip() {
+            if (strip == null || stripAdapter == null || selection == null) return;
+            boolean want = !selection.isEmpty() && !collapsed;
+            int vis = want ? View.VISIBLE : View.GONE;
+            boolean flipped = strip.getVisibility() != vis;
+            if (flipped) strip.setVisibility(vis);
+            if (want) {
+                java.util.List<RecentMediaLoader.Item> now = selection.items();
+                stripAdapter.submit(now);
+                if (now.size() > lastStripCount) strip.scrollToPosition(now.size() - 1);
+                lastStripCount = now.size();
+            } else if (selection.isEmpty()) {
+                lastStripCount = 0;
+            }
+            if (flipped && selectionBar != null) selectionBar.post(this::update); // bar height changed
+        }
+
+        void onStateChanged(int newState) {
+            boolean nowCollapsed = newState == BottomSheetBehavior.STATE_COLLAPSED;
+            if (nowCollapsed == collapsed) return;
+            collapsed = nowCollapsed;
+            refreshStrip();
+            pinBar();
+        }
+
+        /** Floating month label while the grid scrolls (first visible media item's month). */
+        void onGridScrolled(RecyclerView rv, int dy) {
+            if (dateChip == null || adapter == null || dy == 0) return;
+            GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
+            if (lm == null) return;
+            int first = lm.findFirstVisibleItemPosition();
+            if (first == RecyclerView.NO_POSITION) return;
+            if (first != chipFirstPos) {
+                chipFirstPos = first;
+                RecentMediaLoader.Item it = adapter.itemAt(first);
+                if (it == null) it = adapter.itemAt(first + 1); // position 0 is the camera tile
+                if (it != null && it.dateAddedSec > 0) {
+                    String label = monthFmt.format(new java.util.Date(it.dateAddedSec * 1000L));
+                    if (!label.equals(chipLabel)) {
+                        chipLabel = label;
+                        ((android.widget.TextView) dateChip).setText(label);
+                    }
+                }
+            }
+            if (chipLabel.isEmpty()) return;
+            dateChip.setTranslationY(grid.getTop() + grid.getTranslationY() + dp(8));
+            dateChip.removeCallbacks(hideChip);
+            if (dateChip.getVisibility() != View.VISIBLE) dateChip.setVisibility(View.VISIBLE);
+            if (dateChip.getAlpha() < 1f) dateChip.animate().alpha(1f).setDuration(120).withEndAction(null).start();
+            dateChip.postDelayed(hideChip, 900);
+        }
+
+        int dp(float v) { return Math.round(dpToPx(activity, v)); }
 
         int bottomInset() { return Math.max(navInset, imeInset); }
 
@@ -134,8 +248,7 @@ public final class AttachSheetRecentMediaBinder {
         int gridPadBottom() {
             int pad = bottomInset();
             if (selection != null && !selection.isEmpty() && selectionBar != null) {
-                int barH = selectionBar.getHeight() > 0 ? selectionBar.getHeight() : dp(66);
-                pad += barH + dp(20); // bar + its top/bottom margins
+                pad += barHeight() + dp(20); // bar + its top/bottom margins
             }
             return pad;
         }
@@ -159,7 +272,7 @@ public final class AttachSheetRecentMediaBinder {
             }
 
             int count = adapter != null ? adapter.getItemCount() : 1;
-            int rows = Math.max(1, (count + 3) / 4);
+            int rows = Math.max(1, (count + cols - 1) / cols);
             int needed = rows * cellPx + padB;
             int ceiling = computeMaxSheetHeightPx(activity, sheet);
             int top = topContent.getHeight();
@@ -182,6 +295,7 @@ public final class AttachSheetRecentMediaBinder {
             behavior.setMaxHeight(expandedH);
             behavior.setPeekHeight(Math.min(top + Math.round(cellPx * PEEK_GRID_ROWS), expandedH));
             onSlide(lastSlide); // re-apply visuals if fill/non-fill just flipped
+            pinBar();
         }
 
         private void setGridHeight(int px) {
@@ -216,6 +330,7 @@ public final class AttachSheetRecentMediaBinder {
             float shift = delta() * shiftT;
             grid.setTranslationY(-shift);
             for (View v : belowGrid) if (v != null) v.setTranslationY(-shift);
+            pinBar();
         }
     }
 
@@ -317,6 +432,8 @@ public final class AttachSheetRecentMediaBinder {
         View sendBtn            = sheetRoot.findViewById(R.id.btn_selection_send);
         TextView sendCount      = sheetRoot.findViewById(R.id.selection_send_count);
         View editBtn            = sheetRoot.findViewById(R.id.btn_selection_edit);
+        RecyclerView selectionStrip = sheetRoot.findViewById(R.id.selection_strip);
+        View dateChip           = sheetRoot.findViewById(R.id.recents_date_chip);
         if (grid == null || topContent == null) return; // older/replaced layout — skip silently
 
         View hdToggle           = sheetRoot.findViewById(R.id.btn_hd_toggle);
@@ -474,26 +591,16 @@ public final class AttachSheetRecentMediaBinder {
         ViewCompat.requestApplyInsets(sheetRoot);
         // --------------------------------------------------------------------
         RecentMediaGridAdapter.Listener gridListener = item -> {
-            // Cap the batch (chat + status both post one message/status per item).
-            if (!selection.isSelected(item.uri) && selection.isFull()) {
-                Toast.makeText(activity, activity.getString(R.string.attach_selection_limit,
-                        selection.maxSelection()), Toast.LENGTH_SHORT).show();
-                return;
-            }
-            selection.toggle(item);
-            // Tapped while the sheet is still collapsed/peeking — smoothly
-            // drive it up to the full Recents view, same as if the user had
-            // dragged it, so the pick just made opens out into the expanded
-            // grid instead of just sitting half-cut at the peek line. The
-            // item stays selected across the move.
-            if (behavior.getState() != BottomSheetBehavior.STATE_EXPANDED) {
-                behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-            }
+            // No auto-expand: the selection bar is pinned to the visible bottom
+            // (Layouter#pinBar), so the sheet stays where the user left it and only
+            // opens on drag / grid scroll.
+            toggleWithLimit(activity, selection, item);
         };
         RecentMediaGridAdapter.CameraListener cameraListener = callbacks::onCameraTapped;
         RecentMediaGridAdapter gridAdapter = new RecentMediaGridAdapter(
                 activity, gridListener, cameraListener, selection, cellPx);
-        grid.setLayoutManager(new GridLayoutManager(activity, 4));
+        final GridLayoutManager gridLm = new GridLayoutManager(activity, 4);
+        grid.setLayoutManager(gridLm);
         grid.setAdapter(gridAdapter);
         // ★ FIX: clamp immediately off the adapter's initial state too —
         // covers the no-media-permission case (grid never gets a submit()
@@ -506,6 +613,31 @@ public final class AttachSheetRecentMediaBinder {
                 sheetRoot.findViewById(R.id.btn_recents_allow));
         layouter.adapter = gridAdapter;
         layouter.selection = selection;
+        layouter.sheetRoot = sheetRoot;
+        layouter.gridLm = gridLm;
+        layouter.dateChip = dateChip instanceof TextView ? dateChip : null;
+        if (selectionStrip != null) {
+            SelectedPreviewStripAdapter stripAdapter = new SelectedPreviewStripAdapter(
+                    layouter.dp(52), item -> selection.toggle(item));
+            selectionStrip.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(
+                    activity, androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false));
+            selectionStrip.setAdapter(stripAdapter);
+            selectionStrip.setItemAnimator(null);
+            layouter.strip = selectionStrip;
+            layouter.stripAdapter = stripAdapter;
+        }
+        // Keeps the bar on the visible edge when the sheet is re-laid out (peek/max height changes).
+        sheetRoot.addOnLayoutChangeListener((view0, l0, t0, r0, b0, ol0, ot0, or0, ob0) -> layouter.pinBar());
+        gridAdapter.setLongPressListener(item -> showMediaPreview(activity, selection, item));
+        grid.addOnLayoutChangeListener((view1, l1, t1, r1, b1, ol1, ot1, or1, ob1) -> {
+            final int usable = grid.getWidth() - grid.getPaddingLeft() - grid.getPaddingRight();
+            if (usable > 0 && (r1 - l1 != or1 - ol1)) grid.post(() -> layouter.applyColumns(usable));
+        });
+        // The partial-access banner (and anything else in top_content) changes its height:
+        // re-derive peek/grid sizes once that layout has settled.
+        topContent.addOnLayoutChangeListener((view2, l2, t2, r2, b2, ol2, ot2, or2, ob2) -> {
+            if ((b2 - t2) != (ob2 - ot2) && (ob2 - ot2) > 0) topContent.post(layouter::update);
+        });
         layouterHolder[0] = layouter;
         layouter.update();
         grid.setHasFixedSize(true);
@@ -528,6 +660,7 @@ public final class AttachSheetRecentMediaBinder {
         // implement PreloadSizeProvider ourselves — same fix already
         // applied in core/ChatMediaPreloader.java.
         final int[] preloadCellSize = new int[]{cellPx, cellPx};
+        layouter.preloadSize = preloadCellSize;
         com.bumptech.glide.ListPreloader.PreloadSizeProvider<android.net.Uri> preloadSizeProvider =
                 (item, adapterPosition, perItemPosition) -> preloadCellSize;
         com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader<android.net.Uri> preloader =
@@ -537,6 +670,11 @@ public final class AttachSheetRecentMediaBinder {
                         preloadSizeProvider,
                         12);
         grid.addOnScrollListener(preloader);
+        grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
+                layouter.onGridScrolled(rv, dy);
+            }
+        });
         RecentMediaGridAdapter finalGridAdapter = gridAdapter;
 
         // Grid keeps itself in sync via MediaSelectionState.ToggleListener
@@ -546,6 +684,7 @@ public final class AttachSheetRecentMediaBinder {
         // RecyclerView rebind.
         selection.addListener(() -> {
             updateSelectionBar(activity, selection, selectionBar, sendCount);
+            layouter.refreshStrip();
             layouter.update(); // grid bottom padding follows the bar
         });
 
@@ -561,7 +700,7 @@ public final class AttachSheetRecentMediaBinder {
         }
 
         if (editBtn instanceof ImageView) {
-            ((ImageView) editBtn).setColorFilter(android.graphics.Color.parseColor("#FF8A8A8A"));
+            ((ImageView) editBtn).setColorFilter(ContextCompat.getColor(activity, R.color.attach_icon_idle));
             editBtn.setOnClickListener(x -> {
                 if (selection.isEmpty()) return;
                 List<RecentMediaLoader.Item> items = selection.items();
@@ -578,6 +717,47 @@ public final class AttachSheetRecentMediaBinder {
         // of being wired only if the permission happened to exist at bind().
         final boolean[] hasAccess = {hasMediaAccess(activity)};
         View allowBtn = sheetRoot.findViewById(R.id.btn_recents_allow);
+        // Android 14 "selected photos only": show a banner that re-opens the system picker.
+        final View partialBanner = sheetRoot.findViewById(R.id.recents_partial_banner);
+        final Runnable refreshPartialBanner = () -> {
+            if (partialBanner != null) {
+                partialBanner.setVisibility(hasAccess[0] && isPartialAccess(activity) ? View.VISIBLE : View.GONE);
+            }
+        };
+        // Folder list: warmed in the background after the first page, cached, and invalidated
+        // by a MediaStore observer — opening "Recents ▾" no longer rescans the whole library.
+        final java.util.concurrent.atomic.AtomicReference<List<RecentMediaLoader.Folder>> folderCache =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicBoolean folderDirty =
+                new java.util.concurrent.atomic.AtomicBoolean(true);
+        final Runnable warmFolders = () -> {
+            if (!hasAccess[0]) return;
+            mediaQueryExecutor.execute(() -> {
+                if (activity.isFinishing() || activity.isDestroyed()) return;
+                folderDirty.set(false); // cleared BEFORE loading: a change during the load re-dirties it
+                folderCache.set(RecentMediaLoader.loadFolders(activity, cfg.mediaTypes));
+            });
+        };
+        final android.database.ContentObserver mediaObserver = new android.database.ContentObserver(
+                new android.os.Handler(android.os.Looper.getMainLooper())) {
+            @Override public void onChange(boolean selfChange) { folderDirty.set(true); }
+        };
+        final Runnable registerObserver = () -> {
+            try {
+                activity.getContentResolver().registerContentObserver(
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, mediaObserver);
+                activity.getContentResolver().registerContentObserver(
+                        android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, mediaObserver);
+            } catch (Exception ignored) { /* no access yet — folders just reload on demand */ }
+        };
+        sheetRoot.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) { registerObserver.run(); }
+            @Override public void onViewDetachedFromWindow(View v) {
+                try { activity.getContentResolver().unregisterContentObserver(mediaObserver); }
+                catch (Exception ignored) { }
+            }
+        });
+        if (sheetRoot.isAttachedToWindow()) registerObserver.run();
         // Guards against firing two overlapping "load next page" queries off
         // one fast fling, and against paging forever once MediaStore is dry.
         final boolean[] loadingMore = {false};
@@ -596,6 +776,7 @@ public final class AttachSheetRecentMediaBinder {
         {
             loadFirstPageHolder[0] = () -> {
                 if (!hasAccess[0]) {
+                    grid.setAlpha(1f);
                     showEmptyState(recentsEmpty, allowBtn, false, true);
                     return;
                 }
@@ -616,13 +797,18 @@ public final class AttachSheetRecentMediaBinder {
                             if (submittedUriStrings.add(item.uri.toString())) deduped.add(item);
                         }
                         finalGridAdapter.submit(deduped);
+                        layouter.chipFirstPos = -2; // force the month chip to re-read after a swap
                         // ★ FIX: clamp grid height to what this page's item
                         // count actually needs — getItemCount() already
                         // accounts for the camera-tile offset internally.
                         layouter.update();
                         grid.scrollToPosition(0);
+                        // Folder switch: fade the new page in (it was faded out when picked).
+                        if (grid.getAlpha() < 1f) grid.animate().alpha(1f).setDuration(180).start();
                         showEmptyState(recentsEmpty, allowBtn, deduped.isEmpty(), false);
                         if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
+                        refreshPartialBanner.run();
+                        if (folderCache.get() == null || folderDirty.get()) warmFolders.run();
                     });
                 });
             };
@@ -639,7 +825,7 @@ public final class AttachSheetRecentMediaBinder {
                     if (lm == null) return;
                     int lastVisible = lm.findLastVisibleItemPosition();
                     int total = finalGridAdapter.getLoadedCount();
-                    if (lastVisible >= total - 8) { // ~2 rows from the end
+                    if (lastVisible >= total - layouter.cols * 2) { // ~2 rows from the end
                         loadingMore[0] = true;
                         // Keyset cursor: continue strictly after the last loaded item
                         // instead of re-reading an ever-growing offset prefix.
@@ -687,6 +873,8 @@ public final class AttachSheetRecentMediaBinder {
         if (allowBtn != null) {
             allowBtn.setOnClickListener(x -> requestMediaAccess(activity, () -> {
                 hasAccess[0] = hasMediaAccess(activity);
+                refreshPartialBanner.run();
+                folderDirty.set(true);
                 if (hasAccess[0]) {
                     if (loadFirstPageHolder[0] != null) loadFirstPageHolder[0].run();
                 } else {
@@ -697,24 +885,57 @@ public final class AttachSheetRecentMediaBinder {
                 }
             }));
         }
+        if (partialBanner != null) {
+            refreshPartialBanner.run();
+            partialBanner.setOnClickListener(x -> requestMediaAccess(activity, () -> {
+                hasAccess[0] = hasMediaAccess(activity);
+                refreshPartialBanner.run();
+                folderDirty.set(true);
+                if (hasAccess[0] && loadFirstPageHolder[0] != null) loadFirstPageHolder[0].run();
+            }));
+        }
         if (recentsDropdownRow != null) {
-            recentsDropdownRow.setOnClickListener(x -> { if (!hasAccess[0]) return; AttachSheetFolderPicker.showUnderAnchor(
-                    activity, recentsDropdownRow, sheetRoot, mediaQueryExecutor, currentFilter[0], cfg.mediaTypes,
-                    folder -> {
-                        if (RecentMediaLoader.ACTION_MORE_APPS.equals(folder.filterKey)) {
-                            sheet.dismiss();
-                            callbacks.onMoreAppsRequested();
-                            return;
-                        }
-                        if (RecentMediaLoader.ACTION_SEE_MORE.equals(folder.filterKey)) {
-                            sheet.dismiss();
-                            callbacks.onSeeMoreRequested();
-                            return;
-                        }
-                        currentFilter[0] = folder.filterKey;
-                        if (recentsTitle != null) recentsTitle.setText(folder.name);
-                        if (loadFirstPageHolder[0] != null) loadFirstPageHolder[0].run();
-                    }); });
+            final AttachSheetFolderPicker.OnFolderSelected folderPicked = folder -> {
+                if (RecentMediaLoader.ACTION_MORE_APPS.equals(folder.filterKey)) {
+                    sheet.dismiss();
+                    callbacks.onMoreAppsRequested();
+                    return;
+                }
+                if (RecentMediaLoader.ACTION_SEE_MORE.equals(folder.filterKey)) {
+                    sheet.dismiss();
+                    callbacks.onSeeMoreRequested();
+                    return;
+                }
+                if (java.util.Objects.equals(folder.filterKey, currentFilter[0])) return; // same folder
+                currentFilter[0] = folder.filterKey;
+                if (recentsTitle != null) recentsTitle.setText(folder.name);
+                // Fade the old folder out, new page fades back in (see first-page load).
+                // Selection stays across folders and is visible in the selection bar's strip.
+                grid.animate().alpha(0.15f).setDuration(90).start();
+                // Safety net: never leave the grid faded if the page load never lands.
+                grid.postDelayed(() -> { if (grid.getAlpha() < 1f) grid.animate().alpha(1f).setDuration(150).start(); }, 2000);
+                if (loadFirstPageHolder[0] != null) loadFirstPageHolder[0].run();
+            };
+            recentsDropdownRow.setOnClickListener(x -> {
+                if (!hasAccess[0]) return;
+                List<RecentMediaLoader.Folder> cached = folderCache.get();
+                if (cached != null && !folderDirty.get()) {
+                    AttachSheetFolderPicker.showLoaded(activity, recentsDropdownRow, sheetRoot,
+                            cached, currentFilter[0], folderPicked);
+                    return;
+                }
+                mediaQueryExecutor.execute(() -> {
+                    folderDirty.set(false);
+                    List<RecentMediaLoader.Folder> fresh = RecentMediaLoader.loadFolders(activity, cfg.mediaTypes);
+                    folderCache.set(fresh);
+                    if (activity.isFinishing() || activity.isDestroyed()) return;
+                    activity.runOnUiThread(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed()) return;
+                        AttachSheetFolderPicker.showLoaded(activity, recentsDropdownRow, sheetRoot,
+                                fresh, currentFilter[0], folderPicked);
+                    });
+                });
+            });
         }
 
         // Peek height = top_content (drag handle + icon grid) PLUS
@@ -763,18 +984,87 @@ public final class AttachSheetRecentMediaBinder {
         // scale on both layers (icon grid drifts up/shrinks slightly as it
         // leaves, header settles down/in as it arrives) — same idea as
         // Telegram's attach-sheet header swap, not just an opacity dissolve.
-        if (iconGridSection != null || expandedHeader != null) {
-            behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
-                @Override public void onStateChanged(@androidx.annotation.NonNull View bs, int newState) {}
+        behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+            @Override public void onStateChanged(@androidx.annotation.NonNull View bs, int newState) {
+                layouter.onStateChanged(newState);
+            }
 
-                @Override public void onSlide(@androidx.annotation.NonNull View bs, float slideOffset) {
-                    layouter.onSlide(slideOffset);
-                }
-            });
-        }
+            @Override public void onSlide(@androidx.annotation.NonNull View bs, float slideOffset) {
+                layouter.onSlide(slideOffset);
+            }
+        });
     }
 
-    /** Fades/slides the floating caption+send bar in when 1+ items are picked, out when none are. */
+    /** Toggle with the per-surface cap (chat + status both post one message/status per item). */
+    private static void toggleWithLimit(AppCompatActivity activity, MediaSelectionState selection,
+                                        RecentMediaLoader.Item item) {
+        if (!selection.isSelected(item.uri) && selection.isFull()) {
+            Toast.makeText(activity, activity.getString(R.string.attach_selection_limit,
+                    selection.maxSelection()), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        selection.toggle(item);
+    }
+
+    /**
+     * Long-press preview: the item big on a dim scrim with a Select/Deselect pill.
+     * Tap anywhere else to close. Videos show their frame with the duration.
+     */
+    private static void showMediaPreview(AppCompatActivity activity, MediaSelectionState selection,
+                                         RecentMediaLoader.Item item) {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
+        final android.app.Dialog d = new android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar);
+        android.widget.FrameLayout root = new android.widget.FrameLayout(activity);
+        root.setBackgroundColor(0xE6000000);
+        root.setOnClickListener(x -> d.dismiss());
+        root.setContentDescription(activity.getString(R.string.attach_preview_close));
+
+        DisplayMetrics dm = activity.getResources().getDisplayMetrics();
+        int pad = Math.round(dpToPx(activity, 16f));
+        ImageView img = new ImageView(activity);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        android.widget.FrameLayout.LayoutParams ilp = new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        ilp.setMargins(pad, pad * 3, pad, pad * 5);
+        root.addView(img, ilp);
+        com.bumptech.glide.Glide.with(activity).load(item.uri)
+                .override(dm.widthPixels, dm.heightPixels).fitCenter().dontAnimate().into(img);
+
+        if (item.isVideo) {
+            TextView dur = new TextView(activity);
+            long sec = item.durationMs / 1000;
+            dur.setText(String.format(java.util.Locale.US, "\u25B6  %d:%02d", sec / 60, sec % 60));
+            dur.setTextColor(0xFFFFFFFF);
+            dur.setTextSize(13f);
+            dur.setBackgroundResource(R.drawable.bg_video_duration_pill);
+            dur.setPadding(pad / 2, pad / 4, pad / 2, pad / 4);
+            android.widget.FrameLayout.LayoutParams dlp = new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
+            dlp.topMargin = pad * 2;
+            root.addView(dur, dlp);
+        }
+
+        TextView pick = new TextView(activity);
+        pick.setText(selection.isSelected(item.uri) ? R.string.attach_preview_deselect : R.string.attach_preview_select);
+        pick.setTextColor(0xFFFFFFFF);
+        pick.setTextSize(15f);
+        pick.setTypeface(pick.getTypeface(), android.graphics.Typeface.BOLD);
+        pick.setBackgroundResource(R.drawable.bg_hd_toggle_active);
+        pick.setPadding(pad * 2, pad / 2 + 2, pad * 2, pad / 2 + 2);
+        pick.setOnClickListener(x -> { toggleWithLimit(activity, selection, item); d.dismiss(); });
+        android.widget.FrameLayout.LayoutParams plp = new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+        plp.bottomMargin = pad * 2;
+        root.addView(pick, plp);
+
+        d.setContentView(root);
+        d.show();
+    }
+
+    /** Fades the floating caption+send bar in when 1+ items are picked, out when none are.
+     *  Alpha only: translationY belongs to Layouter#pinBar (keeps the bar on the visible edge). */
     private static void updateSelectionBar(AppCompatActivity activity, MediaSelectionState selection,
                                             View selectionBar, TextView sendCount) {
         if (selectionBar == null) return;
@@ -784,18 +1074,16 @@ public final class AttachSheetRecentMediaBinder {
         boolean currentlyShown = selectionBar.getVisibility() == View.VISIBLE && selectionBar.getAlpha() > 0.5f;
         if (shouldShow == currentlyShown) return;
 
-        float driftPx = dpToPx(activity, 24f);
         if (shouldShow) {
             selectionBar.setVisibility(View.VISIBLE);
-            selectionBar.setAlpha(0f);
-            selectionBar.setTranslationY(driftPx);
-            selectionBar.animate().alpha(1f).translationY(0f).setDuration(180)
+            selectionBar.animate().alpha(1f).setDuration(180)
                     .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f))
                     .withEndAction(null).start();
         } else {
-            selectionBar.animate().alpha(0f).translationY(driftPx).setDuration(150)
+            selectionBar.animate().alpha(0f).setDuration(150)
                     .setInterpolator(new android.view.animation.AccelerateInterpolator())
-                    .withEndAction(() -> selectionBar.setVisibility(View.GONE)).start();
+                    .withEndAction(() -> { if (selectionBar.getAlpha() <= 0.01f) selectionBar.setVisibility(View.GONE); })
+                    .start();
         }
     }
 
@@ -891,9 +1179,9 @@ public final class AttachSheetRecentMediaBinder {
      * entry point.
      */
     private static void updateViewOnceToggleVisual(ImageView viewOnceToggle, boolean enabled) {
-        viewOnceToggle.setColorFilter(enabled
-                ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
-                : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
+        viewOnceToggle.setColorFilter(ContextCompat.getColor(viewOnceToggle.getContext(),
+                enabled ? R.color.attach_view_once_active   // active tint
+                        : R.color.attach_icon_idle));       // idle/grey tint
     }
 
     /** Permissions that unlock the Recents grid on this Android version. */
@@ -924,6 +1212,22 @@ public final class AttachSheetRecentMediaBinder {
             }
         }
         return false;
+    }
+
+    /**
+     * Android 14+: the user granted only "selected photos" (VISUAL_USER_SELECTED) — MediaStore then
+     * returns just those items. Re-requesting the media permissions shows the system dialog again so
+     * they can pick more or allow everything.
+     */
+    private static boolean isPartialAccess(AppCompatActivity activity) {
+        if (android.os.Build.VERSION.SDK_INT < 34) return false;
+        return isGranted(activity, "android.permission.READ_MEDIA_VISUAL_USER_SELECTED")
+                && !isGranted(activity, Manifest.permission.READ_MEDIA_IMAGES)
+                && !isGranted(activity, Manifest.permission.READ_MEDIA_VIDEO);
+    }
+
+    private static boolean isGranted(AppCompatActivity activity, String perm) {
+        return ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED;
     }
 
     private static boolean shouldShowRationale(AppCompatActivity activity) {

@@ -68,6 +68,11 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         void onMediaToggled(RecentMediaLoader.Item item);
     }
 
+    /** Long-press on a media cell (not the camera tile) — used for the larger preview. */
+    public interface LongPressListener {
+        void onMediaLongPressed(RecentMediaLoader.Item item);
+    }
+
     /** Fired when the camera tile (position 0) is tapped. Optional — pass null if this
      *  grid instance doesn't render a camera tile (kept off getItemCount/position math either way). */
     public interface CameraListener {
@@ -78,8 +83,9 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
     private final Listener listener;
     private final CameraListener cameraListener;
     private final MediaSelectionState selection;
-    private final int cellSizePx;
-    private final RequestOptions thumbOptions;
+    private int cellSizePx;
+    private RequestOptions thumbOptions;
+    private LongPressListener longPressListener;
     private List<RecentMediaLoader.Item> items = Collections.emptyList();
     /** uri -> adapter position (item index, NOT accounting for the +1 camera-tile offset). */
     private final Map<Uri, Integer> positionByUri = new HashMap<>();
@@ -95,13 +101,38 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
         this.cameraListener = cameraListener;
         this.selection = selection;
         this.cellSizePx = cellSizePx;
-        this.thumbOptions = new RequestOptions()
-                .centerCrop()
-                .override(Math.max(1, cellSizePx))
-                .format(DecodeFormat.PREFER_RGB_565)
-                .dontAnimate();
+        this.thumbOptions = buildThumbOptions(cellSizePx);
         setHasStableIds(true);
         selection.addToggleListener(this::notifyUriChanged);
+    }
+
+    private static RequestOptions buildThumbOptions(int px) {
+        return new RequestOptions()
+                .centerCrop()
+                .override(Math.max(1, px))
+                .format(DecodeFormat.PREFER_RGB_565)
+                .dontAnimate();
+    }
+
+    /**
+     * Column count / sheet width changed (rotation, tablet, split-screen): new square cell size.
+     * Cell height is re-applied on every bind, so recycled holders pick it up too.
+     */
+    public void setCellSize(int px) {
+        if (px <= 0 || px == cellSizePx) return;
+        cellSizePx = px;
+        thumbOptions = buildThumbOptions(px);
+        notifyDataSetChanged();
+    }
+
+    public void setLongPressListener(LongPressListener l) {
+        this.longPressListener = l;
+    }
+
+    /** Media item shown at this adapter position, or null for the camera tile / out of range. */
+    public RecentMediaLoader.Item itemAt(int adapterPosition) {
+        int idx = adapterPosition - offset();
+        return idx < 0 || idx >= items.size() ? null : items.get(idx);
     }
 
     /** +1 slot reserved for the camera tile at position 0 when this grid renders one. */
@@ -178,6 +209,11 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
                 listener.onMediaToggled(h.boundItem);
             }
         });
+        h.itemView.setOnLongClickListener(x -> {
+            if (h.isCamera || h.boundItem == null || longPressListener == null) return false;
+            longPressListener.onMediaLongPressed(h.boundItem);
+            return true;
+        });
         return h;
     }
 
@@ -188,6 +224,8 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int position, @NonNull List<Object> payloads) {
+        ViewGroup.LayoutParams cellLp = h.itemView.getLayoutParams();
+        if (cellSizePx > 0 && cellLp != null && cellLp.height != cellSizePx) cellLp.height = cellSizePx;
         boolean selectionOnly = !payloads.isEmpty() && payloads.contains(PAYLOAD_SELECTION);
 
         if (cameraListener != null && position == 0) {

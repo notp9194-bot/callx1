@@ -33,4 +33,9 @@
     <string name="attach_not_selected">Not selected</string>
     <string name="attach_folder_items_one">1 item</string>
     <string name="attach_folder_items_many">%1$d items</string>
+    <string name="attach_remove_selected">Remove from selection</string>
+    <string name="attach_preview_select">Select</string>
+    <string name="attach_preview_deselect">Deselect</string>
+    <string name="attach_preview_close">Close preview</string>
+    <string name="attach_partial_access">Showing only the photos you allowed · Tap to select more</string>
 </resources>

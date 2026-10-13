@@ -65,20 +65,40 @@ public final class RecentMediaLoader {
 
     private RecentMediaLoader() {}
 
+    /**
+     * Sort column. Q+ (API 29): DATE_TAKEN (ms) so a downloaded/restored old photo sits where it
+     * was taken, not at the top because it was "added" today. MediaStore fills DATE_TAKEN for
+     * most rows there (EXIF, else file time). Older versions keep DATE_ADDED (sec): DATE_TAKEN is
+     * null for non-camera images there, which would bury them at the very end.
+     */
+    private static final boolean USE_TAKEN = android.os.Build.VERSION.SDK_INT >= 29;
+    private static String dateCol() {
+        return USE_TAKEN ? MediaStore.Images.Media.DATE_TAKEN : MediaStore.MediaColumns.DATE_ADDED;
+    }
+
+    private static long toDisplaySec(long sortKey, long addedSec) {
+        if (USE_TAKEN) return sortKey > 0 ? sortKey / 1000L : addedSec;
+        return sortKey;
+    }
+
     public static final class Item {
         public final Uri uri;
         public final boolean isVideo;
         public final long durationMs;
+        /** Capture time in seconds (falls back to date-added) — for display, e.g. the month chip. */
         public final long dateAddedSec;
+        /** Raw value of the column the grid sorts/pages by (ms DATE_TAKEN on Q+, sec DATE_ADDED before). */
+        public final long sortKey;
         public final String bucketName;
         /** MediaStore row id (parsed from uri) — the keyset-paging tie-breaker. */
         public final long id;
 
-        Item(Uri uri, boolean isVideo, long durationMs, long dateAddedSec, String bucketName) {
+        Item(Uri uri, boolean isVideo, long durationMs, long sortKey, long addedSec, String bucketName) {
             this.uri = uri;
             this.isVideo = isVideo;
             this.durationMs = durationMs;
-            this.dateAddedSec = dateAddedSec;
+            this.sortKey = sortKey;
+            this.dateAddedSec = toDisplaySec(sortKey, addedSec);
             this.bucketName = bucketName == null ? "" : bucketName;
             this.id = ContentUris.parseId(uri);
         }
@@ -161,7 +181,7 @@ public final class RecentMediaLoader {
         List<Item> merged = new ArrayList<>(images.size() + videos.size());
         merged.addAll(images);
         merged.addAll(videos);
-        Collections.sort(merged, (a, b) -> Long.compare(b.dateAddedSec, a.dateAddedSec));
+        Collections.sort(merged, (a, b) -> Long.compare(b.sortKey, a.sortKey));
 
         if (safeOffset >= merged.size()) return new ArrayList<>(); // no more pages
         int end = Math.min(merged.size(), safeOffset + safeLimit);
@@ -191,9 +211,9 @@ public final class RecentMediaLoader {
         return merged.size() <= safeLimit ? merged : new ArrayList<>(merged.subList(0, safeLimit));
     }
 
-    /** date_added DESC, images before videos, then _id DESC — must match the SQL ORDER BY + keyset clauses below. */
+    /** sort key DESC (date taken / added), images before videos, then _id DESC — must match the SQL ORDER BY + keyset clauses below. */
     private static final java.util.Comparator<Item> GRID_ORDER = (a, b) -> {
-        int c = Long.compare(b.dateAddedSec, a.dateAddedSec);
+        int c = Long.compare(b.sortKey, a.sortKey);
         if (c != 0) return c;
         if (a.isVideo != b.isVideo) return a.isVideo ? 1 : -1;
         return Long.compare(b.id, a.id);
@@ -298,14 +318,14 @@ public final class RecentMediaLoader {
     private static void scanTable(Context context, Uri tableUri, boolean isVideo, Scan scan) {
         String[] projection = {
                 MediaStore.MediaColumns._ID,
-                MediaStore.MediaColumns.DATE_ADDED,
+                dateCol(),
                 MediaStore.MediaColumns.BUCKET_DISPLAY_NAME
         };
         try (Cursor c = context.getContentResolver().query(tableUri, projection, null, null,
-                MediaStore.MediaColumns.DATE_ADDED + " DESC")) {
+                dateCol() + " DESC")) {
             if (c == null) return;
             int idIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID);
-            int dateIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED);
+            int dateIdx = c.getColumnIndexOrThrow(dateCol());
             int bucketIdx = c.getColumnIndex(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME);
             while (c.moveToNext()) {
                 long date = c.getLong(dateIdx);
@@ -401,17 +421,28 @@ public final class RecentMediaLoader {
      */
     private static String[] keysetClause(boolean forVideoTable, Item after) {
         if (after == null) return null;
-        String d = Long.toString(after.dateAddedSec);
-        String date = MediaStore.MediaColumns.DATE_ADDED;
+        String d = Long.toString(after.sortKey);
+        String date = dateCol();
         String idCol = MediaStore.MediaColumns._ID;
+        // DATE_TAKEN can be NULL/0 on some rows: DESC puts them last, so they must stay
+        // reachable AFTER every dated row (otherwise "date < ?" would silently drop them).
+        String orNull = USE_TAKEN ? " OR " + date + " IS NULL" : "";
+        boolean afterUndated = USE_TAKEN && after.sortKey <= 0;
         if (forVideoTable == after.isVideo) { // same table: classic (date, id) seek
-            return new String[]{"(" + date + " < ? OR (" + date + " = ? AND " + idCol + " < ?))",
+            if (afterUndated) {
+                return new String[]{"((" + date + " IS NULL OR " + date + " = 0) AND " + idCol + " < ?)",
+                        Long.toString(after.id)};
+            }
+            return new String[]{"(" + date + " < ? OR (" + date + " = ? AND " + idCol + " < ?)" + orNull + ")",
                     d, d, Long.toString(after.id)};
         }
         if (forVideoTable) { // videos, last emitted was an image: same-date videos still pending
-            return new String[]{date + " <= ?", d};
+            if (afterUndated) return new String[]{"(" + date + " IS NULL OR " + date + " = 0)"};
+            return new String[]{"(" + date + " <= ?" + orNull + ")", d};
         }
-        return new String[]{date + " < ?", d}; // images, last emitted was a video: same-date images already out
+        // images, last emitted was a video: same-date images are already out
+        if (afterUndated) return new String[]{"0 = 1"};
+        return new String[]{"(" + date + " < ?" + orNull + ")", d};
     }
 
     /** ANDs a keyset clause onto an optional bucket selection. @return {selection, args...} */
@@ -432,12 +463,12 @@ public final class RecentMediaLoader {
 
     private static List<Item> queryImages(Context context, int limit, String bucketFilter, Item after) {
         Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        String[] projection = {
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DATE_ADDED,
-                MediaStore.Images.Media.BUCKET_DISPLAY_NAME
-        };
-        String order = MediaStore.Images.Media.DATE_ADDED + " DESC, " + MediaStore.Images.Media._ID + " DESC";
+        String[] projection = USE_TAKEN
+                ? new String[]{MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_ADDED,
+                        dateCol(), MediaStore.Images.Media.BUCKET_DISPLAY_NAME}
+                : new String[]{MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_ADDED,
+                        MediaStore.Images.Media.BUCKET_DISPLAY_NAME};
+        String order = dateCol() + " DESC, " + MediaStore.Images.Media._ID + " DESC";
 
         String selection = null;
         String[] selectionArgs = null;
@@ -457,13 +488,15 @@ public final class RecentMediaLoader {
         try (Cursor c = context.getContentResolver().query(uri, projection, selection, selectionArgs, order)) {
             if (c == null) return out;
             int idIdx = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
-            int dateIdx = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED);
+            int addedIdx = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED);
+            int dateIdx = c.getColumnIndexOrThrow(dateCol());
             int bucketIdx = c.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME);
             while (c.moveToNext() && out.size() < limit) {
                 long id = c.getLong(idIdx);
-                long dateAdded = c.getLong(dateIdx);
+                long sortKey = c.getLong(dateIdx);
+                long dateAdded = c.getLong(addedIdx);
                 String bucket = bucketIdx >= 0 ? c.getString(bucketIdx) : null;
-                out.add(new Item(ContentUris.withAppendedId(uri, id), false, 0L, dateAdded, bucket));
+                out.add(new Item(ContentUris.withAppendedId(uri, id), false, 0L, sortKey, dateAdded, bucket));
             }
         } catch (SecurityException | IllegalArgumentException e) {
             // No permission yet, or a weird OEM cursor shape — caller just gets
@@ -480,13 +513,12 @@ public final class RecentMediaLoader {
 
     private static List<Item> queryVideos(Context context, int limit, String bucketFilter, Item after) {
         Uri uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
-        String[] projection = {
-                MediaStore.Video.Media._ID,
-                MediaStore.Video.Media.DATE_ADDED,
-                MediaStore.Video.Media.DURATION,
-                MediaStore.Video.Media.BUCKET_DISPLAY_NAME
-        };
-        String order = MediaStore.Video.Media.DATE_ADDED + " DESC, " + MediaStore.Video.Media._ID + " DESC";
+        String[] projection = USE_TAKEN
+                ? new String[]{MediaStore.Video.Media._ID, MediaStore.Video.Media.DATE_ADDED, dateCol(),
+                        MediaStore.Video.Media.DURATION, MediaStore.Video.Media.BUCKET_DISPLAY_NAME}
+                : new String[]{MediaStore.Video.Media._ID, MediaStore.Video.Media.DATE_ADDED,
+                        MediaStore.Video.Media.DURATION, MediaStore.Video.Media.BUCKET_DISPLAY_NAME};
+        String order = dateCol() + " DESC, " + MediaStore.Video.Media._ID + " DESC";
 
         String selection = null;
         String[] selectionArgs = null;
@@ -506,15 +538,17 @@ public final class RecentMediaLoader {
         try (Cursor c = context.getContentResolver().query(uri, projection, selection, selectionArgs, order)) {
             if (c == null) return out;
             int idIdx = c.getColumnIndexOrThrow(MediaStore.Video.Media._ID);
-            int dateIdx = c.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED);
+            int addedIdx = c.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED);
+            int dateIdx = c.getColumnIndexOrThrow(dateCol());
             int durIdx = c.getColumnIndex(MediaStore.Video.Media.DURATION);
             int bucketIdx = c.getColumnIndex(MediaStore.Video.Media.BUCKET_DISPLAY_NAME);
             while (c.moveToNext() && out.size() < limit) {
                 long id = c.getLong(idIdx);
-                long dateAdded = c.getLong(dateIdx);
+                long sortKey = c.getLong(dateIdx);
+                long dateAdded = c.getLong(addedIdx);
                 long duration = durIdx >= 0 ? c.getLong(durIdx) : 0L;
                 String bucket = bucketIdx >= 0 ? c.getString(bucketIdx) : null;
-                out.add(new Item(ContentUris.withAppendedId(uri, id), true, duration, dateAdded, bucket));
+                out.add(new Item(ContentUris.withAppendedId(uri, id), true, duration, sortKey, dateAdded, bucket));
             }
         } catch (SecurityException | IllegalArgumentException e) {
             Log.w(TAG, "queryVideos failed", e);

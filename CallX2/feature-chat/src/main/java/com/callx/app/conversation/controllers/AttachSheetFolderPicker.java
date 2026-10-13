@@ -56,6 +56,14 @@ public final class AttachSheetFolderPicker {
         });
     }
 
+    /** Same popup from an already-loaded list (binder caches it so reopening is instant). */
+    public static void showLoaded(Activity activity, View anchor, View sheetRoot,
+                                  List<RecentMediaLoader.Folder> folders, String currentFilterKey,
+                                  OnFolderSelected callback) {
+        if (folders == null || folders.isEmpty()) return;
+        show(activity, anchor, sheetRoot, folders, currentFilterKey, callback);
+    }
+
     private static void show(Activity activity, View anchor, View sheetRoot,
                               List<RecentMediaLoader.Folder> folders, String currentFilterKey,
                               OnFolderSelected callback) {

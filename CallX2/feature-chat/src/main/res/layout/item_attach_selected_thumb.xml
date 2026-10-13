@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One thumbnail in the selection bar's preview strip (tap = deselect). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="52dp"
+    android:layout_height="52dp"
+    android:layout_marginEnd="6dp">
+
+    <ImageView
+        android:id="@+id/strip_thumb"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/attach_thumb_placeholder"
+        android:scaleType="centerCrop"/>
+
+    <ImageView
+        android:id="@+id/strip_video_badge"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="3dp"
+        android:src="@drawable/ic_play_circle"
+        android:visibility="gone"/>
+
+    <ImageView
+        android:id="@+id/strip_remove"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="2dp"
+        android:background="@drawable/bg_video_duration_pill"
+        android:padding="3dp"
+        android:src="@drawable/ic_close"
+        android:tint="#FFFFFF"
+        android:contentDescription="@string/attach_remove_selected"/>
+</FrameLayout>

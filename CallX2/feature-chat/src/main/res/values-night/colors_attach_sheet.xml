@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="attach_grid_line">#33FFFFFF</color>
+    <color name="attach_thumb_placeholder">#2A2A2A</color>
+    <color name="attach_fast_scroll_thumb">#88FFFFFF</color>
+</resources>
