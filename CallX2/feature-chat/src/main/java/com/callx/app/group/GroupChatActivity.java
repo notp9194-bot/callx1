@@ -2764,32 +2764,24 @@ public class GroupChatActivity extends AppCompatActivity
             return;
         }
 
-        boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
-        java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes != null
-                ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
-        java.util.List<Integer> mine = votes.get(currentUid);
-        java.util.List<Integer> updatedMine = new java.util.ArrayList<>(mine != null ? mine : java.util.Collections.emptyList());
+        if (currentUid == null) return;
+        final com.callx.app.conversation.controllers.PollVoteHelper.Result r =
+                com.callx.app.conversation.controllers.PollVoteHelper.apply(m, currentUid, id, optionIndex);
+        if (r == null) return; // double-tap / redundant single-choice re-tap
 
-        if (multiChoice) {
-            if (updatedMine.contains(optionIndex)) {
-                updatedMine.remove(Integer.valueOf(optionIndex));
-            } else {
-                updatedMine.add(optionIndex);
-            }
-        } else {
-            updatedMine.clear();
-            updatedMine.add(optionIndex);
-        }
+        final java.util.Map<String, java.util.List<Integer>> prev =
+                m.pollVotes != null ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
+        applyPollVotesLocally(m, id, r.votes);
+        com.callx.app.conversation.controllers.PollVoteHelper.write(groupMessagesRef, id, currentUid, r.mine, () -> {
+            applyPollVotesLocally(m, id, prev); // Firebase rejected it: roll back UI + Room
+            Toast.makeText(this, R.string.poll_vote_failed, Toast.LENGTH_SHORT).show();
+        });
+    }
 
-        if (updatedMine.isEmpty()) {
-            votes.remove(currentUid);
-            groupMessagesRef.child(id).child("pollVotes").child(currentUid).removeValue();
-        } else {
-            votes.put(currentUid, updatedMine);
-            groupMessagesRef.child(id).child("pollVotes").child(currentUid).setValue(updatedMine);
-        }
-
+    /** Optimistic local state: message object, bubble (instant PAYLOAD_POLL rebind) and Room cache. */
+    private void applyPollVotesLocally(Message m, String id, java.util.Map<String, java.util.List<Integer>> votes) {
         m.pollVotes = votes;
+        if (pagingAdapter != null) pagingAdapter.applyLocalPollVotes(id, votes);
         ioExecutor.execute(() -> {
             try {
                 MessageEntity e = db.messageDao().getMessageById(id);

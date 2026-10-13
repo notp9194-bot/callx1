@@ -82,41 +82,28 @@ public class ChatPollController {
             delegate.showToast("This poll is closed");
             return;
         }
-        if (!delegate.isOnline()) {
+        final String uid = delegate.getCurrentUid();
+        if (uid == null) return;
+        final PollVoteHelper.Result r = PollVoteHelper.apply(m, uid, id, optionIndex);
+        if (r == null) return; // double-tap / redundant single-choice re-tap
+        if (!delegate.isOnline()) { // shown once per real vote (not per double-tap); UI already updated optimistically
             delegate.showToast("You're offline — vote will sync once you're back online");
         }
 
-        String uid = delegate.getCurrentUid();
-        boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
-        Map<String, List<Integer>> votes = m.pollVotes != null
-                ? new HashMap<>(m.pollVotes) : new HashMap<>();
-        List<Integer> mine = votes.get(uid);
-        List<Integer> updatedMine = new ArrayList<>(mine != null ? mine : Collections.emptyList());
+        final Map<String, List<Integer>> prev = m.pollVotes != null ? new HashMap<>(m.pollVotes) : new HashMap<>();
+        applyVotes(m, id, r.votes);
+        PollVoteHelper.write(delegate.getMessagesRef(), id, uid, r.mine, () -> {
+            // Firebase rejected the write: put the UI + Room cache back.
+            applyVotes(m, id, prev);
+            delegate.showToast(delegate.getActivity().getString(com.callx.app.chat.R.string.poll_vote_failed));
+        });
+    }
 
-        if (multiChoice) {
-            // Tick/un-tick just this option, keeping any other ticks intact.
-            if (updatedMine.contains(optionIndex)) {
-                updatedMine.remove(Integer.valueOf(optionIndex));
-            } else {
-                updatedMine.add(optionIndex);
-            }
-        } else {
-            // Single-choice: this option becomes the only vote.
-            updatedMine.clear();
-            updatedMine.add(optionIndex);
-        }
-
-        if (updatedMine.isEmpty()) {
-            votes.remove(uid);
-            delegate.getMessagesRef().child(id).child("pollVotes").child(uid).removeValue();
-        } else {
-            votes.put(uid, updatedMine);
-            delegate.getMessagesRef().child(id).child("pollVotes").child(uid).setValue(updatedMine);
-        }
-
-        // Optimistic local update so the bar/tick reflects immediately even before
-        // the Firebase round-trip / Room sync completes.
+    /** Optimistic local state: message object, bubble (instant PAYLOAD_POLL rebind) and Room cache. */
+    private void applyVotes(Message m, String id, Map<String, List<Integer>> votes) {
         m.pollVotes = votes;
+        com.callx.app.conversation.MessagePagingAdapter ad = delegate.getPagingAdapter();
+        if (ad != null) ad.applyLocalPollVotes(id, votes);
         delegate.getIoExecutor().execute(() -> {
             try {
                 MessageEntity e = delegate.getDb().messageDao().getMessageById(id);

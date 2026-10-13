@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ic_audio inset so the glyph sits inside the tile instead of filling it edge to edge -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_audio"
+    android:insetLeft="7dp"
+    android:insetTop="7dp"
+    android:insetRight="7dp"
+    android:insetBottom="7dp"/>

@@ -383,6 +383,14 @@ public final class AttachSheetRecentMediaBinder {
         boolean supportsViewOnce = true;
         boolean showHdToggle = true;
         int mediaTypes = RecentMediaLoader.MEDIA_ALL;
+        String draftKey = null;
+
+        /**
+         * Key under which the unsent selection/caption draft is kept (rotation / accidental
+         * dismiss). Default = host Activity class + its String intent extras (so each chat/group
+         * gets its own draft). Pass an explicit key if the surface knows a better id.
+         */
+        public Config draftKey(String key) { this.draftKey = key; return this; }
 
         /** Views (icon-grid chips, toggles, …) to hide for this surface. */
         public Config hide(int... viewIds) { this.hiddenViewIds = viewIds; return this; }
@@ -448,6 +456,8 @@ public final class AttachSheetRecentMediaBinder {
         // control reads identically whether it's the input-bar button or
         // this one — active = purple, idle = grey.
         final boolean[] viewOnceEnabled = {false};
+        // Draft saver (assigned once the caption field / selection exist, see "Draft" below).
+        final Runnable[] saveDraftRef = {null};
         if (viewOnceToggle instanceof ImageView) {
             if (!cfg.supportsViewOnce) {
                 viewOnceToggle.setVisibility(View.GONE);
@@ -456,6 +466,7 @@ public final class AttachSheetRecentMediaBinder {
                 viewOnceToggle.setOnClickListener(x -> {
                     viewOnceEnabled[0] = !viewOnceEnabled[0];
                     updateViewOnceToggleVisual((ImageView) viewOnceToggle, viewOnceEnabled[0]);
+                    if (saveDraftRef[0] != null) saveDraftRef[0].run();
                 });
             }
         }
@@ -495,8 +506,23 @@ public final class AttachSheetRecentMediaBinder {
             hdToggle.setOnClickListener(x -> {
                 hdEnabled[0] = !hdEnabled[0];
                 updateHdToggleVisual((TextView) hdToggle, hdEnabled[0]);
+                if (saveDraftRef[0] != null) saveDraftRef[0].run();
             });
         }
+
+        // ---- Draft (rotation / swipe-dismiss) ------------------------------------------------
+        // Selection + caption + HD/view-once are mirrored into an in-memory AttachSheetDraft on
+        // every change and restored the next time this surface opens the sheet. Cleared on
+        // send/edit. `draftSuppressed` stops send/restore from re-saving a half-state.
+        final String draftKey = draftKey(activity, cfg);
+        final boolean[] draftSuppressed = {false};
+        final EditText draftCaption = sheetRoot.findViewById(R.id.selection_caption_input);
+        saveDraftRef[0] = () -> {
+            if (draftSuppressed[0]) return;
+            AttachSheetDraft.save(draftKey, selection.items(),
+                    draftCaption != null ? draftCaption.getText().toString() : "",
+                    hdEnabled[0], viewOnceEnabled[0]);
+        };
 
         DisplayMetrics dm = activity.getResources().getDisplayMetrics();
         int cellPx = dm.widthPixels / 4;
@@ -594,7 +620,7 @@ public final class AttachSheetRecentMediaBinder {
             // No auto-expand: the selection bar is pinned to the visible bottom
             // (Layouter#pinBar), so the sheet stays where the user left it and only
             // opens on drag / grid scroll.
-            toggleWithLimit(activity, selection, item);
+            toggleWithLimit(activity, selection, item, grid);
         };
         RecentMediaGridAdapter.CameraListener cameraListener = callbacks::onCameraTapped;
         RecentMediaGridAdapter gridAdapter = new RecentMediaGridAdapter(
@@ -628,7 +654,10 @@ public final class AttachSheetRecentMediaBinder {
         }
         // Keeps the bar on the visible edge when the sheet is re-laid out (peek/max height changes).
         sheetRoot.addOnLayoutChangeListener((view0, l0, t0, r0, b0, ol0, ot0, or0, ob0) -> layouter.pinBar());
-        gridAdapter.setLongPressListener(item -> showMediaPreview(activity, selection, item));
+        gridAdapter.setLongPressListener(item -> {
+            grid.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            showMediaPreview(activity, selection, item);
+        });
         grid.addOnLayoutChangeListener((view1, l1, t1, r1, b1, ol1, ot1, or1, ob1) -> {
             final int usable = grid.getWidth() - grid.getPaddingLeft() - grid.getPaddingRight();
             if (usable > 0 && (r1 - l1 != or1 - ol1)) grid.post(() -> layouter.applyColumns(usable));
@@ -686,6 +715,7 @@ public final class AttachSheetRecentMediaBinder {
             updateSelectionBar(activity, selection, selectionBar, sendCount);
             layouter.refreshStrip();
             layouter.update(); // grid bottom padding follows the bar
+            if (saveDraftRef[0] != null) saveDraftRef[0].run();
         });
 
         if (sendBtn != null) {
@@ -693,6 +723,8 @@ public final class AttachSheetRecentMediaBinder {
                 if (selection.isEmpty()) return;
                 List<RecentMediaLoader.Item> items = selection.items();
                 String caption = captionInput != null ? captionInput.getText().toString().trim() : "";
+                draftSuppressed[0] = true;
+                AttachSheetDraft.clear(draftKey);
                 sheet.dismiss();
                 callbacks.onMediaSend(items, caption, hdEnabled[0], viewOnceEnabled[0]);
                 selection.clear();
@@ -705,10 +737,53 @@ public final class AttachSheetRecentMediaBinder {
                 if (selection.isEmpty()) return;
                 List<RecentMediaLoader.Item> items = selection.items();
                 String caption = captionInput != null ? captionInput.getText().toString().trim() : "";
+                draftSuppressed[0] = true;
+                AttachSheetDraft.clear(draftKey);
                 sheet.dismiss();
                 callbacks.onMediaEdit(items, caption, hdEnabled[0]);
                 selection.clear();
             });
+        }
+
+        // Caption field: tapping it while the sheet is collapsed expands the sheet first, so the
+        // keyboard + caption bar + preview strip settle in the full layout instead of fighting the peek.
+        if (captionInput != null) {
+            final Runnable expandForCaption = () -> {
+                if (layouter.collapsed) behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            };
+            captionInput.setOnFocusChangeListener((v3, hasFocus) -> { if (hasFocus) expandForCaption.run(); });
+            captionInput.setOnClickListener(v3 -> expandForCaption.run()); // already focused, still collapsed
+            captionInput.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) { }
+                @Override public void onTextChanged(CharSequence c, int a, int b, int d) { }
+                @Override public void afterTextChanged(android.text.Editable e) {
+                    if (saveDraftRef[0] != null) saveDraftRef[0].run();
+                }
+            });
+        }
+
+        // Restore an unsent draft (rotation / dismissed without sending).
+        final AttachSheetDraft.Draft draft = AttachSheetDraft.peek(draftKey);
+        if (draft != null) {
+            draftSuppressed[0] = true;
+            for (RecentMediaLoader.Item it : draft.items) {
+                if (selection.isFull()) break;
+                if (!selection.isSelected(it.uri)) selection.toggle(it);
+            }
+            if (captionInput != null && !draft.caption.isEmpty()) {
+                captionInput.setText(draft.caption);
+                captionInput.setSelection(captionInput.getText().length());
+            }
+            if (draft.hd && cfg.showHdToggle && hdToggle instanceof TextView) {
+                hdEnabled[0] = true;
+                updateHdToggleVisual((TextView) hdToggle, true);
+            }
+            if (draft.viewOnce && cfg.supportsViewOnce && viewOnceToggle instanceof ImageView) {
+                viewOnceEnabled[0] = true;
+                updateViewOnceToggleVisual((ImageView) viewOnceToggle, true);
+            }
+            draftSuppressed[0] = false;
+            saveDraftRef[0].run();
         }
 
         // Permission can be granted LATER from the empty state's "Allow access"
@@ -997,18 +1072,37 @@ public final class AttachSheetRecentMediaBinder {
 
     /** Toggle with the per-surface cap (chat + status both post one message/status per item). */
     private static void toggleWithLimit(AppCompatActivity activity, MediaSelectionState selection,
-                                        RecentMediaLoader.Item item) {
+                                        RecentMediaLoader.Item item, View hapticView) {
         if (!selection.isSelected(item.uri) && selection.isFull()) {
             Toast.makeText(activity, activity.getString(R.string.attach_selection_limit,
                     selection.maxSelection()), Toast.LENGTH_SHORT).show();
             return;
         }
         selection.toggle(item);
+        // Light tick on every successful select/deselect (respects the system touch-feedback setting).
+        if (hapticView != null) hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+    }
+
+    /** Draft key: explicit Config key, else host Activity class + its String intent extras (per chat/group). */
+    private static String draftKey(AppCompatActivity activity, Config cfg) {
+        if (cfg.draftKey != null) return cfg.draftKey;
+        StringBuilder sb = new StringBuilder(activity.getClass().getName());
+        try {
+            android.os.Bundle ex = activity.getIntent() != null ? activity.getIntent().getExtras() : null;
+            if (ex != null) {
+                for (String k : new java.util.TreeSet<>(ex.keySet())) {
+                    Object v = ex.get(k);
+                    if (v instanceof String) sb.append('|').append(k).append('=').append(v);
+                }
+            }
+        } catch (Exception ignored) { /* odd extras — class name alone is still a valid key */ }
+        return sb.toString();
     }
 
     /**
      * Long-press preview: the item big on a dim scrim with a Select/Deselect pill.
-     * Tap anywhere else to close. Videos show their frame with the duration.
+     * Photos pinch-zoom / double-tap-zoom (PhotoView); videos show their frame with a play button
+     * and actually play in place (tap toggles pause). Tapping the scrim (photo at 1x) closes it.
      */
     private static void showMediaPreview(AppCompatActivity activity, MediaSelectionState selection,
                                          RecentMediaLoader.Item item) {
@@ -1021,8 +1115,14 @@ public final class AttachSheetRecentMediaBinder {
 
         DisplayMetrics dm = activity.getResources().getDisplayMetrics();
         int pad = Math.round(dpToPx(activity, 16f));
-        ImageView img = new ImageView(activity);
-        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+
+        final com.github.chrisbanes.photoview.PhotoView img = new com.github.chrisbanes.photoview.PhotoView(activity);
+        img.setMaximumScale(6f);
+        img.setMediumScale(2.5f);
+        img.setZoomable(!item.isVideo); // a video frame isn't worth zooming; the video itself plays
+        img.setOnViewTapListener((v, x, y) -> {
+            if (img.getScale() <= img.getMinimumScale() * 1.02f) d.dismiss(); // don't close mid-zoom
+        });
         android.widget.FrameLayout.LayoutParams ilp = new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         ilp.setMargins(pad, pad * 3, pad, pad * 5);
@@ -1043,6 +1143,61 @@ public final class AttachSheetRecentMediaBinder {
                     android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
             dlp.topMargin = pad * 2;
             root.addView(dur, dlp);
+
+            // In-place playback: VideoView sits above the frame; the frame hides once the first
+            // video frame renders (no black flash). Play button doubles as the paused indicator.
+            final android.widget.VideoView vv = new android.widget.VideoView(activity);
+            vv.setZOrderMediaOverlay(true);
+            vv.setVisibility(View.INVISIBLE);
+            android.widget.FrameLayout.LayoutParams vlp = new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            vlp.setMargins(pad, pad * 3, pad, pad * 5);
+            root.addView(vv, vlp);
+
+            final ImageView play = new ImageView(activity);
+            int playSize = Math.round(dpToPx(activity, 64f));
+            int playPad = Math.round(dpToPx(activity, 14f));
+            android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
+            circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            circle.setColor(0x80000000);
+            play.setBackground(circle);
+            play.setImageResource(R.drawable.ic_play_circle);
+            play.setPadding(playPad, playPad, playPad, playPad);
+            play.setContentDescription(activity.getString(R.string.attach_preview_play));
+            android.widget.FrameLayout.LayoutParams plyLp = new android.widget.FrameLayout.LayoutParams(
+                    playSize, playSize, android.view.Gravity.CENTER);
+            root.addView(play, plyLp);
+
+            final boolean[] started = {false};
+            final Runnable startPlayback = () -> {
+                play.setVisibility(View.GONE);
+                vv.setVisibility(View.VISIBLE);
+                if (!started[0]) {
+                    started[0] = true;
+                    vv.setVideoURI(item.uri);
+                }
+                vv.seekTo(vv.getCurrentPosition() >= vv.getDuration() - 50 ? 0 : vv.getCurrentPosition());
+                vv.start();
+            };
+            vv.setOnInfoListener((mp, what, extra) -> {
+                if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) img.setVisibility(View.INVISIBLE);
+                return false;
+            });
+            vv.setOnCompletionListener(mp -> play.setVisibility(View.VISIBLE));
+            vv.setOnErrorListener((mp, what, extra) -> {
+                // Can't play this file: fall back to the still frame + play button, never crash/stall.
+                started[0] = false;
+                vv.setVisibility(View.INVISIBLE);
+                img.setVisibility(View.VISIBLE);
+                play.setVisibility(View.VISIBLE);
+                return true;
+            });
+            play.setOnClickListener(x -> startPlayback.run());
+            vv.setOnClickListener(x -> {
+                if (vv.isPlaying()) { vv.pause(); play.setVisibility(View.VISIBLE); }
+                else startPlayback.run();
+            });
+            d.setOnDismissListener(x -> { try { vv.stopPlayback(); } catch (Exception ignored) { } });
         }
 
         TextView pick = new TextView(activity);
@@ -1052,7 +1207,7 @@ public final class AttachSheetRecentMediaBinder {
         pick.setTypeface(pick.getTypeface(), android.graphics.Typeface.BOLD);
         pick.setBackgroundResource(R.drawable.bg_hd_toggle_active);
         pick.setPadding(pad * 2, pad / 2 + 2, pad * 2, pad / 2 + 2);
-        pick.setOnClickListener(x -> { toggleWithLimit(activity, selection, item); d.dismiss(); });
+        pick.setOnClickListener(x -> { toggleWithLimit(activity, selection, item, pick); d.dismiss(); });
         android.widget.FrameLayout.LayoutParams plp = new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);

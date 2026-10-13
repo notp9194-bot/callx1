@@ -38,4 +38,8 @@
     <string name="attach_preview_deselect">Deselect</string>
     <string name="attach_preview_close">Close preview</string>
     <string name="attach_partial_access">Showing only the photos you allowed · Tap to select more</string>
+    <string name="attach_caption_hint">Add a caption…</string>
+    <string name="attach_send">Send</string>
+    <string name="attach_send_view_once">Send as view once</string>
+    <string name="attach_preview_play">Play video</string>
 </resources>

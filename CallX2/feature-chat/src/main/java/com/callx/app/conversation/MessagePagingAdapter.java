@@ -10067,6 +10067,19 @@ public class MessagePagingAdapter
         notifyItemChanged(position, PAYLOAD_REACTIONS);
     }
 
+    /** Instant optimistic poll update: swaps in the new votes map on the already-bound Message and
+     *  rebinds only the poll bars (PAYLOAD_POLL), so a tap shows immediately, even offline.
+     *  Firebase/Room sync later diffs against this and is a no-op. Main thread. */
+    public void applyLocalPollVotes(String messageId, java.util.Map<String, java.util.List<Integer>> votes) {
+        if (messageId == null) return;
+        int position = findMessagePositionById(messageId);
+        if (position == RecyclerView.NO_POSITION) return;
+        Message m = getItem(position);
+        if (m == null) return;
+        m.pollVotes = votes != null ? votes : new java.util.HashMap<>();
+        notifyItemChanged(position, PAYLOAD_POLL);
+    }
+
     /** Fast-path: rebind ONLY the reactions row. Called both from the full
      *  bindMessage() path AND from the payload-aware onBind for
      *  PAYLOAD_REACTIONS (someone tapped/removed an emoji), so a reactions

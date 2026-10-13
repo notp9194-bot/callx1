@@ -42,6 +42,15 @@ public final class ReelAudioPolicy {
     /** Number of reel controllers currently producing audible sound. */
     private static int ownAudibleCount = 0;
 
+    /**
+     * When reels' own audible playback last dropped to zero. AudioManager.isMusicActive() stays
+     * true for a few hundred ms after a player pauses, so on a swipe (A pauses, B activates) the
+     * next reel used to mistake A's fading audio for another app and start muted. Within
+     * {@link #OWN_AUDIO_TAIL_MS} of our own stop we never report "other audio".
+     */
+    private static long lastOwnAudibleStopMs = 0L;
+    private static final long OWN_AUDIO_TAIL_MS = 1500L;
+
     /** Enables/disables ExoPlayer's own audio-focus handling on this player. */
     public static void setFocusEnabled(ExoPlayer player, boolean enabled) {
         if (player == null) return;
@@ -53,6 +62,7 @@ public final class ReelAudioPolicy {
     /** Called by each controller when its audible-playing state flips. */
     public static void setOwnAudible(boolean audible) {
         ownAudibleCount = Math.max(0, ownAudibleCount + (audible ? 1 : -1));
+        if (!audible && ownAudibleCount == 0) lastOwnAudibleStopMs = android.os.SystemClock.uptimeMillis();
     }
 
     /**
@@ -61,6 +71,7 @@ public final class ReelAudioPolicy {
      */
     public static boolean isOtherAudioActive(Context ctx) {
         if (ctx == null || ownAudibleCount > 0) return false;
+        if (android.os.SystemClock.uptimeMillis() - lastOwnAudibleStopMs < OWN_AUDIO_TAIL_MS) return false;
         try {
             AudioManager am = (AudioManager) ctx.getApplicationContext()
                 .getSystemService(Context.AUDIO_SERVICE);

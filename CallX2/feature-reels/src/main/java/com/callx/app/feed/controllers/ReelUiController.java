@@ -987,47 +987,34 @@ public class ReelUiController {
         String rawMusicName = reel.musicName == null ? "" : reel.musicName.trim();
         if (btnCreateAudio != null) {
             btnCreateAudio.setVisibility(View.VISIBLE);
-            btnCreateAudio.setOnClickListener(v -> delegate.showSoundQuickActions());
-            btnCreateAudio.setContentDescription(
-                rawMusicName.isEmpty() ? "Original audio" : rawMusicName);
+            if (!btnCreateAudio.hasOnClickListeners()) { // once, not a new lambda per bind
+                btnCreateAudio.setOnClickListener(v -> {
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+                    delegate.showSoundQuickActions();
+                });
+            }
+            String audioDesc = rawMusicName.isEmpty() ? "Original audio" : rawMusicName;
+            if (!audioDesc.contentEquals(btnCreateAudio.getContentDescription() == null
+                    ? "" : btnCreateAudio.getContentDescription())) {
+                btnCreateAudio.setContentDescription(audioDesc);
+            }
+            ensureAudioTileTouchTarget();
 
-            // ✅ FIX: for OLD reels (posted before musicCoverUrl was saved on
-            // reused-sound reels), fetch the cover from sounds/{musicId}
-            // once at render time instead of silently showing no photo.
-            if (TextUtils.isEmpty(reel.musicCoverUrl) && !TextUtils.isEmpty(reel.musicId)) {
-                fetchAndBindMissingSoundCover(reel);
+            // Cover resolution: reel's own cover -> cached sound cover -> (cover still being
+            // fetched: neutral placeholder, NO owner-photo flash) -> owner photo as last fallback.
+            String cover = reel.musicCoverUrl;
+            boolean coverPending = false;
+            if (TextUtils.isEmpty(cover) && !TextUtils.isEmpty(reel.musicId)) {
+                String cached = soundCoverCache.get(reel.musicId);
+                if (!TextUtils.isEmpty(cached)) {
+                    cover = cached;
+                    reel.musicCoverUrl = cached;
+                } else if (!recentlyMissedSoundCover(reel.musicId)) {
+                    coverPending = true;
+                    fetchAndBindMissingSoundCover(reel);
+                }
             }
-            String audioImageUrl = !TextUtils.isEmpty(reel.musicCoverUrl)
-                ? reel.musicCoverUrl
-                : reel.ownerPhoto;
-            if (delegate.isAdded() && delegate.getContext() != null
-                    && !TextUtils.isEmpty(audioImageUrl)) {
-                // PERF: same pattern as ivOwnerAvatar — resize server-side via
-                // AvatarUrlBuilder AND pin the Glide decode size with
-                // .override(), so this never decodes more pixels than the
-                // 28dp tile actually shows (was loading full-res source).
-                android.content.Context audioCtx = delegate.requireContext();
-                int sizePx = AvatarUrlBuilder.tierPx(audioCtx, AvatarSizeTier.TINY); // 28dp view → shared TINY tier
-                // Corner radius must match bg_audio_create_tile.xml's 4dp so the
-                // photo's own rounded corners line up with the tile's rounded
-                // background instead of showing square corners peeking through.
-                int cornerRadiusPx = AvatarUrlBuilder.dpToPx(audioCtx, 4);
-                String resizedAudioUrl = AvatarUrlBuilder.build(audioCtx, audioImageUrl, AvatarSizeTier.TINY);
-                Glide.with(audioCtx)
-                    .load(resizedAudioUrl)
-                    .apply(new RequestOptions()
-                        .transform(new MultiTransformation<>(
-                                new CenterCrop(), new RoundedCorners(cornerRadiusPx)))
-                        .override(sizePx, sizePx)
-                        .format(DecodeFormat.PREFER_RGB_565) // opaque tile, no alpha needed — half the decode memory
-                        // PERF: cache the final resized+cropped bitmap to disk (RESOURCE),
-                        // not the original — re-scroll/re-bind never re-decodes or re-downloads.
-                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                        .placeholder(R.drawable.ic_audio))
-                    .into(btnCreateAudio);
-            } else {
-                btnCreateAudio.setImageResource(R.drawable.ic_audio);
-            }
+            loadAudioTile(!TextUtils.isEmpty(cover) ? cover : (coverPending ? null : reel.ownerPhoto));
         }
         if (layoutMusicTicker != null) {
             layoutMusicTicker.setVisibility(View.GONE);
@@ -1035,7 +1022,7 @@ public class ReelUiController {
 
         // Music disc cover art
         startDiscAnimation();
-        if (ivMusicDisc != null && delegate.isAdded() && delegate.getContext() != null) {
+        if (ivMusicDisc != null && discTickerVisible() && delegate.isAdded() && delegate.getContext() != null) {
             // ✅ FIX: same fallback as btnCreateAudio — own thumbnail for a
             // brand-new original, else generic icon while the DB fetch runs.
             String coverUrl = !TextUtils.isEmpty(reel.musicCoverUrl)
@@ -1417,51 +1404,61 @@ public class ReelUiController {
     // data migration, fetch the cover once from sounds/{musicId} at render
     // time and bind it in — cached per musicId so repeat reels with the same
     // sound don't re-fetch.
-    private static final java.util.Map<String, String> soundCoverCache = new java.util.HashMap<>();
+    private static final int SOUND_COVER_CACHE_MAX = 256;
+    private static final java.util.Map<String, String> soundCoverCache = lruMap();
     private static final Set<String> soundCoverFetchInFlight = new HashSet<>();
 
     private void fetchAndBindMissingSoundCover(ReelModel reel) {
-        String musicId = reel.musicId;
+        final String musicId = reel.musicId;
         String cached = soundCoverCache.get(musicId);
-        if (cached != null) {
-            if (!cached.isEmpty()) bindMusicCover(reel, cached);
+        if (!TextUtils.isEmpty(cached)) { bindMusicCover(reel, cached); return; }
+        if (!soundCoverFetchInFlight.add(musicId)) { // another reel is already fetching this sound
+            if (delegate.getReel() == reel) loadAudioTile(reel.ownerPhoto); // don't leave the placeholder up
             return;
         }
-        if (!soundCoverFetchInFlight.add(musicId)) return; // already fetching
 
         FirebaseDatabase.getInstance(com.callx.app.utils.Constants.DB_URL)
             .getReference("sounds").child(musicId).child("coverUrl")
             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
                 @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
                     String coverUrl = snap.getValue(String.class);
-                    soundCoverCache.put(musicId, coverUrl != null ? coverUrl : "");
                     soundCoverFetchInFlight.remove(musicId);
-                    if (coverUrl != null && !coverUrl.isEmpty()) {
+                    if (!TextUtils.isEmpty(coverUrl)) {
+                        soundCoverCache.put(musicId, coverUrl);
+                        soundCoverMissAtMs.remove(musicId);
                         bindMusicCover(reel, coverUrl);
+                    } else {
+                        // Sound genuinely has no cover: remember briefly (retry later, not forever)
+                        // and settle on the owner photo instead of leaving the placeholder.
+                        soundCoverMissAtMs.put(musicId, android.os.SystemClock.uptimeMillis());
+                        if (delegate.isAdded() && delegate.getReel() == reel && TextUtils.isEmpty(reel.musicCoverUrl)) {
+                            loadAudioTile(reel.ownerPhoto);
+                        }
                     }
                 }
                 @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                    // Failure is NOT cached: the next bind retries. Show the owner photo meanwhile.
                     soundCoverFetchInFlight.remove(musicId);
+                    if (delegate.isAdded() && delegate.getReel() == reel && TextUtils.isEmpty(reel.musicCoverUrl)) {
+                        loadAudioTile(reel.ownerPhoto);
+                    }
                 }
             });
     }
 
-    /** Sets reel.musicCoverUrl (so future binds don't re-fetch) and refreshes both music views if still on screen. */
+    /** True if this sound was found to have no cover very recently (don't re-query on every bind). */
+    private static boolean recentlyMissedSoundCover(String musicId) {
+        Long at = soundCoverMissAtMs.get(musicId);
+        return at != null && android.os.SystemClock.uptimeMillis() - at < SOUND_COVER_RETRY_MS;
+    }
+
+    /** Sets reel.musicCoverUrl (so future binds don't re-fetch) and refreshes the tile if still on screen. */
     private void bindMusicCover(ReelModel reel, String coverUrl) {
         reel.musicCoverUrl = coverUrl;
-        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        if (!delegate.isAdded() || delegate.getContext() == null || delegate.getReel() != reel) return;
         android.content.Context ctx = delegate.requireContext();
-        if (btnCreateAudio != null) {
-            int sizePx = AvatarUrlBuilder.tierPx(ctx, AvatarSizeTier.TINY); // 28dp view → shared TINY tier
-            Glide.with(ctx).load(AvatarUrlBuilder.build(ctx, coverUrl, AvatarSizeTier.TINY))
-                .apply(new RequestOptions().centerCrop()
-                    .override(sizePx, sizePx)
-                    .format(DecodeFormat.PREFER_RGB_565)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                    .placeholder(R.drawable.ic_audio))
-                .into(btnCreateAudio);
-        }
-        if (ivMusicDisc != null) {
+        loadAudioTile(coverUrl); // same path as the first bind -> identical rounded corners
+        if (ivMusicDisc != null && discTickerVisible()) {
             int discSizePx = AvatarUrlBuilder.tierPx(ctx, AvatarSizeTier.TINY); // iv_music_disc 22dp → shared TINY tier
             Glide.with(ctx).load(AvatarUrlBuilder.build(ctx, coverUrl, AvatarSizeTier.TINY))
                 .apply(new RequestOptions().circleCrop()
@@ -1471,6 +1468,91 @@ public class ReelUiController {
                     .placeholder(R.drawable.ic_music_note))
                 .into(ivMusicDisc);
         }
+    }
+
+    // ── Right-rail audio tile ─────────────────────────────────────────────
+
+    private static final int AUDIO_TILE_RADIUS_DP = 5; // tile 6dp outer radius minus 1dp stroke/padding
+    private static final long SOUND_COVER_RETRY_MS = 5 * 60 * 1000L;
+    private static final java.util.Map<String, Long> soundCoverMissAtMs = lruMap();
+    private boolean audioTileTouchTargetSet = false;
+
+    /** Access-ordered LRU map (main-thread only): the per-process sound caches can't grow without bound. */
+    private static <V> java.util.Map<String, V> lruMap() {
+        return new java.util.LinkedHashMap<String, V>(64, 0.75f, true) {
+            @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, V> eldest) {
+                return size() > SOUND_COVER_CACHE_MAX;
+            }
+        };
+    }
+
+    // One immutable RequestOptions for every tile load in the process (was: new RequestOptions +
+    // MultiTransformation + 2 transformations allocated on every single reel bind). Rebuilt only if
+    // the pixel size changes (density / low-RAM tier change).
+    private static volatile RequestOptions tileOpts;
+    private static volatile int tileOptsPx;
+
+    private static RequestOptions tileOptions(android.content.Context ctx, int sizePx) {
+        RequestOptions o = tileOpts;
+        if (o == null || tileOptsPx != sizePx) {
+            o = new RequestOptions()
+                .transform(new MultiTransformation<>(
+                        new CenterCrop(),
+                        new RoundedCorners(AvatarUrlBuilder.dpToPx(ctx, AUDIO_TILE_RADIUS_DP))))
+                .override(sizePx, sizePx)
+                .format(DecodeFormat.PREFER_RGB_565)
+                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                .dontAnimate() // no cross-fade work on a 36dp tile
+                .placeholder(R.drawable.ic_audio_tile_placeholder);
+            tileOptsPx = sizePx;
+            tileOpts = o;
+        }
+        return o;
+    }
+
+    /** What the tile currently shows ("" = placeholder, null = unknown/reset) — identical rebinds are skipped. */
+    private String tileShownUrl = null;
+
+    /** One loader for every audio-tile image: same size tier, crop and corners on first bind and on late cover. */
+    private void loadAudioTile(String url) {
+        if (btnCreateAudio == null || !delegate.isAdded() || delegate.getContext() == null) return;
+        final String want = url == null ? "" : url;
+        if (want.equals(tileShownUrl)) return; // same image already shown/loading: no Glide request, no URL build
+        tileShownUrl = want;
+        if (want.isEmpty()) {
+            btnCreateAudio.setImageResource(R.drawable.ic_audio_tile_placeholder);
+            return;
+        }
+        android.content.Context ctx = delegate.requireContext();
+        AvatarSizeTier tier = AvatarSizeTier.SMALL; // 36dp tile -> smallest tier >= 36dp
+        int sizePx = AvatarUrlBuilder.tierPx(ctx, tier);
+        Glide.with(ctx)
+            .load(AvatarUrlBuilder.build(ctx, want, tier))
+            .apply(tileOptions(ctx, sizePx))
+            .into(btnCreateAudio);
+    }
+
+    /** Tile is 36dp; grow its tap area to 48dp (TouchDelegate on the rail) without changing the layout. */
+    private void ensureAudioTileTouchTarget() {
+        if (audioTileTouchTargetSet || btnCreateAudio == null) return;
+        if (!(btnCreateAudio.getParent() instanceof View)) return;
+        audioTileTouchTargetSet = true;
+        final View tile = btnCreateAudio;
+        final View rail = (View) tile.getParent();
+        final int min = AvatarUrlBuilder.dpToPx(tile.getContext(), 48);
+        // Layout listener fires per layout pass: only rebuild the delegate when the tile's box actually moved.
+        tile.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (l == ol && t == ot && r == or && b == ob && rail.getTouchDelegate() != null) return;
+            android.graphics.Rect hit = new android.graphics.Rect(l, t, r, b); // already in the rail's coords
+            hit.inset(-Math.max(0, (min - hit.width()) / 2), -Math.max(0, (min - hit.height()) / 2));
+            rail.setTouchDelegate(new android.view.TouchDelegate(hit, tile));
+        });
+        tile.requestLayout();
+    }
+
+    /** The old bottom-left ticker (and its disc) only counts as visible if it isn't GONE. */
+    private boolean discTickerVisible() {
+        return layoutMusicTicker == null || layoutMusicTicker.getVisibility() == View.VISIBLE;
     }
 
     // ── Music disc animation ──────────────────────────────────────────────
@@ -1485,7 +1567,9 @@ public class ReelUiController {
         if (tvBioSongName != null) tvBioSongName.resume();
         if (tvCollabSongName != null) tvCollabSongName.resume();
 
-        if (ivMusicDisc == null) return;
+        // The bottom-left ticker is GONE now (audio lives in the right-rail tile): don't run an
+        // infinite hardware-layer rotation on a view nobody can see.
+        if (ivMusicDisc == null || !discTickerVisible()) return;
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }
         // PERF: this is an infinite rotation running for as long as the reel
         // is on screen — was being redrawn via the CPU/software-render path
@@ -1641,6 +1725,11 @@ public class ReelUiController {
         avatarLoadInFlight = false;   // don't let a stale in-flight flag leak into the next recycled reel
         detachAvatarVersionWatch();   // safety net — onBecameInvisible should already have done this, but a recycled ViewHolder must never carry a live listener into its next bind
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; } // triggers onAnimationCancel -> revertDiscLayerType()
+        tileShownUrl = null; // a recycled controller must re-bind its tile for the next reel
+        if (btnCreateAudio != null) {
+            try { Glide.with(btnCreateAudio.getContext()).clear(btnCreateAudio); } // cancel an in-flight tile load
+            catch (Exception ignored) { /* context already destroyed — nothing to cancel */ }
+        }
         if (tvBioSongName != null) tvBioSongName.release();
         if (tvCollabSongName != null) tvCollabSongName.release();
         if (containerHashtags != null) containerHashtags.recycleChildren();

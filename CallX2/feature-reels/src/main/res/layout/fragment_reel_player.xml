@@ -499,13 +499,13 @@
              detail flow, not the audio recorder. -->
         <ImageButton
             android:id="@+id/btn_create_audio"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginTop="16dp"
-            android:src="@drawable/ic_audio"
+            android:src="@drawable/ic_audio_tile_placeholder"
             android:scaleType="centerCrop"
-            android:padding="2dp"
-            android:background="@drawable/bg_audio_create_tile"
+            android:padding="1dp"
+            android:background="@drawable/bg_audio_tile_ripple"
             android:contentDescription="Original audio"
             app:layout_constraintTop_toBottomOf="@id/btn_more"
             app:layout_constraintStart_toStartOf="parent"

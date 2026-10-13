@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="poll_err_question">Question required</string>
+    <string name="poll_err_duplicate">Duplicate option</string>
+    <string name="poll_err_min_options">Add at least %1$d options</string>
+    <string name="poll_option_hint_n">Option %1$d</string>
+    <string name="poll_max_options">Max %1$d options allowed</string>
+    <string name="poll_min_options_needed">At least %1$d options needed</string>
+    <string name="poll_vote_failed">Couldn\'t save your vote</string>
+</resources>
