@@ -59,6 +59,21 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
      *  URI/path here so the preview card can show a static image instead of ExoPlayer. */
     public static final String EXTRA_PHOTO_URI    = "mixer_photo_uri";
 
+    /** Optional clip range (ms) inside the FULL track chosen on the Adjust Music screen. The preview
+     *  starts at START and loops back to START at END instead of always playing 0:00 → end. */
+    public static final String EXTRA_MUSIC_START_MS = "mixer_music_start_ms";
+    public static final String EXTRA_MUSIC_END_MS   = "mixer_music_end_ms";
+    /** Status mode: Voiceover + Normalize (need offline processing) are hidden, and for a photo
+     *  status (no EXTRA_VIDEO_URI) the Original-audio row is hidden too. Mix is stored on the
+     *  music sticker and applied live at playback, not baked into the media. */
+    public static final String EXTRA_STATUS_MODE    = "mixer_status_mode";
+    /** Optional starting mix (re-editing a Status music sticker). Missing = the screen defaults. */
+    public static final String EXTRA_INIT_ORIG_VOL     = "mixer_init_orig_vol";
+    public static final String EXTRA_INIT_MUSIC_VOL    = "mixer_init_music_vol";
+    public static final String EXTRA_INIT_FADE_IN_MS   = "mixer_init_fade_in_ms";
+    public static final String EXTRA_INIT_FADE_OUT_MS  = "mixer_init_fade_out_ms";
+    public static final String EXTRA_INIT_PITCH        = "mixer_init_pitch";
+
     public static final String RESULT_ORIG_VOL        = "result_orig_vol";
     public static final String RESULT_MUSIC_VOL       = "result_music_vol";
     public static final String RESULT_VOICEOVER_PATH  = "result_vo_path";
@@ -79,6 +94,10 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String RESULT_MUSIC_ID     = "result_music_id";
     public static final String RESULT_MUSIC_TITLE  = "result_music_title";
     public static final String RESULT_MUSIC_ARTIST = "result_music_artist";
+    /** Clip range after the mixer closes. Both 0 when the user swapped the track via "Change"
+     *  (the old range doesn't apply to a different song). */
+    public static final String RESULT_MUSIC_START_MS = "result_music_start_ms";
+    public static final String RESULT_MUSIC_END_MS   = "result_music_end_ms";
 
     private static final int REQ_MIC          = 501;
     /** ✅ NEW: request codes for SoundDetail and "Change Music" pickers */
@@ -112,6 +131,10 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private String currentTitle  = "";
     private String currentArtist = "";
     private boolean isRecordingVoiceover = false;
+    private int     musicStartMs = 0;
+    private int     musicEndMs   = 0;
+    private boolean statusMode   = false;
+    private boolean musicMuted   = false;
 
     private float origVol        = 1.0f;
     private float musicVol       = 0.8f;
@@ -136,6 +159,17 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         soundId       = nvl(getIntent().getStringExtra(EXTRA_SOUND_ID));
         currentTitle  = nvl(getIntent().getStringExtra(EXTRA_MUSIC_TITLE));
         currentArtist = nvl(getIntent().getStringExtra(EXTRA_MUSIC_ARTIST));
+        musicStartMs  = Math.max(0, getIntent().getIntExtra(EXTRA_MUSIC_START_MS, 0));
+        musicEndMs    = Math.max(0, getIntent().getIntExtra(EXTRA_MUSIC_END_MS, 0));
+        if (musicEndMs <= musicStartMs) musicEndMs = 0;   // 0 = until the end of the track
+        statusMode    = getIntent().getBooleanExtra(EXTRA_STATUS_MODE, false);
+        if (getIntent().hasExtra(EXTRA_INIT_ORIG_VOL))
+            origVol  = Math.max(0f, Math.min(1f, getIntent().getFloatExtra(EXTRA_INIT_ORIG_VOL, origVol)));
+        if (getIntent().hasExtra(EXTRA_INIT_MUSIC_VOL))
+            musicVol = Math.max(0f, Math.min(1f, getIntent().getFloatExtra(EXTRA_INIT_MUSIC_VOL, musicVol)));
+        fadeInMs       = Math.max(0, getIntent().getIntExtra(EXTRA_INIT_FADE_IN_MS, 0));
+        fadeOutMs      = Math.max(0, getIntent().getIntExtra(EXTRA_INIT_FADE_OUT_MS, 0));
+        pitchSemitones = Math.max(-6f, Math.min(6f, getIntent().getFloatExtra(EXTRA_INIT_PITCH, 0f)));
 
         bindViews();
         populateMusicInfo(currentTitle, currentArtist);
@@ -151,7 +185,26 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             layoutVoiceoverRow.setVisibility(View.GONE);
         }
         injectAdvancedControls();
+        if (statusMode) applyStatusModeUi();
         if (videoUri != null && !videoUri.isEmpty() && isFilePath) detectSilentOriginalAudio();
+    }
+
+    /** Hides what Status can't do at playback time: Voiceover, and Original audio for photo status. */
+    private void applyStatusModeUi() {
+        if (layoutVoiceoverRow != null) layoutVoiceoverRow.setVisibility(View.GONE);
+        boolean hasVideo = videoUri != null && !videoUri.isEmpty();
+        if (!hasVideo && sbOrigVol != null) {
+            View row = (View) sbOrigVol.getParent();
+            if (row != null) {
+                row.setVisibility(View.GONE);
+                android.view.ViewParent pp = row.getParent();
+                if (pp instanceof android.view.ViewGroup) {
+                    android.view.ViewGroup g = (android.view.ViewGroup) pp;
+                    int idx = g.indexOfChild(row);
+                    if (idx > 0) g.getChildAt(idx - 1).setVisibility(View.GONE); // "ORIGINAL AUDIO" label
+                }
+            }
+        }
     }
 
     private void injectAdvancedControls() {
@@ -177,6 +230,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
         android.widget.Button btnFI = mkFadeBtn("Fade In");
         android.widget.Button btnFO = mkFadeBtn("Fade Out");
+        if (fadeInMs > 0)  { btnFI.setAlpha(1f); btnFI.setText("v Fade In"); }
+        if (fadeOutMs > 0) { btnFO.setAlpha(1f); btnFO.setText("v Fade Out"); }
         btnFI.setOnClickListener(v -> {
             fadeInMs = fadeInMs > 0 ? 0 : 500;
             btnFI.setAlpha(fadeInMs > 0 ? 1f : 0.5f);
@@ -200,6 +255,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         normRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         normRow.setPadding((int)(12*dp),(int)(8*dp),(int)(12*dp),0);
         android.widget.Button btnNorm = mkFadeBtn("Normalize");
+        if (statusMode) normRow.setVisibility(View.GONE);
         btnNorm.setOnClickListener(v -> {
             normalizeOn = !normalizeOn;
             btnNorm.setAlpha(normalizeOn ? 1f : 0.5f);
@@ -214,11 +270,12 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         root.addView(normRow);
 
         android.widget.TextView tvPL = new android.widget.TextView(this);
-        tvPL.setText("Pitch: 0.0 semitones"); tvPL.setTextColor(0xFFFFFFFF); tvPL.setTextSize(13f);
+        tvPL.setText(String.format(java.util.Locale.US, "Pitch: %+.1f semitones", pitchSemitones));
+        tvPL.setTextColor(0xFFFFFFFF); tvPL.setTextSize(13f);
         tvPL.setPadding((int)(16*dp),(int)(10*dp),(int)(16*dp),0);
         root.addView(tvPL);
 
-        SeekBar sbP = new SeekBar(this); sbP.setMax(120); sbP.setProgress(60);
+        SeekBar sbP = new SeekBar(this); sbP.setMax(120); sbP.setProgress(Math.round(pitchSemitones * 10f) + 60);
         android.widget.LinearLayout.LayoutParams plp =
             new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
@@ -355,22 +412,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     private void startMusicPreview() {
         if (musicUrl == null || musicUrl.isEmpty()) return;
-        try {
-            musicPlayer = new MediaPlayer();
-            musicPlayer.setDataSource(musicUrl);
-            musicPlayer.setLooping(true);
-            musicPlayer.setVolume(musicVol, musicVol);
-            musicPlayer.prepareAsync();
-            musicPlayer.setOnPreparedListener(mp -> {
-                mp.start();
-                // ✅ FIX: re-apply any pitch already set (e.g. user moved the
-                // slider before the player finished preparing, or is switching
-                // tracks) so pitch stays in sync with the current preview.
-                applyPitchToMusicPreview();
-            });
-        } catch (Exception e) {
-            Toast.makeText(this, "Music preview failed", Toast.LENGTH_SHORT).show();
-        }
+        startMusicPreview(musicUrl);
     }
 
     private void setupSliders() {
@@ -400,7 +442,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
                 musicVol = p / 100f;
                 tvMusicVolPct.setText(p + "%");
-                if (musicPlayer != null) musicPlayer.setVolume(musicVol, musicVol);
+                applyMusicVolume();
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
@@ -418,7 +460,6 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     private void setupMuteToggles() {
         final boolean[] mutedOrig      = {false};
-        final boolean[] mutedMusic     = {false};
         final boolean[] mutedVoiceover = {false};
 
         btnMuteOrig.setOnClickListener(v -> {
@@ -428,12 +469,9 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
                 ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
         });
         btnMuteMusic.setOnClickListener(v -> {
-            mutedMusic[0] = !mutedMusic[0];
-            if (musicPlayer != null) {
-                float v2 = mutedMusic[0] ? 0f : musicVol;
-                musicPlayer.setVolume(v2, v2);
-            }
-            btnMuteMusic.setImageResource(mutedMusic[0]
+            musicMuted = !musicMuted;
+            applyMusicVolume();
+            btnMuteMusic.setImageResource(musicMuted
                 ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
         });
         btnMuteVoiceover.setOnClickListener(v -> {
@@ -552,32 +590,83 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
                 currentTitle  = newTitle;
                 currentArtist = newArtist;
                 musicUrl      = newUrl;
+                // The old clip range belonged to the previous song.
+                musicStartMs  = 0;
+                musicEndMs    = 0;
                 populateMusicInfo(currentTitle, currentArtist);
                 // Restart music preview player with new URL
-                if (musicPlayer != null) {
-                    try { musicPlayer.stop(); musicPlayer.release(); } catch (Exception ignored) {}
-                    musicPlayer = null;
-                }
                 startMusicPreview(newUrl);
                 Toast.makeText(this, "Music changed: " + newTitle, Toast.LENGTH_SHORT).show();
             }
         }
     }
 
-    /** Starts (or restarts) the background music preview player. */
+    /** Starts (or restarts) the background music preview player, honouring the chosen clip range. */
     private void startMusicPreview(String url) {
+        handler.removeCallbacks(musicTick);
+        if (musicPlayer != null) {
+            try { musicPlayer.stop(); } catch (Exception ignored) {}
+            try { musicPlayer.release(); } catch (Exception ignored) {}
+            musicPlayer = null;
+        }
         try {
             musicPlayer = new MediaPlayer();
             musicPlayer.setDataSource(url);
             musicPlayer.setLooping(true);
-            musicPlayer.prepareAsync();
             musicPlayer.setOnPreparedListener(mp -> {
-                mp.setVolume(musicVol, musicVol);
+                if (musicStartMs > 0) mp.seekTo(musicStartMs);
+                applyMusicVolume();
                 mp.start();
-                // ✅ FIX: keep pitch in sync after switching to a new track.
+                // re-apply pitch already set (slider moved before prepare / track switched)
                 applyPitchToMusicPreview();
+                handler.removeCallbacks(musicTick);
+                handler.post(musicTick);
             });
-        } catch (Exception ignored) {}
+            musicPlayer.prepareAsync();
+        } catch (Exception e) {
+            Toast.makeText(this, "Music preview failed", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Keeps the preview inside [musicStartMs, musicEndMs] and applies fade in/out per loop. */
+    private final Runnable musicTick = new Runnable() {
+        @Override public void run() {
+            MediaPlayer mp = musicPlayer;
+            if (mp == null || isFinishing()) return;
+            try {
+                if (mp.isPlaying()) {
+                    int pos = mp.getCurrentPosition();
+                    int end = effectiveEndMs(mp);
+                    if ((musicEndMs > 0 && pos >= musicEndMs) || (musicStartMs > 0 && pos < musicStartMs - 300)) {
+                        mp.seekTo(musicStartMs);
+                        pos = musicStartMs;
+                    }
+                    applyMusicVolume(fadeFactor(pos, musicStartMs, end));
+                }
+            } catch (IllegalStateException ignored) { /* released between ticks */ }
+            handler.postDelayed(this, 50);
+        }
+    };
+
+    private int effectiveEndMs(MediaPlayer mp) {
+        if (musicEndMs > 0) return musicEndMs;
+        try { return mp.getDuration(); } catch (Exception e) { return 0; }
+    }
+
+    /** 0..1 gain for the current position inside the loop, from the fade in/out settings. */
+    private float fadeFactor(int pos, int start, int end) {
+        float f = 1f;
+        if (fadeInMs > 0) f = Math.min(f, Math.max(0f, (pos - start) / (float) fadeInMs));
+        if (fadeOutMs > 0 && end > 0) f = Math.min(f, Math.max(0f, (end - pos) / (float) fadeOutMs));
+        return f;
+    }
+
+    private void applyMusicVolume() { applyMusicVolume(1f); }
+
+    private void applyMusicVolume(float fade) {
+        if (musicPlayer == null) return;
+        float v = musicMuted ? 0f : musicVol * fade;
+        try { musicPlayer.setVolume(v, v); } catch (IllegalStateException ignored) {}
     }
 
     /** Null-safe empty-string default. */
@@ -603,6 +692,9 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         result.putExtra(RESULT_MUSIC_ID,     soundId      != null ? soundId      : "");
         result.putExtra(RESULT_MUSIC_TITLE,  currentTitle != null ? currentTitle : "");
         result.putExtra(RESULT_MUSIC_ARTIST, currentArtist!= null ? currentArtist: "");
+
+        result.putExtra(RESULT_MUSIC_START_MS, musicStartMs);
+        result.putExtra(RESULT_MUSIC_END_MS,   musicEndMs);
 
         setResult(RESULT_OK, result);
         finish();

@@ -8,12 +8,15 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.*;
 
 import java.io.File;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.media.AudioAttributesCompat;
@@ -26,6 +29,7 @@ import com.callx.app.music.ReelTrendingAudioActivity;
 import com.callx.app.music.SoundDetailSheetFragment;
 import com.callx.app.reels.R;
 import com.callx.app.views.AudioTrimWaveformView;
+import com.callx.app.views.AudioWaveformExtractor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,8 +41,8 @@ import java.util.Locale;
  *
  * Combines:
  *  • A live reel-style photo preview (cycles through the selected photos)
- *  • A modern draggable dual-handle waveform trimmer (AudioTrimWaveformView)
- *    plus the classic Start/End seekbars, kept in sync with each other
+ *  • A draggable dual-handle waveform trimmer (AudioTrimWaveformView) with
+ *    15s / 30s / 60s presets
  *
  * The user trims the track to exactly the portion they want; only that
  * trimmed range (RESULT_START_MS…RESULT_END_MS) is stored on the reel and
@@ -120,15 +124,18 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
 
     private ImageButton  btnBack, btnPreview;
     private TextView      btnUse, btnChange;
-    private TextView     tvTitle, tvStartTime, tvEndTime, tvDuration, tvSelectedRange;
-    private TextView     tvStartValue, tvEndValue;
+    private TextView     tvTitle, tvDuration;
     private TextView     tvTrackTitle, tvTrackArtist;
     private ImageView    ivCover, ivPhotoPreview, ivPlayHint;
     private VideoView    videoPreview;
-    private SeekBar      sbStart, sbEnd;
     private AudioTrimWaveformView waveformView;
     private RadioGroup   rgPresets;
     private ProgressBar  progressLoad;
+    /** Spinner over the preview image / inside the preview button while the stream seeks or rebuffers. */
+    private ProgressBar  progressPreview, progressBtn;
+    private boolean      buffering = false;
+    /** True from seekTo() until onSeekComplete: playback + end-check wait for it. */
+    private boolean      seekPending = false;
     private View         layoutControls;
     private View         layoutTrackInfo;
 
@@ -140,9 +147,6 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     private int    startMs = 0;
     private int    endMs   = 30_000;
 
-    /** Guards against feedback loops while seekbars/waveform sync each other. */
-    private boolean syncingRange = false;
-
     private List<String> photoUris = new ArrayList<>();
     private int slideMs = 3000;
     private int previewPhotoIndex = 0;
@@ -152,6 +156,8 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     private boolean videoIsFilePath;
 
     private MediaPlayer mediaPlayer;
+    /** In-flight real-waveform decode; cancelled on song change / destroy. */
+    private AudioWaveformExtractor.Job waveJob;
     private boolean     isPreviewing = false;
     /** True only once the track is prepared (duration + waveform known). Gates Preview/Done. */
     private boolean     audioReady = false;
@@ -181,6 +187,11 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 }
             }
         }
+    };
+
+    /** Stream never became ready (dead link / very slow net): stop the endless spinner. */
+    private final Runnable loadTimeout = () -> {
+        if (!audioReady && !isFinishing()) onAudioLoadFailed(R.string.adjust_music_err_timeout);
     };
 
     /** Advances the photo preview to the next slide while previewing. */
@@ -225,7 +236,6 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         populateInfo();
         showPhoto(0);
         loadAudio();
-        setupSeekbars();
         setupWaveformDrag();
         setupPresets();
         setupButtons();
@@ -243,11 +253,11 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         ivPhotoPreview  = findViewById(R.id.iv_photo_preview);
         videoPreview    = findViewById(R.id.video_preview);
         ivPlayHint      = findViewById(R.id.iv_preview_play_hint);
-        sbStart         = findViewById(R.id.sb_trim_start);
-        sbEnd           = findViewById(R.id.sb_trim_end);
         waveformView    = findViewById(R.id.waveform_trim_view);
         rgPresets       = findViewById(R.id.rg_trim_presets);
         progressLoad    = findViewById(R.id.progress_trim_load);
+        progressPreview = findViewById(R.id.progress_preview_buffer);
+        progressBtn     = findViewById(R.id.progress_trim_preview_btn);
         layoutControls  = findViewById(R.id.layout_trim_controls);
         layoutTrackInfo = findViewById(R.id.layout_trim_track_info);
         btnChange       = findViewById(R.id.btn_trim_change);
@@ -296,19 +306,28 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private void populateInfo() {
-        if (tvTitle != null) tvTitle.setText("Adjust Music");
+        if (tvTitle != null) tvTitle.setText(R.string.adjust_music_title);
         if (tvTrackTitle != null)
-            tvTrackTitle.setText(soundTitle != null && !soundTitle.isEmpty() ? soundTitle : "Original audio");
+            tvTrackTitle.setText(soundTitle != null && !soundTitle.isEmpty() ? soundTitle : getString(R.string.adjust_music_original_audio));
         if (tvTrackArtist != null)
-            tvTrackArtist.setText(soundArtist != null && !soundArtist.isEmpty() ? soundArtist : "—");
+            tvTrackArtist.setText(soundArtist != null && !soundArtist.isEmpty() ? soundArtist : getString(R.string.adjust_music_artist_unknown));
         if (ivCover != null && soundCover != null && !soundCover.isEmpty()) {
             Glide.with(this).load(soundCover)
                 .transition(DrawableTransitionOptions.withCrossFade())
                 .into(ivCover);
+        } else {
+            clearCoverArt();   // new track has no cover: never keep showing the previous one
         }
-        updateTimeLabels();
+        syncRangeToWaveform();
         if (totalDurationMs > 0 && tvDuration != null)
             tvDuration.setText(msToTime(totalDurationMs));
+    }
+
+    /** Cancels any in-flight cover load and blanks the track-cover thumbnail. */
+    private void clearCoverArt() {
+        if (ivCover == null) return;
+        Glide.with(this).clear(ivCover);
+        ivCover.setImageDrawable(null);
     }
 
     private void showPhoto(int index) {
@@ -327,6 +346,9 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 Glide.with(this).load(soundCover)
                     .transition(DrawableTransitionOptions.withCrossFade())
                     .into(ivPhotoPreview);
+            } else {
+                Glide.with(this).clear(ivPhotoPreview);
+                ivPhotoPreview.setImageDrawable(null);
             }
             return;
         }
@@ -343,18 +365,23 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             // No track to validate — nothing to wait for.
             if (layoutControls != null) layoutControls.setVisibility(View.VISIBLE);
             if (progressLoad   != null) progressLoad.setVisibility(View.GONE);
+            setControlsLocked(false);
             updateActionStates();
             return;
         }
         if (progressLoad != null) progressLoad.setVisibility(View.VISIBLE);
+        setControlsLocked(true);   // waveform / presets / Done / Preview unusable until the track is ready
+        handler.removeCallbacks(loadTimeout);
+        handler.postDelayed(loadTimeout, 25_000);
         updateActionStates();
         try {
             mediaPlayer = new MediaPlayer();
             mediaPlayer.setOnPreparedListener(mp -> runOnUiThread(() -> {
                 if (isFinishing() || mediaPlayer != mp) return;
+                handler.removeCallbacks(loadTimeout);
                 int d = mp.getDuration();
                 if (totalDurationMs <= 0 || d > 0 && d < totalDurationMs) totalDurationMs = d;
-                if (totalDurationMs <= 0) { onAudioLoadFailed("Cannot load audio"); return; }
+                if (totalDurationMs <= 0) { onAudioLoadFailed(R.string.adjust_music_err_cannot_load); return; }
                 if (tvDuration != null) tvDuration.setText(msToTime(totalDurationMs));
                 // Keep the range inside the real track (min 1s window) so Done can never
                 // return a range beyond the song's end.
@@ -364,37 +391,57 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 if (waveformView != null) {
                     waveformView.setDurationMs(totalDurationMs);
                     waveformView.generateAmplitudes(soundId != null ? soundId : soundUrl);
+                    startRealWaveform();
                 }
-                setupSeekbarsRange();
-                updateTimeLabels();
+                syncRangeToWaveform();
                 syncPresetChip();
                 audioReady = true;
                 if (progressLoad   != null) progressLoad.setVisibility(View.GONE);
                 if (layoutControls != null) layoutControls.setVisibility(View.VISIBLE);
+                setControlsLocked(false);
                 updateActionStates();
             }));
+            mediaPlayer.setOnSeekCompleteListener(mp -> runOnUiThread(() -> {
+                if (mediaPlayer != mp || !seekPending) return;
+                seekPending = false;
+                if (!isPreviewing) { setBuffering(false); return; }
+                try { if (!mp.isPlaying()) mp.start(); } catch (Exception e) { stopPreview(); return; }
+                setBuffering(false);
+                handler.removeCallbacks(previewStopCheck);
+                handler.postDelayed(previewStopCheck, 60);
+            }));
+            mediaPlayer.setOnInfoListener((mp, what, extra) -> {
+                if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
+                    runOnUiThread(() -> { if (mediaPlayer == mp && isPreviewing) setBuffering(true); });
+                } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
+                    runOnUiThread(() -> { if (mediaPlayer == mp && !seekPending) setBuffering(false); });
+                }
+                return false;
+            });
             mediaPlayer.setOnErrorListener((mp, what, extra) -> {
                 runOnUiThread(() -> {
                     if (mediaPlayer != mp) return;
                     boolean wasReady = audioReady;
-                    onAudioLoadFailed(wasReady ? "Playback error" : "Cannot load audio");
+                    onAudioLoadFailed(wasReady ? R.string.adjust_music_err_playback : R.string.adjust_music_err_cannot_load);
                 });
                 return true;
             });
             mediaPlayer.setDataSource(soundUrl);
             mediaPlayer.prepareAsync();
         } catch (Exception e) {
-            onAudioLoadFailed("Failed to load audio");
+            onAudioLoadFailed(R.string.adjust_music_err_failed_load);
         }
     }
 
     /** Load/playback failure: stop everything and keep Done/Preview disabled (no bogus range returned). */
-    private void onAudioLoadFailed(String message) {
+    private void onAudioLoadFailed(@StringRes int messageRes) {
         audioReady = false;
+        handler.removeCallbacks(loadTimeout);
         stopPreview();
         if (progressLoad != null) progressLoad.setVisibility(View.GONE);
+        setControlsLocked(true);   // stays dimmed; "Change" remains usable to pick another track
         updateActionStates();
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, messageRes, Toast.LENGTH_SHORT).show();
     }
 
     /** Done + Preview are only usable once the track is ready (or when there is no track url at all). */
@@ -408,54 +455,50 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         }
         if (btnPreview != null) {
             btnPreview.setEnabled(audioReady);
-            btnPreview.setAlpha(audioReady ? 1f : 0.45f);
+            btnPreview.setAlpha(buffering ? 0f : (audioReady ? 1f : 0.45f));
         }
     }
 
-    private void setupSeekbars() {
-        if (sbStart == null || sbEnd == null) return;
-        if (totalDurationMs > 0) setupSeekbarsRange();
-
-        sbStart.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                if (syncingRange) return;
-                startMs = p;
-                if (startMs >= endMs - 1000) {
-                    startMs = Math.max(0, endMs - 1000);
-                    sb.setProgress(startMs);
-                }
-                updateTimeLabels();
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) { stopPreview(); }
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
-
-        sbEnd.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                if (syncingRange) return;
-                endMs = p;
-                if (endMs <= startMs + 1000) {
-                    endMs = Math.min(totalDurationMs, startMs + 1000);
-                    sb.setProgress(endMs);
-                }
-                updateTimeLabels();
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) { stopPreview(); }
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
+    /** Dims + disables the whole control panel while the track loads (or after a load failure). */
+    private void setControlsLocked(boolean locked) {
+        if (layoutControls == null) return;
+        setViewTreeEnabled(layoutControls, !locked);
+        layoutControls.setAlpha(locked ? 0.5f : 1f);
+        if (btnChange != null) btnChange.setEnabled(true);   // always allow picking a different track
     }
 
-    private void setupSeekbarsRange() {
-        if (sbStart == null || sbEnd == null || totalDurationMs <= 0) return;
-        syncingRange = true;
-        sbStart.setMax(totalDurationMs);
-        sbStart.setProgress(startMs);
-        sbEnd.setMax(totalDurationMs);
-        sbEnd.setProgress(Math.min(endMs, totalDurationMs));
-        syncingRange = false;
+    private static void setViewTreeEnabled(View v, boolean enabled) {
+        v.setEnabled(enabled);
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) setViewTreeEnabled(g.getChildAt(i), enabled);
+        }
     }
 
-    /** Wires the draggable waveform's handles to the same startMs/endMs state as the seekbars. */
+    /** Buffering/seeking indicator: spinner on the preview image and in place of the play icon. */
+    private void setBuffering(boolean b) {
+        buffering = b;
+        if (progressPreview != null) progressPreview.setVisibility(b ? View.VISIBLE : View.GONE);
+        if (progressBtn     != null) progressBtn.setVisibility(b ? View.VISIBLE : View.GONE);
+        if (b && ivPlayHint != null) ivPlayHint.setVisibility(View.GONE);
+        updateActionStates();
+    }
+
+    /**
+     * Seeks to the selection start and starts playback only once the (streamed) seek has
+     * completed. The end-of-range check starts then too, so a stale position can never
+     * trigger a bogus loop while the seek is still in flight.
+     */
+    private void seekAndPlayFromStart() {
+        handler.removeCallbacks(previewStopCheck);
+        seekPending = true;
+        setBuffering(true);
+        try { if (mediaPlayer.isPlaying()) mediaPlayer.pause(); } catch (Exception ignored) {}
+        if (android.os.Build.VERSION.SDK_INT >= 26) mediaPlayer.seekTo(startMs, MediaPlayer.SEEK_CLOSEST);
+        else mediaPlayer.seekTo(startMs);
+    }
+
+    /** Wires the draggable waveform's handles to the startMs/endMs state. */
     private void setupWaveformDrag() {
         if (waveformView == null) return;
         waveformView.setOnRangeChangeListener(new AudioTrimWaveformView.OnRangeChangeListener() {
@@ -463,13 +506,13 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 if (isPreviewing) stopPreview();
                 startMs = newStart;
                 endMs   = newEnd;
-                updateTimeLabels();
+                syncRangeToWaveform();
                 syncPresetChip(); // manual range no longer matches a preset -> deselect chip
             }
             @Override public void onRangeChangeFinished(int newStart, int newEnd) {
                 startMs = newStart;
                 endMs   = newEnd;
-                updateTimeLabels();
+                syncRangeToWaveform();
                 syncPresetChip();
                 // Auto-audition: as soon as the finger lifts, play from the new start.
                 if (audioReady) startPreview();
@@ -495,6 +538,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         View chip = rgPresets.findViewById(id);
         if (chip == null) return;
         chip.setOnClickListener(v -> {
+            v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
             stopPreview();
             rgPresets.check(id);
             snapTo(clipMs);
@@ -521,8 +565,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         int maxStart = Math.max(0, totalDurationMs - clipMs);
         startMs = Math.min(startMs, maxStart);
         endMs   = Math.min(startMs + clipMs, totalDurationMs);
-        setupSeekbarsRange();
-        updateTimeLabels();
+        syncRangeToWaveform();
     }
 
     private void setupButtons() {
@@ -572,6 +615,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             mediaPlayer.release();
             mediaPlayer = null;
         }
+        if (waveJob != null) { waveJob.cancel(); waveJob = null; }
         soundId     = newId;
         soundTitle  = newTitle;
         soundArtist = newArtist;
@@ -582,7 +626,10 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         endMs   = 30_000;
         audioReady = false;
         isPreviewing = false;
+        seekPending = false;
+        setBuffering(false);
         if (waveformView != null) waveformView.setPlayheadMs(-1);
+        clearCoverArt();   // drop the old cover right away; the new one fades in when loaded
 
         populateInfo();
         // Refresh the preview cover art too — matters when there are no
@@ -591,7 +638,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         showPhoto(previewPhotoIndex);
         loadAudio();
         setupPresets();
-        updateTimeLabels();
+        syncRangeToWaveform();
     }
 
     private void togglePreview() {
@@ -601,17 +648,15 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
 
     private void startPreview() {
         if (mediaPlayer == null || soundUrl == null || !audioReady) {
-            Toast.makeText(this, "Audio not ready", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.adjust_music_err_not_ready, Toast.LENGTH_SHORT).show();
             return;
         }
         if (!requestAudioFocus()) return;
         try {
-            mediaPlayer.seekTo(startMs);
-            mediaPlayer.start();
             isPreviewing = true;
+            seekAndPlayFromStart();
             if (btnPreview != null) btnPreview.setImageResource(R.drawable.ic_pause);
             if (ivPlayHint != null) ivPlayHint.setVisibility(View.GONE);
-            handler.postDelayed(previewStopCheck, 60);
             previewPhotoIndex = 0;
             showPhoto(previewPhotoIndex);
             if (photoUris.size() > 1) slideHandler.postDelayed(slideRunnable, slideMs);
@@ -621,8 +666,11 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 videoPreview.start();
             }
         } catch (Exception e) {
+            seekPending = false;
+            setBuffering(false);
+            isPreviewing = false;
             abandonAudioFocus();
-            Toast.makeText(this, "Playback failed", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.adjust_music_err_playback_failed, Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -656,8 +704,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     /** Restarts the selected range from its start (audio + photo/video preview) without stopping. */
     private void loopPreview() {
         try {
-            mediaPlayer.seekTo(startMs);
-            if (!mediaPlayer.isPlaying()) mediaPlayer.start();
+            seekAndPlayFromStart();
         } catch (Exception e) { stopPreview(); return; }
         if (waveformView != null) waveformView.setPlayheadMs(startMs);
         if (photoUris.size() > 1) {
@@ -669,8 +716,6 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (videoPreview != null && videoUri != null) {
             try { videoPreview.seekTo(0); videoPreview.start(); } catch (Exception ignored) {}
         }
-        // Give the (possibly streamed) seek a moment before checking the end again.
-        handler.postDelayed(previewStopCheck, 250);
     }
 
     private void stopPreview() {
@@ -678,6 +723,8 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             try { mediaPlayer.pause(); } catch (Exception ignored) {}
         }
         isPreviewing = false;
+        seekPending = false;
+        setBuffering(false);
         abandonAudioFocus();
         if (btnPreview != null) btnPreview.setImageResource(R.drawable.ic_play);
         if (ivPlayHint != null) ivPlayHint.setVisibility(View.VISIBLE);
@@ -692,7 +739,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
 
     private void useSelection() {
         if (!audioReady && soundUrl != null && !soundUrl.isEmpty()) {
-            Toast.makeText(this, "Audio still loading", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.adjust_music_err_still_loading, Toast.LENGTH_SHORT).show();
             return;
         }
         stopPreview();
@@ -712,34 +759,14 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         finish();
     }
 
-    private void updateTimeLabels() {
-        if (tvStartTime     != null) tvStartTime.setText(msToTime(startMs));
-        if (tvEndTime       != null) tvEndTime.setText(msToTime(endMs));
-        if (tvSelectedRange != null)
-            tvSelectedRange.setText("Selected: " + msToTime(startMs) + " – " + msToTime(endMs));
-        if (tvStartValue    != null) tvStartValue.setText(msToTimeTenths(startMs));
-        if (tvEndValue       != null) tvEndValue.setText(msToTimeTenths(endMs));
-
-        // Keep the seekbars and the draggable waveform in lockstep with whichever
-        // control the user just moved, without re-triggering each other's listeners.
-        syncingRange = true;
-        if (sbStart != null && sbStart.getProgress() != startMs) sbStart.setProgress(startMs);
-        if (sbEnd   != null && sbEnd.getProgress()   != endMs)   sbEnd.setProgress(endMs);
-        syncingRange = false;
+    /** Pushes the current startMs/endMs into the waveform view. */
+    private void syncRangeToWaveform() {
         if (waveformView != null) waveformView.setRangeMs(startMs, endMs);
     }
 
     private static String msToTime(int ms) {
         int totalSec = ms / 1000;
         return String.format(Locale.US, "%d:%02d", totalSec / 60, totalSec % 60);
-    }
-
-    /** Same as msToTime but with a tenths-of-a-second digit, e.g. "0:01.2". */
-    private static String msToTimeTenths(int ms) {
-        int totalTenths = ms / 100;
-        int sec = totalTenths / 10;
-        int tenth = totalTenths % 10;
-        return String.format(Locale.US, "%d:%02d.%d", sec / 60, sec % 60, tenth);
     }
 
     @Override
@@ -756,8 +783,23 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         super.onBackPressed();
     }
 
+    /** Decodes the actual audio in the background and swaps the placeholder bars for real loudness. */
+    private void startRealWaveform() {
+        if (waveJob != null) waveJob.cancel();
+        if (soundUrl == null || soundUrl.isEmpty() || waveformView == null) return;
+        waveJob = AudioWaveformExtractor.extract(this, soundUrl, totalDurationMs,
+            new AudioWaveformExtractor.Callback() {
+                @Override public void onResult(float[] amps) {
+                    if (isFinishing() || isDestroyed() || waveformView == null) return;
+                    waveformView.setRealAmplitudes(amps);
+                }
+                @Override public void onFailed() { /* keep placeholder bars */ }
+            });
+    }
+
     @Override
     protected void onDestroy() {
+        if (waveJob != null) { waveJob.cancel(); waveJob = null; }
         handler.removeCallbacksAndMessages(null);
         slideHandler.removeCallbacksAndMessages(null);
         if (mediaPlayer != null) {

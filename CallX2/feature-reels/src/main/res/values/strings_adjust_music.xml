@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adjust Music screen (ReelPhotoMusicTrimActivity) — used by Reels and Status. -->
+<resources>
+    <string name="adjust_music_title">Adjust Music</string>
+    <string name="adjust_music_subtitle">Preview and select the best part</string>
+    <string name="adjust_music_preview_badge">PREVIEW</string>
+    <string name="adjust_music_original_audio">Original audio</string>
+    <string name="adjust_music_artist_placeholder">Artist</string>
+    <string name="adjust_music_artist_unknown">—</string>
+    <string name="adjust_music_preset_15">15s</string>
+    <string name="adjust_music_preset_30">30s</string>
+    <string name="adjust_music_preset_60">60s</string>
+    <string name="adjust_music_change">Change</string>
+    <string name="adjust_music_done">Done</string>
+    <string name="adjust_music_total_duration">Total duration</string>
+
+    <!-- Content descriptions -->
+    <string name="adjust_music_cd_back">Back</string>
+    <string name="adjust_music_cd_reel_preview">Reel preview</string>
+    <string name="adjust_music_cd_play_preview">Play preview</string>
+    <string name="adjust_music_cd_track_cover">Track cover</string>
+    <string name="adjust_music_cd_audio">Audio</string>
+    <string name="adjust_music_cd_change_audio">Change audio</string>
+    <string name="adjust_music_cd_preview_selection">Preview selection</string>
+    <string name="adjust_music_cd_use_selection">Use selection</string>
+
+    <!-- Toasts -->
+    <string name="adjust_music_err_timeout">Audio load timed out</string>
+    <string name="adjust_music_err_cannot_load">Cannot load audio</string>
+    <string name="adjust_music_err_failed_load">Failed to load audio</string>
+    <string name="adjust_music_err_playback">Playback error</string>
+    <string name="adjust_music_err_playback_failed">Playback failed</string>
+    <string name="adjust_music_err_not_ready">Audio not ready</string>
+    <string name="adjust_music_err_still_loading">Audio still loading</string>
+</resources>

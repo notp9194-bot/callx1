@@ -726,6 +726,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  currentSoundTitle);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, currentSoundArtist);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_START_MS, musicStartMs);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_END_MS,   musicEndMs);
         startActivityForResult(i, REQ_AUDIO_MIXER_UPLOAD);
     }
 
@@ -769,6 +771,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  currentSoundTitle);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, currentSoundArtist);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_START_MS, musicStartMs);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_END_MS,   musicEndMs);
         startActivityForResult(i, REQ_AUDIO_MIXER_AFTER_TRIM);
     }
 
@@ -791,6 +795,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         String newTitle  = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_TITLE);
         String newArtist = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_ARTIST);
         if (newUrl != null && !newUrl.isEmpty()) {
+            // A different song → the old trim range no longer applies.
+            if (!newUrl.equals(preSelectedSoundUrl)) { musicStartMs = 0; musicEndMs = 0; }
             preSelectedSoundUrl = newUrl;
             if (newId     != null && !newId.isEmpty())     preSelectedSoundId  = newId;
             if (newTitle  != null && !newTitle.isEmpty())  currentSoundTitle   = newTitle;

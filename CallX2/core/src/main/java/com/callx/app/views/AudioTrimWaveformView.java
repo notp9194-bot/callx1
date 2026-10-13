@@ -1,11 +1,13 @@
 package com.callx.app.views;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.util.AttributeSet;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -35,7 +37,8 @@ import java.util.Random;
  * Usage (see ReelPhotoMusicTrimActivity):
  *   waveformView.setPalette(dim, start, end, playhead, tooltipBg, tooltipText);
  *   waveformView.setDurationMs(totalMs);
- *   waveformView.generateAmplitudes(soundId); // once, after duration is known
+ *   waveformView.generateAmplitudes(soundId); // placeholder bars, once duration is known
+ *   AudioWaveformExtractor.extract(...) -> waveformView.setRealAmplitudes(amps); // real loudness
  *   waveformView.setRangeMs(startMs, endMs);  // whenever range changes programmatically
  *   waveformView.setOnRangeChangeListener(listener);
  *   waveformView.setPlayheadMs(mediaPlayer.getCurrentPosition()); // while previewing, or -1 to hide
@@ -87,7 +90,15 @@ public class AudioTrimWaveformView extends View {
     private int playheadMs = -1; // -1 == hidden (not previewing)
 
     private float[] amplitudes = new float[0];
+    /** Real (decoded) loudness data; null while only the placeholder bars are shown. */
+    private float[] rawAmps = null;
+    /** Previous bars during the placeholder -> real morph animation. */
+    private float[] fromAmps = null;
+    private float morph = 1f;
+    private ValueAnimator morphAnim;
     private int activeHandle = HANDLE_NONE;
+    /** True while the dragged handle/window is pinned at a limit, so the edge tick fires once per hit. */
+    private boolean edgeHapticFired = false;
     private float touchDownDx = 0f;
     private int windowLenMs = 0;
 
@@ -161,6 +172,8 @@ public class AudioTrimWaveformView extends View {
     public void generateAmplitudes(@Nullable String seedKey) {
         int w = getWidth();
         int count = w > 0 ? Math.max(24, (int) (w / (barWidthPx + barGapPx))) : 70;
+        rawAmps = null; fromAmps = null; morph = 1f;
+        if (morphAnim != null) morphAnim.cancel();
         amplitudes = new float[count];
         Random rng = new Random(seedKey != null ? seedKey.hashCode() : 42L);
         float phase = rng.nextFloat() * 6.28f;
@@ -173,10 +186,51 @@ public class AudioTrimWaveformView extends View {
         invalidate();
     }
 
+    /**
+     * Supplies real loudness data (0..1 per time bucket, whole track). Bars morph smoothly
+     * from the placeholder to the real shape. Safe to call before the view is laid out.
+     */
+    public void setRealAmplitudes(@Nullable float[] raw) {
+        if (raw == null || raw.length == 0) return;
+        rawAmps = raw;
+        if (getWidth() <= 0) return; // applied in onSizeChanged
+        float[] target = resampleRaw(raw);
+        if (morphAnim != null) morphAnim.cancel();
+        fromAmps = amplitudes.length == target.length ? amplitudes : null;
+        amplitudes = target;
+        if (fromAmps == null) { morph = 1f; invalidate(); return; }
+        morph = 0f;
+        morphAnim = ValueAnimator.ofFloat(0f, 1f);
+        morphAnim.setDuration(350);
+        morphAnim.addUpdateListener(a -> { morph = (float) a.getAnimatedValue(); invalidate(); });
+        morphAnim.start();
+    }
+
+    private float[] resampleRaw(float[] raw) {
+        int n = Math.max(24, (int) (getWidth() / (barWidthPx + barGapPx)));
+        float[] out = new float[n];
+        for (int i = 0; i < n; i++) {
+            int s = (int) Math.floor((double) i * raw.length / n);
+            int e = Math.max(s + 1, (int) Math.ceil((double) (i + 1) * raw.length / n));
+            float sum = 0f; int c = 0;
+            for (int k = s; k < e && k < raw.length; k++) { sum += raw[k]; c++; }
+            out[i] = c > 0 ? sum / c : raw[Math.min(raw.length - 1, s)];
+        }
+        return out;
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (morphAnim != null) morphAnim.cancel();
+        super.onDetachedFromWindow();
+    }
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        if (amplitudes.length == 0 && w > 0) generateAmplitudes(null);
+        if (w <= 0) return;
+        if (rawAmps != null) { amplitudes = resampleRaw(rawAmps); fromAmps = null; morph = 1f; }
+        else if (amplitudes.length == 0) generateAmplitudes(null);
     }
 
     // ── Drawing ─────────────────────────────────────────────────────────
@@ -196,7 +250,9 @@ public class AudioTrimWaveformView extends View {
         float step = (float) w / amplitudes.length;
         for (int i = 0; i < amplitudes.length; i++) {
             float cx = i * step + step / 2f;
-            float barH = amplitudes[i] * (h * 0.72f);
+            float amp = amplitudes[i];
+            if (fromAmps != null && morph < 1f && i < fromAmps.length) amp = fromAmps[i] + (amp - fromAmps[i]) * morph;
+            float barH = amp * (h * 0.72f);
             float top = midY - barH / 2f;
             float bottom = midY + barH / 2f;
 
@@ -314,8 +370,14 @@ public class AudioTrimWaveformView extends View {
         return Math.max(0, Math.min(start, Math.max(0, durationMs - windowLenMs)));
     }
 
+    /** Light tick for handle grab / hitting a limit. Respects the system touch-feedback setting. */
+    private void tick() {
+        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (!isEnabled()) return false; // locked while the track is loading
         float x = event.getX();
         float startX = xForMs(startMs);
         float endX   = xForMs(endMs);
@@ -350,6 +412,8 @@ public class AudioTrimWaveformView extends View {
                     activeHandle = HANDLE_NONE;
                     return false;
                 }
+                edgeHapticFired = false;
+                tick(); // grabbed a handle / the window
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                 invalidate();
                 return true;
@@ -372,6 +436,12 @@ public class AudioTrimWaveformView extends View {
                     candidate = Math.min(candidate, durationMs);
                     endMs = candidate;
                 }
+                boolean atEdge;
+                if (activeHandle == HANDLE_START)      atEdge = startMs <= 0 || endMs - startMs <= minGapMs;
+                else if (activeHandle == HANDLE_END)   atEdge = endMs >= durationMs || endMs - startMs <= minGapMs;
+                else                                   atEdge = startMs <= 0 || endMs >= durationMs;
+                if (atEdge && !edgeHapticFired) tick();
+                edgeHapticFired = atEdge;
                 invalidate();
                 if (listener != null) listener.onRangeChanging(startMs, endMs, activeHandle != HANDLE_END);
                 return true;
@@ -380,6 +450,7 @@ public class AudioTrimWaveformView extends View {
             case MotionEvent.ACTION_CANCEL:
                 boolean wasActive = activeHandle != HANDLE_NONE;
                 activeHandle = HANDLE_NONE;
+                edgeHapticFired = false;
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
                 invalidate();
                 if (wasActive && listener != null) listener.onRangeChangeFinished(startMs, endMs);

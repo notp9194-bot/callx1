@@ -31,7 +31,7 @@
             android:background="@drawable/bg_trim_circle_btn"
             android:padding="9dp"
             android:tint="@color/trim_text_primary"
-            android:contentDescription="Back"/>
+            android:contentDescription="@string/adjust_music_cd_back"/>
 
         <LinearLayout
             android:layout_width="0dp"
@@ -45,7 +45,7 @@
                 android:id="@+id/tv_trim_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Adjust Music"
+                android:text="@string/adjust_music_title"
                 android:textColor="@color/trim_text_primary"
                 android:textSize="17sp"
                 android:fontFamily="sans-serif-medium"
@@ -55,7 +55,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Preview and select the best part"
+                android:text="@string/adjust_music_subtitle"
                 android:textColor="@color/trim_text_secondary"
                 android:textSize="12sp"
                 android:maxLines="1"
@@ -85,7 +85,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scaleType="centerCrop"
-            android:contentDescription="Reel preview"/>
+            android:contentDescription="@string/adjust_music_cd_reel_preview"/>
 
         <!-- Video-reel flow: actual muted video plays here (over the poster-frame
              ImageView above) while the trimmed music previews, so the uploader sees
@@ -102,7 +102,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top|start"
             android:layout_margin="12dp"
-            android:text="PREVIEW"
+            android:text="@string/adjust_music_preview_badge"
             android:textColor="#FFFFFFFF"
             android:textSize="10sp"
             android:letterSpacing="0.12"
@@ -120,7 +120,16 @@
             android:tint="#EEFFFFFF"
             android:background="@drawable/bg_circle_action"
             android:padding="14dp"
-            android:contentDescription="Play preview"/>
+            android:contentDescription="@string/adjust_music_cd_play_preview"/>
+
+        <!-- Buffering / seeking spinner (streamed preview) -->
+        <ProgressBar
+            android:id="@+id/progress_preview_buffer"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="#FFFFFFFF"
+            android:visibility="gone"/>
     </FrameLayout>
 
     <!-- Loading indicator (shown while the track is being prepared) -->
@@ -165,7 +174,7 @@
                 android:scaleType="centerCrop"
                 android:background="@drawable/bg_trim_photo_rounded"
                 android:clipToOutline="true"
-                android:contentDescription="Track cover"/>
+                android:contentDescription="@string/adjust_music_cd_track_cover"/>
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -178,7 +187,7 @@
                     android:id="@+id/tv_trim_title_track"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Original audio"
+                    android:text="@string/adjust_music_original_audio"
                     android:textColor="@color/trim_text_primary"
                     android:textSize="14sp"
                     android:fontFamily="sans-serif-medium"
@@ -189,7 +198,7 @@
                     android:id="@+id/tv_trim_artist"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Artist"
+                    android:text="@string/adjust_music_artist_placeholder"
                     android:textColor="@color/trim_text_secondary"
                     android:textSize="12sp"
                     android:maxLines="1"
@@ -200,7 +209,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_waveform_mini"
-                android:contentDescription="Audio"/>
+                android:contentDescription="@string/adjust_music_cd_audio"/>
         </LinearLayout>
 
         <!-- Preset chips: 15s / 30s / 60s -->
@@ -218,7 +227,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
-                android:text="15s"
+                android:text="@string/adjust_music_preset_15"
                 android:gravity="center"
                 android:textColor="@color/trim_text_primary"
                 android:textSize="13sp"
@@ -234,7 +243,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
-                android:text="30s"
+                android:text="@string/adjust_music_preset_30"
                 android:gravity="center"
                 android:textColor="@color/trim_text_primary"
                 android:textSize="13sp"
@@ -250,7 +259,7 @@
                 android:layout_width="0dp"
                 android:layout_height="44dp"
                 android:layout_weight="1"
-                android:text="60s"
+                android:text="@string/adjust_music_preset_60"
                 android:gravity="center"
                 android:textColor="@color/trim_text_primary"
                 android:textSize="13sp"
@@ -294,7 +303,7 @@
                 android:layout_height="52dp"
                 android:gravity="center"
                 android:paddingHorizontal="16dp"
-                android:text="Change"
+                android:text="@string/adjust_music_change"
                 android:textColor="@color/trim_text_primary"
                 android:textSize="14sp"
                 android:fontFamily="sans-serif-medium"
@@ -303,7 +312,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:layout_marginEnd="10dp"
-                android:contentDescription="Change audio"/>
+                android:contentDescription="@string/adjust_music_cd_change_audio"/>
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -315,15 +324,28 @@
                 android:paddingHorizontal="12dp"
                 android:layout_marginEnd="10dp">
 
-                <ImageButton
-                    android:id="@+id/btn_trim_preview"
+                <FrameLayout
                     android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_play"
-                    android:tint="@color/trim_gradient_end"
-                    android:background="@android:color/transparent"
-                    android:padding="5dp"
-                    android:contentDescription="Preview selection"/>
+                    android:layout_height="28dp">
+
+                    <ImageButton
+                        android:id="@+id/btn_trim_preview"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:src="@drawable/ic_play"
+                        android:tint="@color/trim_gradient_end"
+                        android:background="@android:color/transparent"
+                        android:padding="5dp"
+                        android:contentDescription="@string/adjust_music_cd_preview_selection"/>
+
+                    <ProgressBar
+                        android:id="@+id/progress_trim_preview_btn"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_gravity="center"
+                        android:indeterminateTint="@color/trim_gradient_end"
+                        android:visibility="gone"/>
+                </FrameLayout>
 
                 <LinearLayout
                     android:layout_width="wrap_content"
@@ -334,7 +356,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Total duration"
+                        android:text="@string/adjust_music_total_duration"
                         android:textColor="@color/trim_text_muted"
                         android:textSize="10sp"/>
 
@@ -356,14 +378,14 @@
                 android:minWidth="88dp"
                 android:gravity="center"
                 android:paddingHorizontal="20dp"
-                android:text="Done"
+                android:text="@string/adjust_music_done"
                 android:textColor="#FFFFFFFF"
                 android:textSize="15sp"
                 android:fontFamily="sans-serif-medium"
                 android:background="@drawable/bg_trim_gradient_button_ripple"
                 android:clickable="true"
                 android:focusable="true"
-                android:contentDescription="Use selection"/>
+                android:contentDescription="@string/adjust_music_cd_use_selection"/>
 
         </LinearLayout>
 

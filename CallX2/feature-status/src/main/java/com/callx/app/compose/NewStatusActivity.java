@@ -27,6 +27,7 @@ import com.callx.app.status.databinding.ActivityNewStatusBinding;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import java.util.*;
@@ -205,6 +206,7 @@ public class NewStatusActivity extends AppCompatActivity {
     /** Small/Medium/Large size-control row shown above whichever sticker was last tapped */
     private LinearLayout stickerSizeBar;
     private com.callx.app.stickers.StatusStickerOverlayView selectedSticker;
+    private LinearLayout stickerMusicRow;
 
     /** Reel-style three-step status composer state. */
     private int wizardStep = 0;
@@ -262,6 +264,12 @@ public class NewStatusActivity extends AppCompatActivity {
         statusMediaEditLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> handleMediaEditActivityResult(result.getResultCode(), result.getData()));
+        musicReeditAdjustLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> onMusicReeditAdjustResult(result.getResultCode(), result.getData()));
+        musicReeditMixLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> onMusicReeditMixResult(result.getResultCode(), result.getData()));
         setupBgColorPicker();
         setupFontStylePicker();
         setupPrivacyButton();
@@ -882,6 +890,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     // ── v589: real video preview in the status editor ─────────────────────
     private VideoView editorVideoView;
+    private android.media.MediaPlayer editorVideoMp; // for Mix Audio original-volume preview
     private boolean editorVideoWantsPlay;
     private boolean editorVideoToolHintShown;
     private final java.util.HashMap<String, View> editorToolRows = new java.util.HashMap<>();
@@ -903,7 +912,8 @@ public class NewStatusActivity extends AppCompatActivity {
         editorVideoWantsPlay = true;
         editorVideoView.setOnPreparedListener(mp -> {
             mp.setLooping(true);
-            mp.setVolume(0f, 0f); // muted: a Music sticker may be previewing at the same time
+            editorVideoMp = mp;
+            applyEditorVideoVolume(); // muted, unless a Mix Audio music sticker sets the original volume
             mp.setOnInfoListener((m, what, extra) -> {
                 if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START)
                     binding.ivPreview.animate().alpha(0f).setDuration(120).start(); // thumbnail → live frame
@@ -924,7 +934,21 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivVideoHint.setVisibility(View.VISIBLE); // until the first frame is playing
     }
 
+    /**
+     * Video preview volume. Muted by default (a Music sticker may be previewing at the same time);
+     * with a Mix Audio music sticker that carries an original-volume choice (origVol >= 0) the
+     * poster hears the video's own audio at that level, mixed with the song.
+     */
+    private void applyEditorVideoVolume() {
+        if (editorVideoMp == null) return;
+        float v = 0f;
+        StatusStickerOverlayView st = musicStickerInComposer;
+        if (st != null && st.hasMusicMix() && st.getMusicOrigVol() >= 0f) v = st.getMusicOrigVol();
+        try { editorVideoMp.setVolume(v, v); } catch (Exception ignored) {}
+    }
+
     private void stopVideoPreview() {
+        editorVideoMp = null;
         editorVideoWantsPlay = false;
         if (editorVideoView != null) {
             try { editorVideoView.stopPlayback(); } catch (Exception ignored) {}
@@ -1769,6 +1793,182 @@ public class NewStatusActivity extends AppCompatActivity {
         });
     }
 
+    // ── Music sticker re-edit (tap sticker → Adjust / Mix with the saved values) ──────────────
+    private androidx.activity.result.ActivityResultLauncher<Intent> musicReeditAdjustLauncher, musicReeditMixLauncher;
+    private com.callx.app.stickers.StatusStickerOverlayView reeditSticker;
+    private String reId = "", reTitle = "", reArtist = "", reCover = "", reUrl = "";
+    private int reStart, reEnd;
+    private boolean reAdjusted = false;       // Adjust returned OK in this edit session
+    private boolean musicReeditInPlace = false; // suppress the "replaced" toast while editing
+
+    /** Local photo/video this status is built on, or null (text-only / web media → no re-edit). */
+    private Uri musicEditMedia() {
+        Uri m = pickedVideo != null ? pickedVideo : pickedImage;
+        if (m == null) return null;
+        String sc = m.getScheme();
+        if ("http".equalsIgnoreCase(sc) || "https".equalsIgnoreCase(sc)) return null;
+        return m;
+    }
+
+    private void startMusicReedit(com.callx.app.stickers.StatusStickerOverlayView st, boolean adjustFirst) {
+        hideStickerSizeBar();
+        String url = st.getMusicSoundUrl();
+        if (url == null || url.isEmpty()) { toast("Is music sticker me edit karne layak audio nahi hai"); return; }
+        if (musicEditMedia() == null) { toast("Is status par music edit available nahi"); return; }
+        reeditSticker = st;
+        reUrl    = url.replace("\\/", "/");
+        reId     = nz(st.getMusicSoundId());
+        reTitle  = nz(st.getMusicSong());
+        reArtist = nz(st.getMusicArtist());
+        reCover  = nz(st.getMusicCoverUrl());
+        reStart  = st.getMusicStartMs();
+        reEnd    = st.getMusicEndMs();
+        reAdjusted = false;
+        boolean ok = adjustFirst ? launchReeditAdjust() : launchReeditMixer();
+        if (!ok) { reeditSticker = null; toast("Music editor khul nahi paya"); }
+    }
+
+    private static String nz(String s) { return s != null ? s : ""; }
+
+    private boolean launchReeditAdjust() {
+        try {
+            Uri media = musicEditMedia();
+            Intent i = new Intent(this, Class.forName("com.callx.app.editor.ReelPhotoMusicTrimActivity"));
+            java.util.ArrayList<String> photos = new java.util.ArrayList<>();
+            if (pickedVideo == null && media != null) photos.add(media.toString());
+            i.putStringArrayListExtra("trim_photo_uris", photos);
+            i.putExtra("trim_slide_ms", 3000);
+            if (pickedVideo != null && media != null) {
+                i.putExtra("trim_video_uri", media.toString());
+                i.putExtra("trim_video_is_file_path", false);
+            }
+            i.putExtra("trim_sound_id",     reId);
+            i.putExtra("trim_sound_title",  reTitle);
+            i.putExtra("trim_sound_artist", reArtist);
+            i.putExtra("trim_sound_url",    reUrl);
+            i.putExtra("trim_sound_cover",  reCover);
+            if (reEnd > reStart) {
+                i.putExtra("trim_initial_start_ms", reStart);
+                i.putExtra("trim_initial_end_ms",   reEnd);
+            }
+            musicReeditAdjustLauncher.launch(i);
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    private void onMusicReeditAdjustResult(int resultCode, @Nullable Intent data) {
+        if (reeditSticker == null) return;
+        if (resultCode != RESULT_OK || data == null) { reeditSticker = null; return; } // cancelled → no change
+        String id = data.getStringExtra("result_sound_id"), title = data.getStringExtra("result_sound_title");
+        String artist = data.getStringExtra("result_sound_artist"), url = data.getStringExtra("result_sound_url");
+        String cover = data.getStringExtra("result_sound_cover");
+        boolean trackChanged = url != null && !url.isEmpty() && !url.replace("\\/", "/").equals(reUrl);
+        if (url != null && !url.isEmpty()) reUrl = url;
+        if (id != null && !id.isEmpty()) reId = id;
+        if (title != null && !title.isEmpty()) reTitle = title;
+        if (artist != null) reArtist = artist;
+        if (cover != null && !cover.isEmpty()) reCover = cover; else if (trackChanged) reCover = "";
+        reStart = data.getIntExtra("result_start_ms", 0);
+        reEnd   = data.getIntExtra("result_end_ms", 0);
+        reAdjusted = true;
+        // Adjust → Done → Mix Audio (same chain as when the sticker was first added).
+        if (!launchReeditMixer()) applyMusicReedit(null);
+    }
+
+    private boolean launchReeditMixer() {
+        try {
+            Uri media = musicEditMedia();
+            com.callx.app.stickers.StatusStickerOverlayView st = reeditSticker;
+            Intent i = new Intent(this, Class.forName("com.callx.app.editor.ReelAudioMixerActivity"));
+            if (pickedVideo != null && media != null) {
+                i.putExtra("mixer_video_uri", media.toString());
+                i.putExtra("mixer_is_file", false);
+            } else if (media != null) {
+                i.putExtra("mixer_photo_uri", media.toString());
+            }
+            i.putExtra("mixer_music_url",    reUrl);
+            i.putExtra("mixer_music_title",  reTitle);
+            i.putExtra("mixer_music_artist", reArtist);
+            i.putExtra("mixer_sound_id",     reId);
+            i.putExtra("mixer_music_start_ms", reStart);
+            i.putExtra("mixer_music_end_ms",   reEnd);
+            i.putExtra("mixer_status_mode", true);
+            if (st != null && st.hasMusicMix()) {            // saved values come back on screen
+                if (st.getMusicOrigVol() >= 0f) i.putExtra("mixer_init_orig_vol",  st.getMusicOrigVol());
+                if (st.getMusicMixVol()  >= 0f) i.putExtra("mixer_init_music_vol", st.getMusicMixVol());
+                i.putExtra("mixer_init_fade_in_ms",  st.getMusicFadeInMs());
+                i.putExtra("mixer_init_fade_out_ms", st.getMusicFadeOutMs());
+                i.putExtra("mixer_init_pitch",       st.getMusicPitch());
+            }
+            musicReeditMixLauncher.launch(i);
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    private void onMusicReeditMixResult(int resultCode, @Nullable Intent data) {
+        if (reeditSticker == null) return;
+        if (resultCode == RESULT_OK && data != null) {
+            // "Change" inside the mixer may have swapped the track (then range comes back 0/0).
+            String url = data.getStringExtra("result_music_url");
+            if (url != null && !url.isEmpty()) {
+                if (!url.replace("\\/", "/").equals(reUrl)) reCover = "";
+                reUrl = url;
+            }
+            String id = data.getStringExtra("result_music_id");
+            String title = data.getStringExtra("result_music_title");
+            String artist = data.getStringExtra("result_music_artist");
+            if (id != null && !id.isEmpty()) reId = id;
+            if (title != null && !title.isEmpty()) reTitle = title;
+            if (artist != null) reArtist = artist;
+            reStart = data.getIntExtra("result_music_start_ms", reStart);
+            reEnd   = data.getIntExtra("result_music_end_ms",   reEnd);
+            float[] mix = {
+                data.getFloatExtra("result_music_vol", 0.8f),
+                pickedVideo != null ? data.getFloatExtra("result_orig_vol", 1.0f) : -1f,
+                data.getIntExtra("result_fade_in_ms", 0),
+                data.getIntExtra("result_fade_out_ms", 0),
+                data.getFloatExtra("result_pitch_semitones", 0f)
+            };
+            applyMusicReedit(mix);
+        } else if (reAdjusted) {
+            applyMusicReedit(null); // Back from Mix: keep the new range, keep the old mix
+        } else {
+            reeditSticker = null;   // nothing changed
+        }
+    }
+
+    /** Rebuilds the music sticker JSON (keeping its position/size) and swaps it in. mix = {musicVol, origVol, fadeIn, fadeOut, pitch} or null. */
+    private void applyMusicReedit(@Nullable float[] mix) {
+        com.callx.app.stickers.StatusStickerOverlayView st = reeditSticker;
+        reeditSticker = null;
+        if (st == null || st.getParent() != stickerOverlayFrame) return;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(st.toJsonWithScale());
+            o.put("song", reTitle);
+            o.put("artist", reArtist);
+            o.put("albumArt", reCover);
+            o.put("soundId", reId);
+            o.put("soundUrl", reUrl);
+            o.remove("startMs"); o.remove("endMs");
+            if (reStart > 0) o.put("startMs", reStart);
+            if (reEnd > reStart && reEnd > 0) o.put("endMs", reEnd);
+            if (mix != null) {
+                o.put("musicVol", Math.round(Math.max(0f, Math.min(1f, mix[0])) * 100f) / 100.0);
+                o.remove("origVol");
+                if (mix[1] >= 0f) o.put("origVol", Math.round(Math.min(1f, mix[1]) * 100f) / 100.0);
+                o.remove("fadeInMs"); o.remove("fadeOutMs"); o.remove("pitch");
+                if (mix[2] > 0) o.put("fadeInMs",  (int) mix[2]);
+                if (mix[3] > 0) o.put("fadeOutMs", (int) mix[3]);
+                if (mix[4] != 0f) o.put("pitch", Math.round(mix[4] * 10f) / 10.0);
+            }
+            musicReeditInPlace = true;
+            try { addStickerOverlay(o.toString()); } finally { musicReeditInPlace = false; }
+            toast("Music update ho gaya");
+        } catch (Exception e) {
+            toast("Music update nahi ho paya");
+        }
+    }
+
     private String getStickerAddedLabel(String type) {
         switch (type) {
             case "music":     return "🎵 Music sticker";
@@ -1800,6 +2000,15 @@ public class NewStatusActivity extends AppCompatActivity {
     private final StatusMusicClip previewClip = new StatusMusicClip(); // (5) same ~30s highlight the viewer will play
     private int previewStartMs = 0, previewEndMs = 0;
 
+    { previewClip.setVolumeListener(() -> applyPreviewVolume()); } // fade-in/out ramp
+
+    /** Duck × Mix Audio factor (music volume + current fade); same maths as the viewer. */
+    private void applyPreviewVolume() {
+        if (musicPreview == null) return;
+        float v = (previewDucked ? 0.2f : 1f) * previewClip.volumeFactor();
+        try { musicPreview.setVolume(v, v); } catch (Exception ignored) {}
+    }
+
     private StatusAudioFocusHelper previewFocus() {
         if (previewFocus == null) {
             previewFocus = new StatusAudioFocusHelper(this, new StatusAudioFocusHelper.Listener() {
@@ -1815,10 +2024,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 }
                 @Override public void onDuck(boolean ducked) {
                     previewDucked = ducked;
-                    if (musicPreview != null) {
-                        float v = ducked ? 0.2f : 1f;
-                        try { musicPreview.setVolume(v, v); } catch (Exception ignored) {}
-                    }
+                    applyPreviewVolume();
                 }
             });
         }
@@ -1849,7 +2055,8 @@ public class NewStatusActivity extends AppCompatActivity {
             // Old song's preview must go too (the new one starts right after this).
             if (musicStickerInComposer != null) musicStickerInComposer = null;
             stopMusicPreview();
-            toast("Pehla music sticker replace ho gaya");
+            applyEditorVideoVolume(); // muted until the replacing sticker sets its own mix
+            if (!musicReeditInPlace) toast("Pehla music sticker replace ho gaya");
         }
         return removedAny ? Math.max(topMargin, 0) : -1;
     }
@@ -1863,6 +2070,14 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private void startMusicPreview(StatusStickerOverlayView sticker) {
         stopMusicPreview();
+        // Mix Audio → same music volume / fades / pitch the viewer will apply; neutral if no mix.
+        if (sticker.hasMusicMix()) {
+            previewClip.setMix(sticker.getMusicMixVol(), sticker.getMusicFadeInMs(),
+                    sticker.getMusicFadeOutMs(), sticker.getMusicPitch());
+        } else {
+            previewClip.setMix(-1f, 0, 0, 0f);
+        }
+        applyEditorVideoVolume(); // musicStickerInComposer is already this sticker
         String url = sticker.getMusicSoundUrl();
         if (url == null || url.isEmpty()) return; // sticker carries no playable URL → silent preview
         previewStartMs = sticker.getMusicStartMs();
@@ -1878,6 +2093,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     .build());
             mp.setDataSource(playUrl);
             mp.setLooping(true);
+            applyPreviewVolume();
             mp.setOnPreparedListener(p -> {
                 if (musicPreview != p) return; // stale (sticker replaced/removed meanwhile)
                 musicPreviewPrepared = true;
@@ -1902,6 +2118,7 @@ public class NewStatusActivity extends AppCompatActivity {
         try {
             if (musicPreview.isPlaying()) return;
             if (!previewFocus().request()) return; // e.g. call active → stay silent
+            previewClip.reapplyPitch(); // Mix Audio pitch (no-op when 0)
             musicPreview.start();
         } catch (Exception ignored) {}
         syncComposerMusicBars();
@@ -1993,6 +2210,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 if (removed == musicStickerInComposer) {
                     musicStickerInComposer = null;
                     stopMusicPreview();
+                    applyEditorVideoVolume(); // back to muted
                 }
             });
             startMusicPreview(stickerView);
@@ -2062,12 +2280,40 @@ public class NewStatusActivity extends AppCompatActivity {
                 });
                 stickerSizeBar.addView(btn, lp);
             }
+
+            // Music sticker only: re-open Adjust Music / Mix Audio with the saved values.
+            stickerMusicRow = new LinearLayout(this);
+            stickerMusicRow.setOrientation(LinearLayout.HORIZONTAL);
+            stickerMusicRow.setGravity(android.view.Gravity.CENTER);
+            String[] mLabels = {"✂ Adjust", "🎚 Mix"};
+            for (int i = 0; i < mLabels.length; i++) {
+                final boolean adjust = (i == 0);
+                TextView mb = new TextView(this);
+                mb.setText(mLabels[i]);
+                mb.setTextColor(Color.WHITE);
+                mb.setTextSize(13);
+                mb.setTypeface(null, android.graphics.Typeface.BOLD);
+                mb.setGravity(android.view.Gravity.CENTER);
+                mb.setPadding(dp(10), 0, dp(10), 0);
+                LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+                mlp.leftMargin = dp(4);
+                mb.setOnClickListener(v -> {
+                    if (selectedSticker != null) startMusicReedit(selectedSticker, adjust);
+                });
+                stickerMusicRow.addView(mb, mlp);
+            }
+            stickerSizeBar.addView(stickerMusicRow, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             stickerOverlayFrame.addView(stickerSizeBar, new android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL));
         }
 
+        if (stickerMusicRow != null) {
+            stickerMusicRow.setVisibility("music".equals(sticker.getStickerType()) ? View.VISIBLE : View.GONE);
+        }
         stickerSizeBar.setVisibility(View.VISIBLE);
         stickerSizeBar.bringToFront();
         // Position just above the tapped sticker (falls back near the top if it doesn't fit).

@@ -1961,6 +1961,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (stickerOverlayView != null) stickerOverlayView.removeAllViews();
           stickerZoomScrim = null; // just got removed along with everything else above
           videoUnderMusic = false; // new status → its own video starts at normal volume
+          videoMixVol = -1f;       // …and without the previous status's Mix Audio volume
           cancelMusicHold();    // a hold from the previous status must never start this one's progress
           cancelImageHold();
           releaseMusicPlayer(); // stop the previous status's music sticker (+ give audio focus back)
@@ -2020,9 +2021,12 @@ import com.callx.app.utils.AlertDialogStyler;
       // audio (Instagram-style); 1f restores the old "both full" behaviour.
       private static final float VIDEO_VOLUME_UNDER_MUSIC = 0.25f;
       private boolean videoUnderMusic = false;           // this status's video should be ducked
+      // Mix Audio: poster's chosen original-video volume (0..1). -1 = no mix → old 0.25 ducking applies.
+      private float videoMixVol = -1f;
       // (5) Full-length tracks (no preview URL) used to play from 0:00 for minutes.
       // StatusMusicClip plays a ~30s highlight (or the poster's trimmed range) instead.
       private final StatusMusicClip musicClip = new StatusMusicClip();
+      { musicClip.setVolumeListener(() -> applyMusicVolume()); } // fade-in/out ramp
       private int stickerMusicStartMs = 0;   // current status's sticker clip range (0 = unset)
       private int stickerMusicEndMs   = 0;
       private StatusAudioFocusHelper musicFocus;      // lazily created
@@ -2067,7 +2071,10 @@ import com.callx.app.utils.AlertDialogStyler;
       /** Single place that decides the status VIDEO volume (mute + sticker-music ducking). */
       private void applyVideoVolume() {
           if (player == null) return;
-          float v = isMuted ? 0f : (videoUnderMusic ? VIDEO_VOLUME_UNDER_MUSIC : 1f);
+          float v;
+          if (isMuted) v = 0f;
+          else if (videoUnderMusic && videoMixVol >= 0f) v = videoMixVol;   // poster's Mix Audio choice
+          else v = videoUnderMusic ? VIDEO_VOLUME_UNDER_MUSIC : 1f;
           try { player.setVolume(v); } catch (Exception ignored) {}
       }
 
@@ -2080,7 +2087,8 @@ import com.callx.app.utils.AlertDialogStyler;
       /** Single place that decides the music volume (mute + duck). */
       private void applyMusicVolume() {
           if (musicPlayer == null) return;
-          float v = isMuted ? 0f : (musicDucked ? 0.2f : 1f);
+          // × Mix Audio factor (music volume + current fade-in/out position); 1 when no mix.
+          float v = isMuted ? 0f : (musicDucked ? 0.2f : 1f) * musicClip.volumeFactor();
           try { musicPlayer.setVolume(v, v); } catch (Exception ignored) {}
       }
 
@@ -2090,6 +2098,7 @@ import com.callx.app.utils.AlertDialogStyler;
           try {
               if (musicPlayer.isPlaying()) return;
               if (!acquireMusicFocus()) return; // e.g. a call is active — stay silent
+              musicClip.reapplyPitch(); // Mix Audio pitch (no-op when 0)
               musicPlayer.start();
           } catch (Exception ignored) {}
           syncMusicStickerPlaying();
@@ -2199,6 +2208,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void showMusicFailedToast(int what, int extra) {
           // No song is coming → the video must not stay ducked for nothing.
           videoUnderMusic = false;
+          videoMixVol = -1f;
           applyVideoVolume();
           if (isFinishing()) return;
           String code = (what != 0 || extra != 0) ? " (" + what + "/" + extra + ")" : "";
@@ -2444,6 +2454,16 @@ import com.callx.app.utils.AlertDialogStyler;
                       final int musicIdx = idx;
                       stickerMusicStartMs = sticker.getMusicStartMs(); // (5) clip range for this status
                       stickerMusicEndMs   = sticker.getMusicEndMs();
+                      // Mix Audio: music volume / fades / pitch for the clip, original-video volume for the video.
+                      // No mix on the sticker → neutral values, so old statuses behave exactly as before.
+                      if (sticker.hasMusicMix()) {
+                          musicClip.setMix(sticker.getMusicMixVol(), sticker.getMusicFadeInMs(),
+                                  sticker.getMusicFadeOutMs(), sticker.getMusicPitch());
+                          videoMixVol = sticker.getMusicOrigVol(); // -1 (photo / not set) keeps the 0.25 ducking
+                      } else {
+                          musicClip.setMix(-1f, 0, 0, 0f);
+                          videoMixVol = -1f;
+                      }
                       dbgLog( "musicSticker autoplay: soundId=" + musicSoundId
                               + " directSoundUrl=" + (soundUrl == null || soundUrl.isEmpty() ? "empty" : "present"));
                       boolean hasDirect = soundUrl != null && !soundUrl.isEmpty();

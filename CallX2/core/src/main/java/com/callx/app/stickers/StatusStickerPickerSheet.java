@@ -57,6 +57,8 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     private static final int REQ_MUSIC_TRENDING_AUDIO = 7031;
     /** Second hop of the music flow: Reels' "Adjust Music" (start/end) screen. */
     private static final int REQ_MUSIC_ADJUST = 7032;
+    /** Third hop: Reels' "Mix Audio" screen (ReelAudioMixerActivity), shown after Adjust → Done. */
+    private static final int REQ_MUSIC_MIX = 7033;
 
     /**
      * Optional media the music is being added to (Status composer's photo/video).
@@ -75,6 +77,9 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
 
     // Track picked on Trending Audio, held while the Adjust Music screen is open.
     private String pendId, pendTitle, pendArtist, pendCover, pendFullUrl, pendPreviewUrl;
+    // Result of the Adjust step, held while the Mix Audio screen is open.
+    private String adjId, adjTitle, adjArtist, adjCover, adjUrl;
+    private int adjStartMs, adjEndMs;
 
     public static StatusStickerPickerSheet show(
             androidx.fragment.app.FragmentActivity host,
@@ -283,6 +288,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_MUSIC_ADJUST) { onMusicAdjustResult(resultCode, data); return; }
+        if (requestCode == REQ_MUSIC_MIX)    { onMusicMixResult(resultCode, data); return; }
         if (requestCode != REQ_MUSIC_TRENDING_AUDIO) return;
 
         if (resultCode == android.app.Activity.RESULT_OK && data != null) {
@@ -380,15 +386,108 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             if (title != null && !title.isEmpty()) {
                 // NOTE: range is relative to the FULL track, so the sticker must carry the full URL
                 // (the short preview clip would be shorter than startMs/endMs).
-                emitMusicSticker(id, title, artist, cover, url != null ? url : "", startMs, endMs);
+                adjId = id; adjTitle = title; adjArtist = artist; adjCover = cover;
+                adjUrl = url != null ? url : ""; adjStartMs = startMs; adjEndMs = endMs;
+                // Adjust → Done → Mix Audio (same screen Reels uses). Dismiss is deferred until it returns.
+                if (launchMusicMixer()) return;
+                emitMusicSticker(id, title, artist, cover, adjUrl, startMs, endMs);
             }
         }
         // Cancel/back from Adjust Music → no sticker (same as cancelling Trending Audio).
         dismiss();
     }
 
+    /**
+     * Opens Reels' "Mix Audio" screen (ReelAudioMixerActivity) by class name. Status mode hides
+     * Voiceover/Normalize (they need offline processing) and, for a photo status, the Original row.
+     * Extras are literals mirroring ReelAudioMixerActivity.EXTRA_*.
+     * @return false if the screen can't be launched (caller falls back to adding the sticker directly)
+     */
+    private boolean launchMusicMixer() {
+        if (musicPreviewMedia == null || adjUrl == null || adjUrl.isEmpty()) return false;
+        try {
+            Context ctx = requireContext();
+            Class<?> cls = Class.forName("com.callx.app.editor.ReelAudioMixerActivity");
+            Intent i = new Intent(ctx, cls);
+            if (musicPreviewMedia.isVideo && musicPreviewMedia.uri != null) {
+                i.putExtra("mixer_video_uri", musicPreviewMedia.uri);
+                i.putExtra("mixer_is_file", false);
+            } else if (musicPreviewMedia.uri != null) {
+                i.putExtra("mixer_photo_uri", musicPreviewMedia.uri);
+            }
+            i.putExtra("mixer_music_url",    adjUrl);
+            i.putExtra("mixer_music_title",  adjTitle != null ? adjTitle : "");
+            i.putExtra("mixer_music_artist", adjArtist != null ? adjArtist : "");
+            i.putExtra("mixer_sound_id",     adjId != null ? adjId : "");
+            i.putExtra("mixer_music_start_ms", adjStartMs);
+            i.putExtra("mixer_music_end_ms",   adjEndMs);
+            i.putExtra("mixer_status_mode",  true);
+            startActivityForResult(i, REQ_MUSIC_MIX);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void onMusicMixResult(int resultCode, @Nullable Intent data) {
+        if (adjTitle != null && !adjTitle.isEmpty()) {
+            if (resultCode == android.app.Activity.RESULT_OK && data != null) {
+                // "Done" tapped. The user may have swapped the track via "Change" inside the mixer;
+                // the mixer then returns the NEW track and a 0/0 range.
+                String url    = data.getStringExtra("result_music_url");
+                String id     = data.getStringExtra("result_music_id");
+                String title  = data.getStringExtra("result_music_title");
+                String artist = data.getStringExtra("result_music_artist");
+                boolean changed = url != null && !url.isEmpty() && !url.equals(adjUrl);
+                int startMs = data.getIntExtra("result_music_start_ms", adjStartMs);
+                int endMs   = data.getIntExtra("result_music_end_ms",   adjEndMs);
+                MusicMix mix = new MusicMix();
+                mix.musicVol = data.getFloatExtra("result_music_vol", 0.8f);
+                if (musicPreviewMedia != null && musicPreviewMedia.isVideo) {
+                    mix.origVol = data.getFloatExtra("result_orig_vol", 1.0f);
+                }
+                mix.fadeInMs  = data.getIntExtra("result_fade_in_ms", 0);
+                mix.fadeOutMs = data.getIntExtra("result_fade_out_ms", 0);
+                mix.pitch     = data.getFloatExtra("result_pitch_semitones", 0f);
+                if (changed) {
+                    emitMusicSticker(id != null ? id : "", title != null && !title.isEmpty() ? title : adjTitle,
+                        artist != null ? artist : "", "", url, startMs, endMs, mix);
+                } else {
+                    emitMusicSticker(adjId, adjTitle, adjArtist, adjCover, adjUrl, startMs, endMs, mix);
+                }
+            } else {
+                // Back from Mix Audio: the range was already confirmed on Adjust, so the sticker is
+                // still added — with default mix (no mix fields → viewers keep their legacy behaviour).
+                emitMusicSticker(adjId, adjTitle, adjArtist, adjCover, adjUrl, adjStartMs, adjEndMs);
+            }
+        }
+        dismiss();
+    }
+
+    /** Mix Audio settings carried on the music sticker. origVol < 0 = not applicable (photo status). */
+    private static final class MusicMix {
+        float origVol = -1f, musicVol = 0.8f, pitch = 0f;
+        int fadeInMs = 0, fadeOutMs = 0;
+    }
+
     private void emitMusicSticker(String soundId, String title, String artist, String coverUrl,
                                   String soundUrl, int startMs, int endMs) {
+        emitMusicSticker(soundId, title, artist, coverUrl, soundUrl, startMs, endMs, null);
+    }
+
+    private void emitMusicSticker(String soundId, String title, String artist, String coverUrl,
+                                  String soundUrl, int startMs, int endMs, @Nullable MusicMix mix) {
+        String mixJson = "";
+        if (mix != null) {
+            java.util.Locale us = java.util.Locale.US;
+            // Explicit Apply → always write the volumes (so viewers don't fall back to legacy ducking);
+            // fade/pitch only when non-zero. Old viewers ignore unknown keys.
+            mixJson = String.format(us, ",\"musicVol\":%.2f", Math.max(0f, Math.min(1f, mix.musicVol)));
+            if (mix.origVol >= 0f) mixJson += String.format(us, ",\"origVol\":%.2f", Math.min(1f, mix.origVol));
+            if (mix.fadeInMs  > 0) mixJson += ",\"fadeInMs\":"  + mix.fadeInMs;
+            if (mix.fadeOutMs > 0) mixJson += ",\"fadeOutMs\":" + mix.fadeOutMs;
+            if (mix.pitch != 0f)   mixJson += String.format(us, ",\"pitch\":%.1f", mix.pitch);
+        }
         String json = "{\"type\":\"music\""
             + ",\"song\":\"" + esc(title.trim()) + "\""
             + ",\"artist\":\"" + esc(artist != null ? artist.trim() : "") + "\""
@@ -397,6 +496,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             + ",\"soundUrl\":\"" + esc(soundUrl != null ? soundUrl : "") + "\""
             + (startMs > 0 ? ",\"startMs\":" + startMs : "")
             + (endMs > startMs && endMs > 0 ? ",\"endMs\":" + endMs : "")
+            + mixJson
             + "}";
         if (listener != null) listener.onSelected(new StickerResult("music", json));
     }

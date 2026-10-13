@@ -15,6 +15,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.reels.R;
 import com.callx.app.views.AudioTrimWaveformView;
+import com.callx.app.views.AudioWaveformExtractor;
 
 import java.util.Locale;
 
@@ -66,6 +67,8 @@ public class ReelMusicTrimActivity extends AppCompatActivity {
     private int    endMs   = 30_000;
 
     private MediaPlayer mediaPlayer;
+    /** In-flight real-waveform decode; cancelled on song change / destroy. */
+    private AudioWaveformExtractor.Job waveJob;
     private boolean     isPreviewing = false;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -190,6 +193,7 @@ public class ReelMusicTrimActivity extends AppCompatActivity {
                     if (waveformView != null) {
                         waveformView.setDurationMs(totalDurationMs);
                         waveformView.generateAmplitudes(soundId != null ? soundId : soundUrl);
+                    startRealWaveform();
                     }
                     updateTimeLabels();
                     if (progressLoad   != null) progressLoad.setVisibility(View.GONE);
@@ -323,8 +327,23 @@ public class ReelMusicTrimActivity extends AppCompatActivity {
         super.onBackPressed();
     }
 
+    /** Decodes the actual audio in the background and swaps the placeholder bars for real loudness. */
+    private void startRealWaveform() {
+        if (waveJob != null) waveJob.cancel();
+        if (soundUrl == null || soundUrl.isEmpty() || waveformView == null) return;
+        waveJob = AudioWaveformExtractor.extract(this, soundUrl, totalDurationMs,
+            new AudioWaveformExtractor.Callback() {
+                @Override public void onResult(float[] amps) {
+                    if (isFinishing() || isDestroyed() || waveformView == null) return;
+                    waveformView.setRealAmplitudes(amps);
+                }
+                @Override public void onFailed() { /* keep placeholder bars */ }
+            });
+    }
+
     @Override
     protected void onDestroy() {
+        if (waveJob != null) { waveJob.cancel(); waveJob = null; }
         handler.removeCallbacksAndMessages(null);
         if (mediaPlayer != null) {
             try { mediaPlayer.stop(); } catch (Exception ignored) {}

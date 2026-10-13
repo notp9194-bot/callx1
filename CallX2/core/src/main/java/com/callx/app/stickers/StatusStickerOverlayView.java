@@ -198,6 +198,10 @@ public class StatusStickerOverlayView extends LinearLayout {
     private String musicSoundId, musicSong, musicArtist, musicCoverUrl, musicSoundUrl;
     // Optional clip range inside the song (ms) — from the editor's music trim. 0 = not set.
     private int musicStartMs = 0, musicEndMs = 0;
+    // Optional Mix Audio settings (Reels' mixer, reused for Status). -1 = never set → viewers keep
+    // their legacy behaviour (video ducked to 0.25, music at default volume). Old posts have none.
+    private float musicOrigVol = -1f, musicMixVol = -1f, musicPitch = 0f;
+    private int musicFadeInMs = 0, musicFadeOutMs = 0;
 
     // ── Quiz interactivity state (mirrors the question sticker's full flow) ──
     private String quizQuestion;
@@ -302,6 +306,23 @@ public class StatusStickerOverlayView extends LinearLayout {
     public int getMusicStartMs() { return "music".equals(stickerType) ? musicStartMs : 0; }
     /** End (ms) of the part of the song to play, or 0 if not set. */
     public int getMusicEndMs()   { return "music".equals(stickerType) ? musicEndMs : 0; }
+
+    /** True if the poster used Mix Audio (any of origVol/musicVol/fade/pitch present in the JSON). */
+    public boolean hasMusicMix() {
+        return "music".equals(stickerType)
+            && (musicOrigVol >= 0f || musicMixVol >= 0f
+                || musicFadeInMs > 0 || musicFadeOutMs > 0 || musicPitch != 0f);
+    }
+    /** Original (video) audio volume 0..1 chosen in Mix Audio, or -1 if never set. */
+    public float getMusicOrigVol()   { return "music".equals(stickerType) ? musicOrigVol : -1f; }
+    /** Music volume 0..1 chosen in Mix Audio, or -1 if never set. */
+    public float getMusicMixVol()    { return "music".equals(stickerType) ? musicMixVol : -1f; }
+    /** Fade-in length (ms) at the start of each music loop, 0 = none. */
+    public int   getMusicFadeInMs()  { return "music".equals(stickerType) ? musicFadeInMs : 0; }
+    /** Fade-out length (ms) at the end of each music loop, 0 = none. */
+    public int   getMusicFadeOutMs() { return "music".equals(stickerType) ? musicFadeOutMs : 0; }
+    /** Pitch shift in semitones (-6..+6), 0 = unchanged. */
+    public float getMusicPitch()     { return "music".equals(stickerType) ? musicPitch : 0f; }
 
     /** True once this music sticker is linked to a real Reels track the viewer can open. */
     public boolean isMusicLinkedToReelSound() {
@@ -715,6 +736,12 @@ public class StatusStickerOverlayView extends LinearLayout {
         // Optional clip range (bare JSON numbers → jsonNum, not jsonStr).
         try { v.musicStartMs = (int) Float.parseFloat(jsonNum(json, "startMs", "0")); } catch (Exception ignored) {}
         try { v.musicEndMs   = (int) Float.parseFloat(jsonNum(json, "endMs",   "0")); } catch (Exception ignored) {}
+        // Optional Mix Audio fields — absent in old stickers, in which case the defaults stay.
+        try { v.musicOrigVol   = clamp01(Float.parseFloat(jsonNum(json, "origVol",  "-1"))); } catch (Exception ignored) {}
+        try { v.musicMixVol    = clamp01(Float.parseFloat(jsonNum(json, "musicVol", "-1"))); } catch (Exception ignored) {}
+        try { v.musicFadeInMs  = Math.max(0, (int) Float.parseFloat(jsonNum(json, "fadeInMs",  "0"))); } catch (Exception ignored) {}
+        try { v.musicFadeOutMs = Math.max(0, (int) Float.parseFloat(jsonNum(json, "fadeOutMs", "0"))); } catch (Exception ignored) {}
+        try { v.musicPitch     = Math.max(-6f, Math.min(6f, Float.parseFloat(jsonNum(json, "pitch", "0")))); } catch (Exception ignored) {}
 
         // Looping ticker (same MusicTickerView as the reel/status name rows) so long
         // song names scroll instead of getting cut with "…". Fixed width — it is a
@@ -2078,6 +2105,9 @@ public class StatusStickerOverlayView extends LinearLayout {
      * quote-delimited search never matches those and would always fall through
      * to the default.
      */
+    /** Keeps 0..1 values, but preserves the -1 "not set" sentinel. */
+    private static float clamp01(float f) { return f < 0f ? -1f : Math.min(1f, f); }
+
     private static String jsonNum(String json, String key, String def) {
         try {
             String search = "\"" + key + "\":";
