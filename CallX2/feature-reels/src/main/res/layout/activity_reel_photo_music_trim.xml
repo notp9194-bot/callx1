@@ -262,16 +262,20 @@
         </RadioGroup>
 
         <!-- Draggable waveform + trim handles -->
+        <!-- clipChildren=false + 36dp top margin: the drag tooltip is drawn ABOVE the waveform's
+             own bounds, so it needs room here and must not be clipped by this parent. -->
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:layout_marginBottom="8dp">
 
             <com.callx.app.views.AudioTrimWaveformView
                 android:id="@+id/waveform_trim_view"
                 android:layout_width="match_parent"
                 android:layout_height="64dp"
-                android:layout_marginTop="18dp"
+                android:layout_marginTop="36dp"
                 android:background="@drawable/bg_trim_subcard"
                 android:paddingHorizontal="4dp"/>
         </FrameLayout>

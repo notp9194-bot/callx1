@@ -52,6 +52,8 @@ public class AudioTrimWaveformView extends View {
     private static final int HANDLE_NONE  = 0;
     private static final int HANDLE_START = 1;
     private static final int HANDLE_END   = 2;
+    /** Whole selection window being dragged (fixed length), Reels-style. */
+    private static final int HANDLE_WINDOW = 3;
 
     private final float density = getResources().getDisplayMetrics().density;
     private final float handleRadiusPx   = 11 * density;
@@ -87,6 +89,7 @@ public class AudioTrimWaveformView extends View {
     private float[] amplitudes = new float[0];
     private int activeHandle = HANDLE_NONE;
     private float touchDownDx = 0f;
+    private int windowLenMs = 0;
 
     private OnRangeChangeListener listener;
 
@@ -223,8 +226,9 @@ public class AudioTrimWaveformView extends View {
 
         // Time tooltip above the handle currently being dragged.
         if (activeHandle != HANDLE_NONE) {
-            float handleX = (activeHandle == HANDLE_START) ? startX : endX;
-            int ms = (activeHandle == HANDLE_START) ? startMs : endMs;
+            boolean showEnd = activeHandle == HANDLE_END;
+            float handleX = showEnd ? endX : startX;
+            int ms = showEnd ? endMs : startMs;
             drawTooltip(canvas, handleX, msToTooltipTime(ms));
         }
     }
@@ -247,7 +251,7 @@ public class AudioTrimWaveformView extends View {
         float textW = tooltipTextPaint.measureText(text);
         float boxW = textW + tooltipPadH * 2;
         float boxH = tooltipTextSizePx + tooltipPadV * 2;
-        float top = -boxH - 10 * density;
+        float top = -boxH - 6 * density; // must fit in the 36dp gap above the view (see layout)
         float bottom = top + boxH;
         float left = anchorX - boxW / 2f;
         float right = anchorX + boxW / 2f;
@@ -305,6 +309,11 @@ public class AudioTrimWaveformView extends View {
 
     // ── Touch handling ──────────────────────────────────────────────────
 
+    /** Keeps a fixed-length window fully inside [0, durationMs]. */
+    private int clampWindowStart(int start) {
+        return Math.max(0, Math.min(start, Math.max(0, durationMs - windowLenMs)));
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         float x = event.getX();
@@ -322,6 +331,21 @@ public class AudioTrimWaveformView extends View {
                 } else if (dEnd <= handleTouchSlopPx) {
                     activeHandle = HANDLE_END;
                     touchDownDx = x - endX;
+                } else if (durationMs > 0) {
+                    // Not on a handle: drag the whole window. Touching outside the window first
+                    // re-centres it under the finger (tap-to-seek), then dragging continues.
+                    activeHandle = HANDLE_WINDOW;
+                    windowLenMs = Math.max(1000, endMs - startMs);
+                    if (x < startX || x > endX) {
+                        int newStart = clampWindowStart(msForX(x) - windowLenMs / 2);
+                        startMs = newStart;
+                        endMs   = newStart + windowLenMs;
+                        touchDownDx = x - xForMs(startMs);
+                        invalidate();
+                        if (listener != null) listener.onRangeChanging(startMs, endMs, true);
+                    } else {
+                        touchDownDx = x - startX;
+                    }
                 } else {
                     activeHandle = HANDLE_NONE;
                     return false;
@@ -334,7 +358,12 @@ public class AudioTrimWaveformView extends View {
                 if (activeHandle == HANDLE_NONE) return false;
                 float adjX = x - touchDownDx;
                 int candidate = msForX(adjX);
-                if (activeHandle == HANDLE_START) {
+                if (activeHandle == HANDLE_WINDOW) {
+                    int newStart = clampWindowStart(candidate);
+                    if (newStart == startMs) return true;
+                    startMs = newStart;
+                    endMs   = newStart + windowLenMs;
+                } else if (activeHandle == HANDLE_START) {
                     candidate = Math.min(candidate, endMs - minGapMs);
                     candidate = Math.max(candidate, 0);
                     startMs = candidate;
@@ -344,7 +373,7 @@ public class AudioTrimWaveformView extends View {
                     endMs = candidate;
                 }
                 invalidate();
-                if (listener != null) listener.onRangeChanging(startMs, endMs, activeHandle == HANDLE_START);
+                if (listener != null) listener.onRangeChanging(startMs, endMs, activeHandle != HANDLE_END);
                 return true;
 
             case MotionEvent.ACTION_UP:

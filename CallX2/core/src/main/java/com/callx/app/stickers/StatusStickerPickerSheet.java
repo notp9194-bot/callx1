@@ -55,12 +55,45 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     // reflection since feature-status does not have a compile-time dependency
     // on feature-reels (only feature-reels depends on feature-status).
     private static final int REQ_MUSIC_TRENDING_AUDIO = 7031;
+    /** Second hop of the music flow: Reels' "Adjust Music" (start/end) screen. */
+    private static final int REQ_MUSIC_ADJUST = 7032;
+
+    /**
+     * Optional media the music is being added to (Status composer's photo/video).
+     * When set, picking a song opens the SAME "Adjust Music" screen Reels uses
+     * (ReelPhotoMusicTrimActivity: waveform + Start/End + 15/30/60s presets +
+     * live preview over this media) before the sticker is created, so the poster
+     * chooses WHICH part / HOW MUCH of the song plays. When null (Reels editors,
+     * which have their own music flow) behaviour is unchanged.
+     */
+    public static final class MusicPreviewMedia {
+        public final String uri;        // content:// / file:// / http(s) uri of the photo or video
+        public final boolean isVideo;
+        public MusicPreviewMedia(String uri, boolean isVideo) { this.uri = uri; this.isVideo = isVideo; }
+    }
+    @Nullable private MusicPreviewMedia musicPreviewMedia;
+
+    // Track picked on Trending Audio, held while the Adjust Music screen is open.
+    private String pendId, pendTitle, pendArtist, pendCover, pendFullUrl, pendPreviewUrl;
 
     public static StatusStickerPickerSheet show(
             androidx.fragment.app.FragmentActivity host,
             OnStickerSelected listener) {
         StatusStickerPickerSheet sheet = new StatusStickerPickerSheet();
         sheet.listener = listener;
+        sheet.show(host.getSupportFragmentManager(), "status_sticker_picker");
+        return sheet;
+    }
+
+    /** Same as {@link #show(androidx.fragment.app.FragmentActivity, OnStickerSelected)} but
+     *  enables the "Adjust Music" (start/end) step for the Music sticker, previewed over {@code media}. */
+    public static StatusStickerPickerSheet show(
+            androidx.fragment.app.FragmentActivity host,
+            @Nullable MusicPreviewMedia media,
+            OnStickerSelected listener) {
+        StatusStickerPickerSheet sheet = new StatusStickerPickerSheet();
+        sheet.listener = listener;
+        sheet.musicPreviewMedia = media;
         sheet.show(host.getSupportFragmentManager(), "status_sticker_picker");
         return sheet;
     }
@@ -249,6 +282,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_MUSIC_ADJUST) { onMusicAdjustResult(resultCode, data); return; }
         if (requestCode != REQ_MUSIC_TRENDING_AUDIO) return;
 
         if (resultCode == android.app.Activity.RESULT_OK && data != null) {
@@ -269,25 +303,102 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             // play, same as SoundDetailFragment already does elsewhere.
             String previewUrl = data.getStringExtra("audio_preview_url");
             String fullUrl    = data.getStringExtra("audio_url");
-            String soundUrl   = (previewUrl != null && !previewUrl.isEmpty())
-                    ? previewUrl
-                    : (fullUrl != null ? fullUrl : "");
-            String coverUrl= data.getStringExtra("audio_cover_url");
+            String coverUrl   = data.getStringExtra("audio_cover_url");
 
             if (title == null || title.trim().isEmpty()) {
                 dismiss();
                 return;
             }
-            String json = "{\"type\":\"music\""
-                + ",\"song\":\"" + esc(title.trim()) + "\""
-                + ",\"artist\":\"" + esc(artist != null ? artist.trim() : "") + "\""
-                + ",\"albumArt\":\"" + esc(coverUrl != null ? coverUrl : "") + "\""
-                + ",\"soundId\":\"" + esc(soundId != null ? soundId : "") + "\""
-                + ",\"soundUrl\":\"" + esc(soundUrl != null ? soundUrl : "") + "\""
-                + "}";
-            if (listener != null) listener.onSelected(new StickerResult("music", json));
+
+            // Status flow: song picked → "Adjust Music" screen (same as Reels) so the
+            // poster picks start/end before the sticker is created. Dismiss is deferred
+            // until that screen returns (dismissing now would detach this fragment).
+            boolean haveFull = fullUrl != null && !fullUrl.isEmpty();
+            if (musicPreviewMedia != null && (haveFull || (previewUrl != null && !previewUrl.isEmpty()))
+                    && launchMusicAdjust(soundId, title.trim(), artist, coverUrl,
+                                          haveFull ? fullUrl : previewUrl)) {
+                pendId = soundId; pendTitle = title.trim(); pendArtist = artist; pendCover = coverUrl;
+                pendFullUrl = fullUrl; pendPreviewUrl = previewUrl;
+                return;
+            }
+
+            String soundUrl = (previewUrl != null && !previewUrl.isEmpty())
+                    ? previewUrl
+                    : (fullUrl != null ? fullUrl : "");
+            emitMusicSticker(soundId, title.trim(), artist, coverUrl, soundUrl, 0, 0);
         }
         dismiss();
+    }
+
+    /**
+     * Opens Reels' "Adjust Music" screen (ReelPhotoMusicTrimActivity) by class name — core/feature-status
+     * can't import feature-reels. The FULL track is passed (not the short preview) so the user can pick
+     * any part of the song. Extras are literals mirroring ReelPhotoMusicTrimActivity.EXTRA_*.
+     * @return false if the screen can't be launched (caller falls back to the old direct-add path)
+     */
+    private boolean launchMusicAdjust(String soundId, String title, String artist, String cover, String url) {
+        try {
+            Context ctx = requireContext();
+            Class<?> cls = Class.forName("com.callx.app.editor.ReelPhotoMusicTrimActivity");
+            Intent i = new Intent(ctx, cls);
+            java.util.ArrayList<String> photos = new java.util.ArrayList<>();
+            if (!musicPreviewMedia.isVideo && musicPreviewMedia.uri != null) photos.add(musicPreviewMedia.uri);
+            i.putStringArrayListExtra("trim_photo_uris", photos);
+            i.putExtra("trim_slide_ms", 3000);
+            if (musicPreviewMedia.isVideo && musicPreviewMedia.uri != null) {
+                i.putExtra("trim_video_uri", musicPreviewMedia.uri);
+                i.putExtra("trim_video_is_file_path", false);
+            }
+            i.putExtra("trim_sound_id",     soundId != null ? soundId : "");
+            i.putExtra("trim_sound_title",  title);
+            i.putExtra("trim_sound_artist", artist != null ? artist : "");
+            i.putExtra("trim_sound_url",    url);
+            i.putExtra("trim_sound_cover",  cover != null ? cover : "");
+            startActivityForResult(i, REQ_MUSIC_ADJUST);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void onMusicAdjustResult(int resultCode, @Nullable Intent data) {
+        if (resultCode == android.app.Activity.RESULT_OK && data != null) {
+            // "Use" tapped. The user may also have hit "Change" inside the screen and swapped the
+            // track, so take the track info from the result, not from what we sent.
+            String id     = data.getStringExtra("result_sound_id");
+            String title  = data.getStringExtra("result_sound_title");
+            String artist = data.getStringExtra("result_sound_artist");
+            String url    = data.getStringExtra("result_sound_url");
+            String cover  = data.getStringExtra("result_sound_cover");
+            int startMs   = data.getIntExtra("result_start_ms", 0);
+            int endMs     = data.getIntExtra("result_end_ms", 0);
+            if (title == null || title.isEmpty()) title = pendTitle;
+            if (url == null || url.isEmpty()) url = (pendFullUrl != null && !pendFullUrl.isEmpty()) ? pendFullUrl : pendPreviewUrl;
+            if (id == null || id.isEmpty()) id = pendId;
+            if (artist == null || artist.isEmpty()) artist = pendArtist;
+            if (cover == null || cover.isEmpty()) cover = pendCover;
+            if (title != null && !title.isEmpty()) {
+                // NOTE: range is relative to the FULL track, so the sticker must carry the full URL
+                // (the short preview clip would be shorter than startMs/endMs).
+                emitMusicSticker(id, title, artist, cover, url != null ? url : "", startMs, endMs);
+            }
+        }
+        // Cancel/back from Adjust Music → no sticker (same as cancelling Trending Audio).
+        dismiss();
+    }
+
+    private void emitMusicSticker(String soundId, String title, String artist, String coverUrl,
+                                  String soundUrl, int startMs, int endMs) {
+        String json = "{\"type\":\"music\""
+            + ",\"song\":\"" + esc(title.trim()) + "\""
+            + ",\"artist\":\"" + esc(artist != null ? artist.trim() : "") + "\""
+            + ",\"albumArt\":\"" + esc(coverUrl != null ? coverUrl : "") + "\""
+            + ",\"soundId\":\"" + esc(soundId != null ? soundId : "") + "\""
+            + ",\"soundUrl\":\"" + esc(soundUrl != null ? soundUrl : "") + "\""
+            + (startMs > 0 ? ",\"startMs\":" + startMs : "")
+            + (endMs > startMs && endMs > 0 ? ",\"endMs\":" + endMs : "")
+            + "}";
+        if (listener != null) listener.onSelected(new StickerResult("music", json));
     }
 
     // ─── Countdown Sticker Creator ─────────────────────────────────────────

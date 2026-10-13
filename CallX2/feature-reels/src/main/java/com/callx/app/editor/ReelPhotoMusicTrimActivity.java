@@ -1,6 +1,8 @@
 package com.callx.app.editor;
 
 import android.content.Intent;
+import android.content.Context;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
@@ -14,6 +16,9 @@ import java.io.File;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.media.AudioAttributesCompat;
+import androidx.media.AudioFocusRequestCompat;
+import androidx.media.AudioManagerCompat;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
@@ -148,6 +153,17 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
 
     private MediaPlayer mediaPlayer;
     private boolean     isPreviewing = false;
+    /** True only once the track is prepared (duration + waveform known). Gates Preview/Done. */
+    private boolean     audioReady = false;
+    private AudioFocusRequestCompat focusRequest;
+    private final AudioManager.OnAudioFocusChangeListener focusListener = change -> {
+        // Phone call / another app took audio — stop our preview instead of fighting it.
+        if (change == AudioManager.AUDIOFOCUS_LOSS
+                || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+            runOnUiThread(this::stopPreview);
+        }
+    };
 
     private final Handler handler       = new Handler(Looper.getMainLooper());
     private final Handler slideHandler  = new Handler(Looper.getMainLooper());
@@ -159,7 +175,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 int pos = mediaPlayer.getCurrentPosition();
                 if (waveformView != null) waveformView.setPlayheadMs(pos);
                 if (pos >= endMs) {
-                    stopPreview();
+                    loopPreview();   // keep auditioning the selection until the user stops it
                 } else {
                     handler.postDelayed(this, 60);
                 }
@@ -322,44 +338,77 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private void loadAudio() {
+        audioReady = false;
         if (soundUrl == null || soundUrl.isEmpty()) {
+            // No track to validate — nothing to wait for.
             if (layoutControls != null) layoutControls.setVisibility(View.VISIBLE);
             if (progressLoad   != null) progressLoad.setVisibility(View.GONE);
+            updateActionStates();
             return;
         }
         if (progressLoad != null) progressLoad.setVisibility(View.VISIBLE);
+        updateActionStates();
         try {
             mediaPlayer = new MediaPlayer();
-            mediaPlayer.setDataSource(soundUrl);
-            mediaPlayer.prepareAsync();
-            mediaPlayer.setOnPreparedListener(mp -> {
-                runOnUiThread(() -> {
-                    if (totalDurationMs <= 0) {
-                        totalDurationMs = mp.getDuration();
-                        if (tvDuration != null)
-                            tvDuration.setText(msToTime(totalDurationMs));
-                    }
-                    endMs = Math.min(endMs, totalDurationMs);
-                    if (waveformView != null) {
-                        waveformView.setDurationMs(totalDurationMs);
-                        waveformView.generateAmplitudes(soundId != null ? soundId : soundUrl);
-                    }
-                    setupSeekbarsRange();
-                    updateTimeLabels();
-                    if (progressLoad   != null) progressLoad.setVisibility(View.GONE);
-                    if (layoutControls != null) layoutControls.setVisibility(View.VISIBLE);
-                });
-            });
+            mediaPlayer.setOnPreparedListener(mp -> runOnUiThread(() -> {
+                if (isFinishing() || mediaPlayer != mp) return;
+                int d = mp.getDuration();
+                if (totalDurationMs <= 0 || d > 0 && d < totalDurationMs) totalDurationMs = d;
+                if (totalDurationMs <= 0) { onAudioLoadFailed("Cannot load audio"); return; }
+                if (tvDuration != null) tvDuration.setText(msToTime(totalDurationMs));
+                // Keep the range inside the real track (min 1s window) so Done can never
+                // return a range beyond the song's end.
+                endMs   = Math.min(endMs, totalDurationMs);
+                startMs = Math.max(0, Math.min(startMs, Math.max(0, endMs - 1000)));
+                if (endMs - startMs < 1000) endMs = Math.min(totalDurationMs, startMs + 1000);
+                if (waveformView != null) {
+                    waveformView.setDurationMs(totalDurationMs);
+                    waveformView.generateAmplitudes(soundId != null ? soundId : soundUrl);
+                }
+                setupSeekbarsRange();
+                updateTimeLabels();
+                syncPresetChip();
+                audioReady = true;
+                if (progressLoad   != null) progressLoad.setVisibility(View.GONE);
+                if (layoutControls != null) layoutControls.setVisibility(View.VISIBLE);
+                updateActionStates();
+            }));
             mediaPlayer.setOnErrorListener((mp, what, extra) -> {
                 runOnUiThread(() -> {
-                    if (progressLoad != null) progressLoad.setVisibility(View.GONE);
-                    Toast.makeText(this, "Cannot load audio", Toast.LENGTH_SHORT).show();
+                    if (mediaPlayer != mp) return;
+                    boolean wasReady = audioReady;
+                    onAudioLoadFailed(wasReady ? "Playback error" : "Cannot load audio");
                 });
                 return true;
             });
+            mediaPlayer.setDataSource(soundUrl);
+            mediaPlayer.prepareAsync();
         } catch (Exception e) {
-            if (progressLoad != null) progressLoad.setVisibility(View.GONE);
-            Toast.makeText(this, "Failed to load audio", Toast.LENGTH_SHORT).show();
+            onAudioLoadFailed("Failed to load audio");
+        }
+    }
+
+    /** Load/playback failure: stop everything and keep Done/Preview disabled (no bogus range returned). */
+    private void onAudioLoadFailed(String message) {
+        audioReady = false;
+        stopPreview();
+        if (progressLoad != null) progressLoad.setVisibility(View.GONE);
+        updateActionStates();
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    /** Done + Preview are only usable once the track is ready (or when there is no track url at all). */
+    private void updateActionStates() {
+        boolean noTrack = soundUrl == null || soundUrl.isEmpty();
+        boolean enabled = audioReady || noTrack;
+        if (btnUse != null) {
+            btnUse.setEnabled(enabled);
+            btnUse.setClickable(enabled);
+            btnUse.setAlpha(enabled ? 1f : 0.45f);
+        }
+        if (btnPreview != null) {
+            btnPreview.setEnabled(audioReady);
+            btnPreview.setAlpha(audioReady ? 1f : 0.45f);
         }
     }
 
@@ -415,34 +464,56 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 startMs = newStart;
                 endMs   = newEnd;
                 updateTimeLabels();
+                syncPresetChip(); // manual range no longer matches a preset -> deselect chip
             }
             @Override public void onRangeChangeFinished(int newStart, int newEnd) {
                 startMs = newStart;
                 endMs   = newEnd;
                 updateTimeLabels();
+                syncPresetChip();
+                // Auto-audition: as soon as the finger lifts, play from the new start.
+                if (audioReady) startPreview();
             }
         });
     }
 
+    private static final int PRESET_TOLERANCE_MS = 500;
+
     private void setupPresets() {
         if (rgPresets == null) return;
-        rgPresets.setOnCheckedChangeListener((group, checkedId) -> {
+        // Click listeners (not OnCheckedChange): clicking the already-selected chip after a manual
+        // drag must still re-apply the preset, and selecting a chip from code must never snap the
+        // range (that used to overwrite a resumed custom range on re-open).
+        rgPresets.setOnCheckedChangeListener(null);
+        bindPresetChip(R.id.rb_preset_15, 15_000);
+        bindPresetChip(R.id.rb_preset_30, 30_000);
+        bindPresetChip(R.id.rb_preset_60, 60_000);
+        syncPresetChip();
+    }
+
+    private void bindPresetChip(int id, int clipMs) {
+        View chip = rgPresets.findViewById(id);
+        if (chip == null) return;
+        chip.setOnClickListener(v -> {
             stopPreview();
-            if      (checkedId == R.id.rb_preset_15) snapTo(15_000);
-            else if (checkedId == R.id.rb_preset_30) snapTo(30_000);
-            else if (checkedId == R.id.rb_preset_60) snapTo(60_000);
+            rgPresets.check(id);
+            snapTo(clipMs);
         });
-        // Pre-select the preset closest to any resumed range; default 30s.
+    }
+
+    /** Highlights the chip that matches the current range, or none for a custom range. */
+    private void syncPresetChip() {
+        if (rgPresets == null) return;
         int span = endMs - startMs;
-        int presetId = R.id.rb_preset_30;
-        if (span > 0) {
-            if (Math.abs(span - 15_000) <= Math.abs(span - 30_000) && Math.abs(span - 15_000) <= Math.abs(span - 60_000))
-                presetId = R.id.rb_preset_15;
-            else if (Math.abs(span - 60_000) <= Math.abs(span - 30_000))
-                presetId = R.id.rb_preset_60;
+        int[] ids  = { R.id.rb_preset_15, R.id.rb_preset_30, R.id.rb_preset_60 };
+        int[] lens = { 15_000, 30_000, 60_000 };
+        int match = -1;
+        for (int i = 0; i < ids.length; i++) {
+            int len = totalDurationMs > 0 ? Math.min(lens[i], totalDurationMs) : lens[i];
+            if (Math.abs(span - len) <= PRESET_TOLERANCE_MS) { match = ids[i]; break; }
         }
-        RadioButton rb = rgPresets.findViewById(presetId);
-        if (rb != null) rb.setChecked(true);
+        if (match == -1) rgPresets.clearCheck();
+        else if (rgPresets.getCheckedRadioButtonId() != match) rgPresets.check(match);
     }
 
     private void snapTo(int clipMs) {
@@ -509,6 +580,9 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         totalDurationMs = 0;
         startMs = 0;
         endMs   = 30_000;
+        audioReady = false;
+        isPreviewing = false;
+        if (waveformView != null) waveformView.setPlayheadMs(-1);
 
         populateInfo();
         // Refresh the preview cover art too — matters when there are no
@@ -517,6 +591,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         showPhoto(previewPhotoIndex);
         loadAudio();
         setupPresets();
+        updateTimeLabels();
     }
 
     private void togglePreview() {
@@ -525,10 +600,11 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private void startPreview() {
-        if (mediaPlayer == null || soundUrl == null) {
+        if (mediaPlayer == null || soundUrl == null || !audioReady) {
             Toast.makeText(this, "Audio not ready", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!requestAudioFocus()) return;
         try {
             mediaPlayer.seekTo(startMs);
             mediaPlayer.start();
@@ -545,8 +621,56 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 videoPreview.start();
             }
         } catch (Exception e) {
+            abandonAudioFocus();
             Toast.makeText(this, "Playback failed", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private boolean requestAudioFocus() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return true;
+            if (focusRequest == null) {
+                focusRequest = new AudioFocusRequestCompat.Builder(AudioManagerCompat.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(new AudioAttributesCompat.Builder()
+                        .setUsage(AudioAttributesCompat.USAGE_MEDIA)
+                        .setContentType(AudioAttributesCompat.CONTENT_TYPE_MUSIC)
+                        .build())
+                    .setOnAudioFocusChangeListener(focusListener)
+                    .build();
+            }
+            return AudioManagerCompat.requestAudioFocus(am, focusRequest)
+                == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        } catch (Exception e) {
+            return true; // never block preview because of a focus API hiccup
+        }
+    }
+
+    private void abandonAudioFocus() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am != null && focusRequest != null) AudioManagerCompat.abandonAudioFocusRequest(am, focusRequest);
+        } catch (Exception ignored) {}
+    }
+
+    /** Restarts the selected range from its start (audio + photo/video preview) without stopping. */
+    private void loopPreview() {
+        try {
+            mediaPlayer.seekTo(startMs);
+            if (!mediaPlayer.isPlaying()) mediaPlayer.start();
+        } catch (Exception e) { stopPreview(); return; }
+        if (waveformView != null) waveformView.setPlayheadMs(startMs);
+        if (photoUris.size() > 1) {
+            slideHandler.removeCallbacks(slideRunnable);
+            previewPhotoIndex = 0;
+            showPhoto(0);
+            slideHandler.postDelayed(slideRunnable, slideMs);
+        }
+        if (videoPreview != null && videoUri != null) {
+            try { videoPreview.seekTo(0); videoPreview.start(); } catch (Exception ignored) {}
+        }
+        // Give the (possibly streamed) seek a moment before checking the end again.
+        handler.postDelayed(previewStopCheck, 250);
     }
 
     private void stopPreview() {
@@ -554,6 +678,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             try { mediaPlayer.pause(); } catch (Exception ignored) {}
         }
         isPreviewing = false;
+        abandonAudioFocus();
         if (btnPreview != null) btnPreview.setImageResource(R.drawable.ic_play);
         if (ivPlayHint != null) ivPlayHint.setVisibility(View.VISIBLE);
         if (waveformView != null) waveformView.setPlayheadMs(-1);
@@ -566,7 +691,15 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private void useSelection() {
+        if (!audioReady && soundUrl != null && !soundUrl.isEmpty()) {
+            Toast.makeText(this, "Audio still loading", Toast.LENGTH_SHORT).show();
+            return;
+        }
         stopPreview();
+        if (totalDurationMs > 0) {
+            endMs   = Math.min(endMs, totalDurationMs);
+            startMs = Math.max(0, Math.min(startMs, endMs - 1000));
+        }
         Intent result = new Intent();
         result.putExtra(RESULT_START_MS,     startMs);
         result.putExtra(RESULT_END_MS,       endMs);
@@ -607,6 +740,13 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         int sec = totalTenths / 10;
         int tenth = totalTenths % 10;
         return String.format(Locale.US, "%d:%02d.%d", sec / 60, sec % 60, tenth);
+    }
+
+    @Override
+    protected void onPause() {
+        // Don't keep playing the preview when the app goes to background / a call comes in.
+        stopPreview();
+        super.onPause();
     }
 
     @Override

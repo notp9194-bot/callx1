@@ -1752,7 +1752,15 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** Open the sticker type picker sheet. */
     private void openStickerPicker() {
-        StatusStickerPickerSheet.show(this, result -> {
+        // Music sticker → after picking a song, Reels' "Adjust Music" screen opens over THIS
+        // status's photo/video so the poster picks which part of the song plays.
+        Uri musicMedia = pickedVideo != null ? pickedVideo : pickedImage;
+        StatusStickerPickerSheet.MusicPreviewMedia previewMedia = (musicMedia != null
+                && !"http".equalsIgnoreCase(musicMedia.getScheme())
+                && !"https".equalsIgnoreCase(musicMedia.getScheme()))
+                ? new StatusStickerPickerSheet.MusicPreviewMedia(musicMedia.toString(), pickedVideo != null)
+                : null; // text-only / web-gif status: no media to preview over → old direct-add path
+        StatusStickerPickerSheet.show(this, previewMedia, result -> {
             addedStickerJsons.add(result.json);
             addStickerOverlay(result.json);
             Toast.makeText(this,
