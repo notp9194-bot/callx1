@@ -1629,6 +1629,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Trim them out now instead of leaving this Activity reachable
         // until some future chat happens to reuse those exact pool slots.
         com.callx.app.conversation.MessagePagingAdapter.trimSharedCanvasPool();
+        if (jankMonitor != null) { jankMonitor.detach(); jankMonitor = null; }
         // Pair with the bounded keepSynced(true) Query set when the Firebase
         // reference was created above. Persistence remains enabled for rows
         // touched by listeners; only active background syncing is stopped.
@@ -2758,6 +2759,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onNavigateToOriginal(String mid, String senderId) { navigateToOriginalMsg(mid, senderId); }
             @Override public void onRetry(Message m) {
                 if (m.id == null) return;
+                // Failed/partly-failed media GROUP upload — retry just the failed cells. Returns false when
+                // every cell already has a URL (only the push failed), which falls through to the resend below.
+                if ("multi_media".equals(m.type) && mediaController != null
+                        && mediaController.retryFailedGroupMedia(m)) {
+                    return;
+                }
                 // Failed local-first media upload (mediaLocalPath still set,
                 // never got a real mediaUrl) — retry the compress/upload
                 // pipeline instead of re-pushing straight to Firebase.
@@ -2779,6 +2786,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onPin(Message m)                 { getPinController().pinMessage(m); }
             @Override public void onPollVote(Message m, int idx)   { getPollController().castVote(m, idx); }
             @Override public void onPollToggleClose(Message m)    { getPollController().toggleClosed(m); }
+            @Override public void onPollVotersTap(Message m)      { getPollController().showVoters(m); }
+            @Override public boolean canCancelUpload()            { return true; }
+            @Override public void onCancelUpload(Message m) {
+                String id = m.messageId != null ? m.messageId : m.id;
+                if (id != null && mediaController != null) mediaController.cancelUpload(id);
+            }
             @Override public void onPlaybackStateChanged(Message m, boolean playing) {
                 if (playbackPresenceController != null && m != null) {
                     String mid = m.messageId != null ? m.messageId : m.id;
@@ -2856,6 +2869,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // The policy raises this only for a settling fling and shrinks it
         // during idle/dragging to avoid retaining a 28-holder decode/layout
         // footprint all the time.
+        jankMonitor = com.callx.app.chat.performance.ChatJankMonitor.attachIfEnabled(this, "chat");
         applyAdaptiveMessageRecyclerBudget(RecyclerView.SCROLL_STATE_IDLE, 0);
         // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
         // Default pool size is 5 already but explicit sizing prevents the pool
@@ -2867,46 +2881,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // trimSharedCanvasPool() call in onDestroy() for the matching
         // leak-safety half of this change.
         RecyclerView.RecycledViewPool pool = MessagePagingAdapter.getSharedCanvasPool();
-        // PERF: increased TYPE_SENT/RECEIVED pool to 18 — on a fast fling
-        // (Telegram-speed flick, not just a slow drag) the visible window
-        // can blow past 12-16 bubbles before the list settles; the old
-        // pool=10 was still getting exhausted mid-fling on exactly that kind
-        // of fast fling, forcing expensive ViewHolder inflation instead of
-        // reuse. Less-common types bumped 3 → 6 for the same reason.
-        pool.setMaxRecycledViews(1 /* TYPE_SENT */,        18);
-        pool.setMaxRecycledViews(2 /* TYPE_RECEIVED */,    18);
-        pool.setMaxRecycledViews(3 /* TYPE_STATUS_SEEN */,  6);
-        pool.setMaxRecycledViews(4 /* TYPE_REEL_SEEN */,    6);
-        pool.setMaxRecycledViews(5 /* TYPE_CALL_ENTRY */,   6);
-        // PERF FIX: TYPE_CANVAS_SENT/RECEIVED (11/12) were missing here entirely,
-        // silently falling back to RecyclerView's default pool size of 5. Since
-        // isCanvasEligible() now covers text/image/video/gif/file/audio/poll/
-        // contact/location/multi_media/reel_share — i.e. almost every bubble in
-        // the chat — these two types are actually the hottest ones in the pool,
-        // not the coldest. A fast Telegram-speed fling was blowing past 5
-        // recycled canvas views almost immediately, forcing a fresh
-        // MessageBubbleCanvasView allocation (+ full Paint/StaticLayout setup)
-        // instead of reuse. Sized same as TYPE_SENT/RECEIVED since canvas has
-        // fully replaced them as the primary bubble path.
-        pool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     18);
-        pool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 18);
-        // PERF: TYPE_DATE_SEPARATOR (7) was left at RecyclerView's default
-        // pool size of 5. Inline date separators recur once per calendar
-        // day in the list, so on a long fast fling through a multi-day
-        // history it's recycled just as often as the bubble types — bump it
-        // alongside them instead of letting it silently fall back to reinflation.
-        pool.setMaxRecycledViews(7 /* TYPE_DATE_SEPARATOR */, 10);
-        // PERF: TYPE_HIDDEN/VIEW_ONCE_* (6, 8, 9, 10) were the last 4 view
-        // types left unsized here, silently falling back to RecyclerView's
-        // default pool of 5 — same exhaustion risk as the others on a fast
-        // fling through a chat with several reel-seen/view-once messages.
-        // TYPE_HIDDEN renders 0x0 (cheap to reinflate) but still costs a
-        // fresh onCreateViewHolder() call when the pool runs dry, so it's
-        // sized like the other "less-common" types rather than skipped.
-        pool.setMaxRecycledViews(6  /* TYPE_HIDDEN */,               6);
-        pool.setMaxRecycledViews(8  /* TYPE_VIEW_ONCE_SENT */,       6);
-        pool.setMaxRecycledViews(9  /* TYPE_VIEW_ONCE_EXPIRED */,    6);
-        pool.setMaxRecycledViews(10 /* TYPE_VIEW_ONCE_SENT_WAITING */, 6);
+        // v612: per-type capacities now live in ONE place (device-tier aware, raise-only)
+        // — see MessagePagingAdapter.configureSharedPool(). The 18/6/10 table that was
+        // inlined here (and a different one in GroupChatActivity) is the same table now.
+        MessagePagingAdapter.configureSharedPool(this, pool);
         binding.rvMessages.setRecycledViewPool(pool);
         // PERF (v176): warm the pool with a few TYPE_CANVAS_SENT/RECEIVED
         // holders BEFORE the user's first scroll, so the very first fling
@@ -4580,6 +4558,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                     .precomputeAudioWaveformBitmapsIfPossible(seed);
         }
+        // PERF (v611): media bind work that used to run on the main thread at first bind
+        // (disk-exists stat for received images, ThumbHash placeholder decode) now runs
+        // here, off-main, together with the layout precompute above.
+        MessagePagingAdapter.warmMediaBindCaches(m);
         return m;
     }
 
@@ -6428,6 +6410,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
     }
 
+    private com.callx.app.chat.performance.ChatJankMonitor jankMonitor;
+
     private AdaptiveChatScrollPolicy messageScrollPolicy() {
         if (messageScrollPolicy == null) {
             messageScrollPolicy = new AdaptiveChatScrollPolicy(this);
@@ -6443,6 +6427,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      */
     private void applyAdaptiveMessageRecyclerBudget(int scrollState, int flingVelocity) {
         if (binding == null || binding.rvMessages == null) return;
+        // v612: debug-only JankStats; null in release builds. Piggybacks on this existing
+        // per-scroll-state-change hook instead of adding another RecyclerView listener.
+        if (jankMonitor != null) jankMonitor.onScrollState(scrollState);
         RecyclerView.LayoutManager raw = binding.rvMessages.getLayoutManager();
         if (raw instanceof LinearLayoutManager) {
             int prefetch = messageScrollPolicy().initialPrefetchCount(

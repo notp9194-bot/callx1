@@ -229,7 +229,8 @@ public class MediaGroupLayoutHelper {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lblLp.leftMargin = dp(8, d);
         label.setLayoutParams(lblLp);
-        label.setText("Download " + count + (count == 1 ? " photo" : " photos"));
+        label.setText(ctx.getResources().getQuantityString(
+                com.callx.app.chat.R.plurals.media_group_download_photos, count, count));
         label.setTextColor(Color.WHITE);
         label.setTextSize(13f);
         label.setTypeface(null, Typeface.BOLD);

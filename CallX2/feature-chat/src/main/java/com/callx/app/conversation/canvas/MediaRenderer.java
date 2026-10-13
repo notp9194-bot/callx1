@@ -20,6 +20,19 @@ import android.graphics.Typeface;
  */
 final class MediaRenderer {
 
+    // Localized kind labels, resolved once per renderer (never inside the draw loop).
+    private String gifBadgeText, photoLabelText;
+
+    private String gifBadgeLabel() {
+        if (gifBadgeText == null) gifBadgeText = host.getContext().getString(com.callx.app.chat.R.string.media_kind_gif);
+        return gifBadgeText;
+    }
+
+    private String photoLabel() {
+        if (photoLabelText == null) photoLabelText = host.getContext().getString(com.callx.app.chat.R.string.media_kind_photo);
+        return photoLabelText;
+    }
+
     private final MessageBubbleCanvasView host;
 
     MediaRenderer(MessageBubbleCanvasView host) {
@@ -161,12 +174,16 @@ final class MediaRenderer {
                 // the bubble grows toward MEDIA_MAX_*_DP. Blurring a bit
                 // more at the source size before the upscale keeps small
                 // bubbles crisp-ish and makes big bubbles read as a proper
-                // soft preview instead. See blurPlaceholderForBubble() —
+                // soft preview instead. See resolvePlaceholderShaderSource() —
                 // this only runs on a genuine cache miss (bitmap or rect
                 // changed), same as the shader build itself, so it costs
                 // nothing on the 30-60fps redraw path.
+                // PERF (v611): the blur is now served from a process-wide cache and,
+                // on a miss, computed on a background thread — see
+                // resolvePlaceholderShaderSource(). A miss returns the raw (already
+                // soft) 32x32 placeholder for this frame and re-draws when the blur lands.
                 android.graphics.Bitmap shaderSourceBitmap = host.mediaBitmapIsPlaceholder
-                        ? blurPlaceholderForBubble(host.mediaBitmap, host.mediaRect.width(), host.mediaRect.height(), host.density)
+                        ? resolvePlaceholderShaderSource(host.mediaBitmap, host.mediaRect.width(), host.mediaRect.height(), host.density)
                         : host.mediaBitmap;
 
                 float scale = Math.max(host.mediaRect.width() / shaderSourceBitmap.getWidth(),
@@ -220,7 +237,7 @@ final class MediaRenderer {
             float badgeTsz = host.spToPx(10f);
             host.textPaint.setTextSize(badgeTsz);
             host.textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-            float tw = host.textPaint.measureText(MessageBubbleCanvasView.GIF_BADGE_TEXT);
+            float tw = host.textPaint.measureText(gifBadgeLabel());
             float bw = tw + badgePad * 2f;
             float bh = badgeTsz + badgePad * 2f;
             float bx = host.mediaRect.left + 6f * host.density;
@@ -228,7 +245,7 @@ final class MediaRenderer {
             gifBadgeRectF.set(bx, by, bx + bw, by + bh);
             canvas.drawRoundRect(gifBadgeRectF, badgeR, badgeR, gifBadgeBgPaint);
             host.textPaint.setColor(0xFFFFFFFF);
-            canvas.drawText(MessageBubbleCanvasView.GIF_BADGE_TEXT, bx + badgePad, by + badgePad + badgeTsz * 0.85f, host.textPaint);
+            canvas.drawText(gifBadgeLabel(), bx + badgePad, by + badgePad + badgeTsz * 0.85f, host.textPaint);
             host.textPaint.setTypeface(Typeface.DEFAULT); // restore
         }
 
@@ -265,12 +282,14 @@ final class MediaRenderer {
         }
 
         if (host.mediaGated) {
-            // Manual-download gate covers the whole slot (idle pill or live
-            // spinner/percentage) — same precedent as the group gate: while
-            // it's up, the timestamp/tick pill below is skipped entirely
-            // (nothing meaningful to show over an unfetched image yet).
+            // Manual-download/upload gate covers the whole slot (idle pill or
+            // live spinner/percentage). The captionless timestamp pill below
+            // stays visible on top of it (same as the group bubble) so time
+            // — and, for a sent message still uploading/failed, the pending
+            // clock — never disappears. The caption row + footer stay hidden
+            // while gated, exactly as before.
             drawMediaDownloadGate(canvas, spinnerHandledSeparately);
-            return;
+            if (host.mediaHasCaption && host.textLayout != null) return;
         }
 
         if (host.mediaHasCaption && host.textLayout != null) {
@@ -318,7 +337,9 @@ final class MediaRenderer {
                 // against the pill's translucent black background — same
                 // as the WhatsApp-style pill this mirrors — so just draw
                 // with the paint as-is instead of hijacking its color.
-                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
+                // Sent + gated = upload still queued/running (or failed, retry
+                // shown): pending clock instead of a sent tick.
+                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY, host.mediaGated);
             }
         }
     }
@@ -649,7 +670,7 @@ final class MediaRenderer {
 
         String label = host.mediaDownloading
                 ? (host.mediaDownloadProgress >= 0 ? host.mediaDownloadProgress + "%" : "")
-                : (host.mediaDownloadLabel.isEmpty() ? "Photo" : host.mediaDownloadLabel);
+                : (host.mediaDownloadLabel.isEmpty() ? photoLabel() : host.mediaDownloadLabel);
 
         float iconSize = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_DP * host.density;
         float iconGap = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_GAP_DP * host.density;
@@ -679,6 +700,15 @@ final class MediaRenderer {
             if (host.mediaDownloadProgress >= 0 || !spinnerHandledSeparately) {
                 host.drawProgressRing(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint, host.mediaDownloadProgress);
             }
+            if (host.mediaUploadCancelable) {
+                // X inside the ring = "tap to cancel". Static, so it lives in the cached Picture
+                // while only the ring itself animates (drawIndeterminateSpinnerOnly).
+                float d = iconSize * 0.2f;
+                canvas.drawLine(iconCx - d, iconCy - d, iconCx + d, iconCy + d, host.mediaGatePillIconPaint);
+                canvas.drawLine(iconCx - d, iconCy + d, iconCx + d, iconCy - d, host.mediaGatePillIconPaint);
+            }
+        } else if (host.mediaGateRetry) {
+            drawRetryIcon(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint);
         } else {
             host.drawGateIcon(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint);
         }
@@ -688,6 +718,31 @@ final class MediaRenderer {
                     - (host.mediaGatePillTextPaint.ascent() + host.mediaGatePillTextPaint.descent()) / 2f;
             canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, host.mediaGatePillTextPaint);
         }
+    }
+
+    private final RectF retryArcRect = new RectF();
+    private final android.graphics.Path retryHeadPath = new android.graphics.Path();
+
+    /** Circular "retry" arrow (open ring with an arrowhead) — failed upload/download, not a download arrow. */
+    void drawRetryIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
+        float r = size * 0.36f;
+        retryArcRect.set(cx - r, cy - r, cx + r, cy + r);
+        final float start = -60f, sweep = 300f;
+        canvas.drawArc(retryArcRect, start, sweep, false, paint);
+        double end = Math.toRadians(start + sweep);
+        float ex = cx + (float) Math.cos(end) * r, ey = cy + (float) Math.sin(end) * r;
+        // clockwise travel direction at the arc end, arrowhead points back along it ±40°
+        double tx = -Math.sin(end), ty = Math.cos(end);
+        float h = size * 0.3f;
+        retryHeadPath.reset();
+        for (int s = -1; s <= 1; s += 2) {
+            double a = Math.toRadians(180 + 40 * s);
+            float bx = (float) (tx * Math.cos(a) - ty * Math.sin(a));
+            float by = (float) (tx * Math.sin(a) + ty * Math.cos(a));
+            retryHeadPath.moveTo(ex, ey);
+            retryHeadPath.lineTo(ex + bx * h, ey + by * h);
+        }
+        canvas.drawPath(retryHeadPath, paint);
     }
 
     /**
@@ -733,29 +788,119 @@ final class MediaRenderer {
         return Math.round(PLACEHOLDER_MIN_BLUR_RADIUS + t * (PLACEHOLDER_MAX_BLUR_RADIUS - PLACEHOLDER_MIN_BLUR_RADIUS));
     }
 
+    // ── PERF (v611): process-wide placeholder-blur cache + background compute ──
+    // Before: every recycled bubble view re-blurred the SAME ThumbHash placeholder on
+    // the main thread (big bubbles even did a synchronous HardwareRenderer round trip
+    // with setWaitForPresent(true)). The blurred result only depends on
+    // (placeholder bitmap identity, blur radius, native-vs-java), and ThumbHashPlaceholder
+    // hands the identical Bitmap instance to every bubble sharing a hash, so one static
+    // cache serves every view. Radius is already quantized by adaptiveBlurRadiusFor(),
+    // which is the "bucketed size" part of the key. A miss is computed off the main thread.
+    private static final class PlaceholderBlurKey {
+        final android.graphics.Bitmap src;
+        final int radius;
+        final boolean nativeBlur;
+        PlaceholderBlurKey(android.graphics.Bitmap src, int radius, boolean nativeBlur) {
+            this.src = src; this.radius = radius; this.nativeBlur = nativeBlur;
+        }
+        @Override public boolean equals(Object o) {
+            if (!(o instanceof PlaceholderBlurKey)) return false;
+            PlaceholderBlurKey k = (PlaceholderBlurKey) o;
+            return k.src == src && k.radius == radius && k.nativeBlur == nativeBlur;
+        }
+        @Override public int hashCode() {
+            return (System.identityHashCode(src) * 31 + radius) * 2 + (nativeBlur ? 1 : 0);
+        }
+    }
+
+    // 32x32 placeholders (~4 KB each): 48 entries is noise next to one decoded photo.
+    private static final android.util.LruCache<PlaceholderBlurKey, android.graphics.Bitmap> PLACEHOLDER_BLUR_CACHE =
+            new android.util.LruCache<>(48);
+    // Main-thread only: key -> views waiting for that blur to finish.
+    private static final java.util.HashMap<PlaceholderBlurKey, java.util.ArrayList<Runnable>> PLACEHOLDER_BLUR_WAITERS =
+            new java.util.HashMap<>();
+    private static final java.util.concurrent.ExecutorService PLACEHOLDER_BLUR_EXEC =
+            java.util.concurrent.Executors.newSingleThreadExecutor(new java.util.concurrent.ThreadFactory() {
+                @Override public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "bubble-placeholder-blur");
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+    private static final android.os.Handler PLACEHOLDER_BLUR_MAIN =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
     /**
-     * Returns a blurred COPY of the small ThumbHash placeholder bitmap,
-     * radius scaled to how far mediaRect upscales it — never mutates `src`,
-     * since ThumbHashPlaceholder's LruCache hands out the very same decoded
-     * Bitmap instance to every bubble sharing that hash string; blurring in
-     * place would corrupt every other bubble currently showing it. Returns
-     * `src` unchanged when the bubble is small enough that the computed
-     * radius wouldn't do anything (the common case for a compact bubble).
-     *
-     * Big bubbles (≥300dp) try NativeBlur (RenderEffect) first and fall
-     * back to the Java box blur below on any failure (old API level,
-     * OEM GPU quirk, etc.) — same null-means-fall-back contract used
-     * throughout this pipeline (ThumbHash.decode(), BlurHash.decode()).
+     * Main thread (called from draw()). Returns the blurred placeholder if it is cached;
+     * otherwise returns {@code src} for this frame, schedules the blur on a background
+     * thread and invalidates this bubble when it is ready.
      */
-    private static android.graphics.Bitmap blurPlaceholderForBubble(android.graphics.Bitmap src,
+    private android.graphics.Bitmap resolvePlaceholderShaderSource(final android.graphics.Bitmap src,
             float bubbleWidthPx, float bubbleHeightPx, float density) {
         int w = src.getWidth(), h = src.getHeight();
         if (w <= 0 || h <= 0) return src;
-        int radius = adaptiveBlurRadiusFor(bubbleWidthPx, bubbleHeightPx, Math.max(w, h));
+        final int radius = adaptiveBlurRadiusFor(bubbleWidthPx, bubbleHeightPx, Math.max(w, h));
         if (radius <= PLACEHOLDER_MIN_BLUR_RADIUS) return src;
 
-        boolean isBigBubble = Math.max(bubbleWidthPx, bubbleHeightPx) >= NATIVE_BLUR_MIN_BUBBLE_DP * density;
-        if (isBigBubble && com.callx.app.utils.NativeBlur.isSupported()) {
+        final boolean useNative = Math.max(bubbleWidthPx, bubbleHeightPx) >= NATIVE_BLUR_MIN_BUBBLE_DP * density
+                && com.callx.app.utils.NativeBlur.isSupported();
+        final PlaceholderBlurKey key = new PlaceholderBlurKey(src, radius, useNative);
+
+        android.graphics.Bitmap hit = PLACEHOLDER_BLUR_CACHE.get(key);
+        if (hit != null && !hit.isRecycled()) return hit;
+
+        // This view re-draws once the blur lands: drop the shader built from the raw
+        // placeholder (cachedShaderBitmap still points at `src`) and invalidate.
+        Runnable onReady = new Runnable() {
+            @Override public void run() {
+                if (host.mediaBitmap == src) {
+                    cachedShader = null;
+                    cachedShaderBitmap = null;
+                    host.invalidate();
+                }
+            }
+        };
+        java.util.ArrayList<Runnable> waiters = PLACEHOLDER_BLUR_WAITERS.get(key);
+        if (waiters != null) { waiters.add(onReady); return src; } // already computing
+        waiters = new java.util.ArrayList<>(2);
+        waiters.add(onReady);
+        PLACEHOLDER_BLUR_WAITERS.put(key, waiters);
+
+        PLACEHOLDER_BLUR_EXEC.execute(new Runnable() {
+            @Override public void run() {
+                android.graphics.Bitmap result = null;
+                android.os.Trace.beginSection("BubbleBlur#compute");
+                try { result = computePlaceholderBlur(src, radius, useNative); } catch (Throwable ignored) {}
+                finally { android.os.Trace.endSection(); }
+                // Negative-cache a failure as `src` itself so it is never retried per draw.
+                final android.graphics.Bitmap toCache = result != null ? result : src;
+                PLACEHOLDER_BLUR_MAIN.post(new Runnable() {
+                    @Override public void run() {
+                        PLACEHOLDER_BLUR_CACHE.put(key, toCache);
+                        java.util.ArrayList<Runnable> done = PLACEHOLDER_BLUR_WAITERS.remove(key);
+                        if (done != null) for (Runnable r : done) r.run();
+                    }
+                });
+            }
+        });
+        return src;
+    }
+
+    /**
+     * Background-thread blur of the small ThumbHash placeholder bitmap, radius scaled to
+     * how far mediaRect upscales it — never mutates `src`, since ThumbHashPlaceholder's
+     * LruCache hands out the very same decoded Bitmap instance to every bubble sharing
+     * that hash string; blurring in place would corrupt every other bubble currently
+     * showing it.
+     *
+     * Big bubbles (>=300dp) try NativeBlur (RenderEffect) first and fall back to the
+     * Java box blur below on any failure (old API level, OEM GPU quirk, etc.) — same
+     * null-means-fall-back contract used throughout this pipeline.
+     */
+    private static android.graphics.Bitmap computePlaceholderBlur(android.graphics.Bitmap src, int radius,
+            boolean useNative) {
+        int w = src.getWidth(), h = src.getHeight();
+        if (useNative) {
             android.graphics.Bitmap natively = com.callx.app.utils.NativeBlur.blur(src, radius);
             if (natively != null) return natively;
             // fall through to the Java path below
@@ -763,10 +908,11 @@ final class MediaRenderer {
 
         android.graphics.Bitmap copy = src.copy(
                 src.getConfig() != null ? src.getConfig() : android.graphics.Bitmap.Config.ARGB_8888, true);
+        if (copy == null) return null;
         int[] pixels = new int[w * h];
         copy.getPixels(pixels, 0, w, 0, 0, w, h);
         int[] tmp = new int[Math.max(w, h)];
-        // 3-pass box blur ≈ Gaussian — same shape as TinyThumbBlurTransformation's,
+        // 3-pass box blur ~ Gaussian — same shape as TinyThumbBlurTransformation's,
         // just inlined here since it operates directly on the already-32x32
         // placeholder (no separate downscale step needed).
         for (int pass = 0; pass < 3; pass++) {

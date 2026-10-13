@@ -14,7 +14,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:hint="Option"
+        android:hint="@string/poll_option_hint"
         android:textColorHint="@color/text_secondary"
         android:textColor="@color/text_primary"
         android:textSize="14sp"
@@ -32,6 +32,6 @@
         android:src="@drawable/ic_close"
         android:background="@drawable/bg_poll_icon_badge"
         android:foreground="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Remove option"/>
+        android:contentDescription="@string/poll_remove_option"/>
 
 </LinearLayout>

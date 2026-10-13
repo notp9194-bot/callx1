@@ -58,7 +58,7 @@ class CallsAndStatusBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
 
         // Navigate to Calls tab
         val callsTab = device.findObject(By.res(TARGET_PACKAGE, "tabCalls"))
@@ -141,7 +141,7 @@ class CallsAndStatusBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
 
         // Navigate to Status tab
         val statusTab = device.findObject(By.res(TARGET_PACKAGE, "tabStatus"))
@@ -186,7 +186,7 @@ class CallsAndStatusBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
 
         val statusTab = device.findObject(By.res(TARGET_PACKAGE, "tabStatus"))
             ?: device.findObject(By.text("Status"))
@@ -223,7 +223,7 @@ class CallsAndStatusBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
 
         // Open a group chat
         val groupTab = device.findObject(By.res(TARGET_PACKAGE, "tabGroups"))
@@ -235,7 +235,7 @@ class CallsAndStatusBenchmark {
 
         device.findObject(By.res(TARGET_PACKAGE, "recyclerGroups"))
             ?.children?.firstOrNull()?.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), 5_000L)
         Thread.sleep(400)
 
         // Tap the voice/video call button in group chat toolbar

@@ -678,8 +678,25 @@ public class MessagePagingAdapter
     /** Copy-then-put wrapper for every media LruCache — see safeCacheCopy() doc above. */
     private static void putBitmapSafely(android.util.LruCache<String, android.graphics.Bitmap> cache,
                                          String key, android.graphics.Bitmap resource) {
+        if (key == null || resource == null) return;
+        // PERF (v611): a bitmap produced by BubbleBitmapPipeline was created by
+        // BitmapFactory, never touched by Glide's BitmapPool, and is never recycled or
+        // reused while it can be referenced — so it is cached AS-IS: no main-thread
+        // copy, no doubled memory, no recycle race.
+        if (BubbleBitmapPipeline.isOwned(resource)) {
+            if (!resource.isRecycled()) cache.put(key, resource);
+            return;
+        }
+        // Glide-sourced bitmap (URL thumbs etc.): still has to be copied, but skip the
+        // copy when an equivalent entry is already pooled (rebind of a seen row).
+        android.graphics.Bitmap existing = cache.get(key);
+        if (existing != null && !existing.isRecycled()
+                && existing.getWidth() == resource.getWidth()
+                && existing.getHeight() == resource.getHeight()) {
+            return;
+        }
         android.graphics.Bitmap copy = safeCacheCopy(resource);
-        if (copy != null && key != null) cache.put(key, copy);
+        if (copy != null) cache.put(key, copy);
     }
 
     // Main image/video/reel media surfaces, including local-file and
@@ -805,6 +822,8 @@ public class MessagePagingAdapter
     // disk cache remain the actual fast path; this is bookkeeping only.
     private static final java.util.concurrent.ExecutorService DASHBOARD_DISK_EXECUTOR =
             java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final java.util.Set<String> DASHBOARD_ENCODE_INFLIGHT =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Call when an existing pool/cache hit is served, so MemoryCache's hit counter is honest. */
     private static void dashboardRecordHit(Context ctx, String key) {
@@ -819,6 +838,25 @@ public class MessagePagingAdapter
         cm.getMemoryCache().put("thumb_" + key, bmp);
         com.callx.app.cache.CacheDashboardStats.getInstance(ctx)
                 .recordMemoryEntry(key, bmp.getByteCount());
+        if (BubbleBitmapPipeline.isOwned(bmp)) {
+            // PERF (v611): app-owned bitmap is never recycled by anyone else, so the
+            // disk-exists stat, the JPEG encode (several ms) AND the write can all
+            // leave the main thread. A bitmap that is still Glide's has to be
+            // encoded inline below (Glide may reclaim it as soon as we return).
+            if (!DASHBOARD_ENCODE_INFLIGHT.add(key)) return;
+            DASHBOARD_DISK_EXECUTOR.execute(() -> {
+                try {
+                    if (cm.getDiskCache().exists(key) || bmp.isRecycled()) return;
+                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 85, out);
+                    cm.getDiskCache().save(key, out.toByteArray());
+                } catch (Throwable ignored) {
+                } finally {
+                    DASHBOARD_ENCODE_INFLIGHT.remove(key);
+                }
+            });
+            return;
+        }
         if (cm.getDiskCache().exists(key)) return; // already recorded once — don't re-encode every rebind
         // Compress synchronously here (bitmap is guaranteed non-recycled on this
         // callback thread); only the disk WRITE is pushed to a background thread.
@@ -991,6 +1029,8 @@ public class MessagePagingAdapter
     static final String PAYLOAD_PRESENCE = "presence";
     /** Payload for a live upload-percentage tick — see onMediaUploadProgress(). */
     static final String PAYLOAD_MEDIA_PROGRESS = "media_progress";
+    /** v603: a cell of a SENT media group changed upload state / percentage — refresh only its overlay. */
+    static final String PAYLOAD_GROUP_UPLOAD = "group_upload";
     /**
      * Selection-only repaint. The selection state changes alpha/background on
      * the holder, not message content, so a full bind would unnecessarily
@@ -1326,6 +1366,107 @@ public class MessagePagingAdapter
     /** Call once an upload finishes (success or failure) to stop tracking its progress. */
     public void onMediaUploadFinished(String messageId) {
         uploadProgressTracker.clear(messageId);
+    }
+
+    // ── v603: SENT media-group per-cell upload state ──────────────────────
+    // Authoritative while the send session is alive (the Room JSON that backs a re-bound Message is
+    // written asynchronously and can lag a tick behind); a fresh bind with no entry here (app restarted,
+    // row loaded from Room) derives the same states from each item's "uploading"/"failed" flags.
+    static final int GROUP_CELL_DONE = 0;
+    static final int GROUP_CELL_UPLOADING = 1;
+    static final int GROUP_CELL_FAILED = 2;
+    private final java.util.Map<String, int[]> groupItemUploadStates =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static String groupItemKey(String groupId, int index) {
+        return groupId + "_" + index;
+    }
+
+    /** A cell of a sent group started (1), finished (0) or failed (2) uploading. Resets that cell's percentage. */
+    public void onGroupItemUploadState(String groupId, int index, int total, int state) {
+        if (groupId == null || index < 0 || total <= 0 || index >= total) return;
+        int[] arr = groupItemUploadStates.get(groupId);
+        if (arr == null || arr.length != total) {
+            arr = new int[total];
+            groupItemUploadStates.put(groupId, arr);
+        }
+        arr[index] = state;
+        uploadProgressTracker.clear(groupItemKey(groupId, index));
+        int position = findMessagePositionById(groupId);
+        if (position != RecyclerView.NO_POSITION) notifyItemChanged(position, PAYLOAD_GROUP_UPLOAD);
+    }
+
+    /** Live 0-100 percentage for one cell of a sent group. */
+    public void onGroupItemUploadProgress(String groupId, int index, int percent) {
+        if (groupId == null || index < 0) return;
+        uploadProgressTracker.setProgress(groupItemKey(groupId, index), percent);
+        int position = findMessagePositionById(groupId);
+        if (position != RecyclerView.NO_POSITION) notifyItemChanged(position, PAYLOAD_GROUP_UPLOAD);
+    }
+
+    /** The whole group was finalized — drop its per-cell state and clear any overlay still showing. */
+    public void onGroupUploadFinished(String groupId) {
+        if (groupId == null) return;
+        int[] arr = groupItemUploadStates.remove(groupId);
+        if (arr != null) {
+            for (int i = 0; i < arr.length; i++) uploadProgressTracker.clear(groupItemKey(groupId, i));
+        }
+        int position = findMessagePositionById(groupId);
+        if (position != RecyclerView.NO_POSITION) notifyItemChanged(position, PAYLOAD_GROUP_UPLOAD);
+    }
+
+    /**
+     * Per-visible-cell upload state (0 none / 1 uploading / 2 failed) for a SENT multi_media message, or
+     * null when no cell needs an overlay (not mine, already sent, or nothing left to upload).
+     */
+    @Nullable
+    private int[] computeGroupUploadStates(@NonNull Message m, boolean sent, int visible) {
+        if (!sent || m.mediaItems == null || visible <= 0) return null;
+        final boolean msgFailed = "failed".equals(m.status);
+        final boolean msgUploading = "uploading".equals(m.status);
+        if (!msgFailed && !msgUploading) return null;
+        final String gid = m.messageId != null ? m.messageId : m.id;
+        final int[] mem = gid != null ? groupItemUploadStates.get(gid) : null;
+        final int[] out = new int[visible];
+        boolean any = false;
+        for (int i = 0; i < visible && i < m.mediaItems.size(); i++) {
+            java.util.Map<String, Object> item = m.mediaItems.get(i);
+            Object urlObj = item.get("url");
+            if (urlObj instanceof String && !((String) urlObj).isEmpty()) continue; // uploaded
+            int s;
+            if (mem != null && i < mem.length) {
+                s = mem[i];
+            } else if (Boolean.TRUE.equals(item.get("failed"))) {
+                s = GROUP_CELL_FAILED;
+            } else if (Boolean.TRUE.equals(item.get("uploading"))) {
+                s = GROUP_CELL_UPLOADING;
+            } else {
+                s = GROUP_CELL_DONE;
+            }
+            // Row flipped to failed (e.g. app killed mid-upload): nothing is actually running any more.
+            if (s == GROUP_CELL_UPLOADING && msgFailed) s = GROUP_CELL_FAILED;
+            out[i] = s;
+            if (s != GROUP_CELL_DONE) any = true;
+        }
+        return any ? out : null;
+    }
+
+    /** Pushes the computed upload state (and live percentages) into the group bubble; null state clears it. */
+    private void applyGroupUploadState(@NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+                                       @NonNull Message m, boolean sent, boolean clearWhenNone) {
+        final int visible = Math.min(m.mediaItems != null ? m.mediaItems.size() : 0, 9);
+        final int[] states = computeGroupUploadStates(m, sent, visible);
+        if (states == null) {
+            if (clearWhenNone) cv.setGroupUploadState(null, null);
+            return;
+        }
+        final String gid = m.messageId != null ? m.messageId : m.id;
+        final int[] progress = new int[visible];
+        for (int i = 0; i < visible; i++) {
+            progress[i] = states[i] == GROUP_CELL_UPLOADING
+                    ? uploadProgressTracker.getProgress(groupItemKey(gid, i)) : -1;
+        }
+        cv.setGroupUploadState(states, progress);
     }
 
     // ── Mention pattern — used for @Name blue highlight rendering ────────────
@@ -1762,6 +1903,7 @@ public class MessagePagingAdapter
         });
     }
 
+    /** m:ss label for any media duration in ms (voice caption + video bubble) — cached per whole second. */
     private static String formatVoiceDuration(long voiceMs) {
         long voiceSecs = voiceMs / 1000;
         String s = voiceDurationTextCache.get(voiceSecs);
@@ -1894,6 +2036,10 @@ public class MessagePagingAdapter
         void onForward(Message m);
         /** Called when user taps the ⚠ failed-status icon to retry sending. */
         default void onRetry(Message m) {}
+        /** User tapped the X on an uploading media bubble — cancel that upload (bubble flips to the retry gate). */
+        default void onCancelUpload(Message m) {}
+        /** Whether this screen can cancel uploads (1:1 chat); the X is only drawn when true. */
+        default boolean canCancelUpload() { return false; }
         /** Called when user chooses Edit from the action sheet (own messages only). */
         default void onEdit(Message m) {}
         /** Called when user taps the "✏️ edited" tag on a bubble's timestamp
@@ -2688,6 +2834,8 @@ public class MessagePagingAdapter
         super.onAttachedToRecyclerView(recyclerView);
         glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
         attachedRecyclerView = recyclerView;
+        sWarmAppContext = recyclerView.getContext().getApplicationContext();
+        attachMediaPreloader(recyclerView);
         GlobalVoicePlaybackManager.getInstance().addListener(globalPlaybackListener);
     }
 
@@ -2695,6 +2843,7 @@ public class MessagePagingAdapter
     public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onDetachedFromRecyclerView(recyclerView);
         glideRequestManager = null;
+        detachMediaPreloader(recyclerView);
         recyclerView.removeCallbacks(senderAvatarPrefetchRunnable);
         senderAvatarPrefetchQueued = false;
         attachedRecyclerView = null;
@@ -2846,6 +2995,185 @@ public class MessagePagingAdapter
     /** Cached RequestManager if attached; falls back to glide(ctx) so callers never null-check. */
     private com.bumptech.glide.RequestManager glide(Context ctx) {
         return glideRequestManager != null ? glideRequestManager : com.bumptech.glide.Glide.with(ctx);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // PERF (v611): owned bitmap pipeline + bind-time work off the main thread
+    // ═════════════════════════════════════════════════════════════════════
+
+    /**
+     * Owned-decode replacement for
+     * {@code glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(w,h).into(slotTarget)}.
+     * The decode runs on BubbleBitmapPipeline's executor and delivers a bitmap that is
+     * cached WITHOUT a copy (see putBitmapSafely). A recycled/rebound holder
+     * (token mismatch) skips the decode entirely. If the decode fails, the legacy Glide
+     * path runs as a fallback so no image regresses.
+     */
+    private void loadFileBitmap(final Context ctx, final VH h, final int slot,
+                                final java.io.File file, final int tw, final int th,
+                                final int token, final BitmapReadyCallback ready,
+                                @Nullable final BitmapClearedCallback cleared) {
+        h.cancelBitmapSlot(glide(ctx), slot); // drop any Glide load still bound to this slot
+        BubbleBitmapPipeline.decodeFile(file, tw, th, () -> h.canvasBindToken == token,
+                new BubbleBitmapPipeline.Callback() {
+                    @Override public void onDecoded(@NonNull Bitmap owned) {
+                        ready.onReady(owned);
+                    }
+                    @Override public void onFailed() {
+                        if (h.canvasBindToken != token) return;
+                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(tw, th)
+                                .into(h.prepareBitmapTarget(glide(ctx), slot, ready, cleared));
+                    }
+                });
+    }
+
+    /**
+     * Owned-decode version of the single-image bind (the shared imageBindTarget path).
+     * Same observable behaviour as imageBindTarget.onResourceReady(): aspect ratio is
+     * recorded and the pool filled regardless of whether the holder still shows this
+     * image; only the final setMediaBitmap() is token-guarded.
+     */
+    private void loadMainImageOwned(final Context ctx, final VH h, final java.io.File file,
+                                    final int token, @Nullable final String aspectKey,
+                                    @Nullable final String poolKey) {
+        h.releaseImageBindGlideTarget(glide(ctx));
+        final int tw = thumbPx(ctx);
+        BubbleBitmapPipeline.decodeFile(file, tw, tw, () -> h.canvasBindToken == token,
+                new BubbleBitmapPipeline.Callback() {
+                    @Override public void onDecoded(@NonNull Bitmap owned) {
+                        if (owned.getHeight() > 0 && aspectKey != null) {
+                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                    .cacheAspectRatio(aspectKey, (float) owned.getWidth() / owned.getHeight());
+                        }
+                        if (poolKey != null && !poolKey.isEmpty()) {
+                            putBitmapSafely(MEDIA_BITMAP_CACHE, poolKey, owned);
+                            dashboardRecordDecoded(ctx, poolKey, owned);
+                        }
+                        if (h.canvasBindToken != token) return;
+                        if (h.canvasView != null) h.canvasView.setMediaBitmap(owned);
+                    }
+                    @Override public void onFailed() {
+                        if (h.canvasBindToken != token) return;
+                        h.imageBindFireToken = token;
+                        h.imageBindAspectCacheKey = aspectKey;
+                        h.imageBindPoolKey = poolKey;
+                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                .override(tw, tw).into(h.getOrCreateImageBindTarget());
+                    }
+                });
+    }
+
+    // ── Bind precompute (runs on the Paging load thread, never on main) ──
+    private static volatile Context sWarmAppContext;
+
+    /**
+     * Called from ChatActivity/GroupChatActivity.buildModelUncached() — already on ioExecutor,
+     * before the Message reaches the adapter — alongside the existing StaticLayout / aspect-ratio
+     * precompute. It front-loads the two pieces of media bind work that used to run on the main
+     * thread on the first bind of each row:
+     *   1. the "is this received image already on disk" File.exists()+length() stat
+     *      (getCachedFileFast memo, positive hits only — same memo the bind path reads), and
+     *   2. the ThumbHash placeholder decode into ThumbHashPlaceholder's L1 cache, so bind-time
+     *      getAsync() resolves inline instead of hopping to a decode thread.
+     * Safe no-op until the adapter has been attached once (needs an application Context).
+     */
+    public static void warmMediaBindCaches(@Nullable Message m) {
+        final Context ctx = sWarmAppContext;
+        if (m == null || ctx == null || m.type == null) return;
+        try {
+            final boolean image = "image".equals(m.type);
+            final boolean video = "video".equals(m.type);
+            if (!image && !video) return;
+            if (image) {
+                String url = m.mediaUrl != null ? m.mediaUrl : m.text;
+                if (url != null && !url.isEmpty()) getCachedFileFast(ctx, url);
+            }
+            // E2E rows keep their placeholder inside the encrypted envelope (resolved
+            // asynchronously at bind) — only plain hashes can be warmed here.
+            if (m.mediaKeyEnc == null && m.blurHash != null && !m.blurHash.isEmpty()) {
+                ThumbHashPlaceholder.get(m.blurHash, 32, 32);
+            }
+        } catch (Throwable ignored) {
+            // precompute must never affect the message list
+        }
+    }
+
+    // ── Look-ahead decode: warm MEDIA_BITMAP_CACHE for the next few images ──
+    private static final int MEDIA_PRELOAD_AHEAD = 6;
+    private static final int MEDIA_PRELOAD_AHEAD_LOW_RAM = 3;
+    private static final long MEDIA_PRELOAD_MIN_INTERVAL_MS = 80L;
+    private RecyclerView.OnScrollListener mediaPreloadListener;
+    private long lastMediaPreloadUptime;
+
+    private void attachMediaPreloader(@NonNull RecyclerView rv) {
+        if (mediaPreloadListener != null) rv.removeOnScrollListener(mediaPreloadListener);
+        mediaPreloadListener = new RecyclerView.OnScrollListener() {
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                if (dy == 0) return;
+                final long now = android.os.SystemClock.uptimeMillis();
+                if (now - lastMediaPreloadUptime < MEDIA_PRELOAD_MIN_INTERVAL_MS) return;
+                lastMediaPreloadUptime = now;
+                preloadMediaAhead(recyclerView, dy);
+            }
+        };
+        rv.addOnScrollListener(mediaPreloadListener);
+    }
+
+    private void detachMediaPreloader(@NonNull RecyclerView rv) {
+        if (mediaPreloadListener != null) rv.removeOnScrollListener(mediaPreloadListener);
+        mediaPreloadListener = null;
+    }
+
+    private void preloadMediaAhead(@NonNull RecyclerView rv, int dy) {
+        final RecyclerView.LayoutManager lm = rv.getLayoutManager();
+        if (!(lm instanceof androidx.recyclerview.widget.LinearLayoutManager)) return;
+        final androidx.recyclerview.widget.LinearLayoutManager llm =
+                (androidx.recyclerview.widget.LinearLayoutManager) lm;
+        final int first = llm.findFirstVisibleItemPosition();
+        final int last = llm.findLastVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
+        final int count = getItemCount();
+        if (count == 0) return;
+        final Context ctx = rv.getContext();
+        final int ahead = com.callx.app.utils.DeviceTier.isLowRamDevice(ctx)
+                ? MEDIA_PRELOAD_AHEAD_LOW_RAM : MEDIA_PRELOAD_AHEAD;
+        // dy > 0 moves toward the layout END; with reverseLayout (chat) that is DEcreasing positions.
+        final boolean towardHigher = (dy > 0) != llm.getReverseLayout();
+        for (int i = 1; i <= ahead; i++) {
+            final int pos = towardHigher ? last + i : first - i;
+            if (pos < 0 || pos >= count) break;
+            final Message m = peek(pos); // peek(): never triggers a Paging load hint
+            if (m == null || !"image".equals(m.type) || Boolean.TRUE.equals(m.deleted)) continue;
+            if (currentUid != null && currentUid.equals(m.senderId)) continue; // sent rows use local/remote paths
+            final String url = m.mediaUrl != null ? m.mediaUrl : m.text;
+            preloadReceivedImage(ctx, url);
+        }
+    }
+
+    /** Warms MEDIA_BITMAP_CACHE[url] with the exact decode the bind path would do. */
+    private void preloadReceivedImage(final Context ctx, @Nullable final String url) {
+        if (url == null || url.isEmpty()) return;
+        if (MEDIA_BITMAP_CACHE.get(url) != null) return;
+        final int tw = thumbPx(ctx);
+        BubbleBitmapPipeline.runPreload(url, () -> {
+            if (MEDIA_BITMAP_CACHE.get(url) != null) return;
+            final java.io.File f = getCachedFileFast(ctx, url); // disk stat: background thread
+            if (f == null) return; // not downloaded yet: the bind path owns the gate/download UI
+            final Bitmap b = BubbleBitmapPipeline.decodeBlocking(f, tw, tw);
+            if (b == null) return;
+            BubbleBitmapPipeline.postMain(() -> {
+                final Bitmap existing = MEDIA_BITMAP_CACHE.get(url);
+                if (existing != null && !existing.isRecycled()) {
+                    BubbleBitmapPipeline.recycleUnused(b); // lost a race with a real bind
+                    return;
+                }
+                MEDIA_BITMAP_CACHE.put(url, b);
+                if (b.getHeight() > 0) {
+                    com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                            .cacheAspectRatio(url, (float) b.getWidth() / b.getHeight());
+                }
+            });
+        });
     }
 
 
@@ -3137,10 +3465,52 @@ public class MessagePagingAdapter
      */
     public static void trimSharedCanvasPool() {
         if (sSharedCanvasPool == null) return;
+        // v612: restore to the tracked capacity instead of a hard-coded 18 (which
+        // silently overrode the low-RAM sizing from configureSharedPool()).
+        int sent = sPoolMax[TYPE_CANVAS_SENT];
+        int recv = sPoolMax[TYPE_CANVAS_RECEIVED];
         sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_SENT, 0);
         sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_RECEIVED, 0);
-        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_SENT, 18);
-        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_RECEIVED, 18);
+        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_SENT, sent);
+        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_RECEIVED, recv);
+    }
+
+    // ── v612: single source of truth for the shared pool's per-type capacity ──
+    // The pool is process-wide, but ChatActivity and GroupChatActivity each used
+    // to call setMaxRecycledViews() with their own numbers (18 vs 10 for the hot
+    // types). Last writer won, and a smaller value TRIMS already-pooled holders,
+    // so opening a group chat after a 1:1 chat dropped warm canvas holders and
+    // shrank the pool for the next fling. Capacity is now only ever RAISED
+    // (never shrunk), from one table, with a smaller table on low-RAM devices
+    // (each canvas holder carries ~30 Paints + a RenderNode display list).
+    private static final int[] sPoolMax = new int[13];
+
+    /** Per-type capacity: {hot canvas/bubble types, date separator, rare types}. */
+    public static void configureSharedPool(@NonNull android.content.Context ctx,
+                                           @NonNull RecyclerView.RecycledViewPool pool) {
+        final boolean low = com.callx.app.utils.DeviceTier.isLowRamDevice(ctx);
+        final int hot  = low ? 10 : 18;
+        final int date = low ? 6 : 10;
+        final int rare = low ? 3 : 6;
+        raisePoolMax(pool, TYPE_SENT,                  hot);
+        raisePoolMax(pool, TYPE_RECEIVED,              hot);
+        raisePoolMax(pool, TYPE_CANVAS_SENT,           hot);
+        raisePoolMax(pool, TYPE_CANVAS_RECEIVED,       hot);
+        raisePoolMax(pool, TYPE_DATE_SEPARATOR,        date);
+        raisePoolMax(pool, TYPE_STATUS_SEEN,           rare);
+        raisePoolMax(pool, TYPE_REEL_SEEN,             rare);
+        raisePoolMax(pool, TYPE_CALL_ENTRY,            rare);
+        raisePoolMax(pool, TYPE_HIDDEN,                rare);
+        raisePoolMax(pool, TYPE_VIEW_ONCE_SENT,        rare);
+        raisePoolMax(pool, TYPE_VIEW_ONCE_EXPIRED,     rare);
+        raisePoolMax(pool, TYPE_VIEW_ONCE_SENT_WAITING, rare);
+    }
+
+    private static void raisePoolMax(RecyclerView.RecycledViewPool pool, int type, int max) {
+        if (max > sPoolMax[type]) {
+            sPoolMax[type] = max;
+            pool.setMaxRecycledViews(type, max);
+        }
     }
 
     // ── PERF (v176): RecycledViewPool pre-warm ──────────────────────────────
@@ -3372,6 +3742,16 @@ public class MessagePagingAdapter
                 String id = m.messageId != null ? m.messageId : m.id;
                 int percent = uploadProgressTracker.getProgress(id);
                 if (percent >= 0) h.canvasView.setMediaDownloadProgress(percent);
+            }
+            return;
+        }
+        if (!payloads.isEmpty() && PAYLOAD_GROUP_UPLOAD.equals(payloads.get(0))) {
+            // Fast path: a cell of a SENT media group started/finished/failed uploading or its percentage
+            // ticked — refresh only the per-cell overlays, no Glide reloads / full bind.
+            Message m = getItem(position);
+            if (m != null && h.canvasView != null && "multi_media".equals(m.type)
+                    && currentUid != null && currentUid.equals(m.senderId)) {
+                applyGroupUploadState(h.canvasView, m, true, true);
             }
             return;
         }
@@ -4384,6 +4764,9 @@ public class MessagePagingAdapter
                     // out here) so the sheet's "View" action can hand it to
                     // MediaViewerActivity (see MediaViewerSourceRect).
                     showImageActionSheet(ctx, m, fullUrl, fullUrl, cv.getMediaRectOnScreen());
+                } else if (isVideo && sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                        && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
+                    return; // still uploading / failed: no remote URL yet (gate tap handles retry/cancel)
                 } else if (isVideo) {
                     // WhatsApp-style video tap, now mirroring the single-image
                     // flow exactly:
@@ -4454,8 +4837,7 @@ public class MessagePagingAdapter
                                     MediaDownloadQueue.getInstance(ctx).markComplete(vUrl2);
                                     downloadingMediaUrls.remove(vUrl2);
                                     if (h.canvasBindToken != myToken) return;
-                                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
-                                            "Tap to retry");
+                                    cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
                                 }
                             });
                         });
@@ -4476,6 +4858,16 @@ public class MessagePagingAdapter
             }
 
             @Override
+            public void onMediaCancelClick() {
+                final Message m = h.boundMessage;
+                if (m == null || actionListener == null) return;
+                final boolean sentByMe = currentUid != null && currentUid.equals(m.senderId);
+                final boolean pendingUpload = sentByMe && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                        && (m.mediaUrl == null || m.mediaUrl.isEmpty()) && !"failed".equals(m.status);
+                if (pendingUpload) actionListener.onCancelUpload(m);
+            }
+
+            @Override
             public void onMediaDownloadClick() {
                 final Message m = h.boundMessage;
                 if (m == null) return;
@@ -4491,7 +4883,7 @@ public class MessagePagingAdapter
                 // image whose gate is showing "Tap to retry" (upload failed)
                 // rather than a RECEIVED download pill — route to the retry
                 // flow instead of treating it as a download tap.
-                if (isImage && sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                if ((isImage || isVideo) && sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
                         && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
                     if (actionListener != null) actionListener.onRetry(m);
                     return;
@@ -4538,7 +4930,7 @@ public class MessagePagingAdapter
                         @Override public void onError(String reason) {
                             downloadingMediaUrls.remove(gifUrl);
                             if (h.canvasBindToken != myToken) return;
-                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                            cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
                         }
                     });
                     return;
@@ -4585,7 +4977,7 @@ public class MessagePagingAdapter
                                 MediaDownloadQueue.getInstance(ctx).markComplete(vDlUrl);
                                 downloadingMediaUrls.remove(vDlUrl);
                                 if (h.canvasBindToken != myToken) return;
-                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                                cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
                             }
                         });
                     });
@@ -4659,10 +5051,9 @@ public class MessagePagingAdapter
                         if (h.canvasBindToken != myToken) return;
                         cv.clearMediaDownloadGate();
                         // PERF #4 + #1: density-aware size, store in pool on decode
-                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                .override(thumbPx(ctx), thumbPx(ctx))
-                                .into(h.prepareBitmapTarget(glide(ctx), TARGET_CANVAS_PRIMARY,
-                                        new BitmapReadyCallback() {
+                        // PERF (v611): owned background decode, pooled with no copy.
+                        loadFileBitmap(ctx, h, TARGET_CANVAS_PRIMARY, file, thumbPx(ctx), thumbPx(ctx), myToken,
+                                new BitmapReadyCallback() {
                                     @Override public void onReady(@NonNull Bitmap resource) {
                                         if (resource.getHeight() > 0) {
                                             com.callx.app.conversation.canvas.MessageBubbleCanvasView
@@ -4674,12 +5065,12 @@ public class MessagePagingAdapter
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaBitmap(resource);
                                     }
-                                }, null));
+                                }, null);
                     }
                     @Override public void onError(String reason) {
                         downloadingMediaUrls.remove(fullUrl);
                         if (h.canvasBindToken != myToken) return;
-                        cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                        cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
                     }
                 });
             }
@@ -4727,6 +5118,15 @@ public class MessagePagingAdapter
                 for (int i = 0; i < visible; i++) {
                     downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(i), i, totalForSize);
                 }
+            }
+
+            @Override
+            public void onGroupCellRetryClick(int index) {
+                // Failed cell of a SENT group — the host re-queues every failed cell of the group.
+                final Message m = h.boundMessage;
+                if (m == null || actionListener == null || !"multi_media".equals(m.type)) return;
+                if (currentUid == null || !currentUid.equals(m.senderId)) return;
+                actionListener.onRetry(m);
             }
 
             @Override
@@ -5081,7 +5481,7 @@ public class MessagePagingAdapter
                 boolean isPoll = "poll".equals(type);
                 if (!isPoll) return;
                 if (Boolean.TRUE.equals(m.pollClosed)) {
-                    android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(ctx, R.string.poll_closed_toast, android.widget.Toast.LENGTH_SHORT).show();
                     return;
                 }
                 if (actionListener != null) actionListener.onPollVote(m, optionIndex);
@@ -5465,7 +5865,23 @@ public class MessagePagingAdapter
             // For sent groups this is an all-false array (gate stays inert,
             // unchanged behavior); for received groups it arms the master
             // "Download N photos" pill iff at least one cell is pending.
-            cv.setGroupDownloadGate(cellPending);
+            // Total size on the pill only when EVERY pending cell reports its sent-time fileSize
+            // (a partial sum would understate the download).
+            long pendingBytes = 0L;
+            boolean allSizesKnown = true;
+            boolean anyPending = false;
+            for (int pi = 0; pi < visible; pi++) {
+                if (!cellPending[pi]) continue;
+                anyPending = true;
+                Object fs = items.get(pi).get("fileSize");
+                long fb = fs instanceof Number ? ((Number) fs).longValue() : 0L;
+                if (fb > 0) pendingBytes += fb; else { allSizesKnown = false; break; }
+            }
+            cv.setGroupDownloadGate(cellPending,
+                    anyPending && allSizesKnown ? formatFileSize(pendingBytes) : null);
+            // v603: a SENT group that is still uploading (spinner/% per cell) or has failed cells (retry
+            // arrow) — restored here after a rebind/scroll the same way a sent image's gate is.
+            applyGroupUploadState(cv, m, sent, false);
         } else if (isImage) {
             final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
             // Known width/height captured at send time (see ChatMediaController)
@@ -5527,16 +5943,23 @@ public class MessagePagingAdapter
                 h.imageBindFireToken = myToken;
                 h.imageBindAspectCacheKey = null; // local pending preview — no aspect caching here
                 h.imageBindPoolKey = null;        // not pool-worthy — still uploading, url may change
-                glide(ctx).asBitmap()
-                        .load(android.net.Uri.parse(m.mediaLocalPath))
-                        .apply(THUMB_RGB565)
-                        .override(thumbPx(ctx), thumbPx(ctx))
-                        .into(h.getOrCreateImageBindTarget());
+                final android.net.Uri pendingUri = android.net.Uri.parse(m.mediaLocalPath);
+                final java.io.File pendingFile = BubbleBitmapPipeline.asLocalFile(pendingUri);
+                if (pendingFile != null) {
+                    // PERF (v611): plain local file → owned background decode.
+                    loadMainImageOwned(ctx, h, pendingFile, myToken, null, null);
+                } else {
+                    glide(ctx).asBitmap()
+                            .load(pendingUri)
+                            .apply(THUMB_RGB565)
+                            .override(thumbPx(ctx), thumbPx(ctx))
+                            .into(h.getOrCreateImageBindTarget());
+                }
 
                 String mid = m.messageId != null ? m.messageId : m.id;
                 if ("failed".equals(m.status)) {
                     uploadProgressTracker.clear(mid);
-                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                    cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
                 } else {
                     // Reuses the RECEIVED-side download spinner ring for the
                     // SENT-side upload — same visual language, opposite
@@ -5544,6 +5967,7 @@ public class MessagePagingAdapter
                     // scrolled off-screen and back mid-upload.
                     int trackedPercent = uploadProgressTracker.getProgress(mid);
                     cv.setMediaDownloadGate(true, trackedPercent, null);
+                    cv.setMediaUploadCancelable(actionListener != null && actionListener.canCancelUpload());
                 }
             } else {
             // Mirrors bindDownloadOverlay(): sent images (and any received
@@ -5611,6 +6035,14 @@ public class MessagePagingAdapter
                         resolveAspectRatioEarly(ctx, loadSrc, fullUrl, cv, h, myToken);
                     }
                     // PERF #4: use density-aware thumb size instead of hard-coded 480px
+                    final java.io.File ownedSrc = BubbleBitmapPipeline.asLocalFile(loadSrc);
+                    if (ownedSrc != null) {
+                        // PERF (v611): local file (received+cached, or sent+local) →
+                        // owned background decode: no Glide pool bitmap, no main-thread
+                        // cache copy, HARDWARE/RGB_565 chosen by the pipeline. Remote
+                        // URLs (sent, not yet local) still go through Glide below.
+                        loadMainImageOwned(ctx, h, ownedSrc, myToken, fullUrl, poolKey);
+                    } else {
                     h.imageBindFireToken = myToken;
                     h.imageBindAspectCacheKey = fullUrl;
                     h.imageBindPoolKey = poolKey;
@@ -5619,6 +6051,7 @@ public class MessagePagingAdapter
                             .apply(THUMB_RGB565)
                             .override(thumbPx(ctx), thumbPx(ctx))
                             .into(h.getOrCreateImageBindTarget());
+                    }
                     }
                 }
             } else if (fullUrl != null && !fullUrl.isEmpty()) {
@@ -5659,7 +6092,7 @@ public class MessagePagingAdapter
                         if (h.canvasBindToken != myToken) return;
                         // isLowResPlaceholder=true — lets MediaRenderer apply its adaptive
                         // extra-blur pass scaled to this bubble's actual size (see
-                        // MediaRenderer#blurPlaceholderForBubble).
+                        // MediaRenderer#resolvePlaceholderShaderSource).
                         if (placeholder != null) cv.setMediaBitmap(placeholder, true);
                     });
                 }
@@ -5741,10 +6174,9 @@ public class MessagePagingAdapter
                                 if (poolHit != null && !poolHit.isRecycled()) {
                                     cv.setMediaBitmap(poolHit);
                                 } else {
-                                    glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                            .override(thumbPx(ctx), thumbPx(ctx))
-                                            .into(h.prepareBitmapTarget(glide(ctx), TARGET_AUTO_IMAGE,
-                                                    new BitmapReadyCallback() {
+                                    // PERF (v611): owned background decode, pooled with no copy.
+                                    loadFileBitmap(ctx, h, TARGET_AUTO_IMAGE, file, thumbPx(ctx), thumbPx(ctx), myToken,
+                                            new BitmapReadyCallback() {
                                         @Override public void onReady(@NonNull android.graphics.Bitmap resource) {
                                             putBitmapSafely(MEDIA_BITMAP_CACHE, capturedUrl, resource);
                                             if (h.canvasBindToken != myToken) return;
@@ -5755,7 +6187,7 @@ public class MessagePagingAdapter
                                             if (h.canvasBindToken != myToken) return;
                                             cv.setMediaBitmap(null);
                                         }
-                                    }));
+                                    });
                                 }
                             }
                             @Override public void onError(String err) {
@@ -5778,14 +6210,14 @@ public class MessagePagingAdapter
                     if (m.fileSize != null && m.fileSize > 0) {
                         cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(m.fileSize));
                     } else {
-                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Photo");
+                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE, ctx.getString(R.string.media_kind_photo));
                     com.callx.app.utils.MediaCache.getRemoteSize(ctx, fullUrl,
                             new com.callx.app.utils.MediaCache.SizeCallback() {
                         @Override public void onSize(long bytes) {
                             if (h.canvasBindToken != myToken) return;
                             if (!downloadingMediaUrls.contains(fullUrl)) {
                                 cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
-                                        formatFileSize(bytes));
+                                        sizeOrKind(ctx, bytes, R.string.media_kind_photo));
                             }
                         }
                         @Override public void onError(String reason) { /* keep "Photo" label */ }
@@ -5964,8 +6396,9 @@ public class MessagePagingAdapter
             final String vThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty()) ? m.thumbnailUrl : null;
             String durText = null;
             if (m.duration != null && m.duration > 0) {
-                long secs = m.duration / 1000;
-                durText = String.format(java.util.Locale.US, "%d:%02d", secs / 60, secs % 60);
+                // PERF: shared m:ss cache (same "%d:%02d" label as voice) instead of a
+                // fresh String.format() on every video bind — see formatVoiceDuration().
+                durText = formatVoiceDuration(m.duration);
             }
             // Advance #6: same precomputed-ratio preference as the image
             // block above.
@@ -6054,10 +6487,9 @@ public class MessagePagingAdapter
                             // real 300-480px extracted video frame (see VideoCompressor
                             // .makeThumbnail), not a blocky ImageCompressor micro-thumb, so
                             // it's already sharp; blurring it would only throw away quality.
-                            glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                    .override(thumbPx(ctx), thumbPx(ctx))
-                                    .into(h.prepareBitmapTarget(glide(ctx), TARGET_CANVAS_PRIMARY,
-                                            new BitmapReadyCallback() {
+                            // PERF (v611): owned background decode, pooled with no copy.
+                            loadFileBitmap(ctx, h, TARGET_CANVAS_PRIMARY, file, thumbPx(ctx), thumbPx(ctx), myToken,
+                                    new BitmapReadyCallback() {
                                         @Override public void onReady(@NonNull Bitmap resource) {
                                             if (resource.getHeight() > 0) {
                                                 com.callx.app.conversation.canvas.MessageBubbleCanvasView
@@ -6067,7 +6499,7 @@ public class MessagePagingAdapter
                                             if (h.canvasBindToken != myToken) return;
                                             cv.setMediaBitmap(resource);
                                         }
-                                    }, null));
+                                    }, null);
                         }
                         @Override public void onError(String reason) { /* BlurHash/placeholder stays up */ }
                     });
@@ -6135,7 +6567,7 @@ public class MessagePagingAdapter
                             cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
                                     formatFileSize(m.fileSize));
                         } else {
-                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Video");
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, ctx.getString(R.string.media_kind_video));
                             final String capturedVUrlSize = vUrl;
                             com.callx.app.utils.MediaCache.getRemoteSize(ctx, capturedVUrlSize,
                                     new com.callx.app.utils.MediaCache.SizeCallback() {
@@ -6143,12 +6575,27 @@ public class MessagePagingAdapter
                                     if (h.canvasBindToken != myToken) return;
                                     if (!downloadingMediaUrls.contains(capturedVUrlSize))
                                         cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
-                                                formatFileSize(bytes));
+                                                sizeOrKind(ctx, bytes, R.string.media_kind_video));
                                 }
                                 @Override public void onError(String reason) {}
                             });
                         }
                     }
+                }
+            }
+            // ── Sent video still uploading / failed (WhatsApp-style local-first bubble) ──
+            // Same treatment as a sent image (see the image block): spinner ring with % while
+            // compressing/uploading (X cancels), "Tap to retry" gate if it failed. Without this a
+            // sent video showed no upload state at all and a rebind dropped the spinner.
+            if (sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                    && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
+                final String vMid = m.messageId != null ? m.messageId : m.id;
+                if ("failed".equals(m.status)) {
+                    uploadProgressTracker.clear(vMid);
+                    cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
+                } else {
+                    cv.setMediaDownloadGate(true, uploadProgressTracker.getProgress(vMid), null);
+                    cv.setMediaUploadCancelable(actionListener != null && actionListener.canCancelUpload());
                 }
             }
         } else if (isContact) {
@@ -6316,13 +6763,13 @@ public class MessagePagingAdapter
                 if (m.fileSize != null && m.fileSize > 0) {
                     cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(m.fileSize));
                 } else {
-                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "GIF");
+                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, ctx.getString(R.string.media_kind_gif));
                 com.callx.app.utils.MediaCache.getRemoteSize(ctx, gifUrl,
                         new com.callx.app.utils.MediaCache.SizeCallback() {
                     @Override public void onSize(long bytes) {
                         if (h.canvasBindToken != myToken) return;
                         if (!downloadingMediaUrls.contains(gifUrl))
-                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(bytes));
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, sizeOrKind(ctx, bytes, R.string.media_kind_gif));
                     }
                     @Override public void onError(String reason) { /* keep "GIF" label */ }
                 });
@@ -6382,7 +6829,7 @@ public class MessagePagingAdapter
                     @Override public void onSize(long bytes) {
                         if (h.canvasBindToken != myToken) return;
                         if (!downloadingMediaUrls.contains(stickerUrl))
-                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(bytes));
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, sizeOrKind(ctx, bytes, R.string.media_kind_photo));
                     }
                     @Override public void onError(String reason) { /* keep "Sticker" label */ }
                 });
@@ -7566,7 +8013,7 @@ public class MessagePagingAdapter
                                 FileUtils.openOrDownload(ctx, cached.toURI().toString(), fName);
                                 return;
                             }
-                            android.widget.Toast.makeText(ctx, "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
+                            android.widget.Toast.makeText(ctx, R.string.media_gate_downloading_toast, android.widget.Toast.LENGTH_SHORT).show();
                             MediaCache.get(ctx, fUrl, new MediaCache.Callback() {
                                 @Override public void onReady(java.io.File file) {
                                     FileUtils.openOrDownload(ctx, file.toURI().toString(), fName);
@@ -8325,7 +8772,7 @@ public class MessagePagingAdapter
         boolean multiChoice = Boolean.TRUE.equals(m.pollMultiChoice);
 
         if (h.tvPollSubtitle != null) {
-            h.tvPollSubtitle.setText(multiChoice ? "Select one or more answers" : "Select one answer");
+            h.tvPollSubtitle.setText(multiChoice ? R.string.poll_subtitle_multi_legacy : R.string.poll_subtitle_single);
             h.tvPollSubtitle.setTextColor((textColor & 0x00FFFFFF) | 0xAA000000);
         }
 
@@ -8436,7 +8883,7 @@ public class MessagePagingAdapter
 
                 row.setOnClickListener(v -> {
                     if (closed) {
-                        android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
+                        android.widget.Toast.makeText(ctx, R.string.poll_closed_toast, android.widget.Toast.LENGTH_SHORT).show();
                         return;
                     }
                     if (actionListener != null) actionListener.onPollVote(m, optionIndex);
@@ -8445,7 +8892,9 @@ public class MessagePagingAdapter
         }
 
         if (h.tvPollTotalVotes != null) {
-            String label = total == 0 ? "No votes yet" : total + (total == 1 ? " person voted" : " people voted");
+            String label = total == 0 ? h.itemView.getContext().getString(R.string.poll_no_votes_yet)
+                    : (total == 1 ? h.itemView.getContext().getString(R.string.poll_person_voted)
+                    : h.itemView.getContext().getString(R.string.poll_people_voted, total));
             h.tvPollTotalVotes.setText(label);
         }
 
@@ -8453,11 +8902,11 @@ public class MessagePagingAdapter
         // priority over Anonymous since it affects whether the user can vote.
         if (h.tvPollStatusBadge != null) {
             if (closed) {
-                h.tvPollStatusBadge.setText("🔒 Closed");
+                h.tvPollStatusBadge.setText(R.string.poll_badge_closed);
                 h.tvPollStatusBadge.setBackgroundResource(R.drawable.bg_poll_chip_closed);
                 h.tvPollStatusBadge.setVisibility(View.VISIBLE);
             } else if (anonymous) {
-                h.tvPollStatusBadge.setText("🙈 Anonymous");
+                h.tvPollStatusBadge.setText(R.string.poll_badge_anonymous);
                 h.tvPollStatusBadge.setBackgroundResource(R.drawable.bg_poll_chip_neutral);
                 h.tvPollStatusBadge.setVisibility(View.VISIBLE);
             } else {
@@ -9006,7 +9455,7 @@ public class MessagePagingAdapter
 
         h.fl_download_overlay.setVisibility(View.VISIBLE);
         boolean isDownloading = downloadingMediaUrls.contains(fullUrl);
-        setDownloadPillState(h, isDownloading, isDownloading ? -1 : Integer.MIN_VALUE, "Photo");
+        setDownloadPillState(h, isDownloading, isDownloading ? -1 : Integer.MIN_VALUE, ctx.getString(R.string.media_kind_photo));
 
         if (!isDownloading) {
             // PERF: m.fileSize-first, same as the canvas media branches — see
@@ -9019,7 +9468,7 @@ public class MessagePagingAdapter
                 @Override public void onSize(long bytes) {
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return; // recycled
                     if (!downloadingMediaUrls.contains(fullUrl)) {
-                        h.tv_download_size.setText(formatFileSize(bytes));
+                        h.tv_download_size.setText(sizeOrKind(ctx, bytes, R.string.media_kind_photo));
                     }
                 }
                 @Override public void onError(String reason) { /* keep "Photo" label */ }
@@ -9063,7 +9512,7 @@ public class MessagePagingAdapter
                 @Override public void onError(String reason) {
                     downloadingMediaUrls.remove(fullUrl);
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
-                    setDownloadPillState(h, false, Integer.MIN_VALUE, "Tap to retry");
+                    setDownloadPillState(h, false, Integer.MIN_VALUE, ctx.getString(R.string.media_gate_retry));
                 }
             });
         });
@@ -9110,8 +9559,13 @@ public class MessagePagingAdapter
         }
     }
 
+    /** Size string when known, otherwise the localized kind label (Photo/Video/GIF). */
+    private static String sizeOrKind(android.content.Context ctx, long bytes, int kindRes) {
+        return bytes > 0 ? formatFileSize(bytes) : ctx.getString(kindRes);
+    }
+
     private static String formatFileSize(long bytes) {
-        if (bytes <= 0) return "Photo";
+        if (bytes <= 0) return "";
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return Math.round(bytes / 1024.0) + " kB";
         return String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / (1024.0 * 1024.0));
@@ -10533,7 +10987,15 @@ public class MessagePagingAdapter
     private void bindPollVoters(@NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
                                 @NonNull Message m, @NonNull android.content.Context ctx, boolean force) {
         final java.util.Map<String, java.util.List<Integer>> votes = m.pollVotes;
-        if (!isGroup || Boolean.TRUE.equals(m.pollAnonymous) || votes == null || votes.isEmpty()) {
+        if (!isGroup) {
+            // 1:1: no avatar strip, but the "N votes" footer itself opens the who-voted list
+            // (non-anonymous polls with at least one vote).
+            cv.clearPollVoters();
+            cv.setPollFooterTappable(!Boolean.TRUE.equals(m.pollAnonymous) && votes != null && !votes.isEmpty());
+            return;
+        }
+        cv.setPollFooterTappable(false);
+        if (Boolean.TRUE.equals(m.pollAnonymous) || votes == null || votes.isEmpty()) {
             cv.clearPollVoters();
             return;
         }
@@ -10639,6 +11101,25 @@ public class MessagePagingAdapter
                 reusableBitmapTargets[slot] = target;
             }
             return target.prepare(manager, ready, cleared);
+        }
+
+        /** Cancels the Glide request (if any) behind one reusable slot, without firing its callbacks. */
+        void cancelBitmapSlot(com.bumptech.glide.RequestManager manager, int slot) {
+            ReusableBitmapTarget target = reusableBitmapTargets[slot];
+            if (target != null) target.cancel(manager);
+        }
+
+        /**
+         * Cancels an in-flight Glide load on the shared image-bind target before this
+         * holder switches to the owned decode path. The token is poisoned for the
+         * duration of the clear so onLoadCleared() cannot blank the bubble that is
+         * about to be shown.
+         */
+        void releaseImageBindGlideTarget(com.bumptech.glide.RequestManager manager) {
+            if (imageBindTarget == null) return;
+            final int saved = imageBindFireToken;
+            imageBindFireToken = Integer.MIN_VALUE;
+            try { manager.clear(imageBindTarget); } finally { imageBindFireToken = saved; }
         }
 
         void cancelReusableBitmapTargets(com.bumptech.glide.RequestManager manager) {

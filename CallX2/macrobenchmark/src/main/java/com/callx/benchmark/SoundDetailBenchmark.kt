@@ -61,7 +61,7 @@ class SoundDetailBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        waitFor("recyclerChats")
+        waitFor("rv_chats")
 
         openReelsTab()
         openSoundDetailFromFirstReel()
@@ -82,7 +82,7 @@ class SoundDetailBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        waitFor("recyclerChats")
+        waitFor("rv_chats")
 
         openReelsTab()
         openSoundDetailFromFirstReel()
@@ -112,7 +112,7 @@ class SoundDetailBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        waitFor("recyclerChats")
+        waitFor("rv_chats")
 
         openReelsTab()
         openSoundDetailFromFirstReel()
@@ -150,4 +150,3 @@ class SoundDetailBenchmark {
     }
 }
 
-private const val TARGET_PACKAGE = "com.callx.app"

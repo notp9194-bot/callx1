@@ -31,7 +31,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:text="POLL"
+            android:text="@string/poll_label"
             android:textColor="#B3FFFFFF"
             android:textSize="11sp"
             android:textStyle="bold"
@@ -68,7 +68,7 @@
         android:id="@+id/tv_poll_subtitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Select one answer"
+        android:text="@string/poll_subtitle_single"
         android:textColor="#AAFFFFFF"
         android:textSize="11sp"
         android:layout_marginBottom="8dp"/>

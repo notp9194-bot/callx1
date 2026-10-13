@@ -58,12 +58,12 @@ class ChatMediaBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
         openFirstChat()
         Thread.sleep(600)
 
         // Scroll past voice note messages — triggers AudioWaveformView.onDraw()
-        val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages"))
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages"))
             ?: return@measureRepeated
         repeat(4) {
             rv.scroll(Direction.UP, 0.8f, 500)
@@ -91,7 +91,7 @@ class ChatMediaBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
         openFirstChat()
         Thread.sleep(500)
 
@@ -134,11 +134,11 @@ class ChatMediaBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
         openFirstChat()
         Thread.sleep(600)
 
-        val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages"))
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages"))
             ?: return@measureRepeated
         val firstMsg = rv.children.drop(1).firstOrNull() ?: rv.children.firstOrNull()
             ?: return@measureRepeated
@@ -172,7 +172,7 @@ class ChatMediaBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
         openFirstChat()
         Thread.sleep(500)
 
@@ -215,11 +215,11 @@ class ChatMediaBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
         openFirstChat()
         Thread.sleep(600)
 
-        val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages"))
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages"))
             ?: return@measureRepeated
         val msg = rv.children.firstOrNull() ?: return@measureRepeated
 
@@ -234,10 +234,10 @@ class ChatMediaBenchmark {
 
     // ── Helper ────────────────────────────────────────────────────────
     private fun androidx.benchmark.macro.MacrobenchmarkScope.openFirstChat() {
-        val chatList = device.findObject(By.res(TARGET_PACKAGE, "recyclerChats"))
+        val chatList = device.findObject(By.res(TARGET_PACKAGE, "rv_chats"))
             ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView"))
             ?: return
         chatList.children.firstOrNull()?.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), 5_000L)
     }
 }

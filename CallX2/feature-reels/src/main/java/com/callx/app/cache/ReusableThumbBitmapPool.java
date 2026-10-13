@@ -89,7 +89,7 @@ final class ReusableThumbBitmapPool {
             // isn't worth holding onto, so let it go rather than grow
             // unbounded (different reels can have different aspect ratios
             // even after the shared TARGET_WIDTH_PX downscale).
-            try { bitmap.recycle(); } catch (Exception ignored) {}
+            // Don't recycle(): a view may still be drawing this bitmap — just drop it and let GC reclaim it.
             return;
         }
         pooled.addLast(bitmap);
@@ -98,9 +98,7 @@ final class ReusableThumbBitmapPool {
 
     /** Drops every pooled buffer — mirrors ReelFirstFrameCache.trimMemory(). */
     synchronized void trimMemory() {
-        for (Bitmap b : pooled) {
-            try { if (!b.isRecycled()) b.recycle(); } catch (Exception ignored) {}
-        }
+        // No recycle() — same reason as release(); GC reclaims them once unreferenced.
         pooled.clear();
     }
 }

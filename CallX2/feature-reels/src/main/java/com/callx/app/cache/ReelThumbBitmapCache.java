@@ -92,7 +92,25 @@ public final class ReelThumbBitmapCache {
     @Nullable
     public Bitmap getCached(String url) {
         if (url == null) return null;
-        return cache.get(url);
+        Bitmap b = cache.get(url);
+        if (b != null && b.isRecycled()) { cache.remove(url); return null; }
+        return b;
+    }
+
+    /**
+     * Glide owns {@code resource} and returns it to its BitmapPool (which can
+     * reuse or recycle() it) as soon as the request is cleared. Caching / showing
+     * that same object is what caused "Canvas: trying to use a recycled bitmap",
+     * so keep our own copy. Falls back to the original only if the copy fails (OOM).
+     */
+    private static Bitmap ownedCopy(Bitmap resource) {
+        try {
+            Bitmap.Config cfg = resource.getConfig() != null ? resource.getConfig() : Bitmap.Config.ARGB_8888;
+            Bitmap c = resource.copy(cfg, false);
+            return c != null ? c : resource;
+        } catch (Throwable t) {
+            return resource;
+        }
     }
 
     /**
@@ -118,8 +136,9 @@ public final class ReelThumbBitmapCache {
                 @Override
                 public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
                                              @Nullable Transition<? super Bitmap> transition) {
-                    cache.put(url, resource);
-                    target.setImageBitmap(resource);
+                    Bitmap owned = ownedCopy(resource);
+                    cache.put(url, owned);
+                    target.setImageBitmap(owned);
                 }
 
                 @Override
@@ -145,7 +164,7 @@ public final class ReelThumbBitmapCache {
                 @Override
                 public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
                                              @Nullable Transition<? super Bitmap> transition) {
-                    cache.put(url, resource);
+                    cache.put(url, ownedCopy(resource));
                 }
 
                 @Override

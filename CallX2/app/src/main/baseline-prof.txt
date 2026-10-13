@@ -2648,3 +2648,17 @@ HPLcom/callx/app/models/StatusItem;->*(**)**
 HPLcom/callx/app/interactions/StatusRepliesBottomSheet;->*(**)**
 HPLcom/callx/app/interactions/StatusForwardBottomSheet;->*(**)**
 HSPLcom/callx/app/feed/StatusCardPrewarm;->*(**)**
+# v612 — shared spinner clock, pool sizing, pipeline entry (static, source-derived like v431)
+HPLcom/callx/app/conversation/canvas/SpinnerClock;->register(Lcom/callx/app/conversation/canvas/MessageBubbleCanvasView;J)V
+HPLcom/callx/app/conversation/canvas/SpinnerClock;->unregister(Lcom/callx/app/conversation/canvas/MessageBubbleCanvasView;)V
+HPLcom/callx/app/conversation/canvas/SpinnerClock;->doFrame(J)V
+HPLcom/callx/app/conversation/canvas/SpinnerClock;->schedule()V
+HPLcom/callx/app/conversation/canvas/SpinnerClock;->indexOf(Lcom/callx/app/conversation/canvas/MessageBubbleCanvasView;)I
+HPLcom/callx/app/conversation/canvas/SpinnerClock;->removeAt(I)V
+HPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->consumeSpinnerTick()Z
+HPLcom/callx/app/conversation/canvas/MessageBubbleCanvasView;->indeterminateIntervalMs()J
+HPLcom/callx/app/conversation/MessagePagingAdapter;->configureSharedPool(Landroid/content/Context;Landroidx/recyclerview/widget/RecyclerView$RecycledViewPool;)V
+HPLcom/callx/app/conversation/MessagePagingAdapter;->raisePoolMax(Landroidx/recyclerview/widget/RecyclerView$RecycledViewPool;II)V
+HSPLcom/callx/app/conversation/BubbleBitmapPipeline;->decodeBlocking(Ljava/io/File;II)Landroid/graphics/Bitmap;
+HSPLcom/callx/app/conversation/BubbleBitmapPipeline;->decodeBlockingImpl(Ljava/io/File;II)Landroid/graphics/Bitmap;
+Lcom/callx/app/conversation/canvas/SpinnerClock;

@@ -44,7 +44,7 @@ class StatusCarouselScrollBenchmark {
         setupBlock = {
             pressHome()
             startActivityAndWait()
-            device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+            device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
             val tab = device.findObject(By.res(TARGET_PACKAGE, "tabStatus"))
                 ?: device.findObject(By.text("Status"))
             tab?.click()
@@ -63,4 +63,3 @@ class StatusCarouselScrollBenchmark {
     }
 }
 
-private const val TARGET_PACKAGE = "com.callx.app"

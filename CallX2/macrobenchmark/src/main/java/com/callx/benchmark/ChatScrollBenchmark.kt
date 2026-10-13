@@ -54,9 +54,9 @@ class ChatScrollBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        waitForRecycler("recyclerChats")
+        waitForRecycler("rv_chats")
 
-        val rv = findRecycler("recyclerChats") ?: return@measureRepeated
+        val rv = findRecycler("rv_chats") ?: return@measureRepeated
         repeat(3) {
             rv.scroll(Direction.DOWN, 0.7f, 1200)
             Thread.sleep(200)
@@ -79,9 +79,9 @@ class ChatScrollBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        waitForRecycler("recyclerChats")
+        waitForRecycler("rv_chats")
 
-        val rv = findRecycler("recyclerChats") ?: return@measureRepeated
+        val rv = findRecycler("rv_chats") ?: return@measureRepeated
         repeat(4) {
             rv.fling(Direction.DOWN)
             Thread.sleep(300)
@@ -104,16 +104,16 @@ class ChatScrollBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        waitForRecycler("recyclerChats")
+        waitForRecycler("rv_chats")
 
         // Open first chat
-        val chatList = findRecycler("recyclerChats")
+        val chatList = findRecycler("rv_chats")
         chatList?.children?.firstOrNull()?.click()
 
-        waitForRecycler("recyclerMessages")
+        waitForRecycler("rv_messages")
         Thread.sleep(600)
 
-        val messages = findRecycler("recyclerMessages") ?: return@measureRepeated
+        val messages = findRecycler("rv_messages") ?: return@measureRepeated
         repeat(3) {
             messages.scroll(Direction.UP, 0.8f, 800)
             Thread.sleep(200)
@@ -136,15 +136,15 @@ class ChatScrollBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        waitForRecycler("recyclerChats")
+        waitForRecycler("rv_chats")
 
-        val chatList = findRecycler("recyclerChats")
+        val chatList = findRecycler("rv_chats")
         chatList?.children?.firstOrNull()?.click()
 
-        waitForRecycler("recyclerMessages")
+        waitForRecycler("rv_messages")
         Thread.sleep(600)
 
-        val messages = findRecycler("recyclerMessages") ?: return@measureRepeated
+        val messages = findRecycler("rv_messages") ?: return@measureRepeated
         repeat(3) {
             messages.fling(Direction.UP)
             Thread.sleep(300)

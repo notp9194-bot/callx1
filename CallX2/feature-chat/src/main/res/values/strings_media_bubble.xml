@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="media_gate_retry">Tap to retry</string>
+    <string name="media_gate_downloading_toast">Downloading…</string>
+
+    <!-- Kind labels: gate pill fallback when size is unknown, GIF badge -->
+    <string name="media_kind_photo">Photo</string>
+    <string name="media_kind_video">Video</string>
+    <string name="media_kind_gif">GIF</string>
+
+    <plurals name="media_group_download_photos">
+        <item quantity="one">Download %d photo</item>
+        <item quantity="other">Download %d photos</item>
+    </plurals>
+
+    <!-- "Download 3 photos · 4.2 MB" -->
+    <string name="media_gate_label_with_size">%1$s · %2$s</string>
+
+    <!-- Send-time toasts -->
+    <string name="media_queue_failed_photo">Couldn\'t queue photo — try again</string>
+    <string name="media_queue_failed_video">Couldn\'t queue video — try again</string>
+    <string name="media_queue_failed_media">Couldn\'t queue media — try again</string>
+    <string name="media_offline_queued_photo">No connection — photo queued</string>
+    <string name="media_offline_queued_video">No connection — video queued</string>
+    <string name="media_offline_queued_media">No connection — media queued</string>
+</resources>

@@ -31,6 +31,9 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    // v612: on-device scroll jank telemetry (ChatJankMonitor, debuggable builds only)
+    implementation 'androidx.metrics:metrics-performance:1.0.0-beta01'
+    implementation 'androidx.customview:customview:1.1.0' // ExploreByTouchHelper (poll TalkBack)
     implementation 'androidx.viewpager2:viewpager2:1.0.0'
     implementation 'androidx.fragment:fragment:1.6.2'
     implementation 'androidx.paging:paging-runtime:3.2.1'

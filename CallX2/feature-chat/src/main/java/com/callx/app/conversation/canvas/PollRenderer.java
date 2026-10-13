@@ -57,10 +57,10 @@ final class PollRenderer {
         host.pollHeaderLabelPaint.getFontMetrics(host.pollHeaderFmScratch);
         Paint.FontMetrics hfm = host.pollHeaderFmScratch;
         float labelBaseline = top + host.pollHeaderRowH / 2f - (hfm.ascent + hfm.descent) / 2f;
-        canvas.drawText("POLL", left + iconSz + iconMar, labelBaseline, host.pollHeaderLabelPaint);
+        canvas.drawText(host.pollLabelText, left + iconSz + iconMar, labelBaseline, host.pollHeaderLabelPaint);
 
         // Status chip (CLOSED or LIVE)
-        String chipText = host.pollClosed ? "CLOSED" : "LIVE";
+        String chipText = host.pollChipText;
         float chipTxtW  = host.pollChipPaint.measureText(chipText);
         float chipPadH  = MessageBubbleCanvasView.POLL_CHIP_PAD_H_DP * host.density;
         float chipPadV  = MessageBubbleCanvasView.POLL_CHIP_PAD_V_DP * host.density;
@@ -94,7 +94,7 @@ final class PollRenderer {
         // ── Subtitle ─────────────────────────────────────────────────────────
         float qHeight = host.pollQuestionLayout != null ? host.pollQuestionLayout.getHeight() : 0f;
         float subTop  = qTop + qHeight + MessageBubbleCanvasView.POLL_SUBTITLE_GAP_DP * host.density;
-        String subtitle = host.pollClosed ? "Poll closed" : (host.pollMultiChoice ? "Select one or more answers" : "Select one answer");
+        String subtitle = host.pollSubtitleText;
         // PERF: was host.pollSubtitlePaint.getFontMetrics() (no-arg) —
         // reuse the same scratch instance onMeasure() populates.
         host.pollSubtitlePaint.getFontMetrics(host.pollSubtitleFmScratch);
@@ -135,7 +135,7 @@ final class PollRenderer {
 
         // Compute fill widths
         for (int i = 0; i < n; i++) {
-            float pct = (host.pollTotal > 0) ? (host.pollCounts[i] * 1f / host.pollTotal) : 0f;
+            float pct = (host.pollTotal > 0) ? Math.min(1f, host.pollCounts[i] * 1f / host.pollTotal) : 0f;
             host.pollFillWidths[i] = innerW * pct;
         }
 
@@ -211,7 +211,7 @@ final class PollRenderer {
             }
 
             // Percentage label
-            int pct = host.pollTotal > 0 ? Math.round(host.pollCounts[i] * 100f / host.pollTotal) : 0;
+            int pct = host.pollTotal > 0 ? Math.min(100, Math.round(host.pollCounts[i] * 100f / host.pollTotal)) : 0;
             String pctStr = pct + "%";
             // PERF: was host.pollOptionPctPaint.getFontMetrics() (no-arg)
             // called fresh *inside* this loop — n allocations per draw()
@@ -226,7 +226,7 @@ final class PollRenderer {
         // ── Votes footer ─────────────────────────────────────────────────────
         rowTop -= optGap; // remove last gap
         float footerGap = MessageBubbleCanvasView.POLL_FOOTER_GAP_DP * host.density;
-        String footerStr = host.pollTotal == 1 ? "1 vote" : host.pollTotal + " votes";
+        String footerStr = host.pollFooterText;
         // PERF: was host.pollFooterPaint.getFontMetrics() (no-arg) — reuse
         // the same scratch instance onMeasure() populates.
         host.pollFooterPaint.getFontMetrics(host.pollFooterFmScratch);
@@ -235,6 +235,11 @@ final class PollRenderer {
         canvas.drawText(footerStr, left, footerBaseline, host.pollFooterPaint);
         // Voter avatars (group, non-anonymous) — right end of the same footer row.
         host.drawPollVoters(canvas, right, footerBaseline + (ffm.ascent + ffm.descent) / 2f);
+        if (host.pollFooterTappable && host.pollVotersRect.isEmpty()) {
+            // 1:1: no avatar strip, the footer text itself is the tap target.
+            host.pollVotersRect.set(left, footerBaseline + ffm.ascent,
+                    left + host.pollFooterPaint.measureText(footerStr), footerBaseline + ffm.descent);
+        }
 
         // ── Timestamp / tick footer ─────────────────────────────────────────
         int    fvPad = Math.round(MessageBubbleCanvasView.V_PADDING_DP * host.density);

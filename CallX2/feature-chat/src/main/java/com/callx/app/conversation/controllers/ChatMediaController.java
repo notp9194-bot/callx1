@@ -1415,13 +1415,13 @@ public class ChatMediaController {
 
         String id = delegate.insertLocalPendingMedia(pending);
         if (id == null) {
-            Toast.makeText(activity, "Couldn't queue photo — try again", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, activity.getString(R.string.media_queue_failed_photo), Toast.LENGTH_SHORT).show();
             return;
         }
         delegate.clearReply();
         if (!delegate.isOnline()) {
             queueOfflineMedia(pending);
-            Toast.makeText(activity, "No connection — photo queued", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, activity.getString(R.string.media_offline_queued_photo), Toast.LENGTH_SHORT).show();
             return;
         }
         startImageUpload(imageUri, pending, false);
@@ -1455,13 +1455,13 @@ public class ChatMediaController {
 
             String id = delegate.insertLocalPendingMedia(pending);
             if (id == null) {
-                Toast.makeText(activity, "Couldn't queue photo — try again", Toast.LENGTH_SHORT).show();
+                Toast.makeText(activity, activity.getString(R.string.media_queue_failed_photo), Toast.LENGTH_SHORT).show();
                 return;
             }
             delegate.clearReply();
             if (!delegate.isOnline()) {
                 queueOfflineMedia(pending);
-                Toast.makeText(activity, "No connection — photo queued", Toast.LENGTH_SHORT).show();
+                Toast.makeText(activity, activity.getString(R.string.media_offline_queued_photo), Toast.LENGTH_SHORT).show();
                 return;
             }
             startImageUpload(uri, pending, false); // single-pick always standard quality
@@ -1479,13 +1479,13 @@ public class ChatMediaController {
 
             String id = delegate.insertLocalPendingMedia(pending);
             if (id == null) {
-                Toast.makeText(activity, "Couldn't queue video — try again", Toast.LENGTH_SHORT).show();
+                Toast.makeText(activity, activity.getString(R.string.media_queue_failed_video), Toast.LENGTH_SHORT).show();
                 return;
             }
             delegate.clearReply();
             if (!delegate.isOnline()) {
                 queueOfflineMedia(pending);
-                Toast.makeText(activity, "No connection — video queued", Toast.LENGTH_SHORT).show();
+                Toast.makeText(activity, activity.getString(R.string.media_offline_queued_video), Toast.LENGTH_SHORT).show();
                 return;
             }
             startVideoUploadLocalFirst(uri, pending);
@@ -1501,7 +1501,7 @@ public class ChatMediaController {
             String id = delegate.insertLocalPendingMedia(pending);
             if (id != null) {
                 queueOfflineMedia(pending);
-                Toast.makeText(activity, "No connection — media queued", Toast.LENGTH_SHORT).show();
+                Toast.makeText(activity, activity.getString(R.string.media_offline_queued_media), Toast.LENGTH_SHORT).show();
             }
             return;
         }
@@ -2146,7 +2146,7 @@ public class ChatMediaController {
                     // retains its existing grouped caption behavior.
                 }
             }
-            Toast.makeText(activity, "No connection — media queued", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, activity.getString(R.string.media_offline_queued_media), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -2256,191 +2256,27 @@ public class ChatMediaController {
 
                 String groupId = delegate.insertLocalPendingMedia(groupMsg);
                 if (groupId == null) {
-                    Toast.makeText(activity, "Couldn't queue media — try again",
+                    Toast.makeText(activity, activity.getString(R.string.media_queue_failed_media),
                             Toast.LENGTH_SHORT).show();
                     return;
                 }
 
                 // Step 3 & 4: upload each item in parallel (queue handles the
                 // concurrency limit); update the group bubble's mediaItemsJson as
-                // each finishes.
-                AtomicInteger doneCount = new AtomicInteger(0);
-                // Snapshot — mutated as uploads complete.
-                final List<Map<String, Object>> liveItems = items;
-
-                for (int idx = 0; idx < total; idx++) {
-                    final int itemIdx = idx;
-                    final Uri uri = uris.get(idx);
-                    final String mt = mimeTypes[idx];
-                    final boolean hd = isHD;
-                    // Per-item virtual ID for cancel support (Feature 5)
-                    final String perItemId = groupId + "_" + idx;
-
-                    if ("video".equals(mt)) {
-                        // Video upload through the queue
-                        getUploadQueue().enqueue(perItemId, cancelledIds, () -> {
-                            if (cancelledIds.contains(perItemId)
-                                    || cancelledIds.contains(groupId)) {
-                                getUploadQueue().markComplete(perItemId);
-                                return;
-                            }
-
-                            // Must compress + upload on a background thread (queue
-                            // thread), but VideoCompressor / VideoUploader expect to be
-                            // called from the main thread (they post their callbacks to
-                            // MAIN).  Jump back to UI to kick them off.
-                            activity.runOnUiThread(() -> {
-                                VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
-                                        ? VideoQualityPreferences.Quality.ORIGINAL
-                                        : VideoQualityPreferences.Quality.STANDARD;
-                                VideoCompressor.compress(activity, uri, qual,
-                                        new VideoCompressor.Callback() {
-                                    @Override public void onProgress(int p) { /* group-level, skip */ }
-                                    @Override public void onSuccess(VideoCompressor.Result vr) {
-                                        VideoUploader.upload(activity, vr,
-                                                new VideoUploader.UploadCallback() {
-                                            @Override public void onProgress(int p) {}
-                                            @Override public void onSuccess(String thumbUrl,
-                                                    String videoUrl, int durMs, int w, int h) {
-                                                if (cancelledIds.contains(groupId)) return;
-                                                liveItems.get(itemIdx).put("url", videoUrl);
-                                                if (thumbUrl != null && !thumbUrl.isEmpty())
-                                                    liveItems.get(itemIdx).put("thumbUrl", thumbUrl);
-                                                liveItems.get(itemIdx).remove("uploading");
-                                                if (durMs > 0) liveItems.get(itemIdx).put(
-                                                        "duration", formatDuration(durMs));
-                                                if (w > 0) liveItems.get(itemIdx).put("width", w);
-                                                if (h > 0) liveItems.get(itemIdx).put("height", h);
-                                                onGroupItemUploaded(perItemId, groupId, groupMsg,
-                                                        liveItems, doneCount, total, caption);
-                                            }
-                                            @Override public void onError(Exception e) {
-                                                onGroupItemFailed(perItemId, groupId, liveItems, doneCount,
-                                                        total, caption);
-                                            }
-                                        });
-                                    }
-                                    @Override public void onError(Exception e) {
-                                        // Try raw upload as fallback
-                                        CloudinaryUploader.upload(activity, uri,
-                                                "callx/video", "video",
-                                                new CloudinaryUploader.UploadCallback() {
-                                            @Override public void onProgress(int p) {}
-                                            @Override public void onSuccess(
-                                                    CloudinaryUploader.Result r) {
-                                                if (cancelledIds.contains(groupId)) return;
-                                                liveItems.get(itemIdx).put("url", r.secureUrl);
-                                                liveItems.get(itemIdx).remove("uploading");
-                                                onGroupItemUploaded(perItemId, groupId, groupMsg,
-                                                        liveItems, doneCount, total, caption);
-                                            }
-                                            @Override public void onError(String err) {
-                                                onGroupItemFailed(perItemId, groupId, liveItems,
-                                                        doneCount, total, caption);
-                                            }
-                                        });
-                                    }
-                                });
-                            });
-                        });
-                    } else {
-                        // Image upload through the queue
-                        getUploadQueue().enqueue(perItemId, cancelledIds, () -> {
-                            if (cancelledIds.contains(perItemId)
-                                    || cancelledIds.contains(groupId)) {
-                                getUploadQueue().markComplete(perItemId);
-                                return;
-                            }
-                            activity.runOnUiThread(() -> {
-                                ImageCompressor.compress(activity, uri, hd,
-                                        new ImageCompressor.Callback() {
-                                    @Override public void onSuccess(ImageCompressor.Result res) {
-                                        Uri fullUri  = Uri.fromFile(res.fullFile);
-                                        Uri thumbUri = Uri.fromFile(res.thumbFile);
-                                        CloudinaryUploader.upload(activity, thumbUri,
-                                                "callx/thumb", "image",
-                                                new CloudinaryUploader.UploadCallback() {
-                                            @Override public void onProgress(int p) {}
-                                            @Override public void onSuccess(
-                                                    CloudinaryUploader.Result tr) {
-                                                CloudinaryUploader.upload(activity, fullUri,
-                                                        "callx/image", "image",
-                                                        new CloudinaryUploader.UploadCallback() {
-                                                    @Override public void onProgress(int p) {}
-                                                    @Override public void onSuccess(
-                                                            CloudinaryUploader.Result fr) {
-                                                        res.thumbFile.delete();
-                                                        res.fullFile.delete();
-                                                        if (cancelledIds.contains(groupId)) return;
-                                                        liveItems.get(itemIdx).put("url", fr.secureUrl);
-                                                        liveItems.get(itemIdx).put("thumbUrl",
-                                                                tr.secureUrl);
-                                                        liveItems.get(itemIdx).remove("uploading");
-                                                        if (res.fullWidth > 0) {
-                                                            liveItems.get(itemIdx).put(
-                                                                    "width", res.fullWidth);
-                                                            liveItems.get(itemIdx).put(
-                                                                    "height", res.fullHeight);
-                                                        }
-                                                        onGroupItemUploaded(perItemId, groupId, groupMsg,
-                                                                liveItems, doneCount, total, caption);
-                                                    }
-                                                    @Override public void onError(String err) {
-                                                        res.thumbFile.delete(); res.fullFile.delete();
-                                                        onGroupItemFailed(perItemId, groupId, liveItems,
-                                                                doneCount, total, caption);
-                                                    }
-                                                });
-                                            }
-                                            @Override public void onError(String err) {
-                                                // Thumb failed → upload full without thumb
-                                                CloudinaryUploader.upload(activity, fullUri,
-                                                        "callx/image", "image",
-                                                        new CloudinaryUploader.UploadCallback() {
-                                                    @Override public void onProgress(int p) {}
-                                                    @Override public void onSuccess(
-                                                            CloudinaryUploader.Result fr) {
-                                                        res.thumbFile.delete();
-                                                        res.fullFile.delete();
-                                                        if (cancelledIds.contains(groupId)) return;
-                                                        liveItems.get(itemIdx).put("url", fr.secureUrl);
-                                                        liveItems.get(itemIdx).remove("uploading");
-                                                        onGroupItemUploaded(perItemId, groupId, groupMsg,
-                                                                liveItems, doneCount, total, caption);
-                                                    }
-                                                    @Override public void onError(String err2) {
-                                                        res.thumbFile.delete(); res.fullFile.delete();
-                                                        onGroupItemFailed(perItemId, groupId, liveItems,
-                                                                doneCount, total, caption);
-                                                    }
-                                                });
-                                            }
-                                        });
-                                    }
-                                    @Override public void onError(Exception e) {
-                                        // Compression failed → upload original
-                                        CloudinaryUploader.upload(activity, uri,
-                                                "callx/image", "image",
-                                                new CloudinaryUploader.UploadCallback() {
-                                            @Override public void onProgress(int p) {}
-                                            @Override public void onSuccess(
-                                                    CloudinaryUploader.Result r) {
-                                                if (cancelledIds.contains(groupId)) return;
-                                                liveItems.get(itemIdx).put("url", r.secureUrl);
-                                                liveItems.get(itemIdx).remove("uploading");
-                                                onGroupItemUploaded(perItemId, groupId, groupMsg,
-                                                        liveItems, doneCount, total, caption);
-                                            }
-                                            @Override public void onError(String err) {
-                                                onGroupItemFailed(perItemId, groupId, liveItems,
-                                                        doneCount, total, caption);
-                                            }
-                                        });
-                                    }
-                                });
-                            });
-                        });
+                // each finishes. v603: the whole batch is tracked as a session so
+                // a failed cell can be retried on its own (retryFailedGroupMedia)
+                // and every cell reports its own spinner/progress/failed state.
+                final GroupUploadSession session = new GroupUploadSession(
+                        groupId, groupMsg, items, new AtomicInteger(0), total, caption);
+                groupSessions.put(groupId, session);
+                if (delegate.getPagingAdapter() != null) {
+                    for (int idx = 0; idx < total; idx++) {
+                        delegate.getPagingAdapter().onGroupItemUploadState(
+                                groupId, idx, total, GROUP_CELL_UPLOADING);
                     }
+                }
+                for (int idx = 0; idx < total; idx++) {
+                    enqueueGroupItemUpload(session, idx, uris.get(idx), mimeTypes[idx], isHD);
                 }
             });
         });
@@ -2448,73 +2284,380 @@ public class ChatMediaController {
         delegate.clearReply();
     }
 
+    // ── v603: sent media-group upload session (per-cell progress / failed / retry) ──
+    // Same ints as MessagePagingAdapter's per-cell upload states.
+    private static final int GROUP_CELL_DONE = 0;
+    private static final int GROUP_CELL_UPLOADING = 1;
+    private static final int GROUP_CELL_FAILED = 2;
+
+    /** One multi-item send. Lives from the first enqueue until the group is finalized to Firebase
+     *  (kept while items are failed so those cells can be retried without a second bubble). */
+    private static final class GroupUploadSession {
+        final String groupId;
+        final Message msg;
+        final List<Map<String, Object>> items;
+        final AtomicInteger done;
+        final int total;
+        final String caption;
+        GroupUploadSession(String groupId, Message msg, List<Map<String, Object>> items,
+                           AtomicInteger done, int total, String caption) {
+            this.groupId = groupId; this.msg = msg; this.items = items;
+            this.done = done; this.total = total; this.caption = caption;
+        }
+    }
+
+    private final Map<String, GroupUploadSession> groupSessions = new ConcurrentHashMap<>();
+
+    private void reportGroupItemProgress(GroupUploadSession s, int idx, int percent) {
+        if (delegate.getPagingAdapter() == null) return;
+        delegate.getPagingAdapter().onGroupItemUploadProgress(
+                s.groupId, idx, Math.max(0, Math.min(100, percent)));
+    }
+
+    /** Queues ONE cell's compress+upload chain (image or video). Used by the first send and by retry. */
+    private void enqueueGroupItemUpload(final GroupUploadSession session, final int itemIdx,
+                                        final Uri uri, final String mt, final boolean hd) {
+        final String groupId = session.groupId;
+        // Per-item virtual ID for cancel support (Feature 5)
+        final String perItemId = groupId + "_" + itemIdx;
+        final List<Map<String, Object>> liveItems = session.items;
+
+        if ("video".equals(mt)) {
+            // Video upload through the queue
+            getUploadQueue().enqueue(perItemId, cancelledIds, () -> {
+                if (cancelledIds.contains(perItemId) || cancelledIds.contains(groupId)) {
+                    getUploadQueue().markComplete(perItemId);
+                    return;
+                }
+
+                // Must compress + upload on a background thread (queue
+                // thread), but VideoCompressor / VideoUploader expect to be
+                // called from the main thread (they post their callbacks to
+                // MAIN).  Jump back to UI to kick them off.
+                activity.runOnUiThread(() -> {
+                    VideoQualityPreferences.Quality qual = isBakedOverlayVideo(uri)
+                            ? VideoQualityPreferences.Quality.ORIGINAL
+                            : VideoQualityPreferences.Quality.STANDARD;
+                    VideoCompressor.compress(activity, uri, qual,
+                            new VideoCompressor.Callback() {
+                        @Override public void onProgress(int p) {
+                            // Compression = first half of the cell's progress arc (0–50 %)
+                            reportGroupItemProgress(session, itemIdx, p / 2);
+                        }
+                        @Override public void onSuccess(VideoCompressor.Result vr) {
+                            VideoUploader.upload(activity, vr,
+                                    new VideoUploader.UploadCallback() {
+                                @Override public void onProgress(int p) {
+                                    // Upload = second half (50–100 %)
+                                    reportGroupItemProgress(session, itemIdx, 50 + p / 2);
+                                }
+                                @Override public void onSuccess(String thumbUrl,
+                                        String videoUrl, int durMs, int w, int h) {
+                                    if (cancelledIds.contains(groupId)) return;
+                                    liveItems.get(itemIdx).put("url", videoUrl);
+                                    if (thumbUrl != null && !thumbUrl.isEmpty())
+                                        liveItems.get(itemIdx).put("thumbUrl", thumbUrl);
+                                    if (durMs > 0) liveItems.get(itemIdx).put(
+                                            "duration", formatDuration(durMs));
+                                    if (w > 0) liveItems.get(itemIdx).put("width", w);
+                                    if (h > 0) liveItems.get(itemIdx).put("height", h);
+                                    onGroupItemUploaded(session, itemIdx);
+                                }
+                                @Override public void onError(Exception e) {
+                                    onGroupItemFailed(session, itemIdx);
+                                }
+                            });
+                        }
+                        @Override public void onError(Exception e) {
+                            // Try raw upload as fallback
+                            CloudinaryUploader.upload(activity, uri,
+                                    "callx/video", "video",
+                                    new CloudinaryUploader.UploadCallback() {
+                                @Override public void onProgress(int p) {
+                                    reportGroupItemProgress(session, itemIdx, p);
+                                }
+                                @Override public void onSuccess(
+                                        CloudinaryUploader.Result r) {
+                                    if (cancelledIds.contains(groupId)) return;
+                                    liveItems.get(itemIdx).put("url", r.secureUrl);
+                                    onGroupItemUploaded(session, itemIdx);
+                                }
+                                @Override public void onError(String err) {
+                                    onGroupItemFailed(session, itemIdx);
+                                }
+                            });
+                        }
+                    });
+                });
+            });
+        } else {
+            // Image upload through the queue
+            getUploadQueue().enqueue(perItemId, cancelledIds, () -> {
+                if (cancelledIds.contains(perItemId) || cancelledIds.contains(groupId)) {
+                    getUploadQueue().markComplete(perItemId);
+                    return;
+                }
+                activity.runOnUiThread(() -> {
+                    ImageCompressor.compress(activity, uri, hd,
+                            new ImageCompressor.Callback() {
+                        @Override public void onSuccess(ImageCompressor.Result res) {
+                            Uri fullUri  = Uri.fromFile(res.fullFile);
+                            Uri thumbUri = Uri.fromFile(res.thumbFile);
+                            CloudinaryUploader.upload(activity, thumbUri,
+                                    "callx/thumb", "image",
+                                    new CloudinaryUploader.UploadCallback() {
+                                @Override public void onProgress(int p) {}
+                                @Override public void onSuccess(
+                                        CloudinaryUploader.Result tr) {
+                                    CloudinaryUploader.upload(activity, fullUri,
+                                            "callx/image", "image",
+                                            new CloudinaryUploader.UploadCallback() {
+                                        @Override public void onProgress(int p) {
+                                            reportGroupItemProgress(session, itemIdx, p);
+                                        }
+                                        @Override public void onSuccess(
+                                                CloudinaryUploader.Result fr) {
+                                            res.thumbFile.delete();
+                                            res.fullFile.delete();
+                                            if (cancelledIds.contains(groupId)) return;
+                                            liveItems.get(itemIdx).put("url", fr.secureUrl);
+                                            liveItems.get(itemIdx).put("thumbUrl",
+                                                    tr.secureUrl);
+                                            if (res.fullWidth > 0) {
+                                                liveItems.get(itemIdx).put(
+                                                        "width", res.fullWidth);
+                                                liveItems.get(itemIdx).put(
+                                                        "height", res.fullHeight);
+                                            }
+                                            onGroupItemUploaded(session, itemIdx);
+                                        }
+                                        @Override public void onError(String err) {
+                                            res.thumbFile.delete(); res.fullFile.delete();
+                                            onGroupItemFailed(session, itemIdx);
+                                        }
+                                    });
+                                }
+                                @Override public void onError(String err) {
+                                    // Thumb failed → upload full without thumb
+                                    CloudinaryUploader.upload(activity, fullUri,
+                                            "callx/image", "image",
+                                            new CloudinaryUploader.UploadCallback() {
+                                        @Override public void onProgress(int p) {
+                                            reportGroupItemProgress(session, itemIdx, p);
+                                        }
+                                        @Override public void onSuccess(
+                                                CloudinaryUploader.Result fr) {
+                                            res.thumbFile.delete();
+                                            res.fullFile.delete();
+                                            if (cancelledIds.contains(groupId)) return;
+                                            liveItems.get(itemIdx).put("url", fr.secureUrl);
+                                            onGroupItemUploaded(session, itemIdx);
+                                        }
+                                        @Override public void onError(String err2) {
+                                            res.thumbFile.delete(); res.fullFile.delete();
+                                            onGroupItemFailed(session, itemIdx);
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                        @Override public void onError(Exception e) {
+                            // Compression failed → upload original
+                            CloudinaryUploader.upload(activity, uri,
+                                    "callx/image", "image",
+                                    new CloudinaryUploader.UploadCallback() {
+                                @Override public void onProgress(int p) {
+                                    reportGroupItemProgress(session, itemIdx, p);
+                                }
+                                @Override public void onSuccess(
+                                        CloudinaryUploader.Result r) {
+                                    if (cancelledIds.contains(groupId)) return;
+                                    liveItems.get(itemIdx).put("url", r.secureUrl);
+                                    onGroupItemUploaded(session, itemIdx);
+                                }
+                                @Override public void onError(String err) {
+                                    onGroupItemFailed(session, itemIdx);
+                                }
+                            });
+                        }
+                    });
+                });
+            });
+        }
+    }
+
+    /** Persists the session's current per-item map (url / uploading / failed flags) to Room. */
+    private void persistGroupItems(GroupUploadSession s) {
+        final String json = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(s.items);
+        final String groupId = s.groupId;
+        com.callx.app.utils.AppBgExecutor.execute(() ->
+                AppDatabase.getInstance(activity).messageDao()
+                        .updateMediaItemsJson(groupId, json));
+    }
+
     /** Called on the main thread each time one item in a group-bubble batch
      *  finishes uploading. Updates Room so the bubble refreshes its grid, and
      *  finalizes the whole message to Firebase once every item is done. */
-    private void onGroupItemUploaded(String perItemId, String groupId, Message groupMsg,
-                                      List<Map<String, Object>> liveItems,
-                                      AtomicInteger doneCount, int total, String caption) {
+    private void onGroupItemUploaded(GroupUploadSession s, int itemIdx) {
         // PERF FIX: this item's own compress+upload chain is truly done now —
         // free its slot in uploadQueue immediately rather than waiting for
         // the rest of the group (each grid item is queued individually).
-        getUploadQueue().markComplete(perItemId);
+        getUploadQueue().markComplete(s.groupId + "_" + itemIdx);
+        Map<String, Object> item = s.items.get(itemIdx);
+        item.remove("uploading");
+        item.remove("failed");
         // Persist latest mediaItemsJson so the bubble shows the real URL for
         // this cell while the remaining items are still in progress.
-        String updatedJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(liveItems);
-        com.callx.app.utils.AppBgExecutor.execute(() ->
-                AppDatabase.getInstance(activity).messageDao()
-                        .updateMediaItemsJson(groupId, updatedJson));
+        persistGroupItems(s);
+        if (delegate.getPagingAdapter() != null) {
+            delegate.getPagingAdapter().onGroupItemUploadState(
+                    s.groupId, itemIdx, s.total, GROUP_CELL_DONE);
+        }
+        if (s.done.incrementAndGet() >= s.total) finishGroupSession(s);
+    }
 
-        if (doneCount.incrementAndGet() >= total) {
-            // All items done — finalize to Firebase.
-            groupMsg.mediaItems = liveItems;
-            groupMsg.caption = caption;
+    /** Called when one item in a group-bubble batch fails. The cell flips to the retry state
+     *  immediately; once every item has reported, the group is either finalized (nothing failed) or
+     *  held as "failed" so the failed cells can be retried (v603: a partly-failed group is no longer
+     *  pushed to the receiver with empty cells). */
+    private void onGroupItemFailed(GroupUploadSession s, int itemIdx) {
+        getUploadQueue().markComplete(s.groupId + "_" + itemIdx);
+        Map<String, Object> item = s.items.get(itemIdx);
+        item.remove("uploading");
+        item.put("failed", true);
+        persistGroupItems(s);
+        if (delegate.getPagingAdapter() != null) {
+            delegate.getPagingAdapter().onGroupItemUploadState(
+                    s.groupId, itemIdx, s.total, GROUP_CELL_FAILED);
+        }
+        if (s.done.incrementAndGet() >= s.total) finishGroupSession(s);
+    }
+
+    /** All items have reported (uploaded or failed): finalize to Firebase, or hold the group as failed. */
+    private void finishGroupSession(GroupUploadSession s) {
+        int failedCount = 0;
+        for (Map<String, Object> item : s.items) {
+            Object url = item.get("url");
+            if (!(url instanceof String) || ((String) url).isEmpty()) failedCount++;
+        }
+        if (failedCount == 0) {
+            s.msg.mediaItems = s.items;
+            s.msg.caption = s.caption;
+            groupSessions.remove(s.groupId);
+            if (delegate.getPagingAdapter() != null) {
+                delegate.getPagingAdapter().onMediaUploadFinished(s.groupId);
+                delegate.getPagingAdapter().onGroupUploadFinished(s.groupId);
+            }
+            delegate.finalizeMediaMessage(s.msg, "\uD83D\uDCF7 " + s.total + " photos/videos");
+        } else {
+            // Keep the session: the failed cells retry through it.
             if (delegate.getPagingAdapter() != null)
-                delegate.getPagingAdapter().onMediaUploadFinished(groupId);
-            delegate.finalizeMediaMessage(groupMsg, "\uD83D\uDCF7 " + total + " photos/videos");
+                delegate.getPagingAdapter().onMediaUploadFinished(s.groupId);
+            delegate.markMediaFailed(s.groupId);
+            final int n = failedCount;
+            activity.runOnUiThread(() ->
+                    Toast.makeText(activity,
+                            n == 1 ? "1 item failed to upload — tap it to retry"
+                                   : n + " items failed to upload — tap one to retry",
+                            Toast.LENGTH_LONG).show());
         }
     }
 
-    /** Called when one item in a group-bubble batch fails. Counts toward
-     *  completion; if all items are done (some may have succeeded), finalizes
-     *  whatever was collected. If every single item failed, marks the bubble
-     *  failed so the tap-to-retry affordance appears. */
-    private void onGroupItemFailed(String perItemId, String groupId, List<Map<String, Object>> liveItems,
-                                    AtomicInteger doneCount, int total, String caption) {
-        getUploadQueue().markComplete(perItemId);
-        if (doneCount.incrementAndGet() >= total) {
-            // Check if any items actually succeeded.
-            boolean anySuccess = false;
-            for (Map<String, Object> item : liveItems) {
-                Object url = item.get("url");
-                if (url instanceof String && !((String) url).isEmpty()) {
-                    anySuccess = true; break;
-                }
-            }
-            if (anySuccess) {
-                groupMsg_finalize(groupId, liveItems, total, caption);
-            } else {
-                // Total failure — mark bubble failed so user can retry.
-                if (delegate.getPagingAdapter() != null)
-                    delegate.getPagingAdapter().onMediaUploadFinished(groupId);
-                delegate.markMediaFailed(groupId);
-                activity.runOnUiThread(() ->
-                        Toast.makeText(activity, "Media upload failed — tap ⚠ to retry",
-                                Toast.LENGTH_LONG).show());
-            }
+    /**
+     * v603: retries the failed cells of a sent media group (tap on a failed cell, or the ⚠ tick).
+     * Re-queues ONLY the failed items through the same session, so the bubble stays the same row and
+     * finalizes once every cell is uploaded.
+     *
+     * @return true if the message was handled here (retried, offline toast, or nothing retryable);
+     *         false if every item already has a URL — i.e. the upload was fine and only the Firebase
+     *         push failed — so the caller should use its normal resend path instead.
+     */
+    public boolean retryFailedGroupMedia(Message m) {
+        if (m == null || m.id == null || !"multi_media".equals(m.type)
+                || m.mediaItems == null || m.mediaItems.isEmpty()) return false;
+        final String groupId = m.id;
+        GroupUploadSession session = groupSessions.get(groupId);
+        final boolean rebuilt = session == null;
+        final List<Map<String, Object>> items;
+        if (rebuilt) {
+            // No live session (app was restarted since the send): work on a copy of the stored items.
+            items = new ArrayList<>(m.mediaItems.size());
+            for (Map<String, Object> it : m.mediaItems) items.add(new LinkedHashMap<>(it));
+        } else {
+            items = session.items;
         }
-    }
+        final int total = items.size();
 
-    private void groupMsg_finalize(String groupId, List<Map<String, Object>> liveItems,
-                                    int total, String caption) {
-        Message m = delegate.buildOutgoing();
-        m.id = groupId; m.messageId = groupId;
-        m.type = "multi_media";
-        m.mediaItems = liveItems;
-        m.caption = caption;
-        if (delegate.getPagingAdapter() != null)
-            delegate.getPagingAdapter().onMediaUploadFinished(groupId);
-        delegate.finalizeMediaMessage(m, "\uD83D\uDCF7 " + total + " photos/videos");
+        // Which cells need a new upload. With a live session only cells flagged failed (the others are
+        // still in flight or done); without one, every cell that never got a URL.
+        List<Integer> targets = new ArrayList<>();
+        boolean anyMissingUrl = false;
+        for (int i = 0; i < total; i++) {
+            Map<String, Object> it = items.get(i);
+            Object url = it.get("url");
+            boolean hasUrl = url instanceof String && !((String) url).isEmpty();
+            if (hasUrl) continue;
+            anyMissingUrl = true;
+            boolean flaggedFailed = Boolean.TRUE.equals(it.get("failed"));
+            if (rebuilt || flaggedFailed) targets.add(i);
+        }
+        if (!anyMissingUrl) return false;   // all uploaded — only the push failed
+        if (targets.isEmpty()) return true; // the rest are still uploading
+
+        if (!delegate.isOnline()) {
+            Toast.makeText(activity, "No connection — try again once you're online",
+                    Toast.LENGTH_SHORT).show();
+            return true;
+        }
+
+        // Drop targets whose original file reference is gone.
+        List<Integer> retryable = new ArrayList<>();
+        for (int idx : targets) {
+            Object lp = items.get(idx).get("localPath");
+            if (lp instanceof String && !((String) lp).isEmpty()) retryable.add(idx);
+        }
+        if (retryable.isEmpty()) {
+            Toast.makeText(activity, "Original file not found — cannot retry",
+                    Toast.LENGTH_SHORT).show();
+            return true;
+        }
+
+        if (rebuilt) {
+            // Everything that is not being re-queued counts as already reported.
+            session = new GroupUploadSession(groupId, m, items,
+                    new AtomicInteger(total - retryable.size()), total, m.caption);
+            groupSessions.put(groupId, session);
+        } else {
+            // These cells were counted when they failed; they report again when they finish.
+            for (int ignored : retryable) session.done.decrementAndGet();
+        }
+
+        cancelledIds.remove(groupId);
+        m.status = "uploading";
+        com.callx.app.utils.AppBgExecutor.execute(() ->
+                AppDatabase.getInstance(activity).messageDao().updateStatus(groupId, "uploading"));
+
+        for (int idx : retryable) {
+            Map<String, Object> it = items.get(idx);
+            it.remove("failed");
+            it.put("uploading", true);
+            cancelledIds.remove(groupId + "_" + idx);
+        }
+        persistGroupItems(session);
+
+        final GroupUploadSession live = session;
+        for (int idx : retryable) {
+            if (delegate.getPagingAdapter() != null) {
+                delegate.getPagingAdapter().onGroupItemUploadState(
+                        groupId, idx, total, GROUP_CELL_UPLOADING);
+            }
+            Map<String, Object> it = items.get(idx);
+            Object mtObj = it.get("mediaType");
+            String mt = mtObj instanceof String ? (String) mtObj : "image";
+            enqueueGroupItemUpload(live, idx,
+                    Uri.parse((String) it.get("localPath")), mt, false /* standard quality on retry */);
+        }
+        return true;
     }
 
     /**

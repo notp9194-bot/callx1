@@ -44,7 +44,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginStart="10dp"
-                android:text="Create Poll"
+                android:text="@string/poll_create_title"
                 android:textColor="@color/text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold"/>
@@ -55,7 +55,7 @@
             android:id="@+id/et_poll_question"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Ask a question"
+            android:hint="@string/poll_hint_question"
             android:textColorHint="@color/text_secondary"
             android:textColor="@color/text_primary"
             android:textSize="15sp"
@@ -68,7 +68,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Options"
+            android:text="@string/poll_options_label"
             android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:textStyle="bold"
@@ -97,7 +97,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="➕  Add option"
+                android:text="@string/poll_add_option"
                 android:textColor="@color/brand_primary"
                 android:textStyle="bold"
                 android:textSize="14sp"/>
@@ -116,7 +116,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="✅  Allow multiple answers"
+                android:text="@string/poll_allow_multiple"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"/>
             <androidx.appcompat.widget.SwitchCompat
@@ -137,7 +137,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="🙈  Anonymous voting"
+                android:text="@string/poll_anonymous_voting"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"/>
             <androidx.appcompat.widget.SwitchCompat
@@ -157,7 +157,7 @@
                 android:id="@+id/btn_cancel_poll"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Cancel"
+                android:text="@string/poll_cancel"
                 android:textColor="@color/text_secondary"
                 android:textSize="14sp"
                 android:textStyle="bold"
@@ -167,7 +167,7 @@
                 android:id="@+id/btn_send_poll"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Send Poll"
+                android:text="@string/poll_send"
                 android:textColor="@color/text_on_primary"
                 android:textAllCaps="false"
                 android:textSize="14sp"

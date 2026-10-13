@@ -17,7 +17,7 @@ import java.util.concurrent.Executor;
  * already implementing ChatActivityDelegate automatically satisfies the
  * minimal interface needed by ChatSearchController — no extra wiring needed.
  */
-public interface ChatActivityDelegate extends ChatSearchController.SearchDelegate {
+public interface ChatActivityDelegate extends ChatSearchController.SearchDelegate, ChatPollController.Host {
 
     // ── Binding ────────────────────────────────────────────────────────────
     ActivityChatBinding getBinding();

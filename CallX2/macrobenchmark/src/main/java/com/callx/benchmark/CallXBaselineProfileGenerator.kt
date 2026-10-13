@@ -219,28 +219,27 @@ class CallXBaselineProfileGenerator {
     }
 }
 
-private const val TARGET_PACKAGE = "com.callx.app"
 private const val TIMEOUT = 5_000L
 private const val SETTLE = 600L
 
 private fun MacrobenchmarkScope.journeyChatListStartup() {
     pressHome()
     startActivityAndWait()
-    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), TIMEOUT)
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), TIMEOUT)
     Thread.sleep(SETTLE)
 }
 
 private fun MacrobenchmarkScope.journeyOpenFirstChat() {
-    val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerChats"))
+    val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_chats"))
         ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView"))
         ?: return
     rv.children.firstOrNull()?.click()
-    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), TIMEOUT)
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), TIMEOUT)
     Thread.sleep(SETTLE)
 }
 
 private fun MacrobenchmarkScope.journeyScrollMessages() {
-    val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages"))
+    val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages"))
         ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView"))
         ?: return
     repeat(3) { rv.fling(Direction.UP); Thread.sleep(300); rv.fling(Direction.DOWN); Thread.sleep(300) }
@@ -265,12 +264,12 @@ private fun MacrobenchmarkScope.journeyOpenGroupTab() {
     Thread.sleep(SETTLE)
     device.findObject(By.res(TARGET_PACKAGE, "recyclerGroups"))
         ?.children?.firstOrNull()?.click()
-    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), TIMEOUT)
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), TIMEOUT)
     Thread.sleep(SETTLE)
 }
 
 private fun MacrobenchmarkScope.journeySwipeReply() {
-    val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages")) ?: return
+    val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages")) ?: return
     val msg = rv.children.firstOrNull() ?: return
     repeat(2) { msg.swipe(Direction.RIGHT, 0.35f); Thread.sleep(500); device.pressBack(); Thread.sleep(300) }
 }
@@ -344,7 +343,7 @@ private fun MacrobenchmarkScope.journeyOpenCallsTab() {
 }
 
 private fun MacrobenchmarkScope.journeyEmojiReaction() {
-    val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages")) ?: return
+    val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages")) ?: return
     val msg = rv.children.drop(1).firstOrNull() ?: rv.children.firstOrNull() ?: return
     msg.longClick()
     Thread.sleep(800)

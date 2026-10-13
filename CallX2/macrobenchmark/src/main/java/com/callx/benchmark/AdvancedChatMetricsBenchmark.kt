@@ -69,7 +69,7 @@ class AdvancedChatMetricsBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
     }
 
     /**
@@ -97,11 +97,11 @@ class AdvancedChatMetricsBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
         // Open chat to trigger DB + crypto init trace
-        val chatList = device.findObject(By.res(TARGET_PACKAGE, "recyclerChats"))
+        val chatList = device.findObject(By.res(TARGET_PACKAGE, "rv_chats"))
         chatList?.children?.firstOrNull()?.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), 5_000L)
     }
 
     /**
@@ -128,13 +128,13 @@ class AdvancedChatMetricsBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
-        device.findObject(By.res(TARGET_PACKAGE, "recyclerChats"))
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
+        device.findObject(By.res(TARGET_PACKAGE, "rv_chats"))
             ?.children?.firstOrNull()?.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), 5_000L)
         Thread.sleep(600)
 
-        val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages"))
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages"))
             ?: device.findObject(By.clazz("androidx.recyclerview.widget.RecyclerView"))
             ?: return@measureRepeated
 
@@ -167,13 +167,13 @@ class AdvancedChatMetricsBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
-        device.findObject(By.res(TARGET_PACKAGE, "recyclerChats"))
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
+        device.findObject(By.res(TARGET_PACKAGE, "rv_chats"))
             ?.children?.firstOrNull()?.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), 5_000L)
         Thread.sleep(600)
 
-        val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages"))
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages"))
             ?: return@measureRepeated
 
         // Heavy scroll — 8 full passes to catch accumulating leaks
@@ -208,13 +208,13 @@ class AdvancedChatMetricsBenchmark {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")), 5_000L)
-        device.findObject(By.res(TARGET_PACKAGE, "recyclerChats"))
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")), 5_000L)
+        device.findObject(By.res(TARGET_PACKAGE, "rv_chats"))
             ?.children?.firstOrNull()?.click()
-        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "recyclerMessages")), 5_000L)
+        device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_messages")), 5_000L)
         Thread.sleep(600)
 
-        val rv = device.findObject(By.res(TARGET_PACKAGE, "recyclerMessages"))
+        val rv = device.findObject(By.res(TARGET_PACKAGE, "rv_messages"))
             ?: return@measureRepeated
         val firstMsg = rv.children.firstOrNull() ?: return@measureRepeated
 

@@ -108,7 +108,7 @@ class ChatStartupBenchmark {
 
     private fun androidx.benchmark.macro.MacrobenchmarkScope.waitForChatList() {
         device.wait(
-            Until.hasObject(By.res(TARGET_PACKAGE, "recyclerChats")),
+            Until.hasObject(By.res(TARGET_PACKAGE, "rv_chats")),
             5_000L
         )
     }

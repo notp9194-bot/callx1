@@ -7,4 +7,58 @@
     <string name="poll_max_options">Max %1$d options allowed</string>
     <string name="poll_min_options_needed">At least %1$d options needed</string>
     <string name="poll_vote_failed">Couldn\'t save your vote</string>
+    <!-- Create sheet -->
+    <string name="poll_create_title">Create Poll</string>
+    <string name="poll_hint_question">Ask a question</string>
+    <string name="poll_option_hint">Option</string>
+    <string name="poll_options_label">Options</string>
+    <string name="poll_add_option">➕  Add option</string>
+    <string name="poll_allow_multiple">✅  Allow multiple answers</string>
+    <string name="poll_anonymous_voting">🙈  Anonymous voting</string>
+    <string name="poll_cancel">Cancel</string>
+    <string name="poll_send">Send Poll</string>
+    <string name="poll_remove_option">Remove option</string>
+    <!-- Bubble (canvas + legacy) -->
+    <string name="poll_label">POLL</string>
+    <string name="poll_chip_live">LIVE</string>
+    <string name="poll_chip_closed">CLOSED</string>
+    <string name="poll_subtitle_single">Select one answer</string>
+    <string name="poll_subtitle_multi">Select one or more · % of voters</string>
+    <string name="poll_subtitle_multi_legacy">Select one or more answers</string>
+    <string name="poll_subtitle_closed">Poll closed</string>
+    <string name="poll_footer_vote_one">1 vote</string>
+    <string name="poll_footer_votes_n">%1$d votes</string>
+    <string name="poll_footer_voter_one">1 voter</string>
+    <string name="poll_footer_voters_n">%1$d voters</string>
+    <string name="poll_no_votes_yet">No votes yet</string>
+    <string name="poll_person_voted">1 person voted</string>
+    <string name="poll_people_voted">%1$d people voted</string>
+    <string name="poll_badge_closed">🔒 Closed</string>
+    <string name="poll_badge_anonymous">🙈 Anonymous</string>
+    <!-- Toasts / dialogs -->
+    <string name="poll_closed_toast">This poll is closed</string>
+    <string name="poll_closed_done">Poll closed</string>
+    <string name="poll_reopened">Poll reopened</string>
+    <string name="poll_offline_vote">You\'re offline — vote will sync once you\'re back online</string>
+    <string name="poll_blocked">Can\'t send messages to this contact</string>
+    <string name="poll_voters_title">Poll votes</string>
+    <string name="poll_voters_close">Close</string>
+    <string name="poll_you">You</string>
+    <string name="poll_member">Member</string>
+    <!-- Accessibility (TalkBack) -->
+    <string name="poll_a11y_poll">Poll: %1$s</string>
+    <string name="poll_a11y_selected">selected</string>
+    <string name="poll_a11y_leading">leading</string>
+    <plurals name="poll_a11y_percent">
+        <item quantity="one">%d percent</item>
+        <item quantity="other">%d percent</item>
+    </plurals>
+    <plurals name="poll_a11y_votes">
+        <item quantity="one">%d vote</item>
+        <item quantity="other">%d votes</item>
+    </plurals>
+    <!-- Close confirmation -->
+    <string name="poll_close_confirm_title">Close this poll?</string>
+    <string name="poll_close_confirm_msg">Nobody will be able to vote any more. You can reopen it later.</string>
+    <string name="poll_close_confirm_yes">Close poll</string>
 </resources>

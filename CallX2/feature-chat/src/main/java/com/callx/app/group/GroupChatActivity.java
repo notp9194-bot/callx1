@@ -802,6 +802,7 @@ public class GroupChatActivity extends AppCompatActivity
         // PERF FIX: matching leak-safety half of switching to the shared
         // static Canvas ViewHolder pool above — same trim ChatActivity does.
         com.callx.app.conversation.MessagePagingAdapter.trimSharedCanvasPool();
+        if (jankMonitor != null) { jankMonitor.detach(); jankMonitor = null; }
         // Pair with the bounded keepSynced(true) Query set on group open.
         if (messagesSyncQuery != null) {
             try { messagesSyncQuery.keepSynced(false); } catch (Exception ignored) {}
@@ -1171,6 +1172,8 @@ public class GroupChatActivity extends AppCompatActivity
     // FIX #7 — PAGING 3: RecyclerView + Adapter
     // ─────────────────────────────────────────────────────────────────────
 
+    private com.callx.app.chat.performance.ChatJankMonitor jankMonitor;
+
     private AdaptiveChatScrollPolicy messageScrollPolicy() {
         if (messageScrollPolicy == null) {
             messageScrollPolicy = new AdaptiveChatScrollPolicy(this);
@@ -1180,6 +1183,8 @@ public class GroupChatActivity extends AppCompatActivity
 
     private void applyAdaptiveMessageRecyclerBudget(int scrollState, int flingVelocity) {
         if (binding == null || binding.rvMessages == null) return;
+        // v612: debug-only JankStats; null in release builds.
+        if (jankMonitor != null) jankMonitor.onScrollState(scrollState);
         RecyclerView.LayoutManager raw = binding.rvMessages.getLayoutManager();
         if (raw instanceof LinearLayoutManager) {
             int prefetch = messageScrollPolicy().initialPrefetchCount(
@@ -1237,8 +1242,8 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onTranslate(Message m)           { translateMessage(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
-            @Override public void onPollVote(Message m, int idx)   { castPollVote(m, idx); }
-            @Override public void onPollToggleClose(Message m)    { togglePollClosed(m); }
+            @Override public void onPollVote(Message m, int idx)   { getPollController().castVote(m, idx); }
+            @Override public void onPollToggleClose(Message m)    { getPollController().toggleClosed(m); }
             @Override public void onEdit(Message m) {
                 if (editHistoryController != null) editHistoryController.editMessage(m);
             }
@@ -1257,7 +1262,7 @@ public class GroupChatActivity extends AppCompatActivity
                 showMemberActionSheet(m);
             }
             @Override public void onPollVotersTap(Message m) {
-                showGroupPollVoters(m);
+                getPollController().showVoters(m);
             }
             @Override public void onGroupSenderAvatarLongClick(Message m) {
                 if (m.senderId == null || m.senderId.isEmpty() || groupMentionController == null) return;
@@ -1330,6 +1335,7 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setAdapter(pagingAdapter);
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
+        jankMonitor = com.callx.app.chat.performance.ChatJankMonitor.attachIfEnabled(this, "group");
         applyAdaptiveMessageRecyclerBudget(RecyclerView.SCROLL_STATE_IDLE, 0);
         // PERF FIX: was `new RecyclerView.RecycledViewPool()` — a fresh pool
         // local to this activity, so a second chat (1:1 or another group)
@@ -1340,19 +1346,9 @@ public class GroupChatActivity extends AppCompatActivity
         // See trimSharedCanvasPool() call added to onDestroy() below for the
         // matching leak-safety half of this change.
         RecyclerView.RecycledViewPool groupPool = MessagePagingAdapter.getSharedCanvasPool();
-        // PERF: pool sizes 5→10 for sent/received — same reasoning as 1:1 chat.
-        groupPool.setMaxRecycledViews(1, 10);
-        groupPool.setMaxRecycledViews(2, 10);
-        groupPool.setMaxRecycledViews(3,  3);
-        groupPool.setMaxRecycledViews(4,  3);
-        groupPool.setMaxRecycledViews(5,  3);
-        // PERF FIX: TYPE_CANVAS_SENT/RECEIVED (11/12) were missing here too —
-        // same gap as 1:1 ChatActivity. isCanvasEligible() covers almost every
-        // bubble type now, so these two were silently falling back to the
-        // RecyclerView default pool size of 5 despite being the hottest types
-        // in a group chat's fast-scroll path. Sized same as sent/received.
-        groupPool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     10);
-        groupPool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 10);
+        // v612: same shared table as 1:1 chat (raise-only). Group used to write 10 over
+        // 1:1's 18 on this shared pool, trimming warm holders — see configureSharedPool().
+        MessagePagingAdapter.configureSharedPool(this, groupPool);
         binding.rvMessages.setRecycledViewPool(groupPool);
         // PERF FIX: 1:1 ChatActivity warms the pool with a few
         // TYPE_CANVAS_SENT/RECEIVED holders before the user's first scroll
@@ -2239,6 +2235,8 @@ public class GroupChatActivity extends AppCompatActivity
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                     .precomputeAudioWaveformBitmapsIfPossible(seed);
         }
+        // PERF (v611): same off-main media bind warm-up as 1:1 ChatActivity.
+        MessagePagingAdapter.warmMediaBindCaches(m);
         return m;
     }
 
@@ -2734,75 +2732,32 @@ public class GroupChatActivity extends AppCompatActivity
     // POLLS
     // ─────────────────────────────────────────────────────────────────────
 
-    private void showCreatePollDialog() {
-        com.callx.app.chat.ui.CreatePollDialog.show(this, (question, options, anonymous, multiChoice) -> {
-            Message m = buildOutgoing();
-            m.type = "poll";
-            m.pollQuestion = question;
-            m.pollOptions = options;
-            m.pollVotes = new java.util.HashMap<>();
-            m.pollAnonymous = anonymous;
-            m.pollClosed = false;
-            m.pollMultiChoice = multiChoice;
-            m.text = "\uD83D\uDCCA " + question;
-            pushMessage(m, "\uD83D\uDCCA Poll: " + question);
-            clearReply();
-        });
-    }
-
-    /**
-     * Casts/toggles the current user's vote(s) — same Firebase + Room sync
-     * pattern as 1:1 chat. Multi-choice polls tick/un-tick individual
-     * options; single-choice polls replace the previous vote.
-     */
-    private void castPollVote(Message m, int optionIndex) {
-        if (m == null || groupMessagesRef == null) return;
-        String id = m.messageId != null ? m.messageId : m.id;
-        if (id == null || id.isEmpty()) return;
-        if (Boolean.TRUE.equals(m.pollClosed)) {
-            Toast.makeText(this, "This poll is closed", Toast.LENGTH_SHORT).show();
-            return;
+    /** Poll create/vote/close live in the shared ChatPollController (same code as 1:1 chat). */
+    private com.callx.app.conversation.controllers.ChatPollController pollController;
+    private com.callx.app.conversation.controllers.ChatPollController getPollController() {
+        if (pollController == null) {
+            pollController = new com.callx.app.conversation.controllers.ChatPollController(
+                new com.callx.app.conversation.controllers.ChatPollController.Host() {
+                    @Override public String getCurrentUid() { return currentUid; }
+                    @Override public com.callx.app.db.AppDatabase getDb() { return db; }
+                    @Override public java.util.concurrent.Executor getIoExecutor() { return ioExecutor; }
+                    @Override public com.google.firebase.database.DatabaseReference getMessagesRef() { return groupMessagesRef; }
+                    @Override public boolean isOnline() { return GroupChatActivity.this.isOnline(); }
+                    @Override public boolean isBlocked() { return false; } // group send gate lives in pushMessage()
+                    @Override public void showToast(String msg) { Toast.makeText(GroupChatActivity.this, msg, Toast.LENGTH_SHORT).show(); }
+                    @Override public Message buildOutgoing() { return GroupChatActivity.this.buildOutgoing(); }
+                    @Override public void pushMessage(Message m, String preview) { GroupChatActivity.this.pushMessage(m, preview); }
+                    @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+                    @Override public android.app.Activity getActivity() { return GroupChatActivity.this; }
+                    @Override public void onPollSent() { clearReply(); }
+                    @Override public String voterName(String uid) { return memberNames.get(uid); }
+                    @Override public android.view.View voterRow(String uid, String name) { return buildMemberAvatarRow(uid, name, null); }
+                });
         }
-
-        if (currentUid == null) return;
-        final com.callx.app.conversation.controllers.PollVoteHelper.Result r =
-                com.callx.app.conversation.controllers.PollVoteHelper.apply(m, currentUid, id, optionIndex);
-        if (r == null) return; // double-tap / redundant single-choice re-tap
-
-        final java.util.Map<String, java.util.List<Integer>> prev =
-                m.pollVotes != null ? new java.util.HashMap<>(m.pollVotes) : new java.util.HashMap<>();
-        applyPollVotesLocally(m, id, r.votes);
-        com.callx.app.conversation.controllers.PollVoteHelper.write(groupMessagesRef, id, currentUid, r.mine, () -> {
-            applyPollVotesLocally(m, id, prev); // Firebase rejected it: roll back UI + Room
-            Toast.makeText(this, R.string.poll_vote_failed, Toast.LENGTH_SHORT).show();
-        });
+        return pollController;
     }
 
-    /** Optimistic local state: message object, bubble (instant PAYLOAD_POLL rebind) and Room cache. */
-    private void applyPollVotesLocally(Message m, String id, java.util.Map<String, java.util.List<Integer>> votes) {
-        m.pollVotes = votes;
-        if (pagingAdapter != null) pagingAdapter.applyLocalPollVotes(id, votes);
-        ioExecutor.execute(() -> {
-            try {
-                MessageEntity e = db.messageDao().getMessageById(id);
-                if (e != null) {
-                    e.pollVotesJson = com.callx.app.utils.PollJsonUtil.votesToJson(votes);
-                    db.messageDao().updateMessage(e);
-                }
-            } catch (Exception ignored) {}
-        });
-    }
-
-    /** Poll creator closes/reopens voting. */
-    private void togglePollClosed(Message m) {
-        if (m == null || groupMessagesRef == null) return;
-        String id = m.messageId != null ? m.messageId : m.id;
-        if (id == null || id.isEmpty()) return;
-        boolean newClosed = !Boolean.TRUE.equals(m.pollClosed);
-        groupMessagesRef.child(id).child("pollClosed").setValue(newClosed);
-        ioExecutor.execute(() -> db.messageDao().updatePollClosed(id, newClosed));
-        Toast.makeText(this, newClosed ? "Poll closed" : "Poll reopened", Toast.LENGTH_SHORT).show();
-    }
+    private void showCreatePollDialog() { getPollController().showCreatePollDialog(); }
 
     // v17: Local-first push — pehle Room (pending), phir Firebase
     private void pushMessage(Message m, String preview) {
@@ -3307,50 +3262,6 @@ public class GroupChatActivity extends AppCompatActivity
             row.addView(tvEmoji);
         }
         return row;
-    }
-
-    /**
-     * Tap on a group poll's voter-avatar strip: who voted for which option.
-     * Never for anonymous polls (the strip isn't drawn for them either — this is
-     * the second guard so the list can't be reached by any other path).
-     */
-    private void showGroupPollVoters(Message m) {
-        if (m == null || m.pollVotes == null || m.pollVotes.isEmpty()
-                || m.pollOptions == null || m.pollOptions.isEmpty()
-                || Boolean.TRUE.equals(m.pollAnonymous)) return;
-        final float d = getResources().getDisplayMetrics().density;
-
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
-        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
-        container.setOrientation(android.widget.LinearLayout.VERTICAL);
-        int pad = (int) (20 * d);
-        container.setPadding(pad, (int) (8 * d), pad, (int) (8 * d));
-        scroll.addView(container);
-
-        for (int i = 0; i < m.pollOptions.size(); i++) {
-            java.util.List<String> voters = new java.util.ArrayList<>();
-            for (Map.Entry<String, java.util.List<Integer>> e : m.pollVotes.entrySet()) {
-                if (e.getKey() != null && e.getValue() != null && e.getValue().contains(i)) voters.add(e.getKey());
-            }
-            android.widget.TextView header = new android.widget.TextView(this);
-            String opt = m.pollOptions.get(i) != null ? m.pollOptions.get(i) : "";
-            header.setText(opt + "  ·  " + voters.size());
-            header.setTextSize(14);
-            header.setTypeface(header.getTypeface(), android.graphics.Typeface.BOLD);
-            header.setPadding(0, (int) (i == 0 ? 4 * d : 14 * d), 0, (int) (2 * d));
-            container.addView(header);
-            for (String uid : voters) {
-                String name = currentUid.equals(uid) ? "You" : memberNames.getOrDefault(uid, "Member");
-                container.addView(buildMemberAvatarRow(uid, name, null));
-            }
-        }
-
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Poll votes")
-                .setView(scroll)
-                .setPositiveButton("Close", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE);
     }
 
     // toggleStar() moved to GroupStarredController#toggleStar — same

@@ -27,6 +27,11 @@ import android.text.TextUtils;
  */
 final class MediaGroupRenderer {
 
+    // Localized "Download N photos" — rebuilt only when the count changes, not every draw.
+    private String cachedGateLabel;
+    private int cachedGateLabelCount = -1;
+    private String cachedGateLabelSize;
+
     private final MessageBubbleCanvasView host;
 
     MediaGroupRenderer(MessageBubbleCanvasView host) {
@@ -261,6 +266,9 @@ final class MediaGroupRenderer {
                     if (prog >= 0 || !spinnerHandledSeparately) {
                         host.drawProgressRing(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint, prog);
                     }
+                } else if (i < host.groupCellFailed.length && host.groupCellFailed[i]) {
+                    // v603: SENT cell whose upload failed — retry arrow, not the download arrow.
+                    host.drawRetryIcon(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint);
                 } else {
                     host.drawGateIcon(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint);
                 }
@@ -274,8 +282,18 @@ final class MediaGroupRenderer {
             // anywhere in the grid to dismiss + start every pending cell.
             canvas.drawRect(host.groupContentRect, host.groupGateScrimPaint);
 
-            String label = "Download " + host.groupGatePendingCount
-                    + (host.groupGatePendingCount == 1 ? " photo" : " photos");
+            if (cachedGateLabel == null || cachedGateLabelCount != host.groupGatePendingCount
+                    || !java.util.Objects.equals(cachedGateLabelSize, host.groupGatePendingSizeText)) {
+                cachedGateLabelCount = host.groupGatePendingCount;
+                cachedGateLabelSize = host.groupGatePendingSizeText;
+                android.content.res.Resources res = host.getContext().getResources();
+                String base = res.getQuantityString(
+                        com.callx.app.chat.R.plurals.media_group_download_photos,
+                        cachedGateLabelCount, cachedGateLabelCount);
+                cachedGateLabel = cachedGateLabelSize == null ? base
+                        : res.getString(com.callx.app.chat.R.string.media_gate_label_with_size, base, cachedGateLabelSize);
+            }
+            String label = cachedGateLabel;
             float iconSize = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_DP * host.density;
             float iconGap = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_GAP_DP * host.density;
             float padH = MessageBubbleCanvasView.GROUP_GATE_PILL_PAD_H_DP * host.density;
@@ -337,7 +355,8 @@ final class MediaGroupRenderer {
                 canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
             }
             if (host.sent) {
-                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY);
+                // Any cell still uploading / failed → pending clock instead of a sent tick.
+                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY, host.hasPendingGroupUpload());
             }
         }
     }

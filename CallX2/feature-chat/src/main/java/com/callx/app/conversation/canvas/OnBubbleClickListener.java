@@ -21,12 +21,18 @@ public interface OnBubbleClickListener {
     /** Tapped the single-media download gate pill (setMediaDownloadGate) while idle (not yet downloading) —
      *  caller should start the manual download and drive setMediaDownloadProgress() as it reports progress. */
     default void onMediaDownloadClick() {}
+    /** Tapped the pill of a single-media bubble that is UPLOADING and cancelable (setMediaUploadCancelable) —
+     *  caller should cancel that upload; the bubble then flips to the failed/"Tap to retry" gate. */
+    default void onMediaCancelClick() {}
     /** Tapped cell `index` inside a media-group grid (bindMediaGroup only) — caller should open the gallery viewer at that index. */
     default void onMediaCellClick(int index) {}
     /** Tapped the master "Download N photos" pill on a RECEIVED group — caller should start every pending cell's download (view has already dismissed the pill locally). */
     default void onGroupDownloadAllClick() {}
     /** Tapped an individual still-pending cell directly (gate already dismissed) — caller should start that one cell's download. */
     default void onGroupCellDownloadClick(int index) {}
+    /** Tapped a cell of a SENT group whose upload failed (setGroupUploadState state 2) — caller should
+     *  retry the failed items of that group. */
+    default void onGroupCellRetryClick(int index) {}
     /** Tapped the reaction badge — caller should open the reaction-details/picker sheet (same as ll_reactions' click listener on the legacy path). */
     default void onReactionsClick() {}
     /** Tapped the play/pause button on an audio bubble (bindAudio only) — caller should toggle MediaPlayer playback for this message. */

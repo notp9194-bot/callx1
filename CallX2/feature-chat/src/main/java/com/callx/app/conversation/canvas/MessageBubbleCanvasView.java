@@ -529,8 +529,8 @@ public class MessageBubbleCanvasView extends View {
     // addMasterDownloadOverlay()/buildCellDownloadOverlay() visuals exactly
     // (same colors/sizes), just Canvas-drawn instead of View-built. Only
     // reachable for RECEIVED groups — see setGroupDownloadGate(). ──
-    static final int   GROUP_GATE_SCRIM_COLOR      = 0x2E000000; // dims whole grid while gate is up
-    static final int   GROUP_GATE_PILL_BG          = 0x8A000000;
+    static final int   GROUP_GATE_SCRIM_COLOR      = 0x59000000; // dims whole grid while gate is up (~35%; was ~18% — too faint on bright photos)
+    static final int   GROUP_GATE_PILL_BG          = 0xB3000000; // ~70%, was ~54% — keeps pill text readable over bright/blurred previews
     static final float GROUP_GATE_PILL_CORNER_DP   = 24f;
     static final float GROUP_GATE_PILL_PAD_H_DP    = 14f;
     static final float GROUP_GATE_PILL_PAD_V_DP    = 8f;
@@ -558,7 +558,7 @@ public class MessageBubbleCanvasView extends View {
     // slot with a centered pill, idle "⬇ <label>" (tap to start) or a live
     // spinner/percentage while a download is in flight. Visually reuses the
     // GROUP_GATE_PILL_* constants above for parity with the group version. ──
-    static final int MEDIA_GATE_SCRIM_COLOR = 0x2E000000;
+    static final int MEDIA_GATE_SCRIM_COLOR = 0x59000000; // ~35%, was ~18%
 
     // ── Reel-share card — mirrors layout_msg_reel_share.xml exactly: a
     // bubbleless 165×293dp (9:16) Instagram-style reel card (NOT the normal chat
@@ -2028,6 +2028,10 @@ public class MessageBubbleCanvasView extends View {
     boolean mediaGated = false;
     boolean mediaDownloading = false;
     int mediaDownloadProgress = -1; // -1 = indeterminate, 0-100 = live percent
+    /** Idle gate pill shows a retry (circular arrow) icon instead of the download arrow — failed upload/download. */
+    boolean mediaGateRetry = false;
+    /** While uploading, the ring shows an X and a tap on the pill cancels the upload. */
+    boolean mediaUploadCancelable = false;
     String mediaDownloadLabel = "";
     final Paint mediaGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint mediaGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -2397,9 +2401,14 @@ public class MessageBubbleCanvasView extends View {
     // view never carries a stale gate from the previous message. ──
     boolean groupGateActive = false;
     int groupGatePendingCount = 0;
+    /** Total size of the pending cells ("4.2 MB") for the master pill; null when any size is unknown. */
+    @Nullable String groupGatePendingSizeText = null;
     boolean[] groupCellPending = new boolean[0];
     boolean[] groupCellDownloading = new boolean[0];
     int[] groupCellProgress = new int[0]; // parallel to groupCellDownloading; -1 = indeterminate
+    // v603: SENT-group upload failed per cell (draws the retry arrow instead of the download arrow).
+    // An uploading cell reuses groupCellPending+groupCellDownloading+groupCellProgress (same dim+ring).
+    boolean[] groupCellFailed = new boolean[0];
     final Paint groupGateScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint groupGatePillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint groupGatePillTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -2480,6 +2489,13 @@ public class MessageBubbleCanvasView extends View {
     boolean[] pollMyVote   = new boolean[0];
     boolean[] pollIsLeader = new boolean[0];
     int      pollTotal     = 0;
+    // Localized strings resolved once per bind (not per draw frame).
+    String   pollLabelText = "";
+    String   pollChipText  = "";
+    String   pollSubtitleText = "";
+    String   pollFooterText = "";
+    /** 1:1 non-anonymous poll with votes: the footer text opens the who-voted list. */
+    boolean  pollFooterTappable = false;
     StaticLayout   pollQuestionLayout;
     StaticLayout[] pollOptionLayouts = new StaticLayout[0];
     float[]        pollFillWidths    = new float[0];
@@ -2514,7 +2530,6 @@ public class MessageBubbleCanvasView extends View {
     // as bindMedia()/bindGif(), just with no "GIF" badge pill (MediaRenderer
     // only draws that badge when isGifBubble is true). See bindSticker().
     boolean isStickerBubble = false;
-    static final String GIF_BADGE_TEXT = "GIF";
 
     // ── File bubble state — card-style bubble (240dp wide): left icon circle,
     // centre name+size row, right download/open action button, footer below. ──
@@ -2612,6 +2627,7 @@ public class MessageBubbleCanvasView extends View {
     final android.graphics.Matrix linkThumbShaderMatrix = new android.graphics.Matrix();
 
     OnBubbleClickListener clickListener;
+    private PollAccessibilityHelper pollA11y;
     final GestureDetector gestureDetector;
 
     // Set true the instant onLongPress() fires the reel peek preview for
@@ -2947,6 +2963,8 @@ public class MessageBubbleCanvasView extends View {
     protected void onDetachedFromWindow() {
         setPressed(false);
         super.onDetachedFromWindow();
+        SpinnerClock.unregister(this);
+        indeterminateDrawnSinceTick = false;
         if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
         if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
         staticPictureDirty = true;
@@ -3497,6 +3515,8 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGated = false;
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
+        this.mediaGateRetry = false;
+        this.mediaUploadCancelable = false;
         this.messageText = caption != null ? caption : "";
         this.messageTextSpanned = formatBody(this.messageText);
         this.mediaHasCaption = !this.messageText.isEmpty();
@@ -4202,6 +4222,22 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = downloading;
         this.mediaDownloadProgress = progressPercent;
         this.mediaDownloadLabel = idleLabel != null ? idleLabel : "";
+        this.mediaGateRetry = false;
+        this.mediaUploadCancelable = false; // re-armed by setMediaUploadCancelable() right after, for uploads only
+        this.staticPictureDirty = true;
+        invalidate();
+    }
+
+    /** Idle gate showing a retry icon + label (failed upload / failed download); tap fires onMediaDownloadClick(). */
+    public void setMediaDownloadGateRetry(@Nullable String label) {
+        setMediaDownloadGate(false, Integer.MIN_VALUE, label);
+        this.mediaGateRetry = true;
+    }
+
+    /** Uploading gate only: draws an X in the progress ring; tapping the pill fires onMediaCancelClick(). */
+    public void setMediaUploadCancelable(boolean cancelable) {
+        if (this.mediaUploadCancelable == cancelable) return;
+        this.mediaUploadCancelable = cancelable;
         this.staticPictureDirty = true;
         invalidate();
     }
@@ -4224,6 +4260,8 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGated = false;
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
+        this.mediaGateRetry = false;
+        this.mediaUploadCancelable = false;
         this.staticPictureDirty = true;
         invalidate();
     }
@@ -4264,10 +4302,12 @@ public class MessageBubbleCanvasView extends View {
         // stays inert instead of showing a stale pill from a recycled view.
         this.groupGateActive = false;
         this.groupGatePendingCount = 0;
+        this.groupGatePendingSizeText = null;
         this.groupCellPending = new boolean[groupVisibleCount];
         this.groupCellDownloading = new boolean[groupVisibleCount];
         this.groupCellProgress = new int[groupVisibleCount];
         java.util.Arrays.fill(this.groupCellProgress, -1);
+        this.groupCellFailed = new boolean[groupVisibleCount];
         this.groupHasCaption = caption != null && !caption.isEmpty();
         this.messageText = groupHasCaption ? caption : "";
         this.messageTextSpanned = formatBody(this.messageText);
@@ -4914,6 +4954,29 @@ public class MessageBubbleCanvasView extends View {
         this.pollClosed     = closed;
         this.pollMultiChoice = multiChoice;
         this.pollTotal      = total;
+        {
+            final android.content.res.Resources res = getContext().getResources();
+            this.pollLabelText = res.getString(com.callx.app.chat.R.string.poll_label);
+            this.pollChipText  = res.getString(closed ? com.callx.app.chat.R.string.poll_chip_closed
+                                                      : com.callx.app.chat.R.string.poll_chip_live);
+            this.pollSubtitleText = res.getString(closed ? com.callx.app.chat.R.string.poll_subtitle_closed
+                    : (multiChoice ? com.callx.app.chat.R.string.poll_subtitle_multi
+                                   : com.callx.app.chat.R.string.poll_subtitle_single));
+            // N is the number of people who voted. For multi-choice polls say "voters" (a person can
+            // tick several options, so percentages are shares of voters and can add up to > 100%).
+            if (multiChoice) {
+                this.pollFooterText = total == 1 ? res.getString(com.callx.app.chat.R.string.poll_footer_voter_one)
+                        : res.getString(com.callx.app.chat.R.string.poll_footer_voters_n, total);
+            } else {
+                this.pollFooterText = total == 1 ? res.getString(com.callx.app.chat.R.string.poll_footer_vote_one)
+                        : res.getString(com.callx.app.chat.R.string.poll_footer_votes_n, total);
+            }
+        }
+        if (pollA11y == null) {
+            pollA11y = new PollAccessibilityHelper(this);
+            androidx.core.view.ViewCompat.setAccessibilityDelegate(this, pollA11y);
+        }
+        if (isAttachedToWindow()) pollA11y.invalidateRoot(); // votes/selection changed → re-announce nodes
 
         int n = options != null ? options.size() : 0;
         // PERF: WhatsApp-level zero-alloc — these 3 arrays used to be
@@ -5058,11 +5121,18 @@ public class MessageBubbleCanvasView extends View {
      * View-based master overlay blocking the per-cell overlays beneath it.
      */
     public void setGroupDownloadGate(@Nullable boolean[] cellNeedsDownload) {
+        setGroupDownloadGate(cellNeedsDownload, null);
+    }
+
+    /** @param totalSizeText combined size of the pending cells (e.g. "4.2 MB") appended to the pill, or null to omit. */
+    public void setGroupDownloadGate(@Nullable boolean[] cellNeedsDownload, @Nullable String totalSizeText) {
+        this.groupGatePendingSizeText = totalSizeText;
         int n = groupVisibleCount;
         this.groupCellPending = new boolean[n];
         this.groupCellDownloading = new boolean[n];
         this.groupCellProgress = new int[n];
         java.util.Arrays.fill(this.groupCellProgress, -1);
+        this.groupCellFailed = new boolean[n];
         int pending = 0;
         if (cellNeedsDownload != null) {
             for (int i = 0; i < n && i < cellNeedsDownload.length; i++) {
@@ -5118,8 +5188,63 @@ public class MessageBubbleCanvasView extends View {
         groupCellPending[index] = false;
         if (index < groupCellDownloading.length) groupCellDownloading[index] = false;
         if (index < groupCellProgress.length) groupCellProgress[index] = -1;
+        if (index < groupCellFailed.length) groupCellFailed[index] = false;
         staticPictureDirty = true;
         invalidate();
+    }
+
+    /**
+     * v603: arms (or clears) the per-cell UPLOAD state of a SENT group. Call after
+     * bindMediaGroup()/setGroupDownloadGate() for a sent group that is still uploading or has failed items.
+     *
+     * @param cellStates one entry per visible cell: 0 = nothing (uploaded / not an upload cell),
+     *                   1 = uploading (dim + progress ring, tap ignored), 2 = failed (dim + retry arrow,
+     *                   tap fires onGroupCellRetryClick). Pass null to clear every upload overlay.
+     * @param progress   optional per-cell 0-100 (or -1 = indeterminate) parallel to cellStates; only read for state 1.
+     */
+    public void setGroupUploadState(@Nullable int[] cellStates, @Nullable int[] progress) {
+        int n = groupVisibleCount;
+        boolean[] pending = new boolean[n];
+        boolean[] downloading = new boolean[n];
+        boolean[] failed = new boolean[n];
+        int[] prog = new int[n];
+        java.util.Arrays.fill(prog, -1);
+        if (cellStates != null) {
+            for (int i = 0; i < n && i < cellStates.length; i++) {
+                if (cellStates[i] == 1) {
+                    pending[i] = true;
+                    downloading[i] = true;
+                    if (progress != null && i < progress.length) prog[i] = progress[i];
+                } else if (cellStates[i] == 2) {
+                    pending[i] = true;
+                    failed[i] = true;
+                }
+            }
+        }
+        if (java.util.Arrays.equals(pending, groupCellPending)
+                && java.util.Arrays.equals(downloading, groupCellDownloading)
+                && java.util.Arrays.equals(failed, groupCellFailed)) {
+            // Same cells in the same states — only percentages can differ. Repaint just the cells whose
+            // ring changed (setGroupCellProgress invalidates that one cell's rect, not the whole bubble).
+            for (int i = 0; i < n; i++) {
+                if (downloading[i] && prog[i] != groupCellProgress[i]) setGroupCellProgress(i, prog[i]);
+            }
+            return;
+        }
+        this.groupCellPending = pending;
+        this.groupCellDownloading = downloading;
+        this.groupCellProgress = prog;
+        this.groupCellFailed = failed;
+        // Upload overlays are per-cell only — the master "Download N photos" pill is a RECEIVED-side thing.
+        this.groupGateActive = false;
+        this.groupGatePendingCount = 0;
+        staticPictureDirty = true;
+        invalidate();
+    }
+
+    /** Circular retry arrow for failed upload cells (shared with the single-media failed gate). */
+    void drawRetryIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
+        mediaRenderer.drawRetryIcon(canvas, cx, cy, size, paint);
     }
 
     /**
@@ -5555,6 +5680,14 @@ public class MessageBubbleCanvasView extends View {
 
     public void setPollVoterBitmap(@NonNull String key, int slot, @Nullable Bitmap bitmap) {
         if (pollVoterAvatars.setBitmap(key, slot, bitmap)) invalidate();
+    }
+
+    /** 1:1 polls: makes the "N votes" footer tappable (shows a "›" cue) → onPollVotersClick(). */
+    public void setPollFooterTappable(boolean tappable) {
+        pollFooterTappable = tappable;
+        if (tappable && !pollFooterText.endsWith(" \u203A")) pollFooterText = pollFooterText + " \u203A";
+        if (!tappable && pollVoterAvatars.isEmpty()) pollVotersRect.setEmpty();
+        invalidate();
     }
 
     public void clearPollVoters() {
@@ -7299,6 +7432,14 @@ public class MessageBubbleCanvasView extends View {
      * so onDraw() can bypass the outer full-bubble cache for the whole
      * lifetime of a cell's download, not just its indeterminate opening.
      */
+    /** Sent group with at least one cell still uploading/queued or failed (drives the pill's pending clock). */
+    boolean hasPendingGroupUpload() {
+        if (!sent) return false;
+        for (boolean b : groupCellPending) if (b) return true;
+        for (boolean b : groupCellFailed) if (b) return true;
+        return false;
+    }
+
     private boolean hasActiveGroupCellDownload() {
         if (groupGateActive) return false;
         int last = groupVisibleCount - 1;
@@ -8299,7 +8440,13 @@ public class MessageBubbleCanvasView extends View {
      * not the whole bubble. Per-instance (not static) since each bubble's
      * spinner phase is independent.
      */
-    private long lastIndeterminateInvalidateUptimeMs = 0L;
+    // v612: the per-view invalidate chain (lastIndeterminateInvalidateUptimeMs +
+    // postInvalidateOnAnimation/postInvalidateDelayed from inside onDraw) is gone.
+    // Every indeterminate ring now registers with the shared SpinnerClock, which
+    // posts ONE Choreographer callback for all of them at the same ~30fps / ~15fps
+    // cadence (see SpinnerClock). Only the interval constants below are still used.
+    /** Set by drawProgressRing(); consumed by SpinnerClock to know the ring is still live. */
+    private boolean indeterminateDrawnSinceTick;
     private static final long INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS = 32L; // ~30fps
     // PERF (low-end tier): a RAM-constrained device (see DeviceTier) throttles
     // the indeterminate spinner further, to ~15fps — still reads as a smooth
@@ -8309,7 +8456,7 @@ public class MessageBubbleCanvasView extends View {
     private static final long INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS_LOW_RAM = 64L; // ~15fps
     private static volatile Boolean sLowRamTierCached = null;
 
-    private long indeterminateIntervalMs() {
+    long indeterminateIntervalMs() {
         Boolean cached = sLowRamTierCached;
         if (cached == null) {
             cached = com.callx.app.utils.DeviceTier.isLowRamDevice(getContext());
@@ -8327,18 +8474,25 @@ public class MessageBubbleCanvasView extends View {
             long now = android.os.SystemClock.uptimeMillis();
             float rotation = (now % INDETERMINATE_PERIOD_MS) / (float) INDETERMINATE_PERIOD_MS * 360f;
             canvas.drawArc(gateIconArcRect, rotation - 90, INDETERMINATE_SWEEP_DEG, false, paint);
-            long elapsed = now - lastIndeterminateInvalidateUptimeMs;
-            long minInterval = indeterminateIntervalMs();
-            if (elapsed >= minInterval) {
-                lastIndeterminateInvalidateUptimeMs = now;
-                postInvalidateOnAnimation();
-            } else {
-                // Not enough time has passed since the last full-bubble
-                // redraw — schedule the next one for exactly when the
-                // throttle window ends, instead of every vsync (~16ms).
-                postInvalidateDelayed(minInterval - elapsed);
-            }
+            // v612: no per-view invalidate chain. Mark the ring live and make sure
+            // the shared clock knows about this view (idempotent, O(registered)).
+            indeterminateDrawnSinceTick = true;
+            SpinnerClock.register(this, indeterminateIntervalMs());
         }
+    }
+
+    /**
+     * Called by SpinnerClock once per tick. Returns false when no indeterminate
+     * ring was drawn since the previous tick (download finished / view rebound),
+     * telling the clock to drop this view. Otherwise requests the next draw.
+     * The tick runs inside a Choreographer frame callback, i.e. before this
+     * frame's traversal, so a plain invalidate() is drawn in the same frame.
+     */
+    boolean consumeSpinnerTick() {
+        if (!indeterminateDrawnSinceTick) return false;
+        indeterminateDrawnSinceTick = false;
+        invalidate();
+        return true;
     }
 
     // ── PERF: pre-rendered tick bitmaps (WhatsApp/Telegram-style) ─────────
@@ -8358,6 +8512,7 @@ public class MessageBubbleCanvasView extends View {
     private static final int TICK_VARIANT_SINGLE      = 0; // sent, not delivered
     private static final int TICK_VARIANT_DOUBLE_GRAY = 1; // delivered, not read
     private static final int TICK_VARIANT_DOUBLE_GOLD = 2; // read
+    private static final int TICK_VARIANT_PENDING     = 3; // queued/uploading/failed — clock glyph
 
     private static synchronized Bitmap getTickBitmap(float size, int variant) {
         int sizeKey = Math.round(size * 10f); // 0.1px precision — plenty for a 12dp glyph
@@ -8365,7 +8520,7 @@ public class MessageBubbleCanvasView extends View {
         Bitmap cached = TICK_BITMAP_CACHE.get(key);
         if (cached != null && !cached.isRecycled()) return cached;
 
-        boolean isDouble = variant != TICK_VARIANT_SINGLE;
+        boolean isDouble = variant == TICK_VARIANT_DOUBLE_GRAY || variant == TICK_VARIANT_DOUBLE_GOLD;
         int color = variant == TICK_VARIANT_DOUBLE_GOLD ? 0xFFD4AF37 : 0xFF8FAF9F;
         // Matches tickPaint's own density*1.2f stroke width, expressed
         // relative to `size` (= TICK_SIZE_DP * density) so the cache key
@@ -8384,8 +8539,16 @@ public class MessageBubbleCanvasView extends View {
         p.setStrokeCap(Paint.Cap.ROUND);
         p.setColor(color);
 
-        drawSingleTickGlyph(c, pad, pad, size, p);
-        if (isDouble) drawSingleTickGlyph(c, pad + size * 0.35f, pad, size, p);
+        if (variant == TICK_VARIANT_PENDING) {
+            // Clock: ring + minute/hour hands, centered in the same box a single tick uses.
+            float ccx = pad + size * 0.5f, ccy = pad + size * 0.5f, cr = size * 0.42f;
+            c.drawCircle(ccx, ccy, cr, p);
+            c.drawLine(ccx, ccy, ccx, ccy - cr * 0.6f, p);
+            c.drawLine(ccx, ccy, ccx + cr * 0.45f, ccy, p);
+        } else {
+            drawSingleTickGlyph(c, pad, pad, size, p);
+            if (isDouble) drawSingleTickGlyph(c, pad + size * 0.35f, pad, size, p);
+        }
 
         TICK_BITMAP_CACHE.put(key, bmp);
         return bmp;
@@ -8397,12 +8560,18 @@ public class MessageBubbleCanvasView extends View {
     }
 
     void drawTick(Canvas canvas, float x, float baselineY) {
+        drawTick(canvas, x, baselineY, false);
+    }
+
+    /** @param pending true → clock glyph (media still queued/uploading/failed) instead of the status tick. */
+    void drawTick(Canvas canvas, float x, float baselineY, boolean pending) {
         // Blit the pre-rendered glyph for the current status instead of
         // redrawing stroke geometry — see TICK_BITMAP_CACHE doc above.
         float size = TICK_SIZE_DP * density;
         float y = baselineY - size * 0.4f;
         boolean isDouble = delivered || read;
-        int variant = !isDouble ? TICK_VARIANT_SINGLE
+        int variant = pending ? TICK_VARIANT_PENDING
+                : !isDouble ? TICK_VARIANT_SINGLE
                 : (read ? TICK_VARIANT_DOUBLE_GOLD : TICK_VARIANT_DOUBLE_GRAY);
         Bitmap bmp = getTickBitmap(size, variant);
         float pad = size * 0.12f; // must match getTickBitmap()'s own pad
@@ -8431,6 +8600,18 @@ public class MessageBubbleCanvasView extends View {
         cancel.setAction(MotionEvent.ACTION_CANCEL);
         gestureDetector.onTouchEvent(cancel);
         cancel.recycle();
+    }
+
+    /** Light tick for media taps (download/retry/cancel gate, open image/video/cell). */
+    private void tapHaptic() {
+        performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+    }
+
+    /** TalkBack explore-by-touch for poll option rows (see PollAccessibilityHelper). */
+    @Override
+    public boolean dispatchHoverEvent(MotionEvent event) {
+        if (isPoll && pollA11y != null && pollA11y.dispatchHoverEvent(event)) return true;
+        return super.dispatchHoverEvent(event);
     }
 
     @Override
@@ -8574,8 +8755,19 @@ public class MessageBubbleCanvasView extends View {
                 // Idle pill → start the download; already-in-flight → swallow
                 // the tap (same "ignore while downloading" precedent the
                 // group-cell gate uses).
-                if (!mediaDownloading && clickListener != null) clickListener.onMediaDownloadClick();
+                if (!mediaDownloading) {
+                    tapHaptic();
+                    if (clickListener != null) clickListener.onMediaDownloadClick();
+                } else if (mediaUploadCancelable && clickListener != null) {
+                    float slop = 8f * density;
+                    if (mediaGatePillRect.left - slop <= event.getX() && event.getX() <= mediaGatePillRect.right + slop
+                            && mediaGatePillRect.top - slop <= event.getY() && event.getY() <= mediaGatePillRect.bottom + slop) {
+                        tapHaptic();
+                        clickListener.onMediaCancelClick();
+                    }
+                }
             } else if (clickListener != null) {
+                tapHaptic();
                 clickListener.onImageClick();
             }
             return true;
@@ -8676,6 +8868,7 @@ public class MessageBubbleCanvasView extends View {
                     cancelPendingLongPress(event);
                     groupGateActive = false;
                     invalidate();
+                    tapHaptic();
                     if (clickListener != null) clickListener.onGroupDownloadAllClick();
                     return true;
                 }
@@ -8685,9 +8878,15 @@ public class MessageBubbleCanvasView extends View {
                         cancelPendingLongPress(event);
                         boolean pending = i < groupCellPending.length && groupCellPending[i];
                         boolean downloading = i < groupCellDownloading.length && groupCellDownloading[i];
-                        if (pending && !downloading) {
+                        boolean uploadFailed = i < groupCellFailed.length && groupCellFailed[i];
+                        if (uploadFailed) {
+                            tapHaptic();
+                            if (clickListener != null) clickListener.onGroupCellRetryClick(i);
+                        } else if (pending && !downloading) {
+                            tapHaptic();
                             if (clickListener != null) clickListener.onGroupCellDownloadClick(i);
                         } else if (!pending) {
+                            tapHaptic();
                             if (clickListener != null) clickListener.onMediaCellClick(i);
                         }
                         // pending && downloading → ignore tap, matches the
