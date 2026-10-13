@@ -1703,6 +1703,8 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         hideForSnapshot(stickerSizeBar, hidden, oldVisibility);
         hideForSnapshot(editorDrawBar, hidden, oldVisibility);
+        // Text kept as an overlay layer (see pendingTextOverlayJson) must not also be burned into the photo.
+        if (!includeStickers && pendingTextOverlayJson != null) hideForSnapshot(editorTextOverlay, hidden, oldVisibility);
         try {
             stickerOverlayFrame.draw(canvas);
         } finally {
@@ -3327,9 +3329,32 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     /** Returns a JSON array string of all added sticker configs, or "" if none. */
+    /**
+     * Text overlay kept as DATA (Reels-style overlay layer) instead of being burned into the photo,
+     * so it stays sharp after upload compression. Snapshotted right before the photo is baked;
+     * consumed (reset) by buildStickersJson().
+     */
+    private volatile String pendingTextOverlayJson;
+
+    /** null = nothing to keep as data (no text / not a baked photo / serialising failed) -> text is baked as before. */
+    private String snapshotTextOverlayJson() {
+        if (!editorPhotoMode || stickerOverlayFrame == null || editorTextOverlay == null
+                || editorTextOverlay.getVisibility() != View.VISIBLE
+                || editorTextOverlay.getText().toString().trim().isEmpty()
+                || stickerOverlayFrame.getWidth() <= 0 || stickerOverlayFrame.getHeight() <= 0) return null;
+        return com.callx.app.utils.StatusTextOverlayRenderer.toJson(this, editorTextOverlay,
+                DRAW_COLORS[editorTextColorIdx], editorTextBgMode, editorTextSizeSp,
+                editorTextFontIdx, editorTextAlignIdx,
+                stickerOverlayFrame.getWidth(), stickerOverlayFrame.getHeight(),
+                Math.max(dp(120), stickerOverlayFrame.getWidth() - dp(105)));
+    }
+
     private String buildStickersJson() {
         if (stickerOverlayFrame == null) return "";
         java.util.List<String> jsons = new java.util.ArrayList<>();
+        final String textOverlayJson = pendingTextOverlayJson;
+        pendingTextOverlayJson = null;
+        if (textOverlayJson != null) jsons.add(textOverlayJson);
         for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
             View child = stickerOverlayFrame.getChildAt(i);
             if (child instanceof com.callx.app.stickers.StatusStickerOverlayView) {
@@ -3454,6 +3479,7 @@ public class NewStatusActivity extends AppCompatActivity {
      */
     private void prepareAndUploadEditedPhoto(Uri source, String caption, String txt,
                                              String uid, String name, String photo, int attempt) {
+        pendingTextOverlayJson = null;
         if (!editorPhotoMode || stickerOverlayFrame == null) {
             compressAndUploadImage(source, caption, txt, uid, name, photo);
             return;
@@ -3474,15 +3500,41 @@ public class NewStatusActivity extends AppCompatActivity {
         }
 
         final Bitmap composed;
+        pendingTextOverlayJson = snapshotTextOverlayJson(); // non-null -> renderStoryCanvas leaves the text out of the pixels
         try {
             composed = renderStoryCanvas(false);
         } catch (Exception e) {
+            pendingTextOverlayJson = null;
             setPosting(false);
             toast("Story preview prepare nahi hua: " + e.getMessage());
             return;
         }
         setHint("Preparing story image…");
         new Thread(() -> {
+            // FAST PATH: encode the baked canvas straight to the final upload WebP (+ thumb) — no
+            // intermediate JPEG file, no decode, no second lossy generation. Falls back to the
+            // original JPEG -> ImageCompressor route below if anything throws.
+            ImageCompressor.Result fastResult = null;
+            try {
+                fastResult = ImageCompressor.compressBitmapSync(this, composed, STATUS_PHOTO_HD);
+            } catch (Throwable ignored) { /* fall through to the slow path */ }
+            if (fastResult != null) {
+                final ImageCompressor.Result fr = fastResult;
+                composed.recycle();
+                runOnUiThread(() -> {
+                    if (!isFinishing() && pickedImage != null && source.equals(pickedImage)) {
+                        pendingMediaW = fr.fullWidth; pendingMediaH = fr.fullHeight;
+                        setHint("Uploading image…");
+                        uploadAndSave(Uri.fromFile(fr.fullFile), "image", caption, txt, uid, name, photo, fr.thumbFile);
+                    } else {
+                        pendingTextOverlayJson = null;
+                        fr.fullFile.delete();
+                        fr.thumbFile.delete();
+                        setPosting(false);
+                    }
+                });
+                return;
+            }
             java.io.File baked = null;
             try {
                 java.io.File dir = new java.io.File(getCacheDir(), "media_edit_out");
@@ -3495,6 +3547,7 @@ public class NewStatusActivity extends AppCompatActivity {
             } catch (Exception e) {
                 if (baked != null) try { baked.delete(); } catch (Exception ignored) {}
                 runOnUiThread(() -> {
+                    pendingTextOverlayJson = null;
                     composed.recycle();
                     setPosting(false);
                     toast("Story image prepare nahi hua: " + e.getMessage());
@@ -3507,6 +3560,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 if (!isFinishing() && pickedImage != null && source.equals(pickedImage))
                     compressAndUploadImage(Uri.fromFile(result), caption, txt, uid, name, photo);
                 else {
+                    pendingTextOverlayJson = null;
                     result.delete();
                     setPosting(false);
                 }
@@ -3602,6 +3656,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 });
             }
             @Override public void onError(String err) {
+                pendingTextOverlayJson = null;
                 runOnUiThread(() -> { setPosting(false); toast(err != null ? err : "Upload failed, try again"); });
             }
         });

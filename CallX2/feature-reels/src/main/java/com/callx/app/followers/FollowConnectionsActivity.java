@@ -1139,15 +1139,15 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
     private void toggleFollowFromBtn(UserItem u, UserListAdapter.VH h, int pos, boolean currentlyFollowing) {
         String myUid = safeMyUid(); if (myUid == null) return;
-        if (currentlyFollowing) {
-            myFollowing.remove(u.uid);
-            FirebaseUtils.getReelFollowsRef(myUid).child(u.uid).removeValue();
-            FirebaseUtils.getReelFollowersRef(u.uid).child(myUid).removeValue();
-        } else {
-            myFollowing.add(u.uid);
-            FirebaseUtils.getReelFollowsRef(myUid).child(u.uid).setValue(true);
-            FirebaseUtils.getReelFollowersRef(u.uid).child(myUid).setValue(true);
-        }
+        final boolean follow = !currentlyFollowing;
+        if (follow) myFollowing.add(u.uid); else myFollowing.remove(u.uid);
+        // Shared atomic write (same call the avatar-zoom dialog uses); revert the optimistic UI on failure.
+        FirebaseUtils.setFollowState(myUid, u.uid, follow, (error, ref) -> {
+            if (error == null) return;
+            if (follow) myFollowing.remove(u.uid); else myFollowing.add(u.uid);
+            for (UserListAdapter a : adapters) if (a != null) a.notifyFollowStateChanged(u.uid);
+            android.widget.Toast.makeText(this, "Couldn't update follow. Try again.", android.widget.Toast.LENGTH_SHORT).show();
+        });
         // PERF: was a full notifyDataSetChanged() across all 4 tab adapters
         // — rebuilt every visible row (avatar Glide reload, bio text,
         // listener churn) just to flip one button's follow state. Payload-
@@ -1162,8 +1162,12 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             AlertDialogStyler.DialogSize.DEFAULT,
             "Unfollow " + (u.name != null ? u.name : "this user") + "?", null,
             "Unfollow", () -> {
-                FirebaseUtils.getReelFollowsRef(myUid).child(u.uid).removeValue();
-                FirebaseUtils.getReelFollowersRef(u.uid).child(myUid).removeValue();
+                FirebaseUtils.setFollowState(myUid, u.uid, false, (error, ref) -> {
+                    if (error == null) return;
+                    // Write failed — the row was removed optimistically, so reload the real list.
+                    android.widget.Toast.makeText(this, "Couldn't unfollow. Try again.", android.widget.Toast.LENGTH_SHORT).show();
+                    loadFollowing();
+                });
                 allItems[TAB_FOLLOWING].remove(u);
                 filteredItems[TAB_FOLLOWING].remove(u);
                 counts[TAB_FOLLOWING] = Math.max(0, counts[TAB_FOLLOWING] - 1);

@@ -45,6 +45,7 @@ import com.callx.app.utils.AlertDialogStyler;
   import com.callx.app.utils.StatusSeenTracker;
   import com.callx.app.stickers.StatusStickerOverlayView;
   import org.json.JSONArray;
+  import org.json.JSONObject;
   /**
    * StatusViewerActivity v26 — Fully comprehensive story/status viewer.
    *
@@ -2305,6 +2306,26 @@ import com.callx.app.utils.AlertDialogStyler;
       // type) and, for a 💬 Question sticker, wires a tap to open the
       // dedicated answer sheet — mirrors setupReplyButton()'s pause/resume
       // pattern so the progress timer stops while the viewer is typing.
+      /** Places one "overlaytext" entry over the photo's real (fitCenter) rectangle inside the story card. */
+      private void renderTextOverlay(StatusItem item, JSONObject o) {
+          final FrameLayout ov = stickerOverlay();
+          float frameW = ov.getWidth() > 0 ? ov.getWidth()
+                  : binding.flStoryCard.getWidth() > 0 ? binding.flStoryCard.getWidth()
+                  : getResources().getDisplayMetrics().widthPixels;
+          float frameH = ov.getHeight() > 0 ? ov.getHeight()
+                  : binding.flStoryCard.getHeight() > 0 ? binding.flStoryCard.getHeight()
+                  : getResources().getDisplayMetrics().heightPixels;
+          float fitW = frameW, fitH = frameH, left = 0f, top = 0f;
+          if (item != null && item.mediaWidth > 0 && item.mediaHeight > 0) {
+              float f = Math.min(frameW / item.mediaWidth, frameH / item.mediaHeight);
+              fitW = item.mediaWidth * f;
+              fitH = item.mediaHeight * f;
+              left = (frameW - fitW) / 2f;
+              top = (frameH - fitH) / 2f;
+          }
+          com.callx.app.utils.StatusTextOverlayRenderer.place(ov, o, left, top, fitW, fitH);
+      }
+
       private void renderStickers(StatusItem item) {
           if (item == null || item.stickersJson == null || item.stickersJson.isEmpty()) return;
           try {
@@ -2312,7 +2333,13 @@ import com.callx.app.utils.AlertDialogStyler;
               final int stickerSeq = showSeq; // renderStickers() runs synchronously inside showCurrent()
               int dp = (int) getResources().getDisplayMetrics().density;
               for (int i = 0; i < arr.length(); i++) {
-                  String stickerJson = arr.getJSONObject(i).toString();
+                  // Text overlay layer (same idea as Reels): drawn fresh and sharp, not part of the photo.
+                  final JSONObject entry = arr.getJSONObject(i);
+                  if (com.callx.app.utils.StatusTextOverlayRenderer.isOverlayText(entry)) {
+                      renderTextOverlay(item, entry);
+                      continue;
+                  }
+                  String stickerJson = entry.toString();
                   StatusStickerOverlayView sticker = StatusStickerOverlayView.fromJson(this, stickerJson);
                   if ("addyours".equals(sticker.getStickerType())) bindAddYoursCount(sticker);
 

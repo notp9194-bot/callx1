@@ -203,6 +203,40 @@ public class ImageCompressor {
         return r;
     }
 
+    /**
+     * FAST PATH for callers that already hold the final pixels in memory (e.g. the status composer's
+     * baked story canvas): skips the JPEG-encode -> file -> decode -> EXIF round trip that
+     * {@link #compressSync(Context, Uri, boolean)} needs, and avoids one extra lossy generation.
+     * Same tiers, same WebP writer and same Result shape as the Uri path.
+     *
+     * Never recycles {@code src} (the caller owns it); only bitmaps it creates itself are recycled.
+     */
+    public static Result compressBitmapSync(Context ctx, Bitmap src, boolean hd) throws IOException {
+        int maxW     = hd ? HD_MAX_WIDTH  : FULL_MAX_WIDTH;
+        int maxH     = hd ? HD_MAX_HEIGHT : FULL_MAX_HEIGHT;
+        int quality  = hd ? HD_QUALITY    : FULL_QUALITY;
+        long target  = hd ? HD_TARGET_BYTES : FULL_TARGET_BYTES;
+
+        Bitmap fullBmp = src;
+        int w = src.getWidth(), h = src.getHeight();
+        if (w > maxW || h > maxH) {
+            float scale = Math.min((float) maxW / w, (float) maxH / h);
+            fullBmp = Bitmap.createScaledBitmap(src, Math.round(w * scale), Math.round(h * scale), true);
+        }
+        int fullW = fullBmp.getWidth(), fullH = fullBmp.getHeight();
+        File fullFile = writeWebP(ctx, fullBmp, "full_", quality, target);
+
+        // Thumbnail from the (already small) full bitmap — cheaper than scaling from the original.
+        Bitmap thumbBmp = resizeKeepAspect(fullBmp, THUMB_SIZE);
+        File thumbFile = writeWebP(ctx, thumbBmp, "thumb_", THUMB_QUALITY, THUMB_TARGET_BYTES);
+        if (thumbBmp != fullBmp) thumbBmp.recycle();
+        if (fullBmp != src) fullBmp.recycle();
+
+        Result r = new Result(thumbFile, fullFile, 0L, thumbFile.length(), fullFile.length(), fullW, fullH);
+        Log.i(TAG, r.summary());
+        return r;
+    }
+
     // ── Step 1: Memory-safe decode ─────────────────────────────────────────
 
     private static Bitmap decodeSampled(Context ctx, Uri uri, int reqW, int reqH)

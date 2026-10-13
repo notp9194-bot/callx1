@@ -220,4 +220,9 @@
     <string name="status_time_now">now</string>
     <string name="status_load_failed">Couldn\'t load this status\nTap to try again</string>
     <string name="status_load_failed_desc">Couldn\'t load this status. Double tap to try again.</string>
+    <string name="avatar_zoom_close_desc">Close photo</string>
+    <string name="avatar_zoom_follow">Follow</string>
+    <string name="avatar_zoom_following">Following</string>
+    <string name="avatar_zoom_share_profile">Share profile</string>
+    <string name="avatar_zoom_follow_failed">Couldn\'t update follow. Check your connection and try again.</string>
 </resources>

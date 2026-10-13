@@ -80,6 +80,21 @@ public final class GlideLoader {
         }
     }
 
+    /**
+     * Warm Glide's memory + disk cache for the avatar-zoom viewer. Builds the EXACT
+     * request {@link #load} uses (same override, transform and cache strategy), so the
+     * viewer's later load is a real cache hit and the dialog opens sharp, not on the
+     * upscaled small avatar.
+     */
+    public static void preload(Context ctx, String url) {
+        if (ctx == null || url == null || url.isEmpty()) return;
+        Glide.with(ctx).load(url)
+            .override(1080, 1080)
+            .transform(new SquareCenterCrop())
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .preload();
+    }
+
     /** Circle-cropped load — list rows / small avatars ke liye. */
     public static void loadCircle(Context ctx, String url, ImageView target,
                                    int placeholderRes, int errorRes) {

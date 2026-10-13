@@ -94,6 +94,30 @@ public class MediaSwipeReplyCloseHelper {
     private final Context context;
     private final View dragView;
     private final View backgroundView;      // nullable
+    /**
+     * Optional reusable scrim: when set, the live-drag scrim fade only calls
+     * {@link ColorDrawable#setAlpha(int)} on this one drawable instead of
+     * setBackgroundColor(Color.argb(..)) every frame. Opt-in so the existing
+     * MediaViewerActivity path is untouched.
+     */
+    private android.graphics.drawable.ColorDrawable scrimDrawable;
+    private int scrimRestingAlpha = 255;
+
+    /** Opt-in: drive the background scrim through one pre-installed ColorDrawable (must already be backgroundView's background). */
+    public void setScrimDrawable(android.graphics.drawable.ColorDrawable scrim, int restingAlpha) {
+        this.scrimDrawable = scrim;
+        this.scrimRestingAlpha = restingAlpha;
+    }
+
+    /** alpha01 = 0..255 where 255 means fully "at rest". */
+    private void applyScrimAlpha(int alpha) {
+        if (backgroundView == null) return;
+        if (scrimDrawable != null) {
+            scrimDrawable.setAlpha(alpha * scrimRestingAlpha / 255);
+        } else {
+            backgroundView.setBackgroundColor(Color.argb(alpha, 0, 0, 0));
+        }
+    }
     private final View viewToCancelOnDrag;  // nullable — e.g. ViewPager2, so it stops trying to page
     private final ZoomedStateProvider zoomedStateProvider; // nullable
     private final Callback callback;
@@ -446,7 +470,7 @@ public class MediaSwipeReplyCloseHelper {
         if (backgroundView != null) {
             float easedT = (float) Math.pow(t, 0.72);
             int alpha = (int) (255 * (1f - easedT));
-            backgroundView.setBackgroundColor(Color.argb(alpha, 0, 0, 0));
+            applyScrimAlpha(alpha);
         }
 
         // Static backdrop (e.g. a blurred screenshot) dissolves away on the
@@ -507,7 +531,7 @@ public class MediaSwipeReplyCloseHelper {
             if (backgroundView != null) {
                 float easedT = (float) Math.pow(t, 0.72);
                 int alpha = (int) (255 * (1f - easedT));
-                backgroundView.setBackgroundColor(Color.argb(alpha, 0, 0, 0));
+                applyScrimAlpha(alpha);
             }
             if (extraFadeViews.length > 0) {
                 float easedT = (float) Math.pow(t, 0.72);
@@ -535,7 +559,9 @@ public class MediaSwipeReplyCloseHelper {
         for (View v : chromeViews) {
             if (v != null) v.setAlpha(1f);
         }
-        if (backgroundView != null) backgroundView.setBackgroundColor(Color.BLACK);
+        if (backgroundView != null) {
+            if (scrimDrawable != null) applyScrimAlpha(255); else backgroundView.setBackgroundColor(Color.BLACK);
+        }
         for (View v : extraFadeViews) {
             if (v != null) v.setAlpha(1f);
         }

@@ -814,32 +814,68 @@ public class UserReelsActivity extends AppCompatActivity
      * check abhi pending ho) to avatar-zoom dialog khulta hai, jo pehle
      * sirf long-press se accessible tha.
      */
+    // Avatar tap state — see openStatusOrAvatarZoom().
+    private boolean avatarTapInFlight;
+    private long    statusCheckAtMs;
+    private boolean statusActiveCached;
+    private static final long STATUS_CHECK_CACHE_MS = 45_000L;
+    /** Set by handleStoryRingVisibility(): the ring decision already encodes "has an active story". */
+    private boolean storyRingDecided;
+    private boolean storyRingActive;
+
     private void openStatusOrAvatarZoom(View sourceView) {
+        if (isFinishing() || isDestroyed()) return;
+
+        // 1) Ring already resolved on this screen → no Firebase round-trip, instant response.
+        if (storyRingDecided) {
+            dispatchAvatarTap(storyRingActive, sourceView);
+            return;
+        }
+        // 2) Recent answer from an earlier tap.
+        if (System.currentTimeMillis() - statusCheckAtMs < STATUS_CHECK_CACHE_MS) {
+            dispatchAvatarTap(statusActiveCached, sourceView);
+            return;
+        }
+        // 3) One read at a time — double / triple taps while it is pending are ignored
+        //    instead of each opening its own dialog.
+        if (avatarTapInFlight) return;
+        avatarTapInFlight = true;
+
         long cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
         FirebaseUtils.getUserStatusRef(targetUid)
             .orderByChild("timestamp").startAt((double) cutoff).limitToFirst(1)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (snap.exists() && snap.getChildrenCount() > 0) {
-                        try {
-                            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
-                            Intent i = new Intent(UserReelsActivity.this, cls);
-                            i.putExtra("ownerUid",  targetUid);
-                            i.putExtra("ownerName", targetName != null ? targetName : "");
-                            startActivity(i);
-                        } catch (ClassNotFoundException e) {
-                            Toast.makeText(UserReelsActivity.this, "Status viewer unavailable", Toast.LENGTH_SHORT).show();
-                        }
-                    } else {
-                        showAvatarZoom(sourceView, targetPhoto, targetName);
-                    }
+                    avatarTapInFlight = false;
+                    boolean has = snap.exists() && snap.getChildrenCount() > 0;
+                    statusCheckAtMs = System.currentTimeMillis();
+                    statusActiveCached = has;
+                    dispatchAvatarTap(has, sourceView);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     // Firebase check fail ho jaye to bhi avatar-zoom dikha do —
-                    // tap kabhi silently no-op nahi hona chahiye.
-                    showAvatarZoom(sourceView, targetPhoto, targetName);
+                    // tap kabhi silently no-op nahi hona chahiye. (Not cached.)
+                    avatarTapInFlight = false;
+                    dispatchAvatarTap(false, sourceView);
                 }
             });
+    }
+
+    private void dispatchAvatarTap(boolean hasActiveStatus, View sourceView) {
+        if (isFinishing() || isDestroyed()) return;
+        if (!hasActiveStatus) {
+            showAvatarZoom(sourceView, targetPhoto, targetName);
+            return;
+        }
+        try {
+            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
+            Intent i = new Intent(UserReelsActivity.this, cls);
+            i.putExtra("ownerUid",  targetUid);
+            i.putExtra("ownerName", targetName != null ? targetName : "");
+            startActivity(i);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(UserReelsActivity.this, "Status viewer unavailable", Toast.LENGTH_SHORT).show();
+        }
     }
 
     /**
@@ -2034,6 +2070,8 @@ public class UserReelsActivity extends AppCompatActivity
      */
     private void handleStoryRingVisibility(boolean show, long latestStoryTs) {
         if (isFinishing() || isDestroyed() || viewStoryRing == null) return;
+        storyRingDecided = true;
+        storyRingActive = show;
         cancelStoryRingReveal();
 
         if (!show) {
@@ -4219,6 +4257,10 @@ public class UserReelsActivity extends AppCompatActivity
      */
     private void loadProfileAvatarInstagramStyle(String photoUrl) {
         if (ivAvatar == null || photoUrl == null || photoUrl.isEmpty()) return;
+
+        // (8) Warm the full-res avatar-zoom image now, so tapping the avatar opens sharp
+        // instead of on the upscaled small avatar. Same request the zoom dialog will make.
+        com.callx.app.utils.GlideLoader.preload(this, photoUrl);
 
         Glide.with(this)
             .load(photoUrl)

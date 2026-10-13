@@ -654,9 +654,42 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         int outW = swapDims ? baseH : baseW;
         int outH = swapDims ? baseW : baseH;
 
+        // STATUS: bake the whole preview stage (blurred backdrop + fitCenter photo + overlays),
+        // exactly what the user sees, instead of only the photo rectangle. That way a caption or
+        // sticker the user put in the blurred bars is kept, and everything lands where it was.
+        // Same for every caller (status AND reels photo): nothing the user placed may be lost.
+        // Status stays at 1080 wide; other flows keep up to the photo's native resolution,
+        // capped at 2160 wide so a huge photo can't blow the heap.
+        final boolean stageCanvas = stageW > 0 && stageH > 0;
+        final float fitK = stageCanvas ? Math.min(stageW / baseW, stageH / baseH) : 1f;
+        final float stageK;
+        if (!stageCanvas) stageK = 1f;
+        else if (targetStatus) stageK = 1080f / stageW;
+        else stageK = Math.min(2160f / stageW, Math.max(1080f / stageW, 1f / fitK)); // stage px -> output px
+        if (stageCanvas) {
+            outW = Math.max(1, Math.round(stageW * stageK));
+            outH = Math.max(1, Math.round(stageH * stageK));
+        }
+
         Bitmap output = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(output);
         canvas.drawColor(Color.BLACK);
+        if (stageCanvas) {
+            try {
+                // Same blurred centerCrop backdrop as loadPreviewImage()'s ivBgBlur.
+                int bw = 120, bh = Math.max(1, Math.round(bw * stageH / stageW));
+                Bitmap blur = Glide.with(getApplicationContext())
+                        .asBitmap()
+                        .load(Uri.parse(srcUri))
+                        .apply(new RequestOptions()
+                                .transform(new CenterCrop(), new ReelBlurTransformation(20))
+                                .override(bw, bh))
+                        .submit()
+                        .get();
+                canvas.drawBitmap(blur, null, new android.graphics.Rect(0, 0, outW, outH),
+                        new Paint(Paint.FILTER_BITMAP_FLAG));
+            } catch (Exception ignored) { /* black backdrop is an acceptable fallback */ }
+        }
 
         // 1. Photo, rotated in place, with the same filter+saturation+brightness+contrast
         //    matrix chain as applyAdjustPreview()'s live preview.
@@ -678,6 +711,11 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         canvas.save();
         canvas.translate(outW / 2f, outH / 2f);
         canvas.rotate(rotDeg);
+        if (stageCanvas) {
+            // Same fitCenter scale the preview uses, then stage -> output scale.
+            float fs = Math.min(stageW / baseW, stageH / baseH) * stageK;
+            canvas.scale(fs, fs);
+        }
         canvas.translate(-baseW / 2f, -baseH / 2f);
         canvas.drawBitmap(base, 0, 0, photoPaint);
         canvas.restore();
@@ -693,14 +731,20 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
         // 4. Stickers + caption, redrawn at their recorded proportional position.
         if (stageW > 0 && stageH > 0) {
-            float scaleX = outW / stageW;
-            float scaleY = outH / stageH;
-            float uniformScale = (scaleX + scaleY) / 2f;
+            // The preview shows the (unrotated) photo fitCenter inside the stage, rotated about the
+            // stage centre. So one uniform factor maps stage px -> photo px, anchored on the centre.
+            // (Old code scaled X and Y separately by outW/stageW and outH/stageH, which only
+            // matches when the photo has the stage's aspect ratio; any other photo got its
+            // text/stickers shifted and resized.)
+            // Status: output is the whole stage, so overlays map by stage fraction directly.
+            final float fitScale = Math.min(stageW / baseW, stageH / baseH);
+            final float inv = stageCanvas ? stageK : (fitScale > 0f ? 1f / fitScale : 1f);
             for (OverlaySnap s : overlays) {
                 if (s == null || s.bitmap == null) continue;
-                float cx = s.centerXFrac * outW;
-                float cy = s.centerYFrac * outH;
-                float drawScale = s.scale * uniformScale;
+                float cx = outW / 2f + (s.centerXFrac * stageW - stageW / 2f) * inv;
+                float cy = outH / 2f + (s.centerYFrac * stageH - stageH / 2f) * inv;
+                // (stage canvas: outW/2 + (f*stageW - stageW/2)*k == f*outW, same thing)
+                float drawScale = s.scale * inv;
                 canvas.save();
                 canvas.translate(cx, cy);
                 canvas.rotate(s.rotationDeg);

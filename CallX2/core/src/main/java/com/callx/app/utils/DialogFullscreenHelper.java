@@ -28,6 +28,7 @@ import androidx.annotation.NonNull;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.core.R;
 import com.github.chrisbanes.photoview.PhotoView;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -87,6 +88,36 @@ public final class DialogFullscreenHelper {
      * photo viewer, not the chat-media viewer's square dock.
      */
     private static final float AVATAR_FULLSCREEN_CIRCLE_RATIO = 0.8f;
+
+    /**
+     * Re-entry guard: the avatar-zoom dialog that is currently on screen (all callers share
+     * this helper). A second tap while it is open/closing returns the same dialog instead of
+     * stacking another fullscreen window on top.
+     */
+    private static java.lang.ref.WeakReference<Dialog> sActiveAvatarZoom;
+
+    /**
+     * Where the dock-back animation should land. Re-measured from the live source view at
+     * CLOSE time (the open-time rect goes stale if the header collapsed, the list scrolled or
+     * the layout changed while the dialog was up); falls back to the open-time rect when the
+     * view is gone / detached / not laid out.
+     */
+    private static Rect liveTarget(java.lang.ref.WeakReference<View> ref, Rect fallback) {
+        View v = ref != null ? ref.get() : null;
+        if (v != null && v.isAttachedToWindow()) {
+            Rect r = MediaViewerSourceRect.ofView(v);
+            if (r != null) return r;
+        }
+        return fallback;
+    }
+
+    private static android.app.Activity unwrapActivity(Context ctx) {
+        while (ctx instanceof android.content.ContextWrapper) {
+            if (ctx instanceof android.app.Activity) return (android.app.Activity) ctx;
+            ctx = ((android.content.ContextWrapper) ctx).getBaseContext();
+        }
+        return null;
+    }
 
     /** Resting (fully open) circle radius in px — shared by idle-state config and the open animation's end target. */
     private static float avatarRestingRadiusPx(Context ctx) {
@@ -165,13 +196,27 @@ public final class DialogFullscreenHelper {
                                          int icPersonRes, int icCloseRes, ProfileActionsConfig profileActions) {
         if (ctx == null) return null;
 
+        // (1) Re-entry guard — a second tap must not stack another dialog.
+        Dialog existing = sActiveAvatarZoom != null ? sActiveAvatarZoom.get() : null;
+        if (existing != null && existing.isShowing()) return existing;
+
+        // (4) Never build a window on an Activity that is already going away.
+        final android.app.Activity hostActivity = unwrapActivity(ctx);
+        if (hostActivity != null && (hostActivity.isFinishing() || hostActivity.isDestroyed())) return null;
+
         final Rect srcRect = MediaViewerSourceRect.ofView(sourceView);
+        final java.lang.ref.WeakReference<View> sourceRef = new java.lang.ref.WeakReference<>(sourceView);
+        final float sourceOrigAlpha = sourceView != null ? sourceView.getAlpha() : 1f;
 
         Dialog dialog = new Dialog(ctx, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
         SwipeAwareRoot root = new SwipeAwareRoot(ctx);
-        root.setBackgroundColor(srcRect != null ? Color.TRANSPARENT : Color.argb(SCRIM_ALPHA, 0, 0, 0));
+        // (5) ONE ColorDrawable for the whole open/drag/close lifetime; every frame only
+        // changes its alpha instead of building a new background colour each time.
+        final ColorDrawable scrim = new ColorDrawable(Color.BLACK);
+        scrim.setAlpha(srcRect != null ? 0 : SCRIM_ALPHA);
+        root.setBackground(scrim);
 
         float dp = ctx.getResources().getDisplayMetrics().density;
 
@@ -186,14 +231,19 @@ public final class DialogFullscreenHelper {
         photoView.setOnPhotoTapListener((v, x, y) -> { /* prevent dismiss on photo tap */ });
 
         ImageButton btnClose = new ImageButton(ctx);
-        int closeSizePx = (int) (40 * dp);
+        // (9) 48dp minimum touch target; the extra 8dp is padding so the icon keeps its old
+        // ~40dp visual size, and the margins shrink by the same 4dp so the icon doesn't move.
+        int closeSizePx = (int) (48 * dp);
         FrameLayout.LayoutParams closeLp = new FrameLayout.LayoutParams(closeSizePx, closeSizePx);
         closeLp.gravity = Gravity.TOP | Gravity.END;
-        closeLp.topMargin = (int) (40 * dp);
-        closeLp.rightMargin = (int) (16 * dp);
+        closeLp.topMargin = (int) (36 * dp);
+        closeLp.rightMargin = (int) (12 * dp);
         btnClose.setLayoutParams(closeLp);
         btnClose.setImageResource(icCloseRes);
         btnClose.setBackgroundColor(Color.TRANSPARENT);
+        btnClose.setPadding((int) (4 * dp), (int) (4 * dp), (int) (4 * dp), (int) (4 * dp));
+        btnClose.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        btnClose.setContentDescription(ctx.getString(R.string.avatar_zoom_close_desc));
 
         TextView tvName = null;
         if (name != null && !name.isEmpty()) {
@@ -246,7 +296,7 @@ public final class DialogFullscreenHelper {
             new MediaSwipeReplyCloseHelper.Callback() {
                 @Override public void onSwipeUpReply() { /* retired — both directions close, see helper class doc */ }
                 @Override public void onSwipeDownClose(float velocityY) {
-                    closeToSource(dialog, root, photoView, srcRect, velocityY, btnClose, finalTvName, finalProfileActionsRow, swipeHelperRef[0]);
+                    closeToSource(dialog, root, photoView, liveTarget(sourceRef, srcRect), velocityY, btnClose, finalTvName, finalProfileActionsRow, swipeHelperRef[0]);
                 }
             });
         swipeHelperRef[0] = swipeHelper;
@@ -267,17 +317,18 @@ public final class DialogFullscreenHelper {
         // spanning the FULL (non-square, full-screen) view only ever reads
         // as a circle when the view itself happens to be square.
         swipeHelper.configureIdleState(1f, avatarRestingRadiusPx(ctx), true);
+        swipeHelper.setScrimDrawable(scrim, SCRIM_ALPHA);
 
         photoView.setOnOutsidePhotoTapListener(v ->
-            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
+            closeToSource(dialog, root, photoView, liveTarget(sourceRef, srcRect), 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
         btnClose.setOnClickListener(v ->
-            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
+            closeToSource(dialog, root, photoView, liveTarget(sourceRef, srcRect), 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
         // Now that the resting photo is a circle smaller than the screen
         // (not a full-bleed square), tapping the dark area *around* the
         // circle lands on `root` itself, not on photoView — wire that up
         // as an outside-tap close too (WhatsApp/Instagram behaviour).
         root.setOnClickListener(v ->
-            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
+            closeToSource(dialog, root, photoView, liveTarget(sourceRef, srcRect), 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
 
         // PERF (ultra-advanced pass): if the tapped avatar view already has
         // a decoded bitmap in it (the normal case — every call site here
@@ -314,7 +365,7 @@ public final class DialogFullscreenHelper {
         // instant Dialog dismiss.
         dialog.setOnKeyListener((d, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper);
+                closeToSource(dialog, root, photoView, liveTarget(sourceRef, srcRect), 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper);
                 return true;
             }
             return false;
@@ -341,7 +392,38 @@ public final class DialogFullscreenHelper {
             // live "peek behind" feel Telegram's avatar viewer has.
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
+        // (4) Lifecycle: dismiss with the host Activity (rotation / finish) so the window can
+        // never leak. Observer is removed again when the dialog is dismissed.
+        final androidx.lifecycle.Lifecycle hostLifecycle =
+            hostActivity instanceof androidx.lifecycle.LifecycleOwner
+                ? ((androidx.lifecycle.LifecycleOwner) hostActivity).getLifecycle() : null;
+        final androidx.lifecycle.LifecycleEventObserver destroyObserver = (src, ev) -> {
+            if (ev == androidx.lifecycle.Lifecycle.Event.ON_DESTROY && dialog.isShowing()) dialog.dismiss();
+        };
+        if (hostLifecycle != null) hostLifecycle.addObserver(destroyObserver);
+
+        // (3) The real avatar stays visible underneath the transparent dialog window, so the
+        // flying photo looked doubled. Hide it from the dialog's first drawn frame and give it
+        // back on ANY dismiss path (dock-close end, back, lifecycle).
+        dialog.setOnDismissListener(d -> {
+            View sv = sourceRef.get();
+            if (sv != null) sv.setAlpha(sourceOrigAlpha);
+            if (hostLifecycle != null) hostLifecycle.removeObserver(destroyObserver);
+            if (sActiveAvatarZoom != null && sActiveAvatarZoom.get() == dialog) sActiveAvatarZoom = null;
+        });
+        if (srcRect != null && sourceView != null) {
+            root.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override public boolean onPreDraw() {
+                    if (root.getViewTreeObserver().isAlive()) root.getViewTreeObserver().removeOnPreDrawListener(this);
+                    View sv = sourceRef.get();
+                    if (sv != null && dialog.isShowing()) sv.setAlpha(0f);
+                    return true;
+                }
+            });
+        }
+
         dialog.show();
+        sActiveAvatarZoom = new java.lang.ref.WeakReference<>(dialog);
 
         if (srcRect != null) {
             animateOpenFromSource(root, photoView, srcRect, btnClose, tvName, finalProfileActionsRow, swipeHelper);
@@ -379,17 +461,24 @@ public final class DialogFullscreenHelper {
         btnFollow.setLayoutParams(followLp);
 
         TextView tvShare = new TextView(ctx);
-        tvShare.setText("Share profile");
+        tvShare.setText(R.string.avatar_zoom_share_profile);
         tvShare.setTextColor(Color.WHITE);
         tvShare.setTextSize(14f);
         tvShare.setGravity(Gravity.CENTER);
         tvShare.setPadding(0, (int) (14 * dp), 0, 0);
+        tvShare.setMinHeight((int) (48 * dp)); // (9) 48dp touch target
         tvShare.setBackground(null);
         tvShare.setClickable(true);
         tvShare.setFocusable(true);
 
         row.addView(btnFollow);
         row.addView(tvShare);
+
+        // (6) Follow state lives in a boolean, never read back from the button text
+        // (text is localised / restyled). `busy` blocks taps while the write is in flight and
+        // while the initial Firebase check hasn't answered yet, so a double tap can't race.
+        final boolean[] following = {false};
+        final boolean[] busy = {cfg.myUid != null};
 
         // Initial style is a neutral "Follow" until the live Firebase check
         // below resolves — avoids ever flashing the wrong state.
@@ -399,23 +488,35 @@ public final class DialogFullscreenHelper {
             FirebaseUtils.getReelFollowsRef(cfg.myUid).child(cfg.targetUid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        styleFollowButton(ctx, btnFollow, snap.exists(), cfg.brandColorArgb);
+                        following[0] = snap.exists();
+                        busy[0] = false;
+                        styleFollowButton(ctx, btnFollow, following[0], cfg.brandColorArgb);
                     }
-                    @Override public void onCancelled(@NonNull DatabaseError error) { /* keep default "Follow" state */ }
+                    @Override public void onCancelled(@NonNull DatabaseError error) {
+                        busy[0] = false; // keep default "Follow" state
+                    }
                 });
         }
 
         btnFollow.setOnClickListener(v -> {
-            if (cfg.myUid == null) return;
-            boolean currentlyFollowing = "Following".contentEquals(btnFollow.getText());
-            if (currentlyFollowing) {
-                FirebaseUtils.getReelFollowsRef(cfg.myUid).child(cfg.targetUid).removeValue();
-                FirebaseUtils.getReelFollowersRef(cfg.targetUid).child(cfg.myUid).removeValue();
-            } else {
-                FirebaseUtils.getReelFollowsRef(cfg.myUid).child(cfg.targetUid).setValue(true);
-                FirebaseUtils.getReelFollowersRef(cfg.targetUid).child(cfg.myUid).setValue(true);
-            }
-            styleFollowButton(ctx, btnFollow, !currentlyFollowing, cfg.brandColorArgb);
+            if (cfg.myUid == null || busy[0]) return;
+            final boolean previous = following[0];
+            final boolean next = !previous;
+            // Optimistic flip, reverted below if the write fails.
+            busy[0] = true;
+            following[0] = next;
+            styleFollowButton(ctx, btnFollow, next, cfg.brandColorArgb);
+            // (7) one shared multi-path write (FirebaseUtils.setFollowState) — both sides of the
+            // follow graph land together or not at all; FollowConnectionsActivity uses the same call.
+            FirebaseUtils.setFollowState(cfg.myUid, cfg.targetUid, next, (error, ref) -> {
+                busy[0] = false;
+                if (error != null) {
+                    following[0] = previous;
+                    styleFollowButton(ctx, btnFollow, previous, cfg.brandColorArgb);
+                    android.widget.Toast.makeText(ctx, R.string.avatar_zoom_follow_failed,
+                        android.widget.Toast.LENGTH_SHORT).show();
+                }
+            });
         });
 
         if (cfg.onShareProfile != null) {
@@ -433,12 +534,12 @@ public final class DialogFullscreenHelper {
         bg.setShape(GradientDrawable.RECTANGLE);
         bg.setCornerRadius(r);
         if (following) {
-            btn.setText("Following");
+            btn.setText(R.string.avatar_zoom_following);
             bg.setColor(Color.argb(0x33, 255, 255, 255));
             btn.setBackgroundTintList(null);
             btn.setTextColor(Color.WHITE);
         } else {
-            btn.setText("Follow");
+            btn.setText(R.string.avatar_zoom_follow);
             bg.setColor(FollowButtonStyler.primaryColor(ctx));
             btn.setBackgroundTintList(FollowButtonStyler.primaryStateList(ctx));
             btn.setTextColor(FollowButtonStyler.textColor(ctx));
@@ -596,8 +697,7 @@ public final class DialogFullscreenHelper {
             photoView.setScaleY(sy);
             photoView.setAlpha(lerp(startAlpha, 1f, t));
             swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, endOnScreenRadius, t), sx);
-            int bgAlpha = Math.round(lerp(startBgAlpha, 0f, t));
-            root.setBackgroundColor(Color.argb(bgAlpha, 0, 0, 0));
+            setScrimAlpha(root, Math.round(lerp(startBgAlpha, 0f, t)));
             btnClose.setAlpha(lerp(startCloseAlpha, 0f, t));
             if (tvName != null) tvName.setAlpha(lerp(startNameAlpha, 0f, t));
             if (profileActionsRow != null) profileActionsRow.setAlpha(lerp(startActionsAlpha, 0f, t));
@@ -620,7 +720,7 @@ public final class DialogFullscreenHelper {
             if (photoView.getWidth() == 0 || photoView.getHeight() == 0) {
                 // Layout never happened (e.g. dialog dismissed instantly) — just
                 // make sure the scrim is visible instead of leaving it transparent.
-                root.setBackgroundColor(Color.argb(SCRIM_ALPHA, 0, 0, 0));
+                setScrimAlpha(root, SCRIM_ALPHA);
                 return;
             }
             int[] loc = new int[2];
@@ -661,7 +761,7 @@ public final class DialogFullscreenHelper {
                 photoView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             }
 
-            root.setBackgroundColor(Color.TRANSPARENT);
+            setScrimAlpha(root, 0);
             btnClose.setAlpha(0f);
             if (tvName != null) tvName.setAlpha(0f);
             if (profileActionsRow != null) profileActionsRow.setAlpha(0f);
@@ -686,8 +786,7 @@ public final class DialogFullscreenHelper {
                 // circle — stays round the whole way, never un-rounds to a
                 // square (WhatsApp/Instagram profile-photo viewer feel).
                 swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, endOnScreenRadius, t), 1f);
-                int bgAlpha = Math.round(lerp(0f, SCRIM_ALPHA, t));
-                root.setBackgroundColor(Color.argb(bgAlpha, 0, 0, 0));
+                setScrimAlpha(root, Math.round(lerp(0f, SCRIM_ALPHA, t)));
             });
             anim.start();
             // Chrome (close button / name label) eases in slightly after the
@@ -707,8 +806,15 @@ public final class DialogFullscreenHelper {
 
     private static float currentBgAlpha(View root) {
         Drawable bg = root.getBackground();
-        if (bg instanceof ColorDrawable) return Color.alpha(((ColorDrawable) bg).getColor());
+        if (bg instanceof ColorDrawable) return ((ColorDrawable) bg).getAlpha();
         return 255f;
+    }
+
+    /** (5) Scrim fade without allocating: alpha on the one shared ColorDrawable. */
+    private static void setScrimAlpha(View root, int alpha) {
+        Drawable bg = root.getBackground();
+        if (bg instanceof ColorDrawable) bg.setAlpha(alpha);
+        else root.setBackgroundColor(Color.argb(alpha, 0, 0, 0));
     }
 
     private static float lerp(float start, float end, float t) {
