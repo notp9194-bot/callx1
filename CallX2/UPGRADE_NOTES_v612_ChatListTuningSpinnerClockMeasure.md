@@ -43,7 +43,7 @@ New `conversation/canvas/SpinnerClock.java`.
   `adb logcat -s ChatJank` prints frames / jank % / worst UI frame per scroll gesture, for 1:1 and
   group. Hooked into the existing `applyAdaptiveMessageRecyclerBudget()`; no new RecyclerView
   listener. New dependency in feature-chat: `androidx.metrics:metrics-performance:1.0.0-beta01`
-  (could not be resolved here — no network; check the version you want).
+  (CI confirmed beta01 resolves; its API is createAndTrack(Window, OnFrameListener), no executor).
 - Baseline profile: rules appended for SpinnerClock, `configureSharedPool`, pipeline decode.
 
 ### Existing benchmark problems found (and fixed)

@@ -8,8 +8,6 @@ import androidx.annotation.Nullable;
 import androidx.metrics.performance.JankStats;
 
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * v612 — on-device JankStats for the message list (debuggable builds only).
@@ -33,9 +31,10 @@ public final class ChatJankMonitor {
 
     private final String screen;
     private final JankStats stats;
-    private final ExecutorService executor;
 
-    // Touched only on `executor` (JankStats delivers frames there, and flush runs there too).
+    // JankStats beta01 has no executor parameter, so the frame listener may run on a thread
+    // other than main. All counters are guarded by `lock`.
+    private final Object lock = new Object();
     private long frames, jankFrames;
     private long worstUiNs;
     private boolean scrolling;
@@ -55,41 +54,39 @@ public final class ChatJankMonitor {
 
     private ChatJankMonitor(Activity activity, String screen) {
         this.screen = screen;
-        this.executor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "chat-jankstats");
-            t.setDaemon(true);
-            return t;
-        });
-        this.stats = JankStats.createAndTrack(activity.getWindow(), executor, frameData -> {
-            frames++;
-            if (frameData.isJank()) jankFrames++;
-            long d = frameData.getFrameDurationUiNanos();
-            if (d > worstUiNs) worstUiNs = d;
+        this.stats = JankStats.createAndTrack(activity.getWindow(), frameData -> {
+            synchronized (lock) {
+                frames++;
+                if (frameData.isJank()) jankFrames++;
+                long d = frameData.getFrameDurationUiNanos();
+                if (d > worstUiNs) worstUiNs = d;
+            }
         });
         this.stats.setTrackingEnabled(false);
     }
 
     /** Call with RecyclerView.SCROLL_STATE_* on every scroll-state change (main thread). */
     public void onScrollState(int scrollState) {
-        final boolean nowScrolling = scrollState != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE;
+        final boolean nowScrolling =
+                scrollState != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE;
         if (nowScrolling) {
+            synchronized (lock) { scrolling = true; }
             stats.setTrackingEnabled(true);
-            executor.execute(() -> scrolling = true);
         } else {
-            executor.execute(() -> {
+            stats.setTrackingEnabled(false);
+            synchronized (lock) {
                 if (scrolling) flush();
                 scrolling = false;
-            });
-            stats.setTrackingEnabled(false);
+            }
         }
     }
 
     /** Call from onDestroy(). */
     public void detach() {
         try { stats.setTrackingEnabled(false); } catch (Throwable ignored) {}
-        executor.shutdown();
     }
 
+    /** Caller holds `lock`. */
     private void flush() {
         if (frames > 0) {
             Log.i(TAG, String.format(Locale.US,
