@@ -117,6 +117,7 @@ public class ReelPlayerFragment extends Fragment
         // and never carried through this bundle — no UI could ever see them.
         args.putDouble("audio_match_offset_sec",  reel.audioMatchOffsetSec);
         args.putDouble("audio_match_speed_factor", reel.audioMatchSpeedFactor);
+        args.putBoolean("has_original_audio", reel.hasOriginalAudio);
         args.putString("copyright_match", reel.copyrightMatch != null ? reel.copyrightMatch : "");
         args.putBoolean("audio_muted", reel.audioMuted);
         args.putString("duet_of",            reel.duetOf            != null ? reel.duetOf            : "");
@@ -202,6 +203,7 @@ public class ReelPlayerFragment extends Fragment
             reel.originalAudioUrl = getArguments().getString("original_audio_url", "");
             reel.audioMatchOffsetSec   = getArguments().getDouble("audio_match_offset_sec", 0);
             reel.audioMatchSpeedFactor = getArguments().getDouble("audio_match_speed_factor", 1.0);
+            reel.hasOriginalAudio      = getArguments().getBoolean("has_original_audio", true);
             reel.copyrightMatch        = getArguments().getString("copyright_match", "");
             reel.audioMuted            = getArguments().getBoolean("audio_muted", false);
             reel.duetOf           = getArguments().getString("duet_of",            "");

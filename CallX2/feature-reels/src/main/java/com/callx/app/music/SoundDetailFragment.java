@@ -103,6 +103,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private static final String ARG_CREATOR_UID = "creator_uid";
     private static final String ARG_PREVIEW_URL = "preview_audio_url";
     private static final String ARG_IS_SHEET    = "is_sheet";
+    private static final String ARG_MATCH_OFFSET_SEC = "match_offset_sec";
 
     private static final int REELS_PAGE_SIZE = 12;
     private static final int REQUEST_TRIM_SOUND = 702;
@@ -198,6 +199,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean isSaved       = false;
     private boolean isPlaying     = false;
     private boolean isPreparing   = false;
+    /** Start position (ms) = where the originating reel used this sound. */
+    private long    matchOffsetMs = 0;
+    private boolean matchOffsetApplied = false;
     private boolean userSeeking   = false;
     private boolean retried       = false;
     private boolean triedFallbackUrl = false; // already swapped preview↔full-quality URL once
@@ -522,6 +526,14 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     private static String n(String s) { return s != null ? s : ""; }
 
+    /** Call right after newInstance(): preview will start from this offset
+     *  (the part of the sound the originating reel actually used). */
+    public void setMatchOffsetSec(double sec) {
+        Bundle b = getArguments();
+        if (b == null) { b = new Bundle(); setArguments(b); }
+        b.putDouble(ARG_MATCH_OFFSET_SEC, sec > 0 ? sec : 0);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────
@@ -551,6 +563,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             creatorUid      = b.getString(ARG_CREATOR_UID, "");
             previewAudioUrl = b.getString(ARG_PREVIEW_URL, "");
             isSheet         = b.getBoolean(ARG_IS_SHEET, false);
+            matchOffsetMs   = (long) (b.getDouble(ARG_MATCH_OFFSET_SEC, 0) * 1000);
         }
 
         // PERF (#4, rotation reload): a Fragment's ViewModelStore survives a
@@ -2817,6 +2830,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             isPreparing = false; setPlayButtonLoading(false);
             long dur = exoPlayer.getDuration();
             if (dur > 0 && tvTotalTime != null) tvTotalTime.setText(formatMs((int) dur));
+            // Start from the part this reel used (fingerprint offset), once.
+            if (!matchOffsetApplied) {
+                matchOffsetApplied = true;
+                if (matchOffsetMs > 500 && dur > 0 && matchOffsetMs < dur - 1000) {
+                    exoPlayer.seekTo(matchOffsetMs);
+                    if (isAdded()) Toast.makeText(requireContext(),
+                        "Playing from " + formatMs((int) matchOffsetMs) + " — where this reel used it",
+                        Toast.LENGTH_SHORT).show();
+                }
+            }
             exoPlayer.play(); isPlaying = true;
             if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
             startWaveAnimation(); startDiscAnimation();

@@ -694,6 +694,19 @@ public class VideoUploader {
                                 JSONObject copyrightMatch, boolean timedOut) {
             onSuccess(audioUrl, previewAudioUrl, soundId, matched, ownerUid, offsetSec, speedFactor, copyrightMatch);
         }
+        /**
+         * ✅ NEW (late re-link): the fingerprint job timed out (reel was posted as a
+         * "new sound"), but the server finished it a bit later. Called on the main
+         * thread with the real verdict so the caller can move the reel onto the
+         * matched sound / apply the copyright policy. Default: ignore.
+         */
+        /** The video has no audio track at all (extraction found nothing). Default: same as onError. */
+        default void onNoAudioTrack() { onError(new Exception("No audio track")); }
+
+        default void onLateMatch(String audioUrl, String previewAudioUrl,
+                                 String soundId, boolean matched, String ownerUid,
+                                 double offsetSec, double speedFactor,
+                                 JSONObject copyrightMatch) { }
         void onError(Exception e);
     }
 
@@ -771,6 +784,7 @@ public class VideoUploader {
                 double  matchedSpeedFactor = 1.0;
                 JSONObject matchedCopyrightMatch = null;
                 boolean matchTimedOut    = false;
+                String  timedOutJobId    = null;
                 try {
                     JSONObject matchResult =
                         matchAudioFingerprint(finalAudio, ownerUid, reelId, fallbackSoundId);
@@ -793,6 +807,7 @@ public class VideoUploader {
                     // gets told the check itself didn't complete.
                     Log.w(TAG, "Audio fingerprint match timed out (non-fatal): " + timeoutEx.getMessage());
                     matchTimedOut = true;
+                    timedOutJobId = timeoutEx.jobId;
                 } catch (Exception matchEx) {
                     Log.w(TAG, "Audio fingerprint match skipped (non-fatal): " + matchEx.getMessage());
                     // matched stays false, matchedSoundId stays fallbackSoundId — same
@@ -808,6 +823,33 @@ public class VideoUploader {
                 final boolean    fTimedOut        = matchTimedOut;
                 MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid, fOffsetSec, fSpeedFactor, fCopyrightMatch, fTimedOut));
 
+                // ✅ Late re-link: the 25s wait gave up, but the job may still finish
+                // (cold server / queue backlog). Keep checking quietly for ~3 more
+                // minutes and report the real verdict via onLateMatch().
+                if (timedOutJobId != null && !timedOutJobId.isEmpty()) {
+                    final String lateJobId = timedOutJobId;
+                    for (int attempt = 0; attempt < 9; attempt++) {
+                        try { Thread.sleep(20_000); } catch (InterruptedException ie) { break; }
+                        try {
+                            JSONObject late = pollAudioMatchStatusOnce(lateJobId);
+                            if (late == null) continue;
+                            final boolean lm = late.optBoolean("matched", false);
+                            final String  ls = late.optString("sound_id", "");
+                            final String  lo = late.optString("owner_uid", "");
+                            final double  lf = late.optDouble("offset_sec", 0);
+                            final double  lp = late.optDouble("speed_factor", 1.0);
+                            final JSONObject lc = late.optJSONObject("copyright_match");
+                            MAIN.post(() -> callback.onLateMatch(fUrl, fPreviewUrl, ls, lm, lo, lf, lp, lc));
+                            break;
+                        } catch (Exception pe) {
+                            Log.w(TAG, "late audio-match poll failed: " + pe.getMessage());
+                        }
+                    }
+                }
+
+            } catch (NoAudioTrackException noAudio) {
+                Log.w(TAG, "uploadOriginalAudio: video has no audio track — no sound will be created");
+                MAIN.post(callback::onNoAudioTrack);
             } catch (Exception e) {
                 Log.e(TAG, "uploadOriginalAudio error", e);
                 MAIN.post(() -> callback.onError(e));
@@ -846,7 +888,7 @@ public class VideoUploader {
 
         if (audioTrack < 0 || audioFormat == null) {
             extractor.release();
-            throw new Exception("No audio track found in video file");
+            throw new NoAudioTrackException("No audio track found in video file");
         }
 
         extractor.selectTrack(audioTrack);
@@ -990,9 +1032,9 @@ public class VideoUploader {
             .addFormDataPart("new_sound_id", newSoundId != null ? newSoundId : "")
             .build();
 
-        Request req = new Request.Builder()
+        Request req = withAudioAuth(new Request.Builder()
             .url(Constants.SERVER_URL + "/audio/match")
-            .post(body)
+            .post(body))
             .build();
 
         String jobId;
@@ -1022,8 +1064,38 @@ public class VideoUploader {
      * never completed instead of silently treating it identically to a
      * real negative result.
      */
+    /** Video has no audio stream (silent clip / muted export) — nothing to register as a sound. */
+    private static class NoAudioTrackException extends Exception {
+        NoAudioTrackException(String m) { super(m); }
+    }
+
     private static class AudioMatchTimeoutException extends Exception {
-        AudioMatchTimeoutException(String message) { super(message); }
+        final String jobId;
+        AudioMatchTimeoutException(String message, String jobId) { super(message); this.jobId = jobId; }
+    }
+
+    /**
+     * Firebase ID token for the audio endpoints (server now verifies it and
+     * takes the uid from the token — a uid in the body is ignored). MUST be
+     * called off the main thread. Returns null if signed out / token fetch fails.
+     */
+    private static String audioAuthToken() {
+        try {
+            com.google.firebase.auth.FirebaseUser u =
+                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+            if (u == null) return null;
+            return com.google.android.gms.tasks.Tasks
+                .await(u.getIdToken(false), 8, TimeUnit.SECONDS).getToken();
+        } catch (Exception e) {
+            Log.w(TAG, "audioAuthToken failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static Request.Builder withAudioAuth(Request.Builder b) {
+        String t = audioAuthToken();
+        if (t != null && !t.isEmpty()) b.header("Authorization", "Bearer " + t);
+        return b;
     }
 
     /**
@@ -1095,7 +1167,7 @@ public class VideoUploader {
             Log.w(TAG, "audio_match_jobs/" + jobId + " HTTP status fallback also failed: " + pollEx.getMessage());
         }
 
-        throw new AudioMatchTimeoutException("audio_match_jobs/" + jobId + " did not complete in time");
+        throw new AudioMatchTimeoutException("audio_match_jobs/" + jobId + " did not complete in time", jobId);
     }
 
     /** Builds the {matched, sound_id, owner_uid, offset_sec, speed_factor,
@@ -1136,9 +1208,9 @@ public class VideoUploader {
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(6,    TimeUnit.SECONDS)
             .build();
-        Request req = new Request.Builder()
+        Request req = withAudioAuth(new Request.Builder()
             .url(Constants.SERVER_URL + "/audio/match/status/" + jobId)
-            .get()
+            .get())
             .build();
         try (Response res = shortClient.newCall(req).execute()) {
             if (!res.isSuccessful() || res.body() == null) return null;
@@ -1260,9 +1332,9 @@ public class VideoUploader {
 
                 RequestBody reqBody = RequestBody.create(
                     body.toString(), MediaType.parse("application/json; charset=utf-8"));
-                Request req = new Request.Builder()
+                Request req = withAudioAuth(new Request.Builder()
                     .url(Constants.SERVER_URL + "/audio/index-existing")
-                    .post(reqBody)
+                    .post(reqBody))
                     .build();
 
                 OkHttpClient shortClient = HTTP.newBuilder()

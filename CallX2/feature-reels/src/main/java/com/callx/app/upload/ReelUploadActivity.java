@@ -3211,6 +3211,26 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                 + " copyrightMatch: " + copyrightMatch
                                                 + " timedOut: " + timedOut);
 
+                                            // ✅ FIX (ghost-reel on copyright block): the "block" policy
+                                            // MUST be decided BEFORE registerOrLinkSound() runs. Earlier the
+                                            // reel was linked to a sound first (sounds/{id}/reels/{reelId},
+                                            // musicId, notifications, index hook) and only THEN deleted from
+                                            // reels/ + reelsByUser/ — which left a ghost entry (and counters)
+                                            // under the sound. Now a blocked reel never touches any sound.
+                                            if (copyrightMatch != null
+                                                    && "block".equals(copyrightMatch.optString("policy", ""))) {
+                                                Log.w("ReelUpload", "Licensed-catalog match (block) — taking reel down, "
+                                                    + "skipping sound registration: " + copyrightMatch);
+                                                takeDownBlockedReel(finalReelId, myUid, matchedSoundId);
+                                                if (!b.isFinishing() && !b.isDestroyed()) {
+                                                    Toast.makeText(b,
+                                                        "This reel used licensed audio ("
+                                                        + copyrightMatch.optString("title", "a track")
+                                                        + ") and was removed.", Toast.LENGTH_LONG).show();
+                                                }
+                                                return;
+                                            }
+
                                             // ✅ FIX (silent-timeout gap): the fingerprint check never
                                             // actually got an answer (busy queue / cold server), so
                                             // this reel is going up as a "new original" purely by
@@ -3283,16 +3303,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                 Log.w("ReelUpload", "Licensed-catalog match ("
                                                     + policy + "): " + copyrightMatch);
 
-                                                if ("block".equals(policy)) {
-                                                    FirebaseUtils.getReelsRef().child(finalReelId).removeValue();
-                                                    FirebaseUtils.getReelsByUserRef(myUid).child(finalReelId).removeValue();
-                                                    if (!b.isFinishing() && !b.isDestroyed()) {
-                                                        Toast.makeText(b,
-                                                            "This reel used licensed audio ("
-                                                            + copyrightMatch.optString("title", "a track")
-                                                            + ") and was removed.", Toast.LENGTH_LONG).show();
-                                                    }
-                                                } else if ("mute".equals(policy)) {
+                                                // "block" is already handled above (before sound linking).
+                                                if ("mute".equals(policy)) {
                                                     FirebaseUtils.getReelsRef()
                                                         .child(finalReelId).child("audioMuted").setValue(true);
                                                     if (!b.isFinishing() && !b.isDestroyed()) {
@@ -3302,6 +3314,24 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                     }
                                                 }
                                             }
+                                        }
+                                        @Override
+                                        public void onNoAudioTrack() {
+                                            // Silent video: there is no audio to turn into a sound. Mark the
+                                            // reel so the player doesn't offer a (non-existent) sound page.
+                                            Log.w("ReelUpload", "Reel " + finalReelId + " has no audio track — no sound created");
+                                            FirebaseUtils.getReelsRef().child(finalReelId)
+                                                .child("hasOriginalAudio").setValue(false);
+                                        }
+                                        @Override
+                                        public void onLateMatch(String audioUrl, String previewAudioUrl,
+                                                                String lateSoundId, boolean lateMatched,
+                                                                String lateOwnerUid, double lateOffsetSec,
+                                                                double lateSpeedFactor,
+                                                                org.json.JSONObject lateCopyright) {
+                                            handleLateAudioMatch(b, finalReelId, myUid, myName, thumbUrl, videoUrl,
+                                                audioUrl, previewAudioUrl, lateSoundId, lateMatched,
+                                                lateOffsetSec, lateSpeedFactor, lateCopyright);
                                         }
                                         @Override
                                         public void onError(Exception e) {
@@ -3360,6 +3390,82 @@ public class ReelUploadActivity extends AppCompatActivity {
             out.add(p);
         }
         return out;
+    }
+
+    /**
+     * The fingerprint job timed out at upload time (reel went up as a "new sound"
+     * orig_{reelId}) but finished later. Apply the real verdict:
+     *  - copyright "block"  → take the reel down and drop the fallback sound
+     *  - matched elsewhere  → move the reel from its fallback sound onto the matched one
+     *  - otherwise          → nothing to do (it really is a new original)
+     */
+    private static void handleLateAudioMatch(ReelUploadActivity activity, String reelId, String myUid,
+                                             String myName, String thumbUrl, String videoUrl,
+                                             String audioUrl, String previewAudioUrl,
+                                             String matchedSoundId, boolean matched,
+                                             double offsetSec, double speedFactor,
+                                             org.json.JSONObject copyrightMatch) {
+        final String fallbackId = "orig_" + reelId;
+        com.google.firebase.database.DatabaseReference fallbackRef =
+            FirebaseUtils.db().getReference("sounds").child(fallbackId);
+
+        if (copyrightMatch != null && "block".equals(copyrightMatch.optString("policy", ""))) {
+            takeDownBlockedReel(reelId, myUid, matchedSoundId);
+            fallbackRef.removeValue();
+            Toast.makeText(activity.getApplicationContext(),
+                "This reel used licensed audio (" + copyrightMatch.optString("title", "a track")
+                + ") and was removed.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (copyrightMatch != null && "mute".equals(copyrightMatch.optString("policy", ""))) {
+            FirebaseUtils.getReelsRef().child(reelId).child("audioMuted").setValue(true);
+        }
+        if (copyrightMatch != null) {
+            FirebaseUtils.getReelsRef().child(reelId).child("copyrightMatch").setValue(copyrightMatch.toString());
+        }
+
+        if (!matched || matchedSoundId == null || matchedSoundId.isEmpty()
+                || matchedSoundId.equals(fallbackId)) return;
+
+        Log.i("ReelUpload", "Late audio match for reel " + reelId + " → " + matchedSoundId
+            + " (moving off fallback " + fallbackId + ")");
+        // The server matched an existing sound, so it never registered orig_{reelId}
+        // — nobody else can have linked to that fallback; safe to remove.
+        fallbackRef.removeValue();
+        registerOrLinkSound(activity, reelId, myUid, myName, thumbUrl, videoUrl,
+            audioUrl, previewAudioUrl, matchedSoundId);
+        if (offsetSec > 0.05) {
+            FirebaseUtils.getReelsRef().child(reelId).child("audioMatchOffsetSec").setValue(offsetSec);
+        }
+        if (Math.abs(speedFactor - 1.0) > 0.01) {
+            FirebaseUtils.getReelsRef().child(reelId).child("audioMatchSpeedFactor").setValue(speedFactor);
+        }
+    }
+
+    /**
+     * Removes a copyright-blocked reel completely: the reel itself, its
+     * per-user index, and any sound-side reference that may already exist
+     * (defensive — registerOrLinkSound() is no longer called for blocked
+     * reels, but an earlier/parallel path could have linked it).
+     */
+    private static void takeDownBlockedReel(String reelId, String ownerUid, String matchedSoundId) {
+        if (reelId == null || reelId.isEmpty()) return;
+        FirebaseUtils.getReelsRef().child(reelId).removeValue();
+        if (ownerUid != null && !ownerUid.isEmpty()) {
+            FirebaseUtils.getReelsByUserRef(ownerUid).child(reelId).removeValue();
+        }
+        java.util.HashSet<String> soundIds = new java.util.HashSet<>();
+        soundIds.add("orig_" + reelId);
+        if (matchedSoundId != null && !matchedSoundId.isEmpty()) soundIds.add(matchedSoundId);
+        for (String sid : soundIds) {
+            FirebaseUtils.db().getReference("sounds").child(sid).child("reels").child(reelId).removeValue();
+        }
+    }
+
+    /** Tiny helper — true when the snapshot child is missing or an empty string. */
+    private static boolean isBlankChild(DataSnapshot s, String key) {
+        String v = s.child(key).getValue(String.class);
+        return v == null || v.trim().isEmpty();
     }
 
     /**
@@ -3433,6 +3539,56 @@ public class ReelUploadActivity extends AppCompatActivity {
         // firebase rules now lock those fields to the server.
 
         if (usingExistingSound) {
+            // ✅ FIX (missing sound node): the server can hand back a matched
+            // sound_id (audio_fingerprints/orig_X) whose sounds/orig_X node was
+            // never created — e.g. the original reel failed, was deleted or was
+            // copyright-blocked before its sound got registered. Linking to such
+            // an empty shell used to leave the reel with no title/artist/cover/
+            // creator ("Original audio", creator missing). Detect that for
+            // "orig_*" ids and ADOPT the node: this reel's own audio becomes the
+            // sound's canonical audio and this uploader its creator.
+            if (soundId.startsWith("orig_")) {
+                soundRef.addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        boolean orphan = isBlankChild(s, "title")
+                                && isBlankChild(s, "audioUrl")
+                                && isBlankChild(s, "ownerUid")
+                                && isBlankChild(s, "creatorUid");
+                        if (orphan) {
+                            Log.w("ReelUpload", "Matched sound " + soundId
+                                + " has no sound node — adopting it for reel " + reelId);
+                            writeNewOriginalSound(soundRef, soundId, reelId, ownerUid, ownerName,
+                                thumbUrl, audioUrl, previewAudioUrl, true);
+                        } else {
+                            linkReelToExistingSound(activity, reelId, ownerUid, ownerName,
+                                thumbUrl, audioUrl, previewAudioUrl, soundId, soundRef);
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        linkReelToExistingSound(activity, reelId, ownerUid, ownerName,
+                            thumbUrl, audioUrl, previewAudioUrl, soundId, soundRef);
+                    }
+                });
+                return;
+            }
+            linkReelToExistingSound(activity, reelId, ownerUid, ownerName,
+                thumbUrl, audioUrl, previewAudioUrl, soundId, soundRef);
+            return;
+        }
+
+        // Brand-new original-audio entity — fill out full metadata once.
+        writeNewOriginalSound(soundRef, soundId, reelId, ownerUid, ownerName,
+            thumbUrl, audioUrl, previewAudioUrl, false);
+    }
+
+    /** Existing-sound branch of registerOrLinkSound (moved out unchanged so the
+     *  orphan check above can decide between "adopt" and "link"). */
+    private static void linkReelToExistingSound(ReelUploadActivity activity,
+                                                String reelId, String ownerUid, String ownerName,
+                                                String thumbUrl, String audioUrl,
+                                                String previewAudioUrl, String soundId,
+                                                com.google.firebase.database.DatabaseReference soundRef) {
+        {
             // ✅ FIX (gap #1 — existing/trending sound never fingerprinted):
             // whenever a reel links to an ALREADY-EXISTING sound (picked from
             // a sound page, trending track, or a fingerprint match to another
@@ -3545,10 +3701,19 @@ public class ReelUploadActivity extends AppCompatActivity {
                 @Override
                 public void onCancelled(@NonNull DatabaseError e) { /* leave client-typed values as-is */ }
             });
-            return;
         }
+    }
 
-        // Brand-new original-audio entity — fill out full metadata once.
+    /**
+     * Writes the full sounds/{soundId} node for a brand-new original audio and
+     * mirrors the clean display fields onto the reel. Also used to ADOPT an
+     * orphaned matched id (adopted = true → flagged for debugging only).
+     */
+    private static void writeNewOriginalSound(com.google.firebase.database.DatabaseReference soundRef,
+                                              String soundId, String reelId,
+                                              String ownerUid, String ownerName,
+                                              String thumbUrl, String audioUrl,
+                                              String previewAudioUrl, boolean adopted) {
         java.util.Map<String, Object> soundData = new java.util.HashMap<>();
         soundData.put("audioUrl",        audioUrl != null ? audioUrl : "");
         // ✅ Low-bitrate mono preview — this is what SoundDetailActivity's play
@@ -3566,6 +3731,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         soundData.put("creatorUid",   ownerUid != null ? ownerUid : ""); // for SoundDetailActivity creator link
         soundData.put("sourceReelId", reelId);
         soundData.put("created_at",   ServerValue.TIMESTAMP);
+        if (adopted) soundData.put("adoptedOrphan", true);
         soundRef.updateChildren(soundData);
 
         // Reflect the new soundId + clean display fields back on the reel too,

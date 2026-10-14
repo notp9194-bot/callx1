@@ -1956,6 +1956,7 @@
     "sounds": {
       "$key": {
         ".read": "auth != null",
+        ".write": "auth != null && !newData.exists() && data.child('ownerUid').val() === auth.uid",
         "reel_count": {
           ".write": "auth != null && !data.exists() && newData.val() === 0",
           ".validate": "newData.isNumber() && newData.val() >= 0"

@@ -415,6 +415,13 @@ public class ReelDuetController {
         // the reels-grid update correctly), instead of a fresh duplicate
         // sound getting created every time someone reuses audio too soon.
         String soundId = reel.musicId;
+        if (!reel.hasOriginalAudio && (soundId == null || soundId.isEmpty())) {
+            // Silent video: no sound entity exists (or will exist) for this reel.
+            if (delegate.getContext() != null) {
+                Toast.makeText(delegate.getContext(), "This reel has no original audio", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
         if ((soundId == null || soundId.isEmpty()) && reel.reelId != null && !reel.reelId.isEmpty()) {
             soundId = "orig_" + reel.reelId;
         }
@@ -440,6 +447,10 @@ public class ReelDuetController {
             && soundId != null && soundId.equals("orig_" + reel.reelId);
         if (isOwnSoundSource && reel.uid != null && !reel.uid.isEmpty()) {
             i.putExtra(SoundDetailActivity.EXTRA_CREATOR_UID, reel.uid);
+        }
+        // Reel reused a part (not the start) of the original: open the sound at that part.
+        if (!isOwnSoundSource && reel.audioMatchOffsetSec > 0.05) {
+            i.putExtra(SoundDetailActivity.EXTRA_MATCH_OFFSET_SEC, reel.audioMatchOffsetSec);
         }
         if (reel.originalAudioUrl != null && !reel.originalAudioUrl.isEmpty()) {
             i.putExtra(SoundDetailActivity.EXTRA_ORIGINAL_AUDIO_URL, reel.originalAudioUrl);

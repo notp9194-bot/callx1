@@ -242,19 +242,19 @@ public class ReelUiController {
      * call sites above for the full explanation.
      */
     /** Builds the "Song Name · Artist" (or "Original Audio") display string used by both the bio song row(s) and the bottom music ticker. */
-    private String buildMusicDisplay(ReelModel reel) {
+    private CharSequence buildMusicDisplay(ReelModel reel) {
         String musicDisplay = reel.musicName != null && !reel.musicName.isEmpty()
-            ? reel.musicName : "Original Audio";
+            ? reel.musicName : (reel.hasOriginalAudio ? "Original Audio" : "No audio");
         if (reel.musicArtist != null && !reel.musicArtist.isEmpty()
                 && !musicDisplay.contains(reel.musicArtist)) {
             musicDisplay = musicDisplay + " · " + reel.musicArtist;
         }
-        // ✅ FIX (dead-data gap): audioMatchSpeedFactor was written to Firebase
-        // on upload but no UI ever read it back — surface it the way
-        // Instagram/TikTok do ("Song · Artist · 1.5x").
+        // ✅ Speed is shown as a small pill (SpeedBadgeSpan), not as plain text in
+        // the label — it is only the speed the fingerprint match detected vs the
+        // original sound, so it must not read like part of the song name.
+        String speedBadge = null;
         if (reel.audioMatchSpeedFactor > 0 && Math.abs(reel.audioMatchSpeedFactor - 1.0) > 0.01) {
-            musicDisplay = musicDisplay + " · "
-                + new java.text.DecimalFormat("0.##").format(reel.audioMatchSpeedFactor) + "x";
+            speedBadge = new java.text.DecimalFormat("0.##").format(reel.audioMatchSpeedFactor) + "x";
         }
         // ✅ FIX (dead-detection gap): copyrightMatch used to only be saved to
         // Firebase for a moderation layer that never read it — now the
@@ -274,7 +274,14 @@ public class ReelUiController {
                 }
             } catch (Exception ignored) { /* malformed/legacy data — keep the plain display */ }
         }
-        return musicDisplay;
+        if (speedBadge == null) return musicDisplay;
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(musicDisplay);
+        sb.append("  ");
+        int st = sb.length();
+        sb.append(speedBadge);
+        sb.setSpan(new SpeedBadgeSpan(speedBadge), st, sb.length(),
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return sb;
     }
 
     private void retargetCaptionTopConstraint(int anchorViewId) {
@@ -697,7 +704,7 @@ public class ReelUiController {
         // username) — same source string as the (hidden) bottom music
         // ticker, computed once here and reused for both the normal owner
         // row (tv_bio_song_name) and the collab row (tv_collab_song_name).
-        String bioMusicDisplay = buildMusicDisplay(reel);
+        CharSequence bioMusicDisplay = buildMusicDisplay(reel);
         if (tvBioSongName != null) {
             tvBioSongName.setText(bioMusicDisplay);
             View llBioSongRow = fragmentView.findViewById(R.id.ll_bio_song_row);
@@ -971,7 +978,7 @@ public class ReelUiController {
         }
 
         // Music ticker
-        String musicDisplay = bioMusicDisplay;
+        CharSequence musicDisplay = bioMusicDisplay;
         if (tvMusicName != null) {
             tvMusicName.setText(musicDisplay);
             tvMusicName.setSingleLine(true);

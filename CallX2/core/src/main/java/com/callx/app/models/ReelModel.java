@@ -139,6 +139,13 @@ public class ReelModel {
      * audioMatchOffsetSec above. 1.0 = unmatched or no speed change.
      */
     public double  audioMatchSpeedFactor = 1.0;
+
+    /**
+     * false when the posted video has no audio track (set by ReelUploadActivity
+     * after extraction finds nothing). Absent/true = normal. Used so the player
+     * doesn't offer a sound page for a reel that has no sound to open.
+     */
+    public boolean hasOriginalAudio = true;
     /**
      * ✅ FIX (dead-data gap): raw JSON string of the server's licensed-
      * catalog verdict (see /audio/match "v6" on the server) — shape

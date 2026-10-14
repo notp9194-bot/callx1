@@ -28,6 +28,9 @@ public class SoundDetailActivity extends AppCompatActivity {
     public static final String EXTRA_GENRE = "extra_genre";
     public static final String EXTRA_CREATOR_UID = "extra_creator_uid";
     public static final String EXTRA_ORIGINAL_AUDIO_URL = "extra_original_audio_url";
+    /** Where (seconds into the sound) the reel we came from used it — from the
+     *  server's fingerprint match (reel.audioMatchOffsetSec). 0 = from start. */
+    public static final String EXTRA_MATCH_OFFSET_SEC = "extra_match_offset_sec";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,6 +55,7 @@ public class SoundDetailActivity extends AppCompatActivity {
                 getIntent().getStringExtra(EXTRA_ORIGINAL_AUDIO_URL),
                 false /* isSheet = false → back arrow, no drag handle */
             );
+            fragment.setMatchOffsetSec(getIntent().getDoubleExtra(EXTRA_MATCH_OFFSET_SEC, 0));
             fragment.setOnCloseListener(this::finish);
 
             getSupportFragmentManager()

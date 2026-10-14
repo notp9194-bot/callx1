@@ -9348,6 +9348,9 @@ public class HomeFragment extends Fragment
         if (isOwnSoundSource && reel.uid != null && !reel.uid.isEmpty()) {
             i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_CREATOR_UID, reel.uid);
         }
+        if (!isOwnSoundSource && reel.audioMatchOffsetSec > 0.05) {
+            i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_MATCH_OFFSET_SEC, reel.audioMatchOffsetSec);
+        }
         if (reel.originalAudioUrl != null && !reel.originalAudioUrl.isEmpty()) {
             i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_ORIGINAL_AUDIO_URL, reel.originalAudioUrl);
         } else {

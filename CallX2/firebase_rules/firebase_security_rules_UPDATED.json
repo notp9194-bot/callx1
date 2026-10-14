@@ -1897,8 +1897,27 @@
     "sounds": {
       "$key": {
         ".read": "auth != null",
-        ".write": "auth != null"
+        ".write": "auth != null && !newData.exists() && data.child('ownerUid').val() === auth.uid",
+        "reel_count": {
+          ".write": "auth != null && !data.exists() && newData.val() === 0",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "user_count": {
+          ".write": false,
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "is_trending": {
+          ".write": false,
+          ".validate": "newData.isBoolean()"
+        },
+        "$other": {
+          ".write": "auth != null"
+        }
       }
+    },
+    "soundUsers": {
+      ".read": false,
+      ".write": false
     },
     "musicLibrary": {
       "$key": {
