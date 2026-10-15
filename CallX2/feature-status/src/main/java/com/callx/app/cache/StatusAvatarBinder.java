@@ -118,6 +118,13 @@ public final class StatusAvatarBinder {
         return AvatarUrlBuilder.buildResponsive(ctx, photo, THUMBNAIL_TIER, avatarVersion);
     }
 
+    /** No photo: coloured initial circle instead of the grey person icon. No-op when a photo exists. */
+    public static void setInitialsIfNoPhoto(ImageView iv, String photo, String name, String uid) {
+        if (photo != null && !photo.isEmpty()) return;
+        iv.setImageDrawable(new com.callx.app.utils.InitialsAvatarDrawable(name, uid));
+        iv.setTag(null);
+    }
+
     /** Unconditional real bind — used once a row is known to be visible. See {@link #bindGated} for the offscreen-aware entry point. */
     public static void bind(Context ctx, ImageView iv, String photo, long avatarVersion, int placeholderRes) {
         bind(ctx, iv, photo, avatarVersion, placeholderRes, Priority.IMMEDIATE);

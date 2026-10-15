@@ -462,7 +462,7 @@ public class AddYoursChainActivity extends AppCompatActivity {
                     String uid = r.getKey();
                     if (uid == null || seenUids.contains(uid) || blocked.contains(uid)) continue;
                     Long exp = r.child("expiresAt").getValue(Long.class);
-                    if (exp != null && exp < now) continue;           // story already gone
+                    if (com.callx.app.models.StatusItem.effectiveExpiry(exp, ts) <= now) continue; // story already gone (null expiry -> ts+24h)
                     boolean listed = Boolean.TRUE.equals(r.child("listed").getValue(Boolean.class));
                     if (!listed) continue;                            // private audience: counted, never listed (no data stored)
                     Entry e = new Entry();

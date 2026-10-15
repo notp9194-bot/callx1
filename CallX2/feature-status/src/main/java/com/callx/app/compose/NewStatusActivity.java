@@ -186,6 +186,9 @@ public class NewStatusActivity extends AppCompatActivity {
     private TextView editorAiLabel;
     private Uri editorMediaUri;
     private float editorMediaScale = 1f;
+    private StorySafeAreaView editorSafeArea;      // dotted "what the viewer will cover" guide
+    private boolean editorSafeAreaPinned;           // rail "Guide" toggle keeps it on
+
     private boolean editorPhotoMode;
     private boolean editorDrawMode;
     // v587: draw toolbar state
@@ -660,6 +663,10 @@ public class NewStatusActivity extends AppCompatActivity {
             stickerOverlayFrame.addView(drawingOverlay, 3, new android.widget.FrameLayout.LayoutParams(
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+            editorSafeArea = new StorySafeAreaView(this);
+            stickerOverlayFrame.addView(editorSafeArea, 4, new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
             sizeStoryCanvas();
             setupEditorGestures();
             setupStatusEditorTools();
@@ -729,7 +736,7 @@ public class NewStatusActivity extends AppCompatActivity {
         editorDoubleTapDetector = new android.view.GestureDetector(this,
                 new android.view.GestureDetector.SimpleOnGestureListener() {
                     @Override public boolean onDoubleTap(android.view.MotionEvent e) {
-                        if (editorPhotoMode) resetEditorMediaTransform(true);
+                        if (editorPhotoMode) toggleEditorFitFill();
                         return true;
                     }
                 });
@@ -743,6 +750,7 @@ public class NewStatusActivity extends AppCompatActivity {
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
                     binding.ivPreview.animate().cancel(); // never fight a running reset animation
+                    showSafeAreaGuide();
                     setEditorGestureScrollLock(true);
                     editorGesturePointerCount = 1;
                     editorLastTouchX = event.getX();
@@ -799,6 +807,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 case android.view.MotionEvent.ACTION_CANCEL:
                     editorGesturePointerCount = 0;
                     setEditorGestureScrollLock(false);
+                    hideSafeAreaGuideLater();
                     // a plain tap on empty canvas dismisses the sticker size bar
                     // (frame click never fired: this full-canvas layer consumes every touch)
                     if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP
@@ -988,6 +997,38 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
+    private void showSafeAreaGuide() { if (editorSafeArea != null) editorSafeArea.show(); }
+    private void hideSafeAreaGuideLater() {
+        if (editorSafeArea != null && !editorSafeAreaPinned) editorSafeArea.hideLater(900L);
+    }
+
+    /**
+     * Double-tap: FIT (whole photo visible, blurred bars) <-> FILL (photo covers the whole 9:16 canvas).
+     * Anything else (zoomed / moved / rotated) goes back to FIT first.
+     */
+    private void toggleEditorFitFill() {
+        if (binding == null || binding.ivPreview == null || stickerOverlayFrame == null) return;
+        android.graphics.drawable.Drawable d = binding.ivPreview.getDrawable();
+        float fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+        boolean atFit = Math.abs(editorMediaScale - 1f) < 0.02f
+                && Math.abs(binding.ivPreview.getTranslationX()) < 2f
+                && Math.abs(binding.ivPreview.getTranslationY()) < 2f
+                && Math.abs(editorMediaRotation) < 0.5f;
+        if (!atFit || d == null || d.getIntrinsicWidth() <= 0 || d.getIntrinsicHeight() <= 0 || fw <= 0 || fh <= 0) {
+            resetEditorMediaTransform(true);
+            return;
+        }
+        float dw = d.getIntrinsicWidth(), dh = d.getIntrinsicHeight();
+        float fit  = Math.min(fw / dw, fh / dh);
+        float fill = Math.max(fw / dw, fh / dh);
+        float ratio = fill / fit;
+        if (ratio < 1.03f) { toast("Photo pehle se poora frame bhar rahi hai"); return; }
+        editorMediaScale = ratio;
+        binding.ivPreview.animate().scaleX(ratio).scaleY(ratio).translationX(0f).translationY(0f)
+                .setDuration(200).start();
+        toast("Fill — kinare kat sakte hain. Dubara double-tap = poori photo");
+    }
+
     /** Back to the untransformed photo (double-tap, More → Reset photo position). */
     private void resetEditorMediaTransform(boolean animate) {
         editorMediaScale = 1f;
@@ -1029,7 +1070,7 @@ public class NewStatusActivity extends AppCompatActivity {
         String[][] tools = {
                 {"Text", "Aa"}, {"Stickers", "☺"}, {"Music", "♫"},
                 {"Restyle", "✎"}, {"Effects", "✦"}, {"Mention", "@"},
-                {"Draw", "〰"}, {"Save", "↓"}, {"Label AI", "▣"}, {"More", "···"}
+                {"Draw", "〰"}, {"Guide", "▭"}, {"Save", "↓"}, {"Label AI", "▣"}, {"More", "···"}
         };
         for (String[] tool : tools) {
             LinearLayout row = new LinearLayout(this);
@@ -1246,6 +1287,16 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         }
         switch (action) {
+            case "Guide":
+                editorSafeAreaPinned = !editorSafeAreaPinned;
+                if (editorSafeArea != null) {
+                    if (editorSafeAreaPinned) editorSafeArea.show(); else editorSafeArea.hideLater(0L);
+                }
+                View gRow = editorToolRows.get("Guide");
+                if (gRow instanceof LinearLayout && ((LinearLayout) gRow).getChildCount() > 1
+                        && ((LinearLayout) gRow).getChildAt(1) instanceof TextView)
+                    setRailIconActive((TextView) ((LinearLayout) gRow).getChildAt(1), editorSafeAreaPinned);
+                break;
             case "Text":
                 showEditorTextDialog(false);
                 break;
@@ -1517,6 +1568,7 @@ public class NewStatusActivity extends AppCompatActivity {
         tv.setOnTouchListener((view, ev) -> {
             switch (ev.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
+                    showSafeAreaGuide();
                     setEditorGestureScrollLock(true);
                     startRaw[0] = ev.getRawX(); startRaw[1] = ev.getRawY();
                     startPos[0] = view.getX();  startPos[1] = view.getY();
@@ -1564,12 +1616,14 @@ public class NewStatusActivity extends AppCompatActivity {
                     return true;
                 case android.view.MotionEvent.ACTION_UP:
                     setEditorGestureScrollLock(false);
+                    hideSafeAreaGuideLater();
                     if (!moved[0] && ev.getEventTime() - downAt[0] < 300) {
                         view.post(() -> showEditorTextDialog(false)); // tap → edit
                     }
                     return true;
                 case android.view.MotionEvent.ACTION_CANCEL:
                     setEditorGestureScrollLock(false);
+                    hideSafeAreaGuideLater();
                     return true;
                 default:
                     return true;
@@ -1716,6 +1770,7 @@ public class NewStatusActivity extends AppCompatActivity {
         int frameVisibility = stickerOverlayFrame.getVisibility();
         if (frameVisibility != View.VISIBLE) stickerOverlayFrame.setVisibility(View.VISIBLE);
         hideForSnapshot(editorToolRail, hidden, oldVisibility);
+        hideForSnapshot(editorSafeArea, hidden, oldVisibility); // guide must never be burned into the photo
         hideForSnapshot(binding.btnDiscardMedia, hidden, oldVisibility);
         hideForSnapshot(binding.ivVideoHint, hidden, oldVisibility);
         if (!includeStickers) {

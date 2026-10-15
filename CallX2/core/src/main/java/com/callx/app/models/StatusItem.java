@@ -227,6 +227,11 @@ public class StatusItem {
      */
     @Exclude
     public long effectiveExpiry() {
+        return effectiveExpiry(expiresAt, timestamp);
+    }
+
+    /** Same rule for raw Firebase values (snapshots that are not parsed into a StatusItem). */
+    public static long effectiveExpiry(Long expiresAt, Long timestamp) {
         if (expiresAt != null && expiresAt > 0) return expiresAt;
         if (timestamp != null && timestamp > 0) return timestamp + DEFAULT_TTL_MS;
         return 0L;

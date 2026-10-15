@@ -479,7 +479,7 @@ package com.callx.app.feed;
 
       /** WhatsApp rule: expired/deleted items never reach the card, ring segments or counts. */
       private static List<StatusItem> liveOnly(List<StatusItem> in) {
-          final long now = System.currentTimeMillis();
+          final long now = com.callx.app.utils.ServerClock.now();
           List<StatusItem> out = new ArrayList<>(in.size());
           for (StatusItem s : in) if (StatusItem.isLive(s, now)) out.add(s);
           return out;
@@ -841,6 +841,7 @@ package com.callx.app.feed;
           // promotes it once the row genuinely becomes visible.
           StatusAvatarBinder.bindGated(ctx, h.ivAvatar, e.ownerPhoto,
                   resolveAvatarVersion(ctx, e.ownerUid, e.avatarVersion), R.drawable.ic_person);
+          StatusAvatarBinder.setInitialsIfNoPhoto(h.ivAvatar, e.ownerPhoto, e.ownerName, e.ownerUid);
 
           // BUG FIX: same src-vs-background layering issue as applyRingStyle() —
           // the ring ImageView's default state is an android:src drawable, which
@@ -1660,6 +1661,7 @@ package com.callx.app.feed;
               final String avUrl = c.avUrlCache;
               if (!addTile && (avUrl == null || !avUrl.equals(h.avatarKey) || !avUrl.equals(h.ivAvatar.getTag()))) {
                   StatusAvatarBinder.bindGated(ctx, h.ivAvatar, c.ownerPhoto, avVer, R.drawable.ic_person);
+                  if (!c.isMine) StatusAvatarBinder.setInitialsIfNoPhoto(h.ivAvatar, c.ownerPhoto, c.ownerName, c.ownerUid);
                   h.avatarKey = (avUrl != null && h.ivAvatar.isAttachedToWindow()) ? avUrl : null;
               }
 

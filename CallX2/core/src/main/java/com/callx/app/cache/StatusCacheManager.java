@@ -88,7 +88,7 @@ public class StatusCacheManager {
         if (uid == null) return false;
         List<StatusItem> items = statusMap.get(uid);
         if (items == null || items.isEmpty()) return false;
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         Set<String> seen = seenMap.getOrDefault(uid, Collections.emptySet());
         // v46: this uid's latest local optimistic "seen at" mark (0 if never
         // marked locally) — StatusSeenTracker.markSeen() stamps this the
@@ -118,7 +118,7 @@ public class StatusCacheManager {
         if (uid == null) return false;
         List<StatusItem> items = statusMap.get(uid);
         if (items == null || items.isEmpty()) return false;
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         for (StatusItem item : items) {
             if (isLive(item, now)) return true;
         }
@@ -135,7 +135,7 @@ public class StatusCacheManager {
         if (uid == null) return new ArrayList<>();
         List<StatusItem> items = statusMap.get(uid);
         if (items == null) return new ArrayList<>();
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         List<StatusItem> live = new ArrayList<>(items.size());
         for (StatusItem item : items) if (isLive(item, now)) live.add(item);
         return live;
@@ -149,7 +149,7 @@ public class StatusCacheManager {
         List<StatusItem> items = statusMap.get(uid);
         if (items == null || items.isEmpty()) return 0;
         Set<String> seen = seenMap.getOrDefault(uid, Collections.emptySet());
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         int count = 0;
         for (StatusItem item : items) {
             if (!isLive(item, now)) continue;
@@ -160,7 +160,7 @@ public class StatusCacheManager {
 
     /** Saara status map return karo (StatusFragment ke liye) */
     public Map<String, List<StatusItem>> getAllStatuses() {
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         Map<String, List<StatusItem>> out = new LinkedHashMap<>();
         for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
             List<StatusItem> live = new ArrayList<>(e.getValue().size());
@@ -201,7 +201,7 @@ public class StatusCacheManager {
 
     private void scheduleNextExpirySweep() {
         expiryHandler.removeCallbacks(expiryRunnable);
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         long next = Long.MAX_VALUE;
         for (List<StatusItem> items : statusMap.values()) {
             for (StatusItem item : items) {
@@ -217,7 +217,7 @@ public class StatusCacheManager {
     }
 
     private void sweepExpired() {
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         boolean changed = false;
         for (java.util.Iterator<Map.Entry<String, List<StatusItem>>> it = statusMap.entrySet().iterator(); it.hasNext(); ) {
             Map.Entry<String, List<StatusItem>> e = it.next();
@@ -272,7 +272,7 @@ public class StatusCacheManager {
         statusListener = new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snap) {
-                long now = System.currentTimeMillis();
+                long now = com.callx.app.utils.ServerClock.now();
                 statusMap.clear();
 
                 for (DataSnapshot userSnap : snap.getChildren()) {

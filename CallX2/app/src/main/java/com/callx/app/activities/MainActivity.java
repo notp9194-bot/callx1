@@ -1184,7 +1184,7 @@ public class MainActivity extends AppCompatActivity
     /** v557: preload the contact's latest live status thumb with the exact request the carousel card will use. */
     private void prewarmStatusCard(DataSnapshot ownerSnap) {
         try {
-            final long now = System.currentTimeMillis();
+            final long now = com.callx.app.utils.ServerClock.now();
             final long cutoff = now - java.util.concurrent.TimeUnit.HOURS.toMillis(24);
             DataSnapshot best = null; long bestTs = -1L;
             for (DataSnapshot st : ownerSnap.getChildren()) {
@@ -1192,7 +1192,7 @@ public class MainActivity extends AppCompatActivity
                 Long exp = st.child("expiresAt").getValue(Long.class);
                 Long ts  = st.child("timestamp").getValue(Long.class);
                 if (ts == null) continue;
-                if (exp != null ? exp < now : ts <= cutoff) continue;
+                if (com.callx.app.models.StatusItem.effectiveExpiry(exp, ts) <= now) continue;
                 if (ts > bestTs) { bestTs = ts; best = st; }
             }
             if (best == null) return;
@@ -1212,7 +1212,7 @@ public class MainActivity extends AppCompatActivity
      */
     private int computeUnseenStatusCount(String myUid, java.util.Map<String, DataSnapshot> ownerSnaps,
                                          java.util.Map<String, java.util.Set<String>> seenMap) {
-        final long now = System.currentTimeMillis();
+        final long now = com.callx.app.utils.ServerClock.now();
         final long cutoff = now - java.util.concurrent.TimeUnit.HOURS.toMillis(24);
         long nextExpiry = Long.MAX_VALUE;
         int count = 0;
@@ -1224,14 +1224,9 @@ public class MainActivity extends AppCompatActivity
                 if (Boolean.TRUE.equals(st.child("deleted").getValue(Boolean.class))) continue;
                 Long exp = st.child("expiresAt").getValue(Long.class);
                 Long ts  = st.child("timestamp").getValue(Long.class);
-                if (exp != null) {
-                    if (exp < now) continue;
-                    if (exp < nextExpiry) nextExpiry = exp;
-                } else {
-                    if (ts == null || ts <= cutoff) continue;
-                    long fallbackExp = ts + java.util.concurrent.TimeUnit.HOURS.toMillis(24);
-                    if (fallbackExp < nextExpiry) nextExpiry = fallbackExp;
-                }
+                long eff = com.callx.app.models.StatusItem.effectiveExpiry(exp, ts); // same rule as StatusItem.isLive
+                if (eff <= now) continue;
+                if (eff < nextExpiry) nextExpiry = eff;
                 if (seen == null || !seen.contains(st.getKey())) count++;
             }
         }

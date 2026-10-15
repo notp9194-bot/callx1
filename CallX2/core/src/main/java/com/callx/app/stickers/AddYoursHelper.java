@@ -110,7 +110,8 @@ public final class AddYoursHelper {
                         boolean joined = false;
                         if (s.exists()) {
                             Long exp = s.child("expiresAt").getValue(Long.class);
-                            joined = exp == null || exp > System.currentTimeMillis();
+                            Long ts  = s.child("ts").getValue(Long.class);
+                            joined = com.callx.app.models.StatusItem.effectiveExpiry(exp, ts) > com.callx.app.utils.ServerClock.now();
                         }
                         cb.onResult(joined);
                     }

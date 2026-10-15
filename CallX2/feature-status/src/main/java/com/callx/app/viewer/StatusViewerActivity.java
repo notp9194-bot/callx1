@@ -774,6 +774,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       @Override
       protected void onDestroy() {
+          handler.removeCallbacks(expiryWatchRunnable);
           detachAddYoursCounts();
           detachLiveStatusListener();
           detachRepliesListener();
@@ -954,9 +955,29 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       /** Drops deleted/expired items and rebuilds the segment bars. Highlights are permanent → skipped.
        *  Returns true if the item that was current (idx) itself got removed; idx is kept pointing at the same item (or its successor). */
+      /** If the status being watched hits its expiry while the viewer is open, drop it and move on (ring/queue stay consistent). */
+      private final Runnable expiryWatchRunnable = () -> {
+          if (isFinishing() || isDestroyed() || isHighlightMode || items.isEmpty()) return;
+          if (idx >= items.size() || !isDead(items.get(idx), com.callx.app.utils.ServerClock.now())) {
+              // not expired yet (clock moved) — re-arm
+              if (idx < items.size()) scheduleExpiryWatch(items.get(idx));
+              return;
+          }
+          releasePlayer(); stopProgress();
+          pruneDead();            // current removed -> idx already points at its successor
+          if (items.isEmpty()) { finish(); return; }
+          showCurrent();
+      };
+      private void scheduleExpiryWatch(StatusItem s) {
+          handler.removeCallbacks(expiryWatchRunnable);
+          if (isHighlightMode || s == null) return;
+          long left = s.effectiveExpiry() - com.callx.app.utils.ServerClock.now();
+          if (left <= 0) left = 250L;
+          handler.postDelayed(expiryWatchRunnable, Math.min(left + 250L, 60_000L));
+      }
       private boolean pruneDead() {
           if (isHighlightMode || items.isEmpty()) return false;
-          final long now = System.currentTimeMillis();
+          final long now = com.callx.app.utils.ServerClock.now();
           boolean changed = false, curRemoved = false;
           int newIdx = idx;
           for (int i = items.size() - 1; i >= 0; i--) {
@@ -975,7 +996,7 @@ import com.callx.app.utils.AlertDialogStyler;
           liveStatusListener = new ValueEventListener() {
               @Override public void onDataChange(@NonNull DataSnapshot snap) {
                   if (isFinishing() || isDestroyed() || items.isEmpty()) return;
-                  final long now = System.currentTimeMillis();
+                  final long now = com.callx.app.utils.ServerClock.now();
                   Set<String> alive = new HashSet<>();
                   for (DataSnapshot c : snap.getChildren()) {
                       try {
@@ -1064,6 +1085,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (idx >= items.size()) { goToNextQueueEntryOrFinish(); return; }
           final int seq = ++showSeq;
           StatusItem s = items.get(idx);
+          scheduleExpiryWatch(s);
           if (viewStartTime > 0 && idx > 0) {
               StatusItem prev = items.get(idx - 1);
               if (prev.id != null)

@@ -449,7 +449,7 @@ public class StatusFragment extends BaseFragment {
         if (getContext() == null || !isAuthenticated()) return;
         com.callx.app.db.AppDatabase db = com.callx.app.db.AppDatabase.getInstance(getContext());
         STATUS_IO.execute(() -> {
-            long now = System.currentTimeMillis();
+            long now = com.callx.app.utils.ServerClock.now();
             List<com.callx.app.db.entity.StatusEntity> cached =
                 db.statusDao().getActiveStatuses(now);
             db.statusDao().pruneExpired(now);
@@ -555,7 +555,7 @@ public class StatusFragment extends BaseFragment {
 
     /** Background thread: DataSnapshot -> filtered, time-sorted items of one user. */
     private static List<StatusItem> parseUserStatuses(DataSnapshot userSnap) {
-        long now = System.currentTimeMillis();
+        long now = com.callx.app.utils.ServerClock.now();
         List<StatusItem> items2 = new ArrayList<>();
         for (DataSnapshot stSnap : userSnap.getChildren()) {
             StatusItem item;
@@ -702,7 +702,7 @@ public class StatusFragment extends BaseFragment {
     private void sweepExpiredStatuses() {
         statusExpirySweepHandler.removeCallbacks(statusExpirySweepRunnable);
         if (getContext() == null) return;
-        long now = System.currentTimeMillis();
+        long now = com.callx.app.utils.ServerClock.now();
         boolean changed = false;
         long nextExpiryDelta = Long.MAX_VALUE;
 
@@ -763,7 +763,9 @@ public class StatusFragment extends BaseFragment {
         List<StatusListAdapter.Entry> seen   = new ArrayList<>();
         List<StatusListAdapter.Entry> muted  = new ArrayList<>();
         List<StatusListAdapter.Entry> hidden = new ArrayList<>(); // v236
-        final long rebuildNow = System.currentTimeMillis();
+        final long rebuildNow = com.callx.app.utils.ServerClock.now();
+        final com.callx.app.cache.UserProfileCache profileCache = com.callx.app.cache.UserProfileCache.getInstance();
+        profileCache.resolveBatch(statusMap.keySet(), this::rebuildStatusAdapter); // no-op for cached uids; re-renders once new photos land
         for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
             String uid = e.getKey();
             // WhatsApp rule: card, ring segments and counts are derived ONLY from live items.
@@ -785,8 +787,12 @@ public class StatusFragment extends BaseFragment {
             boolean isMutedContact  = mutedSet.contains(uid);
             boolean isHiddenContact = hiddenSet.contains(uid); // v236
             boolean isCF = closeFriendSet.contains(uid);
+            // Prefer the contact's CURRENT profile photo/name over the copy stored in the status item.
+            String freshPhoto = profileCache.getPhoto(uid);
+            String freshName  = profileCache.getName(uid);
             StatusListAdapter.Entry entry = new StatusListAdapter.Entry(
-                uid, latest.ownerName, latest.ownerPhoto,
+                uid, freshName != null ? freshName : latest.ownerName,
+                freshPhoto != null ? freshPhoto : latest.ownerPhoto,
                 latest.timestamp, items2.size(), unseenCount,
                 latest, isMutedContact, latestReaction, isCF);
             // v236: hidden takes priority — a hidden contact never shows in the
