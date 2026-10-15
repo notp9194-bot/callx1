@@ -440,7 +440,7 @@ public class StatusFragment extends BaseFragment {
             String uid = e.getKey();
             List<StatusItem> items2 = e.getValue();
             if (myUid().equals(uid)) { if (myStatuses.isEmpty()) myStatuses.addAll(items2); }
-            else { if (!statusMap.containsKey(uid)) statusMap.put(uid, items2); }
+            else { if (!statusMap.containsKey(uid)) statusMap.put(uid, new ArrayList<>(items2)); }
         }
         rebuildStatusAdapterNow();
     }
@@ -459,6 +459,7 @@ public class StatusFragment extends BaseFragment {
             for (com.callx.app.db.entity.StatusEntity e : cached) {
                 if (e == null || e.ownerUid == null || e.ownerUid.isEmpty()) continue; // v558: orphan Room row (null owner) crashed the rebuild
                 StatusItem item = entityToItem(e);
+                if (!item.isLive(now)) continue; // never seed an expired row into the carousel
                 if (myUid().equals(e.ownerUid)) roomMine.add(item);
                 else roomMap.computeIfAbsent(e.ownerUid, k -> new ArrayList<>()).add(item);
             }
@@ -561,7 +562,7 @@ public class StatusFragment extends BaseFragment {
             try { item = stSnap.getValue(StatusItem.class); }
             catch (Exception parseErr) { continue; }
             if (item == null || (item.deleted != null && item.deleted)) continue;
-            if (item.expiresAt != null && item.expiresAt < now) continue;
+            if (!item.isLive(now)) continue;
             items2.add(item);
         }
         items2.sort((a, b) -> Long.compare(
@@ -710,18 +711,16 @@ public class StatusFragment extends BaseFragment {
             List<StatusItem> items2 = e.getValue();
             for (Iterator<StatusItem> ii = items2.iterator(); ii.hasNext(); ) {
                 StatusItem item = ii.next();
-                if (item.expiresAt == null) continue;
-                long delta = item.expiresAt - now;
-                if (delta <= 0) { ii.remove(); changed = true; }
+                long delta = item.effectiveExpiry() - now;
+                if (delta <= 0 || Boolean.TRUE.equals(item.deleted)) { ii.remove(); changed = true; }
                 else if (delta < nextExpiryDelta) nextExpiryDelta = delta;
             }
             if (items2.isEmpty()) it.remove();
         }
         for (Iterator<StatusItem> ii = myStatuses.iterator(); ii.hasNext(); ) {
             StatusItem item = ii.next();
-            if (item.expiresAt == null) continue;
-            long delta = item.expiresAt - now;
-            if (delta <= 0) { ii.remove(); changed = true; }
+            long delta = item.effectiveExpiry() - now;
+            if (delta <= 0 || Boolean.TRUE.equals(item.deleted)) { ii.remove(); changed = true; }
             else if (delta < nextExpiryDelta) nextExpiryDelta = delta;
         }
 
@@ -764,9 +763,13 @@ public class StatusFragment extends BaseFragment {
         List<StatusListAdapter.Entry> seen   = new ArrayList<>();
         List<StatusListAdapter.Entry> muted  = new ArrayList<>();
         List<StatusListAdapter.Entry> hidden = new ArrayList<>(); // v236
+        final long rebuildNow = System.currentTimeMillis();
         for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
             String uid = e.getKey();
-            List<StatusItem> items2 = e.getValue();
+            // WhatsApp rule: card, ring segments and counts are derived ONLY from live items.
+            // No live item -> no card at all (never an empty-avatar placeholder).
+            List<StatusItem> items2 = new ArrayList<>(e.getValue().size());
+            for (StatusItem si : e.getValue()) if (StatusItem.isLive(si, rebuildNow)) items2.add(si);
             if (items2.isEmpty()) continue;
             StatusItem latest = items2.get(items2.size() - 1);
             if (!searchQuery.isEmpty()) {

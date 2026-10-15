@@ -423,28 +423,38 @@ exports.cleanupExpiredStatusReplies = functions.pubsub
     const statusRootSnap = await db.ref("status").once("value");
     if (!statusRootSnap.exists()) return null;
 
+    // WhatsApp-style: one expiry rule everywhere = expiresAt, else timestamp + 24h.
+    // A status with neither is treated as expired (never "lives forever").
+    // 1h grace so clients that still show the last seconds of a story never race the delete.
+    const DAY = 24 * 60 * 60 * 1000;
+    const GRACE = 60 * 60 * 1000;
     const now = Date.now();
-    const pendingDeletes = [];
-    let deletedCount = 0;
+    const updates = {};
+    let removed = 0;
 
     statusRootSnap.forEach((ownerSnap) => {
       ownerSnap.forEach((statusSnap) => {
-        const expiresAt = statusSnap.child("expiresAt").val();
-        if (!expiresAt || expiresAt >= now) return; // not expired yet / no expiry set
+        const v = statusSnap.val() || {};
+        if (v.scheduledAt && v.scheduledAt > now) return; // scheduled, not yet live
+        if (v.isHighlighted === true) return;             // highlights are permanent (comments kept too)
 
-        const isHighlighted = statusSnap.child("isHighlighted").val() === true;
-        if (isHighlighted) return; // Instagram-style: keep comments for highlighted stories
+        let exp = Number(v.expiresAt) > 0 ? Number(v.expiresAt) : 0;
+        if (!exp) exp = Number(v.timestamp) > 0 ? Number(v.timestamp) + DAY : 0;
+        if (exp + GRACE >= now) return;                   // still live / inside grace
 
-        const repliesRef = statusSnap.child("replies").ref;
-        if (!statusSnap.child("replies").exists()) return;
-
-        pendingDeletes.push(repliesRef.remove().then(() => { deletedCount++; }));
+        updates[`status/${ownerSnap.key}/${statusSnap.key}`] = null; // whole record incl. replies
+        removed++;
       });
     });
 
-    await Promise.all(pendingDeletes);
-    if (deletedCount > 0) {
-      console.log(`Expired-story comment sweep: cleared replies on ${deletedCount} expired, non-highlighted status(es).`);
+    const paths = Object.keys(updates);
+    for (let i = 0; i < paths.length; i += 400) {
+      const chunk = {};
+      paths.slice(i, i + 400).forEach((k) => { chunk[k] = null; });
+      await db.ref().update(chunk);
+    }
+    if (removed > 0) {
+      console.log(`Expired-status sweep: removed ${removed} expired, non-highlighted status record(s).`);
     }
     return null;
   });

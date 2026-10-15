@@ -201,7 +201,7 @@ public class StatusRepository {
                         for (DataSnapshot ds : snap.getChildren()) {
                             StatusItem item = ds.getValue(StatusItem.class);
                             if (item == null || Boolean.TRUE.equals(item.deleted)) continue;
-                            if (item.expiresAt != null && item.expiresAt < now) continue;
+                            if (!item.isLive(now)) continue;
                             item.ownerUid = uid;
                             if (item.id == null) item.id = ds.getKey();
                             toInsert.add(itemToEntity(item));

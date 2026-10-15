@@ -879,7 +879,7 @@ import com.callx.app.utils.AlertDialogStyler;
                               continue;
                           }
                           if (s == null || Boolean.TRUE.equals(s.deleted)) continue;
-                          if (s.expiresAt != null && s.expiresAt < now) continue;
+                          if (!s.isLive(now)) continue;
                           dbgLog( "load() added item id=" + s.id + " type=" + s.type
                                   + " resharedMediaType=" + s.resharedMediaType
                                   + " hasMediaUrl=" + (s.mediaUrl != null && !s.mediaUrl.isEmpty()));
@@ -950,8 +950,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       // ── Dead-status pruning (deleted / expired while viewer is open) ──────
       private static boolean isDead(StatusItem s, long now) {
-          return s == null || Boolean.TRUE.equals(s.deleted)
-                  || (s.expiresAt != null && s.expiresAt < now);
+          return !StatusItem.isLive(s, now);
       }
       /** Drops deleted/expired items and rebuilds the segment bars. Highlights are permanent → skipped.
        *  Returns true if the item that was current (idx) itself got removed; idx is kept pointing at the same item (or its successor). */
@@ -4357,8 +4356,8 @@ import com.callx.app.utils.AlertDialogStyler;
           if (isHighlightMode || myUid == null || !myUid.equals(ownerUid)) {
               binding.tvExpiryLabel.setVisibility(View.GONE); return;
           }
-          if (s.expiresAt != null) {
-              long diffMs = s.expiresAt - System.currentTimeMillis();
+          if (s.effectiveExpiry() > 0) {
+              long diffMs = s.effectiveExpiry() - System.currentTimeMillis();
               if (diffMs > 0) {
                   long hoursLeft = diffMs / 3_600_000L;
                   String label = hoursLeft < 1 ? "Expires <1h" : "Expires in " + hoursLeft + "h";

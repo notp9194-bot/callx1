@@ -127,9 +127,7 @@ public class StatusCacheManager {
 
     /** Story abhi bhi active hai? (deleted nahi + expiresAt guzra nahi) */
     private static boolean isLive(StatusItem item, long now) {
-        if (item == null) return false;
-        if (Boolean.TRUE.equals(item.deleted)) return false;
-        return item.expiresAt == null || item.expiresAt >= now;
+        return StatusItem.isLive(item, now);
     }
 
     /** uid ke saare active StatusItems return karo */
@@ -207,8 +205,9 @@ public class StatusCacheManager {
         long next = Long.MAX_VALUE;
         for (List<StatusItem> items : statusMap.values()) {
             for (StatusItem item : items) {
-                if (item.expiresAt == null || item.expiresAt < now) continue;
-                if (item.expiresAt < next) next = item.expiresAt;
+                long exp = item.effectiveExpiry();
+                if (exp <= now) continue;
+                if (exp < next) next = exp;
             }
         }
         if (next == Long.MAX_VALUE) return;
@@ -285,7 +284,7 @@ public class StatusCacheManager {
                         try {
                             StatusItem item = stSnap.getValue(StatusItem.class);
                             if (item == null || Boolean.TRUE.equals(item.deleted)) continue;
-                            if (item.expiresAt != null && item.expiresAt < now) continue;
+                            if (!item.isLive(now)) continue;
                             items.add(item);
                         } catch (Exception ignored) {}
                     }

@@ -346,7 +346,7 @@ package com.callx.app.feed;
       public void update(List<Entry> unseen, List<Entry> seen, List<Entry> muted, int hiddenCount) {
           statusLoaded = true;
           final int prevMyCount = myStatusCount;
-          myStatusCount = myStatuses.size();
+          myStatusCount = liveOnly(myStatuses).size();
           lastUnseen = unseen; lastSeen = seen; lastMuted = muted; lastHiddenCount = hiddenCount;
           // Batch-warm the verified-badge cache for this page of statuses
           // before rows bind — avoids one Firebase read per row on scroll.
@@ -449,7 +449,7 @@ package com.callx.app.feed;
           // Called when only highlights change — reuse the cached section lists
           // rather than re-parsing the flat list (carousel no longer exposes rows).
           final int prevMyCount = myStatusCount;
-          myStatusCount = myStatuses.size();
+          myStatusCount = liveOnly(myStatuses).size();
           requestRebuild(prevMyCount);
       }
 
@@ -477,12 +477,20 @@ package com.callx.app.feed;
 
       private static <T> List<T> snap(List<T> l) { return l == null ? new ArrayList<>() : new ArrayList<>(l); }
 
+      /** WhatsApp rule: expired/deleted items never reach the card, ring segments or counts. */
+      private static List<StatusItem> liveOnly(List<StatusItem> in) {
+          final long now = System.currentTimeMillis();
+          List<StatusItem> out = new ArrayList<>(in.size());
+          for (StatusItem s : in) if (StatusItem.isLive(s, now)) out.add(s);
+          return out;
+      }
+
       private void requestRebuild(final int prevMyCount) {
           final int gen = ++listGen;
           final List<FlatItem> old = items;
           final List<Entry> u = snap(lastUnseen), s = snap(lastSeen), m = snap(lastMuted);
           final int hidden = lastHiddenCount;
-          final List<StatusItem> mine = snap(myStatuses);   // fragment mutates myStatuses in place
+          final List<StatusItem> mine = liveOnly(snap(myStatuses));   // fragment mutates myStatuses in place; ring/count/card use live items only
           final List<HighlightAlbum> hl = highlights;       // replaced, never mutated
           final boolean loaded = statusLoaded;
           final String eq = searchEmptyQuery;

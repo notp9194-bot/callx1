@@ -15,7 +15,7 @@ public interface StatusDao {
     // ── Live queries ──────────────────────────────────────────────────────
 
     /** Active (non-expired) statuses as LiveData — for StatusViewModel. Excludes not-yet-published scheduled statuses. */
-    @Query("SELECT * FROM statuses WHERE (expiresAt IS NULL OR expiresAt > :now) AND (deleted IS NULL OR deleted = 0) AND scheduledAt = 0 ORDER BY timestamp DESC")
+    @Query("SELECT * FROM statuses WHERE (CASE WHEN expiresAt IS NOT NULL AND expiresAt > 0 THEN expiresAt ELSE IFNULL(timestamp,0) + 86400000 END) > :now AND (deleted IS NULL OR deleted = 0) AND scheduledAt = 0 ORDER BY timestamp DESC")
     LiveData<List<StatusEntity>> getActiveStatusesLive(long now);
 
     /** Statuses by owner — for "My Status" row. Excludes not-yet-published scheduled statuses. */
@@ -45,7 +45,7 @@ public interface StatusDao {
     // ── Sync queries ──────────────────────────────────────────────────────
 
     /** Active statuses sync — for background thread / Room preload. */
-    @Query("SELECT * FROM statuses WHERE (expiresAt IS NULL OR expiresAt > :now) AND (deleted IS NULL OR deleted = 0)")
+    @Query("SELECT * FROM statuses WHERE (CASE WHEN expiresAt IS NOT NULL AND expiresAt > 0 THEN expiresAt ELSE IFNULL(timestamp,0) + 86400000 END) > :now AND (deleted IS NULL OR deleted = 0)")
     List<StatusEntity> getActiveStatuses(long now);
 
     /** Last status timestamp per owner — for delta sync. */
@@ -68,7 +68,7 @@ public interface StatusDao {
     void deleteByIds(List<String> ids);
 
     /** Prune expired statuses. Pass System.currentTimeMillis() or 0 to prune all. */
-    @Query("DELETE FROM statuses WHERE expiresAt IS NOT NULL AND expiresAt < :now")
+    @Query("DELETE FROM statuses WHERE (CASE WHEN expiresAt IS NOT NULL AND expiresAt > 0 THEN expiresAt ELSE IFNULL(timestamp,0) + 86400000 END) <= :now")
     void pruneExpired(long now);
 
     /** Soft delete — keep row but mark deleted (matching Firebase). */
@@ -76,6 +76,6 @@ public interface StatusDao {
     void markDeleted(String statusId);
 
     /** Total active status count for a contact — for unread badge. */
-    @Query("SELECT COUNT(*) FROM statuses WHERE ownerUid = :ownerUid AND (expiresAt IS NULL OR expiresAt > :now) AND (deleted IS NULL OR deleted = 0)")
+    @Query("SELECT COUNT(*) FROM statuses WHERE ownerUid = :ownerUid AND (CASE WHEN expiresAt IS NOT NULL AND expiresAt > 0 THEN expiresAt ELSE IFNULL(timestamp,0) + 86400000 END) > :now AND (deleted IS NULL OR deleted = 0)")
     int getActiveCount(String ownerUid, long now);
 }

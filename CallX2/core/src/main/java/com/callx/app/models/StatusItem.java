@@ -217,11 +217,37 @@ public class StatusItem {
         return reactions != null ? reactions.size() : 0;
     }
 
+    /** WhatsApp-style default lifetime: a status with no explicit expiry still dies 24h after posting. */
+    public static final long DEFAULT_TTL_MS = 24L * 3_600_000L;
+
+    /**
+     * Single source of truth for "when does this status die".
+     * expiresAt if set (> 0), else timestamp + 24h. A status with neither is treated as
+     * already expired (fail closed) — null must never mean "lives forever".
+     */
+    @Exclude
+    public long effectiveExpiry() {
+        if (expiresAt != null && expiresAt > 0) return expiresAt;
+        if (timestamp != null && timestamp > 0) return timestamp + DEFAULT_TTL_MS;
+        return 0L;
+    }
+
+    /** Live = not deleted and not past effectiveExpiry(). Use this everywhere instead of raw expiresAt checks. */
+    @Exclude
+    public boolean isLive(long now) {
+        return !Boolean.TRUE.equals(deleted) && now < effectiveExpiry();
+    }
+
+    /** Null-safe static form of {@link #isLive(long)}. */
+    @Exclude
+    public static boolean isLive(StatusItem s, long now) {
+        return s != null && s.isLive(now);
+    }
+
     /** Human-readable expiry label: "Expires in 2h", "Expired", etc. */
     @Exclude
     public String getExpiryLabel() {
-        if (expiresAt == null) return "";
-        long diff = expiresAt - System.currentTimeMillis();
+        long diff = effectiveExpiry() - System.currentTimeMillis();
         if (diff <= 0) return "Expired";
         long hours = diff / 3_600_000L;
         long mins  = (diff % 3_600_000L) / 60_000L;
