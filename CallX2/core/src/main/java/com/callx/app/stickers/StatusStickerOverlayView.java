@@ -670,10 +670,14 @@ public class StatusStickerOverlayView extends LinearLayout {
         StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
         v.setPadding(dp * 12, dp * 12, dp * 12, dp * 12);
 
+        // Label style chosen on the Adjust Music screen: 0 default card, 1 AA caps, 2 AI glass pill,
+        // 3 Aa plain text (no card), 4 A light card. Absent in old stickers -> 0 (unchanged look).
+        int labelStyle = 0;
+        try { labelStyle = Math.max(0, Math.min(4, (int) Float.parseFloat(jsonNum(json, "labelStyle", "0")))); } catch (Exception ignored) {}
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(dp * 18);
-        bg.setColor(0xEE000000);
-        bg.setStroke(Math.max(1, dp), 0x44FFFFFF);
+        bg.setCornerRadius(labelStyle == 2 ? dp * 40 : dp * 18);
+        bg.setColor(labelStyle == 2 ? 0x77000000 : labelStyle == 4 ? 0xF2FFFFFF : labelStyle == 3 ? 0x00000000 : 0xEE000000);
+        if (labelStyle != 3) bg.setStroke(Math.max(1, dp), labelStyle == 2 ? 0x99FFFFFF : 0x44FFFFFF);
         v.setBackground(bg);
 
         // Row: album art + text
@@ -760,17 +764,17 @@ public class StatusStickerOverlayView extends LinearLayout {
         final int textW = Math.max(dp * 40, Math.min(dp * 130, (int) Math.ceil(w) + dp * 2));
         com.callx.app.views.MusicTickerView tvSong = new com.callx.app.views.MusicTickerView(ctx);
         v.musicTicker = tvSong;
-        tvSong.setTextColor(Color.WHITE);
+        tvSong.setTextColor(labelStyle == 4 ? 0xFF111111 : Color.WHITE);
         tvSong.setTextBold(true);
         tvSong.setTextSizePx(14 * ctx.getResources().getDisplayMetrics().scaledDensity);
-        tvSong.setText(song);
+        tvSong.setText(labelStyle == 1 ? song.toUpperCase(java.util.Locale.getDefault()) : song);
         textCol.addView(tvSong, new LinearLayout.LayoutParams(textW,
             LinearLayout.LayoutParams.WRAP_CONTENT));
 
         if (!artist.isEmpty()) {
             TextView tvArtist = new TextView(ctx);
             tvArtist.setText(artist);
-            tvArtist.setTextColor(0xFFCCCCCC);
+            tvArtist.setTextColor(labelStyle == 4 ? 0xFF555555 : 0xFFCCCCCC);
             tvArtist.setTextSize(12);
             tvArtist.setMaxLines(1);
             tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);

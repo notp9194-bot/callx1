@@ -367,6 +367,9 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
         }
     }
 
+    /** Label style picked on the Adjust Music screen (0 default card .. 4); consumed by the next emitted music sticker. */
+    private int adjLabelStyle = 0;
+
     private void onMusicAdjustResult(int resultCode, @Nullable Intent data) {
         if (resultCode == android.app.Activity.RESULT_OK && data != null) {
             // "Use" tapped. The user may also have hit "Change" inside the screen and swapped the
@@ -378,6 +381,7 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             String cover  = data.getStringExtra("result_sound_cover");
             int startMs   = data.getIntExtra("result_start_ms", 0);
             int endMs     = data.getIntExtra("result_end_ms", 0);
+            adjLabelStyle = Math.max(0, Math.min(4, data.getIntExtra("result_label_style", 0)));
             if (title == null || title.isEmpty()) title = pendTitle;
             if (url == null || url.isEmpty()) url = (pendFullUrl != null && !pendFullUrl.isEmpty()) ? pendFullUrl : pendPreviewUrl;
             if (id == null || id.isEmpty()) id = pendId;
@@ -496,8 +500,10 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             + ",\"soundUrl\":\"" + esc(soundUrl != null ? soundUrl : "") + "\""
             + (startMs > 0 ? ",\"startMs\":" + startMs : "")
             + (endMs > startMs && endMs > 0 ? ",\"endMs\":" + endMs : "")
+            + (adjLabelStyle > 0 ? ",\"labelStyle\":" + adjLabelStyle : "")
             + mixJson
             + "}";
+        adjLabelStyle = 0;
         if (listener != null) listener.onSelected(new StickerResult("music", json));
     }
 

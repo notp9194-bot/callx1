@@ -28,7 +28,7 @@ import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.music.ReelTrendingAudioActivity;
 import com.callx.app.music.SoundDetailSheetFragment;
 import com.callx.app.reels.R;
-import com.callx.app.views.AudioTrimWaveformView;
+import com.callx.app.views.ClipWindowWaveformView;
 import com.callx.app.views.AudioWaveformExtractor;
 
 import java.util.ArrayList;
@@ -87,6 +87,8 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     public static final String RESULT_SOUND_ARTIST= "result_sound_artist";
     public static final String RESULT_SOUND_URL   = "result_sound_url";
     public static final String RESULT_SOUND_COVER = "result_sound_cover";
+    /** 0 = default card ("Music only"), 1 = AA caps, 2 = AI glass pill, 3 = Aa plain text, 4 = A light card. */
+    public static final String RESULT_LABEL_STYLE = "result_label_style";
 
     /** Convenience launcher — photo-reel flow (no video preview). */
     public static void start(AppCompatActivity from, ArrayList<String> photoUris, int slideMs,
@@ -122,13 +124,18 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         from.startActivityForResult(i, requestCode);
     }
 
-    private ImageButton  btnBack, btnPreview;
-    private TextView      btnUse, btnChange;
+    private ImageButton  btnPreview;
+    private View         btnBack, btnChange;
+    private TextView     btnUse, btnDuration;
+    private ProgressBar  progressLine;
+    private final TextView[] styleChips = new TextView[5];
+    private int labelStyle = 0;
+    private boolean autoPlayed = false;
     private TextView     tvTitle, tvDuration;
     private TextView     tvTrackTitle, tvTrackArtist;
     private ImageView    ivCover, ivPhotoPreview, ivPlayHint;
     private VideoView    videoPreview;
-    private AudioTrimWaveformView waveformView;
+    private ClipWindowWaveformView waveformView;
     private RadioGroup   rgPresets;
     private ProgressBar  progressLoad;
     /** Spinner over the preview image / inside the preview button while the stream seeks or rebuffers. */
@@ -180,6 +187,8 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             if (mediaPlayer != null && isPreviewing) {
                 int pos = mediaPlayer.getCurrentPosition();
                 if (waveformView != null) waveformView.setPlayheadMs(pos);
+                if (progressLine != null && endMs > startMs)
+                    progressLine.setProgress(Math.max(0, Math.min(1000, (int) (1000L * (pos - startMs) / (endMs - startMs)))));
                 if (pos >= endMs) {
                     loopPreview();   // keep auditioning the selection until the user stops it
                 } else {
@@ -208,6 +217,11 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_reel_photo_music_trim);
+        try {   // dark full-bleed screen: black status bar with light icons
+            getWindow().setStatusBarColor(android.graphics.Color.BLACK);
+            androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
+                    .setAppearanceLightStatusBars(false);
+        } catch (Exception ignored) {}
 
         soundId       = getIntent().getStringExtra(EXTRA_SOUND_ID);
         soundUrl      = getIntent().getStringExtra(EXTRA_SOUND_URL);
@@ -261,6 +275,18 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         layoutControls  = findViewById(R.id.layout_trim_controls);
         layoutTrackInfo = findViewById(R.id.layout_trim_track_info);
         btnChange       = findViewById(R.id.btn_trim_change);
+        btnDuration     = findViewById(R.id.btn_trim_duration);
+        progressLine    = findViewById(R.id.progress_trim_line);
+        int[] chipIds = { R.id.chip_style_0, R.id.chip_style_1, R.id.chip_style_2, R.id.chip_style_3, R.id.chip_style_4 };
+        for (int i = 0; i < chipIds.length; i++) {
+            final int style = i;
+            styleChips[i] = findViewById(chipIds[i]);
+            if (styleChips[i] != null) styleChips[i].setOnClickListener(v -> {
+                v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                setLabelStyle(style);
+            });
+        }
+        setLabelStyle(0);
 
         View.OnClickListener togglePreviewClick = v -> togglePreview();
         if (ivPhotoPreview != null) ivPhotoPreview.setOnClickListener(togglePreviewClick);
@@ -295,20 +321,12 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
      * screen in both light and dark mode.
      */
     private void setupWaveformPalette() {
-        if (waveformView == null) return;
-        int dim       = ContextCompat.getColor(this, R.color.trim_waveform_dim);
-        int start     = ContextCompat.getColor(this, R.color.trim_gradient_start);
-        int end       = ContextCompat.getColor(this, R.color.trim_gradient_end);
-        int playhead  = ContextCompat.getColor(this, R.color.trim_text_primary);
-        int tooltipBg = ContextCompat.getColor(this, R.color.trim_tooltip_bg);
-        int tooltipTx = ContextCompat.getColor(this, R.color.trim_tooltip_text);
-        waveformView.setPalette(dim, start, end, playhead, tooltipBg, tooltipTx);
+        // ClipWindowWaveformView draws its own fixed Instagram-style palette — nothing to resolve.
     }
 
     private void populateInfo() {
         if (tvTitle != null) tvTitle.setText(R.string.adjust_music_title);
-        if (tvTrackTitle != null)
-            tvTrackTitle.setText(soundTitle != null && !soundTitle.isEmpty() ? soundTitle : getString(R.string.adjust_music_original_audio));
+        setLabelStyle(labelStyle);   // sets the big centre label (title) in the chosen style
         if (tvTrackArtist != null)
             tvTrackArtist.setText(soundArtist != null && !soundArtist.isEmpty() ? soundArtist : getString(R.string.adjust_music_artist_unknown));
         if (ivCover != null && soundCover != null && !soundCover.isEmpty()) {
@@ -400,6 +418,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                 if (layoutControls != null) layoutControls.setVisibility(View.VISIBLE);
                 setControlsLocked(false);
                 updateActionStates();
+                if (!autoPlayed) { autoPlayed = true; startPreview(); } // Instagram plays the clip as soon as it opens
             }));
             mediaPlayer.setOnSeekCompleteListener(mp -> runOnUiThread(() -> {
                 if (mediaPlayer != mp || !seekPending) return;
@@ -501,7 +520,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     /** Wires the draggable waveform's handles to the startMs/endMs state. */
     private void setupWaveformDrag() {
         if (waveformView == null) return;
-        waveformView.setOnRangeChangeListener(new AudioTrimWaveformView.OnRangeChangeListener() {
+        waveformView.setOnRangeChangeListener(new ClipWindowWaveformView.OnRangeChangeListener() {
             @Override public void onRangeChanging(int newStart, int newEnd, boolean isStartHandle) {
                 if (isPreviewing) stopPreview();
                 startMs = newStart;
@@ -558,6 +577,50 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         }
         if (match == -1) rgPresets.clearCheck();
         else if (rgPresets.getCheckedRadioButtonId() != match) rgPresets.check(match);
+        updateDurationCircle();
+    }
+
+    /** Shows the selected clip length (seconds) inside the circle. */
+    private void updateDurationCircle() {
+        if (btnDuration == null) return;
+        int sec = Math.max(1, Math.round((endMs - startMs) / 1000f));
+        btnDuration.setText(String.valueOf(sec));
+    }
+
+    /** Tap the circle: 15 → 30 → 60 → 15 seconds (same presets as before). */
+    private void cycleClipLength() {
+        if (btnDuration != null) btnDuration.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        int span = endMs - startMs;
+        int next = span < 22_000 ? 30_000 : span < 45_000 ? 60_000 : 15_000;
+        stopPreview();
+        snapTo(next);
+        syncPresetChip();
+        if (audioReady) startPreview();
+    }
+
+    /** Label style chips: restyle the big centre label now, and the music sticker later (returned in the result). */
+    private void setLabelStyle(int style) {
+        labelStyle = style;
+        for (int i = 0; i < styleChips.length; i++) {
+            TextView c = styleChips[i];
+            if (c == null) continue;
+            c.setSelected(i == style);
+            c.setTextColor(i == style ? 0xFF111111 : 0xFFFFFFFF);
+        }
+        if (tvTrackTitle == null) return;
+        CharSequence base = soundTitle != null && !soundTitle.isEmpty() ? soundTitle : getString(R.string.adjust_music_original_audio);
+        tvTrackTitle.setAllCaps(style == 1);
+        tvTrackTitle.setText(style == 1 ? base.toString().toUpperCase(Locale.getDefault()) : base);
+        tvTrackTitle.setTypeface(android.graphics.Typeface.DEFAULT, style == 2 ? android.graphics.Typeface.BOLD_ITALIC : android.graphics.Typeface.BOLD);
+        tvTrackTitle.setPaintFlags(style == 3 ? tvTrackTitle.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                                              : tvTrackTitle.getPaintFlags() & ~android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+        android.graphics.drawable.GradientDrawable bg = null;
+        if (style == 2) { bg = new android.graphics.drawable.GradientDrawable(); bg.setColor(0x66000000); bg.setCornerRadius(80f * getResources().getDisplayMetrics().density); bg.setStroke(2, 0x99FFFFFF); }
+        if (style == 4) { bg = new android.graphics.drawable.GradientDrawable(); bg.setColor(0xF2FFFFFF); bg.setCornerRadius(14f * getResources().getDisplayMetrics().density); }
+        int pad = (int) (14 * getResources().getDisplayMetrics().density);
+        tvTrackTitle.setBackground(bg);
+        tvTrackTitle.setPadding(bg != null ? pad * 2 : 0, bg != null ? pad : 0, bg != null ? pad * 2 : 0, bg != null ? pad : 0);
+        tvTrackTitle.setTextColor(style == 4 ? 0xFF111111 : 0xFFFFFFFF);
     }
 
     private void snapTo(int clipMs) {
@@ -573,6 +636,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (btnPreview    != null) btnPreview.setOnClickListener(v -> togglePreview());
         if (btnUse        != null) btnUse.setOnClickListener(v -> useSelection());
         if (btnChange     != null) btnChange.setOnClickListener(v -> openChangeMusicPicker());
+        if (btnDuration   != null) btnDuration.setOnClickListener(v -> cycleClipLength());
         if (layoutTrackInfo != null) layoutTrackInfo.setOnClickListener(v -> openSoundDetail());
     }
 
@@ -729,6 +793,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (btnPreview != null) btnPreview.setImageResource(R.drawable.ic_play);
         if (ivPlayHint != null) ivPlayHint.setVisibility(View.VISIBLE);
         if (waveformView != null) waveformView.setPlayheadMs(-1);
+        if (progressLine != null) progressLine.setProgress(0);
         handler.removeCallbacks(previewStopCheck);
         slideHandler.removeCallbacks(slideRunnable);
         if (videoPreview != null && videoUri != null) {
@@ -755,6 +820,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         result.putExtra(RESULT_SOUND_ARTIST, soundArtist != null ? soundArtist : "");
         result.putExtra(RESULT_SOUND_URL,    soundUrl    != null ? soundUrl    : "");
         result.putExtra(RESULT_SOUND_COVER,  soundCover  != null ? soundCover  : "");
+        result.putExtra(RESULT_LABEL_STYLE,  labelStyle);
         setResult(RESULT_OK, result);
         finish();
     }
@@ -762,6 +828,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     /** Pushes the current startMs/endMs into the waveform view. */
     private void syncRangeToWaveform() {
         if (waveformView != null) waveformView.setRangeMs(startMs, endMs);
+        updateDurationCircle();
     }
 
     private static String msToTime(int ms) {
