@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status editor safe-area guide labels (StorySafeAreaView) -->
+    <string name="story_safe_top">Yahan header dikhega</string>
+    <string name="story_safe_bottom">Yahan caption dikhega</string>
+    <string name="story_safe_ok">Safe area OK</string>
+</resources>

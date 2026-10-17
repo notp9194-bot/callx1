@@ -49,6 +49,15 @@ public class StatusStickerOverlayView extends LinearLayout {
     /** Fired on a plain tap (not a drag/pinch) — composer uses this to show the size buttons. */
     public interface OnStickerTappedListener { void onTapped(StatusStickerOverlayView sticker); }
     public void setOnStickerTappedListener(OnStickerTappedListener l) { this.stickerTapListener = l; }
+
+    /** Drag lifecycle hook (composer uses it for the safe-area guide + edge haptics). */
+    public interface OnStickerDragListener {
+        void onDragStart(StatusStickerOverlayView sticker);
+        void onDragMove(StatusStickerOverlayView sticker);
+        void onDragEnd(StatusStickerOverlayView sticker);
+    }
+    private OnStickerDragListener dragListener;
+    public void setOnStickerDragListener(OnStickerDragListener l) { this.dragListener = l; }
     public float getStickerScale() { return stickerScale; }
 
     // ── Rotation (two-finger twist, mirrors the pinch-to-scale gesture) ────
@@ -670,14 +679,10 @@ public class StatusStickerOverlayView extends LinearLayout {
         StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
         v.setPadding(dp * 12, dp * 12, dp * 12, dp * 12);
 
-        // Label style chosen on the Adjust Music screen: 0 default card, 1 AA caps, 2 AI glass pill,
-        // 3 Aa plain text (no card), 4 A light card. Absent in old stickers -> 0 (unchanged look).
-        int labelStyle = 0;
-        try { labelStyle = Math.max(0, Math.min(4, (int) Float.parseFloat(jsonNum(json, "labelStyle", "0")))); } catch (Exception ignored) {}
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(labelStyle == 2 ? dp * 40 : dp * 18);
-        bg.setColor(labelStyle == 2 ? 0x77000000 : labelStyle == 4 ? 0xF2FFFFFF : labelStyle == 3 ? 0x00000000 : 0xEE000000);
-        if (labelStyle != 3) bg.setStroke(Math.max(1, dp), labelStyle == 2 ? 0x99FFFFFF : 0x44FFFFFF);
+        bg.setCornerRadius(dp * 18);
+        bg.setColor(0xEE000000);
+        bg.setStroke(Math.max(1, dp), 0x44FFFFFF);
         v.setBackground(bg);
 
         // Row: album art + text
@@ -764,17 +769,17 @@ public class StatusStickerOverlayView extends LinearLayout {
         final int textW = Math.max(dp * 40, Math.min(dp * 130, (int) Math.ceil(w) + dp * 2));
         com.callx.app.views.MusicTickerView tvSong = new com.callx.app.views.MusicTickerView(ctx);
         v.musicTicker = tvSong;
-        tvSong.setTextColor(labelStyle == 4 ? 0xFF111111 : Color.WHITE);
+        tvSong.setTextColor(Color.WHITE);
         tvSong.setTextBold(true);
         tvSong.setTextSizePx(14 * ctx.getResources().getDisplayMetrics().scaledDensity);
-        tvSong.setText(labelStyle == 1 ? song.toUpperCase(java.util.Locale.getDefault()) : song);
+        tvSong.setText(song);
         textCol.addView(tvSong, new LinearLayout.LayoutParams(textW,
             LinearLayout.LayoutParams.WRAP_CONTENT));
 
         if (!artist.isEmpty()) {
             TextView tvArtist = new TextView(ctx);
             tvArtist.setText(artist);
-            tvArtist.setTextColor(labelStyle == 4 ? 0xFF555555 : 0xFFCCCCCC);
+            tvArtist.setTextColor(0xFFCCCCCC);
             tvArtist.setTextSize(12);
             tvArtist.setMaxLines(1);
             tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1910,6 +1915,7 @@ public class StatusStickerOverlayView extends LinearLayout {
                     guides[0].bringToFront();
                     guides[1].bringToFront();
                     animate().scaleX(stickerScale * 1.05f).scaleY(stickerScale * 1.05f).setDuration(80).start();
+                    if (dragListener != null) dragListener.onDragStart(this);
                     return true;
                 case MotionEvent.ACTION_POINTER_DOWN:
                     // Second finger just landed — rebase the drag anchor so the sticker
@@ -1972,6 +1978,7 @@ public class StatusStickerOverlayView extends LinearLayout {
 
                         view.setX(targetX);
                         view.setY(targetY);
+                        if (dragListener != null) dragListener.onDragMove(this);
 
                         // Are we hovering the trash pill? Compare on-screen centers.
                         boolean hovering = overlaps(view, trash);
@@ -1995,6 +2002,7 @@ public class StatusStickerOverlayView extends LinearLayout {
                     // Gesture is fully done — let the parent scroll normally again.
                     if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
                     hideTrashAndGuides(trash, guides);
+                    if (dragListener != null) dragListener.onDragEnd(this);
                     if (moved[0] && hoveringTrash[0] && parent == getParent()) {
                         removeAnimated(parent, true);
                         return true;
@@ -2009,6 +2017,7 @@ public class StatusStickerOverlayView extends LinearLayout {
                     // disallowed for the rest of the screen's lifetime.
                     if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
                     hideTrashAndGuides(trash, guides);
+                    if (dragListener != null) dragListener.onDragEnd(this);
                     animate().scaleX(stickerScale).scaleY(stickerScale).alpha(1f).setDuration(80).start();
                     return true;
             }

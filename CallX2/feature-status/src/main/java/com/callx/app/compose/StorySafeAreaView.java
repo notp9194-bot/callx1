@@ -4,29 +4,48 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
+import android.graphics.Rect;
+import android.os.Build;
 import android.util.DisplayMetrics;
 import android.view.View;
+import android.view.WindowManager;
 
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+
+import com.callx.app.status.R;
+import com.callx.app.utils.StoryChromePrefs;
 import com.callx.app.utils.StoryFrameSpec;
 
 /**
  * Dotted "safe area" guide for the status editor: shades the strips the viewer's own header /
- * caption will cover and draws dashed boundary lines. Touch-transparent, never baked into the photo.
+ * caption / screen edges will cover and draws a dashed safe rectangle (top, bottom, left, right).
+ * Touch-transparent, never baked into the photo.
+ *
+ * v639: uses the REAL viewer window size + window insets (status bar, cutout) and the viewer's
+ * measured header height (StoryChromePrefs) instead of dp constants + DisplayMetrics; draws the
+ * vertical (left/right) guide; and always shows the safe rect (faint) even when nothing overlaps.
  */
 public final class StorySafeAreaView extends View {
     private final Paint shade = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint dash  = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final float[] insets = new float[2];
+    private final float[] insets = new float[4];   // top, bottom, left, right (canvas px)
+    private final int[] viewer = new int[2];
     private final float density;
-    private final DisplayMetrics dm;
-    private final String topText = "Yahan header dikhega";
-    private final String botText = "Yahan caption dikhega";
+    private final String topText, botText, okText;
+    private boolean pinned;   // pinned = subtle always-on mode (faint border, light shade)
+
+    // window insets (px) — refreshed via the insets listener
+    private float sysTop, sysBottom, sysLeft, sysRight;
 
     public StorySafeAreaView(Context c) {
         super(c);
-        dm = c.getResources().getDisplayMetrics();
-        density = dm.density;
+        density = c.getResources().getDisplayMetrics().density;
+        topText = c.getString(R.string.story_safe_top);
+        botText = c.getString(R.string.story_safe_bottom);
+        okText  = c.getString(R.string.story_safe_ok);
         setClickable(false);
         setFocusable(false);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -41,23 +60,105 @@ public final class StorySafeAreaView extends View {
         label.setColor(0xCCFFFFFF);
         label.setTextSize(10f * density);
         label.setTextAlign(Paint.Align.CENTER);
+        sysTop = statusBarFallbackPx();
+        // Observe (never consume) window insets so the guide follows notch / status bar / gestures.
+        ViewCompat.setOnApplyWindowInsetsListener(this, (v, wi) -> {
+            readInsets(wi);
+            invalidate();
+            return wi;
+        });
+    }
+
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        ViewCompat.requestApplyInsets(this);
+    }
+
+    private void readInsets(WindowInsetsCompat wi) {
+        // The viewer hides system bars, so its card is positioned from the visibility-ignoring top inset
+        // (status bar + cutout) but only a cutout / ime-less bottom inset (see StatusViewerActivity#setupEdgeToEdge).
+        Insets topIns = wi.getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+        Insets cut = wi.getInsets(WindowInsetsCompat.Type.displayCutout());
+        sysTop = topIns.top;
+        sysBottom = cut.bottom;
+        sysLeft = cut.left;
+        sysRight = cut.right;
+    }
+
+    private float statusBarFallbackPx() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : 24f * density;
+    }
+
+    /** Real viewer window size: the full display in the current rotation (the viewer is immersive). */
+    private void resolveViewerSize() {
+        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+        if (wm == null) {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            viewer[0] = dm.widthPixels; viewer[1] = dm.heightPixels;
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            Rect b = wm.getMaximumWindowMetrics().getBounds();
+            viewer[0] = b.width(); viewer[1] = b.height();
+        } else {
+            DisplayMetrics real = new DisplayMetrics();
+            wm.getDefaultDisplay().getRealMetrics(real);
+            viewer[0] = real.widthPixels; viewer[1] = real.heightPixels;
+        }
+    }
+
+    /** Recomputes the 4 safe insets (canvas px) for the current size / window. */
+    private void refreshInsets(int w, int h) {
+        resolveViewerSize();
+        StoryFrameSpec.safeInsets(w, h, viewer[0], viewer[1], density,
+                sysTop, sysBottom, sysLeft, sysRight,
+                StoryChromePrefs.topPx(getContext()), 0f, insets);
+    }
+
+    /** Pinned = subtle always-on mode: faint border + light shade so it never hides the canvas while editing. */
+    public void setPinned(boolean pinned) {
+        if (this.pinned == pinned) return;
+        this.pinned = pinned;
+        invalidate();
+    }
+
+    /** True when {@code v} (text / sticker in the same frame) lies fully inside the safe rect. */
+    public boolean isInsideSafe(View v) {
+        int w = getWidth(), h = getHeight();
+        if (v == null || w <= 0 || h <= 0) return true;
+        refreshInsets(w, h);
+        return StoryFrameSpec.isInsideSafe(
+                v.getX() + v.getWidth() / 2f, v.getY() + v.getHeight() / 2f,
+                v.getWidth() * v.getScaleX(), v.getHeight() * v.getScaleY(),
+                v.getRotation(), w, h, insets);
     }
 
     @Override protected void onDraw(Canvas c) {
         int w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0) return;
-        StoryFrameSpec.safeInsetsCanvasPx(w, h, dm.widthPixels, dm.heightPixels, density, insets);
-        float top = insets[0], bottom = h - insets[1];
-        if (top > 0f) {
-            c.drawRect(0, 0, w, top, shade);
-            c.drawLine(0, top, w, top, dash);
-            c.drawText(topText, w / 2f, Math.max(12f * density, top - 6f * density), label);
-        }
-        if (insets[1] > 0f) {
-            c.drawRect(0, bottom, w, h, shade);
-            c.drawLine(0, bottom, w, bottom, dash);
-            c.drawText(botText, w / 2f, Math.min(h - 6f * density, bottom + 16f * density), label);
-        }
+        refreshInsets(w, h);
+        float t = insets[0], b = h - insets[1], l = insets[2], r = w - insets[3];
+        boolean any = insets[0] > 0f || insets[1] > 0f || insets[2] > 0f || insets[3] > 0f;
+
+        shade.setColor(pinned ? 0x22000000 : 0x44000000);
+        // shaded strips (left/right only between the horizontal bands so corners aren't shaded twice)
+        if (t > 0f) c.drawRect(0, 0, w, t, shade);
+        if (insets[1] > 0f) c.drawRect(0, b, w, h, shade);
+        if (l > 0f) c.drawRect(0, t, l, b, shade);
+        if (insets[3] > 0f) c.drawRect(r, t, w, b, shade);
+
+        // dashed safe rectangle — dimmer when nothing overlaps or when pinned, so it never looks "broken/empty"
+        float inset = dash.getStrokeWidth() / 2f;
+        dash.setAlpha(pinned ? (any ? 0x80 : 0x50) : (any ? 0xE6 : 0x66));
+        c.drawRect(Math.max(l, inset), Math.max(t, inset),
+                Math.min(r, w - inset), Math.min(b, h - inset), dash);
+
+        label.setAlpha(pinned ? 0x88 : 0xCC);
+        if (t > 0f) c.drawText(topText, w / 2f, Math.max(12f * density, t - 6f * density), label);
+        if (insets[1] > 0f) c.drawText(botText, w / 2f, Math.min(h - 6f * density, b + 16f * density), label);
+        if (!any) c.drawText(okText, w / 2f, 18f * density, label);
     }
 
     /** Fade in (and keep) the guide. */

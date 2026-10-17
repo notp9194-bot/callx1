@@ -32,14 +32,4 @@
     <string name="adjust_music_err_playback_failed">Playback failed</string>
     <string name="adjust_music_err_not_ready">Audio not ready</string>
     <string name="adjust_music_err_still_loading">Audio still loading</string>
-
-    <!-- Instagram-style Adjust Music screen -->
-    <string name="adjust_music_cancel">Cancel</string>
-    <string name="adjust_music_cd_clip_length">Clip length, tap to change</string>
-    <string name="adjust_music_cd_style_default">Music only</string>
-    <string name="adjust_music_cd_style_caps">Capital letters</string>
-    <string name="adjust_music_cd_style_glass">Glass pill</string>
-    <string name="adjust_music_cd_style_plain">Plain text</string>
-    <string name="adjust_music_cd_style_light">Light card</string>
-    <string name="adjust_music_cd_progress">Clip progress</string>
 </resources>

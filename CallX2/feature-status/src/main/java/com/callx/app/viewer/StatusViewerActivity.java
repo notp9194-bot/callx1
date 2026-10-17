@@ -204,6 +204,11 @@ import com.callx.app.utils.AlertDialogStyler;
               return insets;
           });
           androidx.core.view.ViewCompat.requestApplyInsets(binding.getRoot());
+          // v639: publish the real measured header-chrome height so the editor's safe-area guide follows
+          // this layout instead of a hardcoded dp (see StoryChromePrefs / StorySafeAreaView).
+          binding.llTopChrome.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+              if (b - t > 0) com.callx.app.utils.StoryChromePrefs.publishTop(StatusViewerActivity.this, b - t);
+          });
       }
       private void hideSystemBars() {
           androidx.core.view.WindowInsetsControllerCompat c =

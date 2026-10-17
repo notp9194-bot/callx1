@@ -1083,12 +1083,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     /** Opens the full sticker sheet — same Music/Poll/Quiz/Countdown flow as Status. */
     private void openFullStickerPicker() {
-        // Pass the photo so Music goes through the Instagram-style "Adjust Music" screen
-        // (pick the clip + label style over the dimmed photo) instead of attaching the full track.
-        StatusStickerPickerSheet.MusicPreviewMedia musicMedia =
-            (photoUri != null && !photoUri.isEmpty())
-                ? new StatusStickerPickerSheet.MusicPreviewMedia(photoUri, false) : null;
-        StatusStickerPickerSheet.show(this, musicMedia, result -> {
+        StatusStickerPickerSheet.show(this, result -> {
             if (flStickerLayer == null) return;
             StatusStickerOverlayView sv = StatusStickerOverlayView.fromJson(this, result.json);
             int dp = (int) getResources().getDisplayMetrics().density;

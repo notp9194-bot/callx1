@@ -998,6 +998,13 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void showSafeAreaGuide() { if (editorSafeArea != null) editorSafeArea.show(); }
+    /** Haptic tick when an overlay crosses the safe-area edge; returns the new inside/outside state. */
+    private boolean safeEdgeTick(View v, boolean wasInside) {
+        if (editorSafeArea == null || v == null) return wasInside;
+        boolean now = editorSafeArea.isInsideSafe(v);
+        if (now != wasInside) v.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+        return now;
+    }
     private void hideSafeAreaGuideLater() {
         if (editorSafeArea != null && !editorSafeAreaPinned) editorSafeArea.hideLater(900L);
     }
@@ -1290,6 +1297,7 @@ public class NewStatusActivity extends AppCompatActivity {
             case "Guide":
                 editorSafeAreaPinned = !editorSafeAreaPinned;
                 if (editorSafeArea != null) {
+                    editorSafeArea.setPinned(editorSafeAreaPinned);
                     if (editorSafeAreaPinned) editorSafeArea.show(); else editorSafeArea.hideLater(0L);
                 }
                 View gRow = editorToolRows.get("Guide");
@@ -1565,12 +1573,14 @@ public class NewStatusActivity extends AppCompatActivity {
         final float[] dist0 = {1f}, scale0 = {1f}, angle0 = {0f}, rot0 = {0f};
         final boolean[] moved = {false}, rebase = {false};
         final long[] downAt = {0L};
+        final boolean[] inSafe = {true};
         tv.setOnTouchListener((view, ev) -> {
             switch (ev.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
                     showSafeAreaGuide();
                     setEditorGestureScrollLock(true);
                     startRaw[0] = ev.getRawX(); startRaw[1] = ev.getRawY();
+                    inSafe[0] = editorSafeArea == null || editorSafeArea.isInsideSafe(view);
                     startPos[0] = view.getX();  startPos[1] = view.getY();
                     moved[0] = false; rebase[0] = false;
                     downAt[0] = ev.getEventTime();
@@ -1608,6 +1618,7 @@ public class NewStatusActivity extends AppCompatActivity {
                             view.setX(startPos[0] + dx);
                             view.setY(startPos[1] + dy);
                             clampEditorTextPosition(view);
+                            inSafe[0] = safeEdgeTick(view, inSafe[0]);
                         }
                     }
                     return true;
@@ -2240,6 +2251,17 @@ public class NewStatusActivity extends AppCompatActivity {
 
         // Enable drag + pinch-resize + long-press-remove
         stickerView.attachDragToParent(stickerOverlayFrame);
+        final boolean[] stickerInSafe = {true};
+        stickerView.setOnStickerDragListener(new StatusStickerOverlayView.OnStickerDragListener() {
+            @Override public void onDragStart(StatusStickerOverlayView sv) {
+                showSafeAreaGuide();
+                stickerInSafe[0] = editorSafeArea == null || editorSafeArea.isInsideSafe(sv);
+            }
+            @Override public void onDragMove(StatusStickerOverlayView sv) {
+                stickerInSafe[0] = safeEdgeTick(sv, stickerInSafe[0]);
+            }
+            @Override public void onDragEnd(StatusStickerOverlayView sv) { hideSafeAreaGuideLater(); }
+        });
         if (stickerView.hasSavedPosition()) {
             // v578: Add Yours template → same spot as the original sticker (ratios of the overlay frame).
             final StatusStickerOverlayView sv = stickerView;
