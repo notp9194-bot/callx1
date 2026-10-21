@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Chat banner driven by the offline outbox (OutboxBannerController) -->
+    <string name="outbox_banner_offline">No internet — showing cached messages</string>
+    <string name="outbox_banner_offline_waiting">No internet — %1$d message(s) waiting to send</string>
+    <string name="outbox_banner_sending">Sending %1$d message(s)…</string>
+</resources>

@@ -1039,7 +1039,11 @@ public class GroupChatActivity extends AppCompatActivity
                 });
     }
 
+    private com.callx.app.conversation.OutboxBannerController outboxBanner;
+
     private void setupNetworkMonitor() {
+        outboxBanner = new com.callx.app.conversation.OutboxBannerController(binding.getRoot(), this, groupId);
+        com.callx.app.conversation.OutboxProgressBinder.bind(this, () -> pagingAdapter);
         connMgr = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         if (connMgr == null) return;
 
@@ -1052,6 +1056,7 @@ public class GroupChatActivity extends AppCompatActivity
                 runOnUiThread(() -> {
                     updateOfflineBanner(false);
                     updateSendButtonState(true);   // v17
+                    if (pagingAdapter != null) pagingAdapter.refreshUploadGates();
                     retryPendingMessages();         // v17
                 });
             }
@@ -1059,6 +1064,7 @@ public class GroupChatActivity extends AppCompatActivity
                 runOnUiThread(() -> {
                     updateOfflineBanner(true);
                     updateSendButtonState(false);   // v17
+                    if (pagingAdapter != null) pagingAdapter.refreshUploadGates();
                 });
             }
         };
@@ -1082,17 +1088,8 @@ public class GroupChatActivity extends AppCompatActivity
     // (see layout_offline_banner.xml) — only inflated the first time the
     // device actually goes offline, instead of on every chat screen open.
     private void updateOfflineBanner(boolean offline) {
-        if (binding == null) return;
-        if (!offline) {
-            android.widget.TextView banner = binding.getRoot().findViewById(R.id.tv_offline_banner);
-            if (banner != null) banner.setVisibility(View.GONE);
-            return;
-        }
-        android.view.View stub = binding.getRoot().findViewById(R.id.stub_offline_banner);
-        android.widget.TextView banner = (stub instanceof android.view.ViewStub)
-                ? (android.widget.TextView) ((android.view.ViewStub) stub).inflate()
-                : binding.getRoot().findViewById(R.id.tv_offline_banner);
-        if (banner != null) banner.setVisibility(View.VISIBLE);
+        if (binding == null || outboxBanner == null) return;
+        outboxBanner.setOffline(offline);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2795,7 +2792,7 @@ public class GroupChatActivity extends AppCompatActivity
         if (isOnline()) {
             firebasePushGroup(m, key, preview);
         } else {
-            Toast.makeText(this, "No connection — message queued", Toast.LENGTH_SHORT).show();
+            // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
         }
     }
 
@@ -5282,9 +5279,7 @@ public class GroupChatActivity extends AppCompatActivity
                             GroupChatActivity.this, entity);
                 });
             }
-            Toast.makeText(this,
-                "No connection — media queued",
-                Toast.LENGTH_SHORT).show();
+            // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
             return;
         }
 

@@ -16,7 +16,7 @@ public interface OutboxOperationDao {
 
     @WorkerThread
     @Query("SELECT * FROM outbox_operations " +
-            "WHERE state IN ('pending','failed') AND nextAttemptAt <= :now " +
+            "WHERE state = 'pending' AND nextAttemptAt <= :now " +
             "ORDER BY createdAt ASC LIMIT :limit")
     List<OutboxOperationEntity> getDue(long now, int limit);
 
@@ -25,6 +25,30 @@ public interface OutboxOperationDao {
             "updatedAt = :now, lastError = 'Recovered after interrupted attempt' " +
             "WHERE state = 'processing' AND updatedAt < :staleBefore")
     void recoverStaleProcessing(long staleBefore, long now);
+
+    /**
+     * Network is back: ops that were parked behind a long exponential backoff (up to 6h) become due now.
+     * Only 'pending' rows — permanently 'failed' rows are NOT resurrected by a reconnect.
+     */
+    @WorkerThread
+    @Query("UPDATE outbox_operations SET nextAttemptAt = :now, updatedAt = :now " +
+            "WHERE state = 'pending' AND nextAttemptAt > :now")
+    int resetBackoff(long now);
+
+    @WorkerThread
+    @Query("SELECT COUNT(*) FROM outbox_operations WHERE state = 'pending' AND nextAttemptAt <= :now")
+    int countDue(long now);
+
+    /** Messages (send / media upload ops) of one chat that are still waiting or being sent — drives the chat banner. */
+    @Query("SELECT COUNT(*) FROM outbox_operations WHERE chatId = :chatId " +
+            "AND operationType IN ('send','media_upload') AND state IN ('pending','processing')")
+    LiveData<Integer> observeActiveCountForChat(String chatId);
+
+    /** >0 while the message itself has not been delivered yet; edit/delete ops must wait for it. */
+    @WorkerThread
+    @Query("SELECT COUNT(*) FROM outbox_operations WHERE messageId = :messageId " +
+            "AND operationType IN ('send','media_upload') AND state IN ('pending','processing')")
+    int countPendingSendFor(String messageId);
 
     @WorkerThread
     @Query("SELECT * FROM outbox_operations WHERE id = :id LIMIT 1")

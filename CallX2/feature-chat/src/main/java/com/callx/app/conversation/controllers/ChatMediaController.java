@@ -268,6 +268,14 @@ public class ChatMediaController {
     public void cancelUpload(String messageId) {
         if (messageId == null) return;
         cancelledIds.add(messageId);
+        // The offline outbox may own this upload (queued / running in OutboxSyncWorker). Drop its journal
+        // rows too, otherwise the worker would upload and SEND a message the user just cancelled.
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            com.callx.app.db.dao.OutboxOperationDao od =
+                    AppDatabase.getInstance(activity).outboxOperationDao();
+            od.deleteForMessage(messageId, com.callx.app.sync.OfflineOutbox.OP_MEDIA_UPLOAD);
+            od.deleteForMessage(messageId, com.callx.app.sync.OfflineOutbox.OP_SEND);
+        });
         // Immediately flip the bubble to "failed" so the UI shows the retry
         // affordance without waiting for the (now-cancelled) task to finish.
         delegate.markMediaFailed(messageId);
@@ -291,14 +299,21 @@ public class ChatMediaController {
                     AppDatabase.getInstance(activity).messageDao()
                             .getUploadingMessages(chatId);
             if (stuck == null || stuck.isEmpty()) return;
+            int interrupted = 0;
             for (com.callx.app.db.entity.MessageEntity e : stuck) {
+                // Rows still owned by the offline outbox (queued, or being uploaded by OutboxSyncWorker)
+                // are NOT interrupted — the queue will finish them; flipping them to failed showed a false ⚠.
+                if (AppDatabase.getInstance(activity).outboxOperationDao()
+                        .countPendingSendFor(e.id) > 0) continue;
                 AppDatabase.getInstance(activity).messageDao()
                         .updateStatus(e.id, "failed");
+                interrupted++;
             }
-            if (!stuck.isEmpty()) {
+            final int count = interrupted;
+            if (count > 0) {
                 activity.runOnUiThread(() ->
                         Toast.makeText(activity,
-                                stuck.size() + " upload(s) interrupted — tap ⚠ to retry",
+                                count + " upload(s) interrupted — tap ⚠ to retry",
                                 Toast.LENGTH_LONG).show());
             }
         });
@@ -1421,7 +1436,7 @@ public class ChatMediaController {
         delegate.clearReply();
         if (!delegate.isOnline()) {
             queueOfflineMedia(pending);
-            Toast.makeText(activity, activity.getString(R.string.media_offline_queued_photo), Toast.LENGTH_SHORT).show();
+            // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
             return;
         }
         startImageUpload(imageUri, pending, false);
@@ -1461,7 +1476,7 @@ public class ChatMediaController {
             delegate.clearReply();
             if (!delegate.isOnline()) {
                 queueOfflineMedia(pending);
-                Toast.makeText(activity, activity.getString(R.string.media_offline_queued_photo), Toast.LENGTH_SHORT).show();
+                // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
                 return;
             }
             startImageUpload(uri, pending, false); // single-pick always standard quality
@@ -1485,7 +1500,7 @@ public class ChatMediaController {
             delegate.clearReply();
             if (!delegate.isOnline()) {
                 queueOfflineMedia(pending);
-                Toast.makeText(activity, activity.getString(R.string.media_offline_queued_video), Toast.LENGTH_SHORT).show();
+                // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
                 return;
             }
             startVideoUploadLocalFirst(uri, pending);
@@ -1501,7 +1516,7 @@ public class ChatMediaController {
             String id = delegate.insertLocalPendingMedia(pending);
             if (id != null) {
                 queueOfflineMedia(pending);
-                Toast.makeText(activity, activity.getString(R.string.media_offline_queued_media), Toast.LENGTH_SHORT).show();
+                // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
             }
             return;
         }
@@ -1685,7 +1700,7 @@ public class ChatMediaController {
                 final java.io.File finalEncFull = encFullFile;
                 final Uri finalUploadFullUri    = uploadFullUri;
 
-                reportUploadProgress(pending, 20); // thumb "phase" is now instant — nothing to upload
+                reportUploadProgress(pending, 20, MediaUploadProgressTracker.STAGE_UPLOAD, 0); // thumb "phase" is now instant — nothing to upload
                 uploadFullImage(finalUploadFullUri, null, result, pending, finalMediaKey, finalEncFull);
             }
             @Override public void onError(Exception e) {
@@ -1701,6 +1716,9 @@ public class ChatMediaController {
      *  upload completes either way. Null for the plaintext-fallback path. */
     private void uploadFullImage(Uri fullUri, String thumbUrl, ImageCompressor.Result compressResult, Message pending,
                                   byte[] mediaKey, java.io.File encFullFileToCleanup) {
+        if (compressResult != null && compressResult.fullFile != null) {
+            reportUploadTotal(pending, compressResult.fullFile.length());
+        }
         boolean isEncrypted = (mediaKey != null);
         String folder       = isEncrypted ? "callx/e2e_image" : "callx/image";
         String resourceType = isEncrypted ? "raw" : "image";
@@ -1711,7 +1729,7 @@ public class ChatMediaController {
         CloudinaryUploader.upload(activity, fullUri, folder, resourceType, fullHint,
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onProgress(int percent) {
-                        reportUploadProgress(pending, 20 + percent * 4 / 5); // full = remaining 80%
+                        reportUploadProgress(pending, 20 + percent * 4 / 5, MediaUploadProgressTracker.STAGE_UPLOAD, percent); // full = remaining 80%
                     }
                     @Override public void onSuccess(CloudinaryUploader.Result fullResult) {
                         if (compressResult != null) {
@@ -1734,6 +1752,20 @@ public class ChatMediaController {
                         finishImageUploadFailure(pending, err);
                     }
                 });
+    }
+
+    private void reportUploadProgress(Message pending, int percent, int stage, int stagePercent) {
+        if (delegate.getPagingAdapter() == null) return;
+        String id = pending.messageId != null ? pending.messageId : pending.id;
+        delegate.getPagingAdapter().onMediaUploadProgress(id, Math.max(0, Math.min(100, percent)),
+                stage, Math.max(0, Math.min(100, stagePercent)));
+    }
+
+    /** Bytes that will really be uploaded (post-compression) — lets the bubble show "5.4 / 12 MB". */
+    private void reportUploadTotal(Message pending, long bytes) {
+        if (delegate.getPagingAdapter() == null || bytes <= 0) return;
+        String id = pending.messageId != null ? pending.messageId : pending.id;
+        delegate.getPagingAdapter().onMediaUploadTotalBytes(id, bytes);
     }
 
     private void reportUploadProgress(Message pending, int percent) {
@@ -1855,6 +1887,7 @@ public class ChatMediaController {
         // the queue's concurrency slot actually gets freed.
         getUploadQueue().markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
+        com.callx.app.sync.MediaFailureReasons.set(id, com.callx.app.sync.MediaFailureReasons.classify(err));
         delegate.markMediaFailed(id);
         Toast.makeText(activity, err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
     }
@@ -1951,7 +1984,7 @@ public class ChatMediaController {
         VideoCompressor.compress(activity, uri, qual, new VideoCompressor.Callback() {
             @Override public void onProgress(int percent) {
                 // Compression = first half of the progress arc (0–50 %)
-                reportUploadProgress(pending, percent / 2);
+                reportUploadProgress(pending, percent / 2, MediaUploadProgressTracker.STAGE_COMPRESS, percent);
             }
             @Override public void onSuccess(VideoCompressor.Result vr) {
                 // ── ULTRA-FAST THUMBNAIL OPTIMIZATION ───────────────────────
@@ -2051,11 +2084,12 @@ public class ChatMediaController {
                 final java.io.File finalEncThumb = encThumb;
                 final String thumbResourceType = (finalThumbKey != null) ? "raw" : "image";
 
+                reportUploadTotal(pending, vr.compressedBytes);
                 VideoUploader.upload(activity, vr, finalEncThumb, thumbResourceType,
                         new VideoUploader.UploadCallback() {
                     @Override public void onProgress(int percent) {
                         // Upload = second half (50–100 %)
-                        reportUploadProgress(pending, 50 + percent / 2);
+                        reportUploadProgress(pending, 50 + percent / 2, MediaUploadProgressTracker.STAGE_UPLOAD, percent);
                     }
                     @Override public void onSuccess(String thumbUrl, String videoUrl,
                                                     int durationMs, int width, int height) {
@@ -2082,7 +2116,7 @@ public class ChatMediaController {
                 CloudinaryUploader.upload(activity, uri, "callx/video", "video",
                         new CloudinaryUploader.UploadCallback() {
                             @Override public void onProgress(int percent) {
-                                reportUploadProgress(pending, percent);
+                                reportUploadProgress(pending, percent, MediaUploadProgressTracker.STAGE_UPLOAD, percent);
                             }
                             @Override public void onSuccess(CloudinaryUploader.Result r) {
                                 pending.mediaUrl = r.secureUrl;
@@ -2108,6 +2142,7 @@ public class ChatMediaController {
         String id = pending.messageId != null ? pending.messageId : pending.id;
         getUploadQueue().markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
+        com.callx.app.sync.MediaFailureReasons.set(id, com.callx.app.sync.MediaFailureReasons.classify(err));
         delegate.markMediaFailed(id);
         activity.runOnUiThread(() ->
                 Toast.makeText(activity, err != null ? err : "Video upload failed",
@@ -2146,7 +2181,7 @@ public class ChatMediaController {
                     // retains its existing grouped caption behavior.
                 }
             }
-            Toast.makeText(activity, activity.getString(R.string.media_offline_queued_media), Toast.LENGTH_SHORT).show();
+            // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
             return;
         }
 

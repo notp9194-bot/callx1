@@ -37,19 +37,52 @@ public final class OfflineOutbox {
 
     private OfflineOutbox() {}
 
+    /** Safe from any thread (including main): the WorkManager state lookup runs on the bg executor. */
     public static void schedule(Context context) {
+        final Context app = context.getApplicationContext();
+        com.callx.app.utils.AppBgExecutor.execute(() -> scheduleNow(app));
+    }
+
+    /**
+     * Network came back (or the app wants an immediate flush): un-park ops that sit behind a long
+     * backoff and start the worker right away instead of waiting for WorkManager's own backoff.
+     */
+    public static void kick(Context context) {
+        final Context app = context.getApplicationContext();
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            try {
+                AppDatabase.getInstance(app).outboxOperationDao().resetBackoff(System.currentTimeMillis());
+            } catch (Exception ignored) {}
+            scheduleNow(app);
+        });
+    }
+
+    /**
+     * Must run on a background thread. Policy:
+     *  - worker RUNNING  -> do nothing; it re-checks for newly due ops before it finishes (see OutboxSyncWorker).
+     *  - worker ENQUEUED / in retry-backoff / none -> REPLACE with a fresh request, so a new message is
+     *    never stuck behind an old exponential backoff (the old ExistingWorkPolicy.KEEP did exactly that).
+     */
+    private static void scheduleNow(Context app) {
+        WorkManager wm = WorkManager.getInstance(app);
+        try {
+            java.util.List<androidx.work.WorkInfo> infos =
+                    wm.getWorkInfosForUniqueWork(UNIQUE_WORK).get(5, TimeUnit.SECONDS);
+            for (androidx.work.WorkInfo info : infos) {
+                if (info.getState() == androidx.work.WorkInfo.State.RUNNING) return;
+            }
+        } catch (Exception ignored) {
+            // can't tell -> fall through and (re)enqueue; the worker itself is idempotent
+        }
         Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
-        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(
-                OutboxSyncWorker.class)
+        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(OutboxSyncWorker.class)
                 .setConstraints(constraints)
-                .setBackoffCriteria(
-                        androidx.work.BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .addTag(UNIQUE_WORK)
                 .build();
-        WorkManager.getInstance(context.getApplicationContext())
-                .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request);
+        wm.enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, request);
     }
 
     public static void enqueueSend(Context context, MessageEntity message) {
@@ -144,7 +177,7 @@ public final class OfflineOutbox {
         com.callx.app.utils.AppBgExecutor.execute(() -> {
             AppDatabase.getInstance(context.getApplicationContext())
                     .outboxOperationDao().upsert(op);
-            schedule(context);
+            scheduleNow(context.getApplicationContext());
         });
     }
 }

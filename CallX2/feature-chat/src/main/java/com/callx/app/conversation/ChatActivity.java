@@ -2107,7 +2107,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // NETWORK MONITORING
     // ─────────────────────────────────────────────────────────────────────
 
+    private OutboxBannerController outboxBanner;
+
     private void setupNetworkMonitor() {
+        outboxBanner = new OutboxBannerController(binding.getRoot(), this, chatId);
+        OutboxProgressBinder.bind(this, () -> pagingAdapter);
         connMgr = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         if (connMgr == null) return;
 
@@ -2120,6 +2124,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 runOnUiThread(() -> {
                     updateOfflineBanner(false);
                     messageSender.updateSendButtonState(true);
+                    if (pagingAdapter != null) pagingAdapter.refreshUploadGates();
                     messageSender.retryPendingMessages();
                     // Feature 13: flush any offline view-once deletes.
                     if (viewOnceController != null) viewOnceController.flushPendingDeletes();
@@ -2132,6 +2137,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 runOnUiThread(() -> {
                     updateOfflineBanner(true);
                     messageSender.updateSendButtonState(false);
+                    if (pagingAdapter != null) pagingAdapter.refreshUploadGates();
                 });
             }
         };
@@ -2147,19 +2153,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // device actually goes offline, instead of on every chat screen open
     // (most sessions never go offline).
     private void updateOfflineBanner(boolean offline) {
-        if (binding == null) return;
-        if (!offline) {
-            // Don't force-inflate just to hide it — if it was never shown
-            // yet, it's already gone.
-            android.widget.TextView banner = binding.getRoot().findViewById(R.id.tv_offline_banner);
-            if (banner != null) banner.setVisibility(View.GONE);
-            return;
-        }
-        android.view.View stub = binding.getRoot().findViewById(R.id.stub_offline_banner);
-        android.widget.TextView banner = (stub instanceof android.view.ViewStub)
-                ? (android.widget.TextView) ((android.view.ViewStub) stub).inflate()
-                : binding.getRoot().findViewById(R.id.tv_offline_banner);
-        if (banner != null) banner.setVisibility(View.VISIBLE);
+        if (binding == null || outboxBanner == null) return;
+        outboxBanner.setOffline(offline);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2789,8 +2784,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onPollVotersTap(Message m)      { getPollController().showVoters(m); }
             @Override public boolean canCancelUpload()            { return true; }
             @Override public void onCancelUpload(Message m) {
-                String id = m.messageId != null ? m.messageId : m.id;
-                if (id != null && mediaController != null) mediaController.cancelUpload(id);
+                final String id = m.messageId != null ? m.messageId : m.id;
+                if (id == null || mediaController == null) return;
+                // A stray tap on the small X must not silently kill a long upload.
+                new androidx.appcompat.app.AlertDialog.Builder(ChatActivity.this)
+                        .setTitle(com.callx.app.chat.R.string.upload_cancel_title)
+                        .setMessage(com.callx.app.chat.R.string.upload_cancel_message)
+                        .setPositiveButton(com.callx.app.chat.R.string.upload_cancel_confirm,
+                                (d, w) -> { if (mediaController != null) mediaController.cancelUpload(id); })
+                        .setNegativeButton(com.callx.app.chat.R.string.upload_cancel_keep, null)
+                        .show();
             }
             @Override public void onPlaybackStateChanged(Message m, boolean playing) {
                 if (playbackPresenceController != null && m != null) {

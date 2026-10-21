@@ -39,12 +39,14 @@ public class MessageRepository {
 
     private static volatile MessageRepository sInstance;
 
+    private final Context        appContext;
     private final MessageDao      msgDao;
     private final ChatDao         chatDao;
     private final ExecutorService executor = Executors.newFixedThreadPool(4);
     private final Handler         mainHandler = new Handler(Looper.getMainLooper());
 
     private MessageRepository(Context ctx) {
+        this.appContext = ctx.getApplicationContext();
         AppDatabase db = AppDatabase.getInstance(ctx);
         this.msgDao  = db.messageDao();
         this.chatDao = db.chatDao();
@@ -110,30 +112,9 @@ public class MessageRepository {
         return chatDao.getArchivedChats();
     }
 
-    // ── WRITE — Send message (optimistic) ────────────────────────────────
-
-    public interface SendCallback { void onQueued(String localId); void onSent(boolean success); }
-
-    /**
-     * Optimistically insert message in Room (shows in UI instantly),
-     * then write to Firebase. On success, update status to "sent".
-     * On failure, mark status "failed" for retry.
-     */
-    public void sendMessage(MessageEntity msg, SendCallback cb) {
-        // 1. Optimistic local insert
-        executor.execute(() -> {
-            msgDao.insertMessage(msg);
-            if (cb != null) mainHandler.post(() -> cb.onQueued(msg.id));
-        });
-
-        // 2. Firebase write
-        FirebaseUtils.getMessagesRef(msg.chatId).child(msg.id)
-            .setValue(msg, (e, ref) -> {
-                boolean ok = (e == null);
-                executor.execute(() -> msgDao.updateStatus(msg.id, ok ? "sent" : "failed"));
-                if (cb != null) mainHandler.post(() -> cb.onSent(ok));
-            });
-    }
+    // NOTE: the old optimistic sendMessage() lived here — it did a full-node setValue() (overwriting
+    // recipient-written fields) with no outbox journal and no E2E wire text. All sends go through
+    // ChatMessageSender + OfflineOutbox now; the unused duplicate was removed.
 
     // ── WRITE — Status updates ────────────────────────────────────────────
 
@@ -153,39 +134,12 @@ public class MessageRepository {
     // ── WRITE — Sync from Firebase ────────────────────────────────────────
 
     /**
-     * Delta sync: fetch messages from Firebase newer than last local timestamp.
-     * Safe to call from background (WorkManager / onStart).
+     * Delta sync — delegates to {@link ChatRepository#syncMessagesDelta(String)}, the one canonical path
+     * (seq/timestamp keyset cursor, E2E decrypt, merge rules, catch-up paging, recent-window refresh).
+     * The previous private implementation here used startAfter(timestamp) (misses rows that share a
+     * timestamp), skipped decryption and wrote with REPLACE, so it could overwrite good rows with raw ciphertext.
      */
     public void deltaSync(String chatId) {
-        executor.execute(() -> {
-            Long lastTs = msgDao.getLastTimestamp(chatId);
-            long sinceTs = lastTs != null ? lastTs : 0;
-            FirebaseUtils.getMessagesRef(chatId)
-                .orderByChild("timestamp")
-                .startAfter(sinceTs)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        if (!snap.exists()) return;
-                        executor.execute(() -> {
-                            for (DataSnapshot ds : snap.getChildren()) {
-                                MessageEntity m = ds.getValue(MessageEntity.class);
-                                if (m != null) { m.id = ds.getKey(); msgDao.insertMessage(m); }
-                            }
-                        });
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                });
-        });
-    }
-
-    // ── WRITE — insert batch (from Firebase real-time listener) ──────────
-
-    public void insertMessages(List<MessageEntity> messages) {
-        if (messages == null || messages.isEmpty()) return;
-        executor.execute(() -> msgDao.insertMessages(messages));
-    }
-
-    public void insertMessage(MessageEntity message) {
-        executor.execute(() -> msgDao.insertMessage(message));
+        ChatRepository.getInstance(appContext).syncMessagesDelta(chatId);
     }
 }

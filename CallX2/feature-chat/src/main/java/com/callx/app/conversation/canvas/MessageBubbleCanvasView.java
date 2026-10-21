@@ -2030,6 +2030,17 @@ public class MessageBubbleCanvasView extends View {
     int mediaDownloadProgress = -1; // -1 = indeterminate, 0-100 = live percent
     /** Idle gate pill shows a retry (circular arrow) icon instead of the download arrow — failed upload/download. */
     boolean mediaGateRetry = false;
+    /** Queued upload while offline: clock icon + label; tap cancels (see setMediaWaitingForNetwork). */
+    boolean mediaGateWaiting = false;
+    /** True only for gates over SENT media (upload) — download gates share the same drawing code. */
+    boolean mediaIsUpload = false;
+    int mediaUploadStage = 0;                 // MediaUploadProgressTracker.STAGE_*
+    @NonNull String mediaUploadSizeText = ""; // "5.4 MB / 12 MB" or ""
+    /** Eased percentage actually drawn (the ring glides to the real value instead of jumping). */
+    float mediaDisplayProgress = -1f;
+    private android.animation.ValueAnimator mediaProgressAnimator;
+    private String mediaGateA11y;
+    private int mediaGateA11yBucket = -1;
     /** While uploading, the ring shows an X and a tap on the pill cancels the upload. */
     boolean mediaUploadCancelable = false;
     String mediaDownloadLabel = "";
@@ -3516,6 +3527,8 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
         this.mediaGateRetry = false;
+        this.mediaGateWaiting = false;
+        resetUploadGateExtras();
         this.mediaUploadCancelable = false;
         this.messageText = caption != null ? caption : "";
         this.messageTextSpanned = formatBody(this.messageText);
@@ -4223,6 +4236,9 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloadProgress = progressPercent;
         this.mediaDownloadLabel = idleLabel != null ? idleLabel : "";
         this.mediaGateRetry = false;
+        this.mediaGateWaiting = false;
+        resetUploadGateExtras();
+        this.mediaDisplayProgress = progressPercent;
         this.mediaUploadCancelable = false; // re-armed by setMediaUploadCancelable() right after, for uploads only
         this.staticPictureDirty = true;
         invalidate();
@@ -4232,6 +4248,127 @@ public class MessageBubbleCanvasView extends View {
     public void setMediaDownloadGateRetry(@Nullable String label) {
         setMediaDownloadGate(false, Integer.MIN_VALUE, label);
         this.mediaGateRetry = true;
+    }
+
+    /**
+     * Upload is queued but the device is offline: static clock pill (no spinner, so no endless animation
+     * while offline). Arm {@link #setMediaUploadCancelable} right after so a tap cancels the queued upload.
+     */
+    public void setMediaWaitingForNetwork(@Nullable String label) {
+        setMediaDownloadGate(false, -1, label);
+        this.mediaGateWaiting = true;
+        this.mediaIsUpload = true;
+        refreshGateA11y();
+    }
+
+    /** Failed upload (SENT media): retry pill; unlike a failed download it is announced as an upload failure. */
+    public void setMediaUploadFailedGate(@Nullable String label) {
+        setMediaDownloadGateRetry(label);
+        this.mediaIsUpload = true;
+        refreshGateA11y();
+    }
+
+    /** Stage ("Compressing…") and size text for the live upload pill; call after each gate/progress update. */
+    public void setMediaUploadDetail(int stage, @Nullable String sizeText) {
+        String st = sizeText != null ? sizeText : "";
+        if (mediaIsUpload && mediaUploadStage == stage && mediaUploadSizeText.equals(st)) return;
+        this.mediaIsUpload = true;
+        this.mediaUploadStage = stage;
+        this.mediaUploadSizeText = st;
+        this.staticPictureDirty = true;
+        invalidate();
+        refreshGateA11y();
+    }
+
+    private void resetUploadGateExtras() {
+        if (mediaProgressAnimator != null) { mediaProgressAnimator.cancel(); mediaProgressAnimator = null; }
+        mediaIsUpload = false;
+        mediaUploadStage = 0;
+        mediaUploadSizeText = "";
+        mediaDisplayProgress = -1f;
+        mediaGateA11yBucket = -1;
+        if (mediaGateA11y != null) { mediaGateA11y = null; setContentDescription(null); }
+    }
+
+    /** Glide the drawn percentage to the new value (small steps / first value are applied directly). */
+    private void animateMediaProgressTo(int target) {
+        if (mediaProgressAnimator != null) { mediaProgressAnimator.cancel(); mediaProgressAnimator = null; }
+        if (target < 0 || mediaDisplayProgress < 0f || target - mediaDisplayProgress < 2f || !isAttachedToWindow()) {
+            mediaDisplayProgress = target;
+            return;
+        }
+        final android.animation.ValueAnimator va = android.animation.ValueAnimator.ofFloat(mediaDisplayProgress, target);
+        va.setDuration(160L);
+        va.setInterpolator(new android.view.animation.LinearInterpolator());
+        va.addUpdateListener(a -> {
+            if (!mediaDownloading || !isAttachedToWindow()) { a.cancel(); return; }
+            mediaDisplayProgress = (float) a.getAnimatedValue();
+            staticPictureDirty = true;
+            invalidate();
+        });
+        mediaProgressAnimator = va;
+        va.start();
+    }
+
+    /** Pill text for an upload: "Compressing 34%" / "45% · 5.4 MB / 12 MB"; falls back to the plain "NN%" when it won't fit. */
+    String uploadProgressLabel(String baseLabel, float fixedW) {
+        if (!mediaIsUpload || !mediaDownloading) return baseLabel;
+        int p = mediaDownloadProgress >= 0 ? Math.max(0, Math.min(100, Math.round(mediaDisplayProgress))) : -1;
+        android.content.Context c = getContext();
+        String full;
+        if (mediaUploadStage == com.callx.app.conversation.MediaUploadProgressTracker.STAGE_COMPRESS) {
+            full = p >= 0 ? c.getString(com.callx.app.chat.R.string.media_gate_compressing, p)
+                          : c.getString(com.callx.app.chat.R.string.media_gate_compressing_indeterminate);
+        } else if (p >= 0 && !mediaUploadSizeText.isEmpty()) {
+            full = p + "% · " + mediaUploadSizeText;
+        } else {
+            return baseLabel;
+        }
+        float maxW = mediaRect.width() * 0.9f - fixedW;
+        return mediaGatePillTextPaint.measureText(full) <= maxW ? full : baseLabel;
+    }
+
+    /** Screen-reader text for the upload gate (the canvas is otherwise opaque to TalkBack). Milestones are announced. */
+    private void refreshGateA11y() {
+        if (isPoll || !mediaIsUpload || !mediaGated) return;
+        android.content.Context c = getContext();
+        String d;
+        int bucket;
+        if (mediaDownloading) {
+            int p = mediaDownloadProgress >= 0 ? Math.max(0, Math.min(100, mediaDownloadProgress)) : -1;
+            if (p < 0) d = c.getString(com.callx.app.chat.R.string.a11y_upload_preparing);
+            else if (mediaUploadStage == com.callx.app.conversation.MediaUploadProgressTracker.STAGE_COMPRESS)
+                d = c.getString(com.callx.app.chat.R.string.a11y_upload_compressing, p);
+            else d = c.getString(com.callx.app.chat.R.string.a11y_upload_progress, p);
+            bucket = p < 0 ? -1 : p / 25;   // announce at 0/25/50/75/100
+        } else if (mediaGateWaiting) {
+            d = c.getString(com.callx.app.chat.R.string.a11y_upload_waiting);
+            bucket = 100;
+        } else if (mediaGateRetry) {
+            d = c.getString(com.callx.app.chat.R.string.a11y_upload_failed);
+            bucket = 101;
+        } else {
+            return;
+        }
+        if (!d.equals(mediaGateA11y)) {
+            mediaGateA11y = d;
+            setContentDescription(d);
+        }
+        if (bucket != mediaGateA11yBucket) {
+            mediaGateA11yBucket = bucket;
+            if (bucket >= 0) announceForAccessibility(d);
+        }
+    }
+
+    /** Hit area of the gate pill, grown to at least 48dp so the cancel X is comfortable to tap. */
+    private boolean hitsGatePill(float x, float y) {
+        float slop = 8f * density, minHalf = 24f * density;
+        float cx = mediaGatePillRect.centerX(), cy = mediaGatePillRect.centerY();
+        float l = Math.min(mediaGatePillRect.left - slop, cx - minHalf);
+        float r = Math.max(mediaGatePillRect.right + slop, cx + minHalf);
+        float t = Math.min(mediaGatePillRect.top - slop, cy - minHalf);
+        float b = Math.max(mediaGatePillRect.bottom + slop, cy + minHalf);
+        return l <= x && x <= r && t <= y && y <= b;
     }
 
     /** Uploading gate only: draws an X in the progress ring; tapping the pill fires onMediaCancelClick(). */
@@ -4246,7 +4383,9 @@ public class MessageBubbleCanvasView extends View {
     public void setMediaDownloadProgress(int progressPercent) {
         this.mediaGated = true;
         this.mediaDownloading = true;
+        this.mediaGateWaiting = false;
         this.mediaDownloadProgress = progressPercent;
+        animateMediaProgressTo(progressPercent);
         this.staticPictureDirty = true;
         // onDraw's mediaDownloadActive bypass keeps the outer full-bubble
         // cache out of the picture for the whole download, so a dirty-rect
@@ -4261,9 +4400,12 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
         this.mediaGateRetry = false;
+        this.mediaGateWaiting = false;
+        resetUploadGateExtras();
         this.mediaUploadCancelable = false;
         this.staticPictureDirty = true;
         invalidate();
+        refreshGateA11y();
     }
 
     /**
@@ -8757,11 +8899,13 @@ public class MessageBubbleCanvasView extends View {
                 // group-cell gate uses).
                 if (!mediaDownloading) {
                     tapHaptic();
-                    if (clickListener != null) clickListener.onMediaDownloadClick();
+                    if (mediaGateWaiting) {
+                        // queued offline upload: the pill itself is the cancel target
+                        if (mediaUploadCancelable && clickListener != null
+                                && hitsGatePill(event.getX(), event.getY())) clickListener.onMediaCancelClick();
+                    } else if (clickListener != null) clickListener.onMediaDownloadClick();
                 } else if (mediaUploadCancelable && clickListener != null) {
-                    float slop = 8f * density;
-                    if (mediaGatePillRect.left - slop <= event.getX() && event.getX() <= mediaGatePillRect.right + slop
-                            && mediaGatePillRect.top - slop <= event.getY() && event.getY() <= mediaGatePillRect.bottom + slop) {
+                    if (hitsGatePill(event.getX(), event.getY())) {
                         tapHaptic();
                         clickListener.onMediaCancelClick();
                     }

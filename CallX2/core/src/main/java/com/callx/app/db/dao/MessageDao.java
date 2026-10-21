@@ -541,6 +541,22 @@ public interface MessageDao {
                         && (incoming.wireText == null || incoming.wireText.isEmpty())) {
                     incoming.wireText = local.wireText;
                 }
+                // Columns the server copy never carries (set only on this device): a snapshot that lacks them
+                // must not wipe them via REPLACE. Reactions / poll votes / status are server-driven and are
+                // deliberately NOT null-filled, otherwise a removed reaction would stay forever.
+                if (incoming.starred == null && local.starred != null) incoming.starred = local.starred;
+                if (incoming.pinned == null && local.pinned != null) incoming.pinned = local.pinned;
+                if (incoming.viewOnceState == null && local.viewOnceState != null) {
+                    incoming.viewOnceState = local.viewOnceState;
+                }
+                if ((incoming.editHistoryJson == null || incoming.editHistoryJson.isEmpty())
+                        && local.editHistoryJson != null && !local.editHistoryJson.isEmpty()) {
+                    incoming.editHistoryJson = local.editHistoryJson;
+                }
+                if ((incoming.thumbInlineData == null || incoming.thumbInlineData.isEmpty())
+                        && local.thumbInlineData != null && !local.thumbInlineData.isEmpty()) {
+                    incoming.thumbInlineData = local.thumbInlineData;
+                }
                 incoming.retryCount = Math.max(local.retryCount, incoming.retryCount);
                 incoming.nextRetryAt = Math.max(local.nextRetryAt, incoming.nextRetryAt);
                 if (incoming.lastError == null) incoming.lastError = local.lastError;

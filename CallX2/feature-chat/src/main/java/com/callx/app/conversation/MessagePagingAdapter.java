@@ -1356,16 +1356,129 @@ public class MessagePagingAdapter
      */
     public void onMediaUploadProgress(String messageId, int percent) {
         if (messageId == null) return;
+        onMediaUploadProgress(messageId, percent, uploadProgressTracker.getStage(messageId),
+                uploadProgressTracker.getStagePercent(messageId));
+    }
+
+    // Tick coalescing: identical ticks are dropped, and non-urgent ticks are limited to ~10/s per message
+    // (with a trailing flush so the last value always lands). Each tick costs a position lookup + rebind.
+    private static final long UPLOAD_TICK_MIN_INTERVAL_MS = 100L;
+    private final android.os.Handler uploadTickHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final java.util.Map<String, Long> lastUploadTickAt = new java.util.HashMap<>();
+    private final java.util.Set<String> pendingUploadTickFlush = new java.util.HashSet<>();
+
+    public void onMediaUploadProgress(String messageId, int percent, int stage, int stagePercent) {
+        if (messageId == null) return;
+        int prevPercent = uploadProgressTracker.getProgress(messageId);
+        int prevStage = uploadProgressTracker.getStage(messageId);
         uploadProgressTracker.setProgress(messageId, percent);
+        uploadProgressTracker.setDetail(messageId, stage, stagePercent);
+        if (percent == prevPercent && stage == prevStage) return;                 // nothing visible changed
+        long now = android.os.SystemClock.uptimeMillis();
+        Long last = lastUploadTickAt.get(messageId);
+        boolean urgent = last == null || percent <= 0 || percent >= 100 || stage != prevStage;
+        if (!urgent && now - last < UPLOAD_TICK_MIN_INTERVAL_MS) {
+            if (pendingUploadTickFlush.add(messageId)) {
+                uploadTickHandler.postDelayed(() -> {
+                    pendingUploadTickFlush.remove(messageId);
+                    notifyUploadTick(messageId);
+                }, UPLOAD_TICK_MIN_INTERVAL_MS);
+            }
+            return;
+        }
+        notifyUploadTick(messageId);
+    }
+
+    private void notifyUploadTick(String messageId) {
+        lastUploadTickAt.put(messageId, android.os.SystemClock.uptimeMillis());
         int position = findMessagePositionById(messageId);
         if (position != RecyclerView.NO_POSITION) {
             notifyItemChanged(position, PAYLOAD_MEDIA_PROGRESS);
         }
     }
 
+    /** Size of what will actually be uploaded (post-compression); enables the "5.4 / 12 MB" label. */
+    public void onMediaUploadTotalBytes(String messageId, long bytes) {
+        uploadProgressTracker.setTotalBytes(messageId, bytes);
+    }
+
+    private boolean isPendingSentUpload(@NonNull Message m) {
+        return currentUid != null && currentUid.equals(m.senderId)
+                && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                && (m.mediaUrl == null || m.mediaUrl.isEmpty())
+                && !"failed".equals(m.status);
+    }
+
+    /**
+     * Gate for a SENT media bubble that is still uploading: live ring when a percent is known,
+     * a static "no network" pill (no endless spinner) while the device is offline and nothing is
+     * transferring, otherwise the indeterminate ring. Tap/X cancels in both states.
+     */
+    private void applyUploadGate(android.content.Context ctx,
+                                 com.callx.app.conversation.canvas.MessageBubbleCanvasView cv, String mid) {
+        int p = uploadProgressTracker.getProgress(mid);
+        if (p < 0 && !isNetworkAvailable(ctx)) {
+            cv.setMediaWaitingForNetwork(ctx.getString(R.string.media_gate_waiting));
+        } else {
+            cv.setMediaDownloadGate(true, p, null);
+        }
+        if (p >= 0 || isNetworkAvailable(ctx)) {
+            cv.setMediaUploadDetail(uploadProgressTracker.getStage(mid), uploadSizeText(ctx, mid));
+        }
+        cv.setMediaUploadCancelable(actionListener != null && actionListener.canCancelUpload());
+    }
+
+    /** "5.4 MB / 12 MB" while uploading (needs the real post-compression size); "" otherwise. */
+    private String uploadSizeText(android.content.Context ctx, String mid) {
+        if (uploadProgressTracker.getStage(mid) != MediaUploadProgressTracker.STAGE_UPLOAD) return "";
+        long total = uploadProgressTracker.getTotalBytes(mid);
+        int sp = uploadProgressTracker.getStagePercent(mid);
+        if (total <= 0 || sp < 0) return "";
+        long sent = total * Math.min(100, sp) / 100L;
+        return android.text.format.Formatter.formatShortFileSize(ctx, sent) + " / "
+                + android.text.format.Formatter.formatShortFileSize(ctx, total);
+    }
+
+    /** Reason-specific retry label for a failed SENT upload. */
+    private String failedUploadLabel(android.content.Context ctx, String mid) {
+        switch (com.callx.app.sync.MediaFailureReasons.get(mid)) {
+            case com.callx.app.sync.MediaFailureReasons.NETWORK:      return ctx.getString(R.string.media_gate_retry_network);
+            case com.callx.app.sync.MediaFailureReasons.TOO_LARGE:    return ctx.getString(R.string.media_gate_retry_toolarge);
+            case com.callx.app.sync.MediaFailureReasons.FILE_MISSING: return ctx.getString(R.string.media_gate_retry_missing);
+            default:                                                  return ctx.getString(R.string.media_gate_retry);
+        }
+    }
+
+    private static boolean isNetworkAvailable(android.content.Context c) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < 23) return true;
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    c.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return true;
+            android.net.Network n = cm.getActiveNetwork();
+            if (n == null) return false;
+            android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+            return caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    /** Network state changed: re-evaluate the gate (waiting pill <-> ring) of the visible uploading bubbles. */
+    public void refreshUploadGates() {
+        if (attachedRecyclerView == null) return;
+        for (int i = 0; i < attachedRecyclerView.getChildCount(); i++) {
+            RecyclerView.ViewHolder raw = attachedRecyclerView.getChildViewHolder(attachedRecyclerView.getChildAt(i));
+            if (!(raw instanceof VH)) continue;
+            int pos = raw.getBindingAdapterPosition();
+            if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos, PAYLOAD_MEDIA_PROGRESS);
+        }
+    }
+
     /** Call once an upload finishes (success or failure) to stop tracking its progress. */
     public void onMediaUploadFinished(String messageId) {
         uploadProgressTracker.clear(messageId);
+        if (messageId != null) { lastUploadTickAt.remove(messageId); pendingUploadTickFlush.remove(messageId); }
     }
 
     // ── v603: SENT media-group per-cell upload state ──────────────────────
@@ -3741,7 +3854,14 @@ public class MessagePagingAdapter
             if (m != null && h.canvasView != null) {
                 String id = m.messageId != null ? m.messageId : m.id;
                 int percent = uploadProgressTracker.getProgress(id);
-                if (percent >= 0) h.canvasView.setMediaDownloadProgress(percent);
+                if (percent >= 0) {
+                    h.canvasView.setMediaDownloadProgress(percent);
+                    h.canvasView.setMediaUploadDetail(uploadProgressTracker.getStage(id),
+                            uploadSizeText(h.canvasView.getContext(), id));
+                } else if (isPendingSentUpload(m)) {
+                    // no live percent: indeterminate ring, or the static "no network" pill while offline
+                    applyUploadGate(h.canvasView.getContext(), h.canvasView, id);
+                }
             }
             return;
         }
@@ -5959,15 +6079,13 @@ public class MessagePagingAdapter
                 String mid = m.messageId != null ? m.messageId : m.id;
                 if ("failed".equals(m.status)) {
                     uploadProgressTracker.clear(mid);
-                    cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
+                    cv.setMediaUploadFailedGate(failedUploadLabel(ctx, mid));
                 } else {
                     // Reuses the RECEIVED-side download spinner ring for the
                     // SENT-side upload — same visual language, opposite
                     // direction. Restores the last known % if this row was
                     // scrolled off-screen and back mid-upload.
-                    int trackedPercent = uploadProgressTracker.getProgress(mid);
-                    cv.setMediaDownloadGate(true, trackedPercent, null);
-                    cv.setMediaUploadCancelable(actionListener != null && actionListener.canCancelUpload());
+                    applyUploadGate(ctx, cv, mid);
                 }
             } else {
             // Mirrors bindDownloadOverlay(): sent images (and any received
@@ -6592,10 +6710,9 @@ public class MessagePagingAdapter
                 final String vMid = m.messageId != null ? m.messageId : m.id;
                 if ("failed".equals(m.status)) {
                     uploadProgressTracker.clear(vMid);
-                    cv.setMediaDownloadGateRetry(ctx.getString(R.string.media_gate_retry));
+                    cv.setMediaUploadFailedGate(failedUploadLabel(ctx, vMid));
                 } else {
-                    cv.setMediaDownloadGate(true, uploadProgressTracker.getProgress(vMid), null);
-                    cv.setMediaUploadCancelable(actionListener != null && actionListener.canCancelUpload());
+                    applyUploadGate(ctx, cv, vMid);
                 }
             }
         } else if (isContact) {

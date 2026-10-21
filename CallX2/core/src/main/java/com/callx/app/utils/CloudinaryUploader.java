@@ -404,7 +404,7 @@ public class CloudinaryUploader {
                 MultipartBody.Builder mp = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", filename,
-                        RequestBody.create(bytes, MediaType.parse(mime)))
+                        new ProgressBody(bytes, MediaType.parse(mime), cb))
                     .addFormDataPart("api_key", apiKey)
                     .addFormDataPart("timestamp", timestamp)
                     .addFormDataPart("signature", signature)
@@ -508,6 +508,35 @@ public class CloudinaryUploader {
             return out.toByteArray();
         }
     }
+    /** Request body that reports upload progress (0-99) to {@link UploadCallback#onProgress} on the main thread. */
+    private static final class ProgressBody extends RequestBody {
+        private final byte[] bytes;
+        private final MediaType type;
+        private final UploadCallback cb;
+        ProgressBody(byte[] bytes, MediaType type, UploadCallback cb) {
+            this.bytes = bytes; this.type = type; this.cb = cb;
+        }
+        @Override public MediaType contentType() { return type; }
+        @Override public long contentLength() { return bytes.length; }
+        @Override public void writeTo(okio.BufferedSink sink) throws IOException {
+            final int segment = 16 * 1024;
+            final Handler main = new Handler(Looper.getMainLooper());
+            int off = 0, lastPct = -1;
+            while (off < bytes.length) {
+                int n = Math.min(segment, bytes.length - off);
+                sink.write(bytes, off, n);
+                off += n;
+                if (cb == null) continue;
+                int pct = (int) (off * 100L / bytes.length);
+                if (pct != lastPct && pct < 100) {      // 100 is reported by onSuccess
+                    lastPct = pct;
+                    final int p = pct;
+                    main.post(() -> cb.onProgress(p));
+                }
+            }
+        }
+    }
+
     private static void post(UploadCallback cb, Result r, String err) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (r != null) cb.onSuccess(r); else cb.onError(err);

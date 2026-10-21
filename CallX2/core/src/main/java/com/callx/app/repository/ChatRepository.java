@@ -65,6 +65,12 @@ public class ChatRepository {
     // was requested by Room observation, preload, network recovery, or
     // WorkManager. The realtime chat listener remains the live-update path.
     private final ConcurrentHashMap<String, Boolean> mSyncInFlight = new ConcurrentHashMap<>();
+    /** Max catch-up pages per open (PAGE_SIZE each); anything beyond continues on the next sync. */
+    private static final int MAX_DELTA_PASSES = 20;
+    /** Newest messages re-checked for edits/deletes/reactions/ticks that happened while the chat was closed. */
+    private static final int REFRESH_WINDOW = 100;
+    private static final long REFRESH_MIN_INTERVAL_MS = 10L * 60L * 1000L;
+    private final ConcurrentHashMap<String, Long> mLastWindowRefreshAt = new ConcurrentHashMap<>();
 
     private ChatRepository(Context ctx) {
         mCache      = CacheManager.getInstance(ctx);
@@ -213,6 +219,16 @@ public class ChatRepository {
             Log.d(TAG, "Delta sync already in flight — coalescing chatId=" + chatId);
             return;
         }
+        runDeltaPass(chatId, 0);
+    }
+
+    /**
+     * One delta page. When the page is full (PAGE_SIZE rows) the cursor advanced and more rows may be
+     * waiting, so the next page is requested right away instead of leaving a hole between the old
+     * cursor and the live listener's newest rows until some later sync. mSyncInFlight stays set for the
+     * whole catch-up; the recent-window refresh runs once it finishes.
+     */
+    private void runDeltaPass(final String chatId, final int pass) {
         mExecutor.execute(() -> {
             // TraceSectionMetric("ChatRepo#syncDelta") — full Firebase delta sync
             // wall time per chat open (background thread). Measures network +
@@ -273,6 +289,8 @@ public class ChatRepository {
             query.addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(DataSnapshot snapshot) {
+                    final int batchSize = (int) snapshot.getChildrenCount();
+                    final MessageCursor startCursor = cursor;
                     List<MessageEntity> newMessages = new ArrayList<>();
                     long maxTimestamp = Long.MIN_VALUE;
                     String maxId = null;
@@ -310,6 +328,7 @@ public class ChatRepository {
                     final String finalMaxId = maxId;
                     final Long finalMaxSeq = maxSeq;
                     mExecutor.execute(() -> {
+                        boolean continued = false;
                         try {
                             // TraceSectionMetric("DB#insertMessages") — Room bulk insert
                             // cost per delta sync batch. Target: < 50ms for PAGE_SIZE=50
@@ -329,9 +348,16 @@ public class ChatRepository {
                             mCache.invalidateMessages(chatId);
                             Log.d(TAG, "Delta sync: inserted " + newMessages.size()
                                     + " new messages for " + chatId);
+                            // Full page + cursor really moved => keep catching up.
+                            if (startCursor != null && batchSize >= PAGE_SIZE && finalMaxId != null
+                                    && !finalMaxId.equals(startCursor.id) && pass + 1 < MAX_DELTA_PASSES) {
+                                continued = true;
+                                runDeltaPass(chatId, pass + 1);
+                            }
                         } finally {
-                            mSyncInFlight.remove(chatId);
+                            if (!continued) mSyncInFlight.remove(chatId);
                         }
+                        if (!continued) refreshRecentWindowIfDue(chatId, startCursor == null);
                     });
                 }
 
@@ -536,6 +562,103 @@ public class ChatRepository {
                 }
             }
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // RECENT-WINDOW REFRESH — old rows that changed while the chat was closed
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Delta sync only ever returns rows NEWER than the cursor, so an edit / delete-for-everyone /
+     * reaction / read tick on a row that was already synced never reached Room unless the live listener
+     * happened to replay it. Re-read the newest REFRESH_WINDOW rows (at most once per chat per
+     * REFRESH_MIN_INTERVAL_MS) and apply only what changed. Edits older than the window are still not synced.
+     */
+    private void refreshRecentWindowIfDue(String chatId, boolean justBootstrapped) {
+        long now = System.currentTimeMillis();
+        if (justBootstrapped) {            // the bootstrap page IS the newest window — nothing to re-read
+            mLastWindowRefreshAt.put(chatId, now);
+            return;
+        }
+        Long last = mLastWindowRefreshAt.get(chatId);
+        if (last != null && now - last < REFRESH_MIN_INTERVAL_MS) return;
+        mLastWindowRefreshAt.put(chatId, now);
+        mFirebase.getReference("messages").child(chatId)
+                .orderByChild("timestamp").limitToLast(REFRESH_WINDOW)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snapshot) {
+                        List<Message> fetched = new ArrayList<>();
+                        for (DataSnapshot child : snapshot.getChildren()) {
+                            Message m = child.getValue(Message.class);
+                            if (m == null) continue;
+                            if (m.id == null) m.id = child.getKey();
+                            if (m.id == null || m.timestamp == null) continue;
+                            fetched.add(m);
+                        }
+                        if (fetched.isEmpty()) return;
+                        mExecutor.execute(() -> applyWindowRefresh(chatId, fetched));
+                    }
+                    @Override public void onCancelled(DatabaseError error) {
+                        mLastWindowRefreshAt.remove(chatId);   // allow a retry on the next open
+                    }
+                });
+    }
+
+    private void applyWindowRefresh(String chatId, List<Message> fetched) {
+        try {
+            List<String> ids = new ArrayList<>(fetched.size());
+            for (Message m : fetched) ids.add(m.id);
+            java.util.HashMap<String, MessageEntity> localById = new java.util.HashMap<>();
+            for (MessageEntity l : mDb.messageDao().getMessagesByIds(ids)) {
+                if (l != null && l.id != null) localById.put(l.id, l);
+            }
+            List<MessageEntity> changed = new ArrayList<>();
+            for (Message m : fetched) {
+                MessageEntity local = localById.get(m.id);
+                if (local == null) {                       // a row we never got (gap) — normal full path
+                    changed.add(toEntity(m, chatId));
+                    continue;
+                }
+                // Never re-run E2E decryption on a row we already decrypted (ratchet keys are single-use and a
+                // failed re-decrypt must not overwrite good plaintext): keep the local text unless the
+                // server copy carries a NEWER edit.
+                boolean editedNewer = m.editedAt != null
+                        && (local.editedAt == null || m.editedAt > local.editedAt);
+                MessageEntity inc = editedNewer
+                        ? toEntity(m, chatId)
+                        : com.callx.app.utils.MessageEntityMapper.fromModel(m, chatId);
+                if (!editedNewer) inc.text = local.text;
+                if (windowRowDiffers(local, inc)) changed.add(inc);
+            }
+            if (!changed.isEmpty()) {
+                // mergeIncomingMessages keeps delete tombstones, newer local edits, tick state, local file paths.
+                mDb.messageDao().mergeIncomingMessages(changed);
+                mCache.invalidateMessages(chatId);
+            }
+            Log.d(TAG, "Window refresh " + chatId + ": " + changed.size() + "/" + fetched.size() + " rows changed");
+        } catch (Exception e) {
+            Log.w(TAG, "Window refresh failed for " + chatId + ": " + e.getMessage());
+            mLastWindowRefreshAt.remove(chatId);
+        }
+    }
+
+    private static int windowStatusRank(String s) {
+        if ("read".equals(s)) return 4;
+        if ("delivered".equals(s)) return 3;
+        if ("sent".equals(s)) return 2;
+        if ("failed".equals(s)) return 1;
+        return 0;
+    }
+
+    /** True only for server-side changes worth a Room write (avoids pointless Paging invalidations). */
+    private static boolean windowRowDiffers(MessageEntity l, MessageEntity n) {
+        return (Boolean.TRUE.equals(n.deleted) && !Boolean.TRUE.equals(l.deleted))
+                || !java.util.Objects.equals(l.reactionsJson, n.reactionsJson)
+                || !java.util.Objects.equals(l.pollVotesJson, n.pollVotesJson)
+                || !java.util.Objects.equals(l.pollClosed, n.pollClosed)
+                || (n.editedAt != null && (l.editedAt == null || n.editedAt > l.editedAt))
+                || windowStatusRank(n.status) > windowStatusRank(l.status)
+                || (n.mediaUrl != null && !n.mediaUrl.isEmpty() && !n.mediaUrl.equals(l.mediaUrl));
     }
 
     // ─────────────────────────────────────────────────────────────

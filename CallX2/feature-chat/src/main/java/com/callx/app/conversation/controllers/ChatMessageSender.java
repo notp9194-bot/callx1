@@ -109,8 +109,7 @@ public class ChatMessageSender {
         if (delegate.isOnline()) {
             firebasePushMessage(m, key, previewText);
         } else {
-            Toast.makeText(delegate.getActivity(),
-                    "No connection — message queued", Toast.LENGTH_SHORT).show();
+            // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
         }
     }
 
@@ -497,8 +496,7 @@ public class ChatMessageSender {
             firebasePushMessage(m, m.id, previewText);
         } else {
             com.callx.app.sync.OfflineOutbox.enqueueSend(delegate.getActivity(), entity);
-            Toast.makeText(delegate.getActivity(),
-                    "No connection — message queued", Toast.LENGTH_SHORT).show();
+            // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
         }
     }
 

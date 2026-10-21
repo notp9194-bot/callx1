@@ -658,6 +658,33 @@ public class CallxApp extends Application implements Configuration.Provider {
         }
     }
 
+    private long lastOutboxKickAt;
+    /**
+     * Global reconnect hook for the offline message queue: when a VALIDATED internet network appears,
+     * un-park queued messages and flush them right away — independent of which screen is open.
+     */
+    private void registerOutboxNetworkKick() {
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            android.net.NetworkRequest req = new android.net.NetworkRequest.Builder()
+                    .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    .build();
+            cm.registerNetworkCallback(req, new android.net.ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(android.net.Network network) {
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    if (now - lastOutboxKickAt < 2000L) return;   // debounce flapping callbacks
+                    lastOutboxKickAt = now;
+                    com.callx.app.sync.OfflineOutbox.kick(CallxApp.this);
+                }
+            });
+        } catch (Exception ignored) {
+            // never let a connectivity quirk break app start; WorkManager's CONNECTED constraint still applies
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────
     // Ultra Advanced Cache System init
     // ──────────────────────────────────────────────────────────────
@@ -670,6 +697,7 @@ public class CallxApp extends Application implements Configuration.Provider {
             // screen. Schedule the network-constrained outbox on every
             // process start so force-stop/app-kill recovery is automatic.
             com.callx.app.sync.OfflineOutbox.schedule(this);
+            registerOutboxNetworkKick();
 
             // Start global status cache — ek baar Firebase read, pure app mein reuse
             if (FirebaseAuth.getInstance().getCurrentUser() != null) {

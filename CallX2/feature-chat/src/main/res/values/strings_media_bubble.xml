@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="media_gate_retry">Tap to retry</string>
+    <string name="media_gate_waiting">No network · tap to cancel</string>
+    <string name="media_gate_compressing">Compressing %1$d%%</string>
+    <string name="media_gate_compressing_indeterminate">Compressing…</string>
+    <string name="media_gate_retry_network">Network error · tap to retry</string>
+    <string name="media_gate_retry_toolarge">Too large · tap to retry</string>
+    <string name="media_gate_retry_missing">File unavailable · tap to retry</string>
+    <string name="upload_cancel_title">Cancel upload?</string>
+    <string name="upload_cancel_message">This message will not be sent.</string>
+    <string name="upload_cancel_confirm">Cancel upload</string>
+    <string name="upload_cancel_keep">Keep sending</string>
+    <string name="a11y_upload_preparing">Uploading, preparing</string>
+    <string name="a11y_upload_progress">Uploading, %1$d percent. Double tap to cancel</string>
+    <string name="a11y_upload_compressing">Compressing, %1$d percent. Double tap to cancel</string>
+    <string name="a11y_upload_waiting">Upload waiting for network. Double tap to cancel</string>
+    <string name="a11y_upload_failed">Upload failed. Double tap to retry</string>
     <string name="media_gate_downloading_toast">Downloading…</string>
 
     <!-- Kind labels: gate pill fallback when size is unknown, GIF badge -->

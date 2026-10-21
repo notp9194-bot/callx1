@@ -668,14 +668,18 @@ final class MediaRenderer {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
         canvas.drawRoundRect(host.mediaRect, r, r, host.mediaGateScrimPaint);
 
+        final int drawnPercent = host.mediaDownloadProgress >= 0
+                ? Math.max(0, Math.min(100, Math.round(host.mediaDisplayProgress))) : -1;
         String label = host.mediaDownloading
-                ? (host.mediaDownloadProgress >= 0 ? host.mediaDownloadProgress + "%" : "")
+                ? (drawnPercent >= 0 ? drawnPercent + "%" : "")
                 : (host.mediaDownloadLabel.isEmpty() ? photoLabel() : host.mediaDownloadLabel);
 
         float iconSize = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_DP * host.density;
         float iconGap = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_GAP_DP * host.density;
         float padH = MessageBubbleCanvasView.GROUP_GATE_PILL_PAD_H_DP * host.density;
         float padV = MessageBubbleCanvasView.GROUP_GATE_PILL_PAD_V_DP * host.density;
+        // upload extras ("Compressing 34%", "45% · 5.4 MB / 12 MB"); plain "NN%" when it doesn't fit
+        label = host.uploadProgressLabel(label, padH * 2 + iconSize + iconGap);
         float textW = label.isEmpty() ? 0 : host.mediaGatePillTextPaint.measureText(label);
         float contentH = Math.max(iconSize, host.mediaGatePillTextPaint.descent() - host.mediaGatePillTextPaint.ascent());
         float pillW = padH * 2 + iconSize + (label.isEmpty() ? 0 : iconGap + textW);
@@ -698,7 +702,8 @@ final class MediaRenderer {
             // it will draw the ring itself, live, every frame, via
             // drawIndeterminateSpinnerOnly() on top of that cached Picture.
             if (host.mediaDownloadProgress >= 0 || !spinnerHandledSeparately) {
-                host.drawProgressRing(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint, host.mediaDownloadProgress);
+                host.drawProgressRing(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint,
+                        host.mediaDownloadProgress >= 0 ? drawnPercent : host.mediaDownloadProgress);
             }
             if (host.mediaUploadCancelable) {
                 // X inside the ring = "tap to cancel". Static, so it lives in the cached Picture
@@ -709,6 +714,8 @@ final class MediaRenderer {
             }
         } else if (host.mediaGateRetry) {
             drawRetryIcon(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint);
+        } else if (host.mediaGateWaiting) {
+            drawWaitingIcon(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint);
         } else {
             host.drawGateIcon(canvas, iconCx, iconCy, iconSize, host.mediaGatePillIconPaint);
         }
@@ -718,6 +725,14 @@ final class MediaRenderer {
                     - (host.mediaGatePillTextPaint.ascent() + host.mediaGatePillTextPaint.descent()) / 2f;
             canvas.drawText(label, iconCx + iconSize / 2f + iconGap, textBaselineY, host.mediaGatePillTextPaint);
         }
+    }
+
+    /** Static clock (circle + two hands): upload queued, waiting for the network. */
+    void drawWaitingIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
+        float r = size * 0.36f;
+        canvas.drawCircle(cx, cy, r, paint);
+        canvas.drawLine(cx, cy, cx, cy - r * 0.65f, paint);
+        canvas.drawLine(cx, cy, cx + r * 0.5f, cy, paint);
     }
 
     private final RectF retryArcRect = new RectF();
