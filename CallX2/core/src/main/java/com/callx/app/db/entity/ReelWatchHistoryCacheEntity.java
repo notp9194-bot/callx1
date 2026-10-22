@@ -2,6 +2,7 @@ package com.callx.app.db.entity;
 
 import androidx.annotation.NonNull;
 import androidx.room.Entity;
+import androidx.room.Ignore;
 import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
@@ -31,6 +32,8 @@ public class ReelWatchHistoryCacheEntity {
     public long watchedAt = 0L;
 
     public ReelWatchHistoryCacheEntity() {}
+
+    @Ignore
 
     public ReelWatchHistoryCacheEntity(@NonNull String reelId, long watchedAt) {
         this.reelId = reelId;

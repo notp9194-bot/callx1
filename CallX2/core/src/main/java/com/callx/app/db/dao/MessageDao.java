@@ -10,6 +10,7 @@ import androidx.room.Query;
 import androidx.room.Transaction;
 import androidx.room.Update;
 
+import com.callx.app.db.MessageMergePolicy;
 import com.callx.app.db.entity.MessageEntity;
 
 import java.util.List;

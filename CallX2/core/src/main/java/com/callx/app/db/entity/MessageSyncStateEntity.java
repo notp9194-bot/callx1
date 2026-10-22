@@ -2,6 +2,7 @@ package com.callx.app.db.entity;
 
 import androidx.annotation.NonNull;
 import androidx.room.Entity;
+import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 
 /**
@@ -31,10 +32,14 @@ public class MessageSyncStateEntity {
     public MessageSyncStateEntity() {
     }
 
+    @Ignore
+
     public MessageSyncStateEntity(@NonNull String chatId, long cursorTimestamp,
                                   String cursorMessageId) {
         this(chatId, cursorTimestamp, cursorMessageId, null);
     }
+
+    @Ignore
 
     public MessageSyncStateEntity(@NonNull String chatId, long cursorTimestamp,
                                   String cursorMessageId, Long cursorSeq) {
