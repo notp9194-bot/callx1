@@ -498,70 +498,9 @@ public interface MessageDao {
         }
         for (MessageEntity incoming : messages) {
             if (incoming == null || incoming.id == null) continue;
-            MessageEntity local = localById.get(incoming.id);
-            if (local != null) {
-                // Local delete-for-me is a durable tombstone. A later cached
-                // snapshot must never make that message visible again.
-                if (Boolean.TRUE.equals(local.deleted)
-                        && !Boolean.TRUE.equals(incoming.deleted)) {
-                    continue;
-                }
-                // Delete wins over edit/status updates.
-                if (Boolean.TRUE.equals(incoming.deleted)) {
-                    incoming.text = "";
-                    incoming.mediaUrl = null;
-                    incoming.thumbnailUrl = null;
-                    incoming.fileName = null;
-                }
-                // Last-write-wins for edits, with local optimistic edits
-                // winning when the server callback is older.
-                if (local.editedAt != null && incoming.editedAt != null
-                        && local.editedAt > incoming.editedAt) {
-                    incoming.text = local.text;
-                    incoming.edited = local.edited;
-                    incoming.editedAt = local.editedAt;
-                    incoming.editHistoryJson = local.editHistoryJson;
-                }
-                // Firebase can replay a stale "sent" value after a local
-                // delivered/read tick. Never regress the tick state.
-                if (statusRank(local.status) > statusRank(incoming.status)) {
-                    incoming.status = local.status;
-                    incoming.deliveredAt = local.deliveredAt;
-                    incoming.readAt = local.readAt;
-                }
-                // Keep the local file available for offline media rendering.
-                if (local.mediaLocalPath != null && !local.mediaLocalPath.isEmpty()
-                        && (incoming.mediaLocalPath == null || incoming.mediaLocalPath.isEmpty())) {
-                    incoming.mediaLocalPath = local.mediaLocalPath;
-                }
-                // Keep the encrypted wire copy until the durable send is
-                // acknowledged; otherwise a process-killed offline send
-                // would fall back to plaintext.
-                if (local.wireText != null && !local.wireText.isEmpty()
-                        && (incoming.wireText == null || incoming.wireText.isEmpty())) {
-                    incoming.wireText = local.wireText;
-                }
-                // Columns the server copy never carries (set only on this device): a snapshot that lacks them
-                // must not wipe them via REPLACE. Reactions / poll votes / status are server-driven and are
-                // deliberately NOT null-filled, otherwise a removed reaction would stay forever.
-                if (incoming.starred == null && local.starred != null) incoming.starred = local.starred;
-                if (incoming.pinned == null && local.pinned != null) incoming.pinned = local.pinned;
-                if (incoming.viewOnceState == null && local.viewOnceState != null) {
-                    incoming.viewOnceState = local.viewOnceState;
-                }
-                if ((incoming.editHistoryJson == null || incoming.editHistoryJson.isEmpty())
-                        && local.editHistoryJson != null && !local.editHistoryJson.isEmpty()) {
-                    incoming.editHistoryJson = local.editHistoryJson;
-                }
-                if ((incoming.thumbInlineData == null || incoming.thumbInlineData.isEmpty())
-                        && local.thumbInlineData != null && !local.thumbInlineData.isEmpty()) {
-                    incoming.thumbInlineData = local.thumbInlineData;
-                }
-                incoming.retryCount = Math.max(local.retryCount, incoming.retryCount);
-                incoming.nextRetryAt = Math.max(local.nextRetryAt, incoming.nextRetryAt);
-                if (incoming.lastError == null) incoming.lastError = local.lastError;
-            }
-            resolved.add(incoming);
+            MessageEntity merged = MessageMergePolicy.merge(localById.get(incoming.id), incoming);
+            if (merged == null) continue;   // e.g. local delete-for-me tombstone wins
+            resolved.add(merged);
         }
         if (!resolved.isEmpty()) {
             insertMessages(resolved);
@@ -569,11 +508,7 @@ public interface MessageDao {
     }
 
     static int statusRank(String status) {
-        if ("read".equals(status)) return 4;
-        if ("delivered".equals(status)) return 3;
-        if ("sent".equals(status)) return 2;
-        if ("failed".equals(status)) return 1;
-        return 0;
+        return MessageMergePolicy.statusRank(status);
     }
 
     @WorkerThread
@@ -721,8 +656,16 @@ public interface MessageDao {
     @WorkerThread
     @Query("DELETE FROM messages WHERE chatId = :chatId AND timestamp < " +
            "(SELECT timestamp FROM messages WHERE chatId = :chatId " +
-           "ORDER BY timestamp DESC LIMIT 1 OFFSET :keepCount)")
+           "ORDER BY timestamp DESC LIMIT 1 OFFSET :keepCount) " +
+           // never prune what the user would lose for good: starred messages and anything not yet delivered
+           "AND (starred IS NULL OR starred != 1) " +
+           "AND (status IS NULL OR status NOT IN ('pending','uploading','failed'))")
     void pruneOldMessages(String chatId, int keepCount);
+
+    /** Oldest message still held locally for a chat (null when empty) — recorded as the prune boundary. */
+    @WorkerThread
+    @Query("SELECT MIN(timestamp) FROM messages WHERE chatId = :chatId")
+    Long getOldestTimestamp(String chatId);
 
     /** Auto-delete: delete all messages older than cutoffTimestamp (across all chats). */
     @WorkerThread

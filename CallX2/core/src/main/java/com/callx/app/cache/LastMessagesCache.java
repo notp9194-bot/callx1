@@ -47,11 +47,16 @@ public final class LastMessagesCache {
     }
 
     // accessOrder=true → LRU; removeEldestEntry evicts the least-recently-touched chat
+    /** When each chat's warm list was last known to match the server/Room (epoch ms; absent/0 = unknown). */
+    private final Map<String, Long> savedAtMs = new java.util.HashMap<>();
+
     private final LinkedHashMap<String, List<Message>> cache =
             new LinkedHashMap<String, List<Message>>(MAX_CHATS, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<String, List<Message>> eldest) {
-                    return size() > MAX_CHATS;
+                    boolean evict = size() > MAX_CHATS;
+                    if (evict) savedAtMs.remove(eldest.getKey());
+                    return evict;
                 }
             };
 
@@ -62,7 +67,10 @@ public final class LastMessagesCache {
     public synchronized boolean has(@Nullable String chatId) {
         if (chatId == null) return false;
         List<Message> list = cache.get(chatId);
-        return list != null && !list.isEmpty();
+        if (list == null) return false;
+        long now = System.currentTimeMillis();
+        for (Message m : list) if (!isHiddenFromWarmFrame(m, now)) return true;
+        return false;
     }
 
     /** Defensive-copy snapshot, oldest→newest (same order as Room/Paging). */
@@ -77,8 +85,14 @@ public final class LastMessagesCache {
         // to render this list directly, and MessagePagingAdapter uses
         // messageId as its stable identity. Normalize here so the warm frame
         // and the first Room generation have exactly the same item identity.
-        for (Message m : list) normalizeIdentity(m);
-        return new ArrayList<>(list);
+        long now = System.currentTimeMillis();
+        List<Message> out = new ArrayList<>(list.size());
+        for (Message m : list) {
+            if (isHiddenFromWarmFrame(m, now)) continue;   // same rule the Paging query uses (deleted rows never show)
+            normalizeIdentity(m);
+            out.add(m);
+        }
+        return out;
     }
 
     /**
@@ -87,7 +101,33 @@ public final class LastMessagesCache {
      * reflects what Room actually has, never a stale/partial picture.
      * Input is trimmed to the last MAX_PER_CHAT entries, kept oldest→newest.
      */
+    /**
+     * True for rows the chat list must never show in the warm first frame: soft-deleted rows (the Paging
+     * query excludes them too) and disappearing messages whose timer already ran out.
+     */
+    public static boolean isHiddenFromWarmFrame(@Nullable Message m, long nowMs) {
+        if (m == null) return true;
+        if (Boolean.TRUE.equals(m.deleted)) return true;
+        return m.expiresAt != null && m.expiresAt > 0L && m.expiresAt <= nowMs;
+    }
+
+    /**
+     * How old this chat's warm list is (ms since it was last confirmed against the server/Room), or
+     * Long.MAX_VALUE when unknown (e.g. migrated from the legacy disk format). Lets callers decide how much
+     * to trust the first frame (e.g. skip an aggressive "Updating…" state for a seconds-old list).
+     */
+    public synchronized long getAgeMs(@Nullable String chatId) {
+        Long t = chatId == null ? null : savedAtMs.get(chatId);
+        if (t == null || t <= 0L) return Long.MAX_VALUE;
+        return Math.max(0L, System.currentTimeMillis() - t);
+    }
+
     public synchronized void seed(@Nullable String chatId, @Nullable List<Message> latestAsc) {
+        seed(chatId, latestAsc, System.currentTimeMillis());
+    }
+
+    /** @param savedAtMs when {@code latestAsc} was last confirmed (0 = unknown), e.g. the disk snapshot's stamp. */
+    public synchronized void seed(@Nullable String chatId, @Nullable List<Message> latestAsc, long savedAtMs) {
         if (chatId == null || latestAsc == null) return;
         List<Message> trimmed = new ArrayList<>(latestAsc);
         for (Message m : trimmed) normalizeIdentity(m);
@@ -95,6 +135,7 @@ public final class LastMessagesCache {
             trimmed = new ArrayList<>(trimmed.subList(trimmed.size() - MAX_PER_CHAT, trimmed.size()));
         }
         cache.put(chatId, trimmed);
+        this.savedAtMs.put(chatId, savedAtMs);
     }
 
     /**
@@ -105,6 +146,11 @@ public final class LastMessagesCache {
     public synchronized void upsert(@Nullable String chatId, @Nullable Message m) {
         if (chatId == null || m == null || m.id == null) return;
         normalizeIdentity(m);
+        if (isHiddenFromWarmFrame(m, System.currentTimeMillis())) {
+            removeMessage(chatId, m.id);   // deleted / expired: drop it instead of keeping a stale visible copy
+            return;
+        }
+        savedAtMs.put(chatId, System.currentTimeMillis());
         List<Message> list = cache.get(chatId);
         if (list == null) {
             list = new ArrayList<>();
@@ -168,11 +214,13 @@ public final class LastMessagesCache {
     public synchronized void evictChat(@Nullable String chatId) {
         if (chatId == null) return;
         cache.remove(chatId);
+        savedAtMs.remove(chatId);
     }
 
     /** Full clear — used on logout and on critical low-memory signals. */
     public synchronized void clear() {
         cache.clear();
+        savedAtMs.clear();
     }
 
     /**
@@ -184,6 +232,7 @@ public final class LastMessagesCache {
     public synchronized void trimMemory(int level) {
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
             cache.clear();
+            savedAtMs.clear();
         } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             for (List<Message> list : cache.values()) {
                 while (list.size() > 5) list.remove(0); // keep just a tiny hot-set per chat

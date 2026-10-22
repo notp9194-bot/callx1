@@ -666,7 +666,34 @@ public class ChatRepository {
     // ─────────────────────────────────────────────────────────────
 
     public void pruneOldMessages(String chatId, int keepCount) {
-        mExecutor.execute(() -> mDb.messageDao().pruneOldMessages(chatId, keepCount));
+        mExecutor.execute(() -> pruneNow(chatId, keepCount));
+    }
+
+    private static final String PRUNE_MARKER_PREFS = "chat_prune_markers_v1";
+
+    /**
+     * COUNT-first (a DELETE that removes nothing still invalidates Paging), then prune, then remember where
+     * local history now starts. Starred and not-yet-delivered rows are never pruned (see MessageDao query).
+     * Must run on mExecutor.
+     */
+    private void pruneNow(String chatId, int keepCount) {
+        if (mDb.messageDao().getMessageCount(chatId) <= keepCount) return;
+        mDb.messageDao().pruneOldMessages(chatId, keepCount);
+        Long oldest = mDb.messageDao().getOldestTimestamp(chatId);
+        if (oldest != null) {
+            mAppContext.getSharedPreferences(PRUNE_MARKER_PREFS, Context.MODE_PRIVATE)
+                    .edit().putLong(chatId, oldest).apply();
+        }
+    }
+
+    /**
+     * Timestamp where this device's local history starts after the last prune, or 0 if the chat was never
+     * pruned. Anything OLDER than this still exists on the server and is re-fetched on scroll-back — callers
+     * (e.g. an "older messages are online" hint or a smarter end-of-history check) can use this to tell
+     * "start of the chat" apart from "start of what we kept locally".
+     */
+    public long getPrunedBeforeTimestamp(String chatId) {
+        return mAppContext.getSharedPreferences(PRUNE_MARKER_PREFS, Context.MODE_PRIVATE).getLong(chatId, 0L);
     }
 
     /**
@@ -741,7 +768,7 @@ public class ChatRepository {
             }
             int count = mDb.messageDao().getMessageCount(chatId);
             if (count > hardCap) {
-                mDb.messageDao().pruneOldMessages(chatId, hardCap);
+                pruneNow(chatId, hardCap);
                 // Record the post-prune count, not the pre-prune one, so
                 // the very next open doesn't immediately think it's still
                 // sitting right at the edge and re-query again.
