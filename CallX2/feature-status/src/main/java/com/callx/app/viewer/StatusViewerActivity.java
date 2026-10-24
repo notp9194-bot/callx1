@@ -2009,7 +2009,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius);
               }
           };
-          for (View v : new View[] { binding.ivStatus, binding.playerView }) {
+          for (View v : new View[] { binding.ivStatus, binding.playerView, binding.ivVideoPoster }) {
               final android.widget.FrameLayout.LayoutParams lp =
                       new android.widget.FrameLayout.LayoutParams(bw, bh, android.view.Gravity.TOP | android.view.Gravity.START);
               lp.leftMargin = left; lp.topMargin = top;
@@ -2018,6 +2018,7 @@ import com.callx.app.utils.AlertDialogStyler;
               v.setClipToOutline(true);
           }
           binding.ivStatus.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+          binding.ivVideoPoster.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP); // video poster fills the card too
           reshareCardActive = true;
           binding.playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM); // video fills the card, no black bars
           reshareBoxW = bw; reshareBoxH = bh; reshareCardItem = s;
@@ -2124,13 +2125,14 @@ import com.callx.app.utils.AlertDialogStyler;
           if (stickerOverlayView != null)
               stickerOverlayView.setLayoutParams(new FrameLayout.LayoutParams(
                       android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-          for (View v : new View[] { binding.ivStatus, binding.playerView }) {
+          for (View v : new View[] { binding.ivStatus, binding.playerView, binding.ivVideoPoster }) {
               v.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
                       android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
               v.setClipToOutline(false);
               v.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
           }
           binding.ivStatus.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+          binding.ivVideoPoster.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
           binding.playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
       }
       private void hideAllContent() {
