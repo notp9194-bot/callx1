@@ -2393,11 +2393,29 @@ import com.callx.app.utils.AlertDialogStyler;
                           : binding.flStoryCard.getHeight() > 0 ? binding.flStoryCard.getHeight()
                           : getResources().getDisplayMetrics().heightPixels;
 
+                  final boolean centred = sticker.hasCenterPlacement() && frameW > 0 && frameH > 0;
+                  final float density = getResources().getDisplayMetrics().density;
                   FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                          Math.min(frameW - dp * 32, dp * 280),
+                          centred ? Math.round(sticker.getSavedWdp() * density) : Math.min(frameW - dp * 32, dp * 280),
                           FrameLayout.LayoutParams.WRAP_CONTENT,
                           sticker.hasSavedPosition() ? Gravity.TOP | Gravity.START : Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-                  if (sticker.hasSavedPosition()) {
+                  float centreX = 0f, centreY = 0f, fitK = 1f;
+                  if (centred) {
+                      // v650: the composer canvas (9:16) is shown fitCenter in this card (see StoryFrameSpec) → map the
+                      // sticker into that SAME box (not the whole card) and scale it by box width / canvas width,
+                      // so size + spot match the poster's preview on any screen shape.
+                      final float aspect = sticker.getSavedFrameWdp() / sticker.getSavedFrameHdp();
+                      float boxW = frameW, boxH = boxW / aspect;
+                      if (boxH > frameH) { boxH = frameH; boxW = boxH * aspect; }
+                      final float boxL = (frameW - boxW) / 2f, boxT = (frameH - boxH) / 2f;
+                      centreX = boxL + sticker.getSavedCxRatio() * boxW;
+                      centreY = boxT + sticker.getSavedCyRatio() * boxH;
+                      fitK = (boxW / density) / sticker.getSavedFrameWdp();
+                  }
+                  if (centred) {
+                      lp.leftMargin = 0;
+                      lp.topMargin = 0; // exact spot is applied in a pre-draw pass once the card is measured
+                  } else if (sticker.hasSavedPosition()) {
                       // Poster dragged/pinched this sticker to a specific spot in the
                       // composer — reproduce that exact spot here instead of the
                       // generic stacked layout below.
@@ -2407,6 +2425,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       lp.topMargin = dp * (140 + i * 90); // legacy sticker with no saved position: stack as before
                   }
                   stickerOv.addView(sticker, lp);
+                  if (centred) sticker.placeCenteredOnceLaidOut(centreX, centreY, fitK, frameW, frameH);
 
                   if ("question".equals(sticker.getStickerType())
                           && myUid != null && !myUid.equals(ownerUid)) {

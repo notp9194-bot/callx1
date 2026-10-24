@@ -42,7 +42,7 @@ public class StatusStickerOverlayView extends LinearLayout {
     public static final float SCALE_SMALL  = 0.7f;
     public static final float SCALE_MEDIUM = 1.0f;
     public static final float SCALE_LARGE  = 1.4f;
-    private static final float SCALE_MIN = 0.5f, SCALE_MAX = 2.0f;
+    private static final float SCALE_MIN = 0.3f, SCALE_MAX = 5.0f;
     private float stickerScale = SCALE_MEDIUM;
     private OnStickerTappedListener stickerTapListener;
 
@@ -59,6 +59,343 @@ public class StatusStickerOverlayView extends LinearLayout {
     private OnStickerDragListener dragListener;
     public void setOnStickerDragListener(OnStickerDragListener l) { this.dragListener = l; }
     public float getStickerScale() { return stickerScale; }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // v649 — "ultra advanced" sticker transform engine: public API
+    // ═════════════════════════════════════════════════════════════════════
+
+    /** Fired once per finished gesture (or composer action) that really changed x/y/scale/rotation → undo/redo. */
+    public interface OnTransformCommittedListener {
+        void onTransformCommitted(StatusStickerOverlayView sticker, float[] before, float[] after);
+    }
+    private OnTransformCommittedListener commitListener;
+    public void setOnTransformCommittedListener(OnTransformCommittedListener l) { this.commitListener = l; }
+
+    private boolean selectedUi;          // dotted border + corner resize/rotate handle (composer only)
+    private boolean locked;              // locked stickers ignore drag / pinch / handle
+    private boolean removing;            // true from the moment removal is decided
+    private boolean autoRaiseOnTouch = true;
+    public void setAutoRaiseOnTouch(boolean v) { autoRaiseOnTouch = v; }
+    public boolean isRemoving() { return removing; }
+    public boolean isLocked() { return locked; }
+    public boolean isSelectedUi() { return selectedUi; }
+    public void setLocked(boolean v) { locked = v; invalidate(); }
+    public void setSelectedUi(boolean v) { if (selectedUi != v) { selectedUi = v; invalidate(); } }
+
+    // gesture-engine state
+    private float[] gBefore;                                   // state at gesture start (undo "before")
+    private float nudgeTargetX = Float.NaN, nudgeTargetY = Float.NaN;
+    private boolean tfActive, handleActive, rotSnapped, scaleSnapped;
+    private float tfStartDist, tfStartAngle, tfStartScale, tfStartRot, tfStartMidX, tfStartMidY,
+            tfStartCx, tfStartCy, tfLastDAng;
+    private float hStartDist, hStartAngle, hStartScale, hStartRot, hLastDAng;
+    private float snapTx = Float.NaN, snapTy = Float.NaN;
+    private final float[] tmpPt = new float[2];
+    // v650 perf: reused buffers so a drag MOVE allocates nothing.
+    private final float[] snapOut = new float[2];
+    private float[] snapTargets = new float[0];   // flat {cx, cy, halfW, halfH} of every OTHER sticker, built once per gesture
+    private int snapTargetCount;
+    private View[] rotCur;                        // rotation chrome of the parent in use (avoids a map lookup per MOVE)
+
+    /** {x, y, scale, rotationDeg} — x/y already include a pending safe-area nudge. */
+    public float[] captureState() {
+        return new float[]{
+                Float.isNaN(nudgeTargetX) ? getX() : nudgeTargetX,
+                Float.isNaN(nudgeTargetY) ? getY() : nudgeTargetY,
+                stickerScale, stickerRotationDeg};
+    }
+
+    /** Animated jump back to a state from {@link #captureState()} (undo / redo). */
+    public void restoreState(float[] s) {
+        if (s == null || s.length < 4) return;
+        animate().cancel();
+        float curRot = getRotation();
+        stickerScale = clampScale(s[2]);
+        stickerRotationDeg = normDeg(s[3]);
+        float target = curRot + normDeg(stickerRotationDeg - curRot); // shortest way round
+        animate().x(s[0]).y(s[1]).scaleX(stickerScale).scaleY(stickerScale).rotation(target)
+                .setDuration(260).setInterpolator(new OvershootInterpolator(1.1f))
+                .withEndAction(() -> setRotation(stickerRotationDeg)).start();
+        invalidate();
+    }
+
+    /** Asks for a small slide of (dx,dy) px when the current gesture finishes (safe-area magnet). */
+    public void nudgeBy(float dx, float dy) {
+        nudgeTargetX = getX() + dx;
+        nudgeTargetY = getY() + dy;
+    }
+
+    /** {centerX, centerY, halfWidth, halfHeight} of the on-screen (scaled + rotated) bounds, in parent px. */
+    public float[] getVisualBounds() {
+        float[] out = new float[4];
+        fillVisualBounds(out, 0);
+        return out;
+    }
+
+    /** Allocation-free {@link #getVisualBounds()}: writes the 4 values into {@code out[off..off+3]}. */
+    public void fillVisualBounds(float[] out, int off) {
+        double r = Math.toRadians(getRotation());
+        float c = (float) Math.abs(Math.cos(r)), sn = (float) Math.abs(Math.sin(r));
+        float w = getWidth() * stickerScale, h = getHeight() * stickerScale;
+        out[off]     = getX() + getWidth() / 2f;
+        out[off + 1] = getY() + getHeight() / 2f;
+        out[off + 2] = (w * c + h * sn) / 2f;
+        out[off + 3] = (w * sn + h * c) / 2f;
+    }
+
+    /** Snapshot every other live sticker's bounds ONCE per gesture (they cannot move while this one is dragged). */
+    private void collectSnapTargets(ViewGroup parent) {
+        int n = parent.getChildCount();
+        if (snapTargets.length < n * 4) snapTargets = new float[n * 4];
+        int c = 0;
+        for (int i = 0; i < n; i++) {
+            View o = parent.getChildAt(i);
+            if (o == this || !(o instanceof StatusStickerOverlayView) || o.getVisibility() != View.VISIBLE) continue;
+            StatusStickerOverlayView os = (StatusStickerOverlayView) o;
+            if (os.removing) continue;
+            os.fillVisualBounds(snapTargets, c * 4);
+            c++;
+        }
+        snapTargetCount = c;
+    }
+
+    private static float clampScale(float s) { return Math.max(SCALE_MIN, Math.min(SCALE_MAX, s)); }
+    private static float normDeg(float d) {
+        d %= 360f;
+        if (d > 180f) d -= 360f;
+        if (d < -180f) d += 360f;
+        return d;
+    }
+
+    // ── Canvas-wide two-finger gesture (host routes touches from the empty canvas to the selected sticker) ──
+    public void beginCanvasGesture(ViewGroup parent, float x0, float y0, float x1, float y1) {
+        gBefore = captureState();
+        nudgeTargetX = nudgeTargetY = Float.NaN;
+        tfBegin(x0, y0, x1, y1);
+        rotCur = getOrCreateRot(parent);
+        if (dragListener != null) dragListener.onDragStart(this);
+    }
+    public void updateCanvasGesture(ViewGroup parent, float x0, float y0, float x1, float y1) {
+        if (!tfActive) return;
+        tfUpdate(parent, x0, y0, x1, y1);
+        if (dragListener != null) dragListener.onDragMove(this);
+    }
+    public void endCanvasGesture(ViewGroup parent) {
+        tfActive = false;
+        hideSnapChrome(parent);
+        if (dragListener != null) dragListener.onDragEnd(this);
+        animateRelease();
+        commitTransformIfChanged();
+    }
+
+    // ── internals ────────────────────────────────────────────────────────
+    private void commitTransformIfChanged() {
+        float[] before = gBefore;
+        gBefore = null;
+        float[] after = captureState();
+        nudgeTargetX = nudgeTargetY = Float.NaN;
+        if (before == null || commitListener == null) return;
+        if (Math.abs(before[0] - after[0]) > 1.5f || Math.abs(before[1] - after[1]) > 1.5f
+                || Math.abs(before[2] - after[2]) > 0.004f
+                || Math.abs(normDeg(before[3] - after[3])) > 0.4f) {
+            commitListener.onTransformCommitted(this, before, after);
+        }
+    }
+
+    /** Springy settle after a gesture (pickup 1.05x → real scale), optionally sliding into a nudge target. */
+    private void animateRelease() {
+        android.view.ViewPropertyAnimator a = animate().scaleX(stickerScale).scaleY(stickerScale).alpha(1f)
+                .setDuration(220).setInterpolator(new OvershootInterpolator(2.0f));
+        if (!Float.isNaN(nudgeTargetX) && !Float.isNaN(nudgeTargetY)) a.x(nudgeTargetX).y(nudgeTargetY);
+        a.start();
+    }
+
+    /** Finger {idx} of {@code e} in the PARENT's coordinate space (stable even while this view rotates/scales). */
+    private void toParent(MotionEvent e, int idx, float[] out) {
+        tmpPt[0] = e.getX(idx);
+        tmpPt[1] = e.getY(idx);
+        getMatrix().mapPoints(tmpPt);
+        out[0] = tmpPt[0] + getLeft();
+        out[1] = tmpPt[1] + getTop();
+    }
+
+    private void tfBegin(float x0, float y0, float x1, float y1) {
+        animate().cancel();
+        setScaleX(stickerScale);
+        setScaleY(stickerScale);
+        tfActive = true;
+        tfStartDist = Math.max(1f, (float) Math.hypot(x1 - x0, y1 - y0));
+        tfStartAngle = (float) Math.toDegrees(Math.atan2(y1 - y0, x1 - x0));
+        tfStartScale = stickerScale;
+        tfStartRot = stickerRotationDeg;
+        tfStartMidX = (x0 + x1) / 2f;
+        tfStartMidY = (y0 + y1) / 2f;
+        tfStartCx = getX() + getWidth() / 2f;
+        tfStartCy = getY() + getHeight() / 2f;
+        tfLastDAng = 0f;
+        rotSnapped = false;
+        scaleSnapped = false;
+    }
+
+    /** Pinch + twist + two-finger pan as ONE similarity transform around the fingers' midpoint. */
+    private void tfUpdate(ViewGroup parent, float x0, float y0, float x1, float y1) {
+        float dist = Math.max(1f, (float) Math.hypot(x1 - x0, y1 - y0));
+        float scale = resolveScale(tfStartScale * dist / tfStartDist);
+
+        float ang = (float) Math.toDegrees(Math.atan2(y1 - y0, x1 - x0));
+        float dAng = ang - tfStartAngle;
+        while (dAng - tfLastDAng > 180f) dAng -= 360f;
+        while (dAng - tfLastDAng < -180f) dAng += 360f;
+        tfLastDAng = dAng;
+        float rot = resolveRotation(tfStartRot, dAng);
+        float dTheta = rot - tfStartRot;
+
+        float midX = (x0 + x1) / 2f, midY = (y0 + y1) / 2f;
+        double rad = Math.toRadians(dTheta);
+        float cos = (float) Math.cos(rad), sin = (float) Math.sin(rad);
+        float k = scale / tfStartScale;
+        float v0x = tfStartCx - tfStartMidX, v0y = tfStartCy - tfStartMidY;
+        float cx = midX + k * (cos * v0x - sin * v0y);
+        float cy = midY + k * (sin * v0x + cos * v0y);
+        if (parent.getWidth() > 0 && parent.getHeight() > 0) {
+            cx = Math.max(0f, Math.min(parent.getWidth(), cx));
+            cy = Math.max(0f, Math.min(parent.getHeight(), cy));
+        }
+        applyScale(scale);
+        applyRotation(rot);
+        setX(cx - getWidth() / 2f);
+        setY(cy - getHeight() / 2f);
+        updateRotChrome(parent, rotSnapped, rot, Math.abs(dAng) > 2f);
+    }
+
+    /** Scale with a magnetic stop (haptic) at 1.0x. */
+    private float resolveScale(float raw) {
+        float s = clampScale(raw);
+        boolean near = Math.abs(s - 1f) < 0.04f;
+        if (near) s = 1f;
+        if (near && !scaleSnapped) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        scaleSnapped = near;
+        return s;
+    }
+
+    /** Rotation with magnetic stops every 45° (±4°) — tick on entry. Returns the (unnormalised) angle to apply. */
+    private float resolveRotation(float startRot, float dAng) {
+        float raw = startRot + dAng;
+        float rn = normDeg(raw);
+        float nearest = Math.round(rn / 45f) * 45f;
+        boolean snap = Math.abs(rn - nearest) < 4f;
+        if (snap && !rotSnapped) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        rotSnapped = snap;
+        return snap ? raw + (nearest - rn) : raw;
+    }
+
+    // ── Corner handle: one-finger resize + rotate (bottom-right, only while selected) ──
+    // v650: the handle keeps a usable ON-SCREEN size at every sticker scale. Visual radius is 11dp
+    // (never below 8dp, shrunk only for very small cards); the touch zone is never below 32dp wide.
+    private static final float HANDLE_R_DP = 11f, HANDLE_R_MIN_DP = 8f, HANDLE_TOUCH_MIN_DP = 32f;
+    private final float[] handleG = new float[4];   // {cx, cy, visualRadius, hitRadius} in LOCAL px
+
+    private float[] handleGeom() {
+        float w = getWidth(), h = getHeight();
+        float sc = Math.max(0.15f, stickerScale);
+        float k = 1f / sc;
+        float d = dpf(getContext());
+        float rScreen = Math.max(HANDLE_R_MIN_DP * d, Math.min(HANDLE_R_DP * d, Math.min(w, h) * sc * 0.22f));
+        float r = rScreen * k;
+        float pad = d * 2f * k;
+        float hitScreen = Math.max(rScreen * 1.8f, HANDLE_TOUCH_MIN_DP * d * 0.5f);
+        handleG[0] = Math.max(r, w - r - pad);
+        handleG[1] = Math.max(r, h - r - pad);
+        handleG[2] = r;
+        handleG[3] = hitScreen * k;
+        return handleG;
+    }
+    private boolean inHandle(float x, float y) {
+        if (locked) return false;
+        float[] g = handleGeom();
+        float dx = x - g[0], dy = y - g[1], rr = g[3];
+        return dx * dx + dy * dy <= rr * rr;
+    }
+    private void handleBegin(MotionEvent e) {
+        float[] p = new float[2];
+        toParent(e, 0, p);
+        float cx = getX() + getWidth() / 2f, cy = getY() + getHeight() / 2f;
+        hStartDist = Math.max(1f, (float) Math.hypot(p[0] - cx, p[1] - cy));
+        hStartAngle = (float) Math.toDegrees(Math.atan2(p[1] - cy, p[0] - cx));
+        hStartScale = stickerScale;
+        hStartRot = stickerRotationDeg;
+        hLastDAng = 0f;
+        rotSnapped = false;
+        scaleSnapped = false;
+    }
+    private void handleUpdate(ViewGroup parent, float px, float py) {
+        float cx = getX() + getWidth() / 2f, cy = getY() + getHeight() / 2f;
+        float dist = Math.max(1f, (float) Math.hypot(px - cx, py - cy));
+        float ang = (float) Math.toDegrees(Math.atan2(py - cy, px - cx));
+        float dAng = ang - hStartAngle;
+        while (dAng - hLastDAng > 180f) dAng -= 360f;
+        while (dAng - hLastDAng < -180f) dAng += 360f;
+        hLastDAng = dAng;
+        float scale = resolveScale(hStartScale * dist / hStartDist);
+        float rot = resolveRotation(hStartRot, dAng);
+        applyScale(scale);
+        applyRotation(rot);
+        updateRotChrome(parent, rotSnapped, rot, Math.abs(dAng) > 2f);
+    }
+
+    // ── Selection chrome (dotted border + handle + lock badge) — never drawn into snapshots ──
+    private Paint ringPaint, handleFill, handleStroke, handleGlyph, lockPaint;
+    private float ringK = -1f;
+    private final RectF ringRect = new RectF();
+    @Override
+    protected void dispatchDraw(Canvas canvas) {
+        super.dispatchDraw(canvas);
+        if (selectedUi && canvas.isHardwareAccelerated() && getWidth() > 0) drawSelectionChrome(canvas);
+    }
+    private void drawSelectionChrome(Canvas c) {
+        float d = dpf(getContext());
+        float k = 1f / Math.max(0.15f, stickerScale);
+        if (ringPaint == null) {
+            ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setColor(0xF2FFFFFF);
+            handleFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+            handleFill.setColor(Color.WHITE);
+            handleStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+            handleStroke.setStyle(Paint.Style.STROKE);
+            handleStroke.setColor(0xFFFF3B7A);
+            handleGlyph = new Paint(Paint.ANTI_ALIAS_FLAG);
+            handleGlyph.setStyle(Paint.Style.STROKE);
+            handleGlyph.setStrokeCap(Paint.Cap.ROUND);
+            handleGlyph.setColor(0xFF222222);
+            lockPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            lockPaint.setTextAlign(Paint.Align.RIGHT);
+        }
+        if (Math.abs(k - ringK) > 0.001f) {
+            ringK = k;
+            ringPaint.setStrokeWidth(d * 1.5f * k);
+            ringPaint.setPathEffect(new DashPathEffect(new float[]{d * 6f * k, d * 4f * k}, 0f));
+            handleStroke.setStrokeWidth(d * 1.5f * k);
+            handleGlyph.setStrokeWidth(d * 1.6f * k);
+        }
+        float w = getWidth(), h = getHeight(), in = d * 1.5f * k, rad = d * 14f * k;
+        ringRect.set(in, in, w - in, h - in);
+        c.drawRoundRect(ringRect, rad, rad, ringPaint);
+        if (locked) {
+            lockPaint.setTextSize(d * 15f * k);
+            c.drawText("\uD83D\uDD12", w - d * 8f * k, d * 22f * k, lockPaint);
+            return;
+        }
+        float[] g = handleGeom();
+        c.drawCircle(g[0], g[1], g[2], handleFill);
+        c.drawCircle(g[0], g[1], g[2], handleStroke);
+        float a = g[2] * 0.5f, t = g[2] * 0.38f;
+        c.drawLine(g[0] - a, g[1] - a, g[0] + a, g[1] + a, handleGlyph);          // diagonal ⤡
+        c.drawLine(g[0] + a, g[1] + a, g[0] + a - t, g[1] + a, handleGlyph);
+        c.drawLine(g[0] + a, g[1] + a, g[0] + a, g[1] + a - t, handleGlyph);
+        c.drawLine(g[0] - a, g[1] - a, g[0] - a + t, g[1] - a, handleGlyph);
+        c.drawLine(g[0] - a, g[1] - a, g[0] - a, g[1] - a + t, handleGlyph);
+    }
 
     // ── Rotation (two-finger twist, mirrors the pinch-to-scale gesture) ────
     private float stickerRotationDeg = 0f;
@@ -87,16 +424,79 @@ public class StatusStickerOverlayView extends LinearLayout {
      */
     public void setOnStickerRemovedListener(OnStickerRemovedListener l) { this.removedListener = l; }
 
+    // ── v651: undo support for delete / add ──────────────────────────────────
+    private float[] preRemovalState, preRemovalOverride;
+    private int preRemovalIndex = -1;
+    private String lastCountdownTarget;
+    private TextView[] lastCountdownViews;
+
+    /** {x, y, scale, rot} the sticker had right before its last removal (null if it was never removed). */
+    public float[] getPreRemovalState() { return preRemovalState; }
+    /** z-index inside the parent right before the last removal (-1 if unknown). */
+    public int getPreRemovalIndex() { return preRemovalIndex; }
+
+    /** Removes this sticker with the normal shrink animation (toolbar delete button). Locked stickers are ignored. */
+    public void removeWithAnimation() {
+        if (locked || removing || !(getParent() instanceof ViewGroup)) return;
+        removeAnimated((ViewGroup) getParent(), true, null);
+    }
+
+    /**
+     * Brings a removed sticker back (call AFTER adding it to its parent again): clears the removal flags,
+     * restores pose + visibility once it has been laid out, restarts a countdown and pops it in.
+     */
+    public void reviveAt(float[] st) {
+        removing = false;
+        animate().cancel();
+        nudgeTargetX = nudgeTargetY = Float.NaN;
+        final float[] state = (st != null && st.length >= 4) ? st : captureState();
+        stickerScale = clampScale(state[2]);
+        stickerRotationDeg = normDeg(state[3]);
+        setRotation(stickerRotationDeg);
+        setScaleX(stickerScale * 0.7f);
+        setScaleY(stickerScale * 0.7f);
+        setAlpha(0f);
+        if (lastCountdownViews != null && countdownTimer == null) startCountdown(lastCountdownTarget, lastCountdownViews);
+        getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                if (getWidth() == 0) return true;
+                getViewTreeObserver().removeOnPreDrawListener(this);
+                setX(state[0]);
+                setY(state[1]);
+                animate().scaleX(stickerScale).scaleY(stickerScale).alpha(1f).setDuration(200)
+                        .setInterpolator(new OvershootInterpolator(1.2f)).start();
+                return true;
+            }
+        });
+        invalidate();
+    }
+
     /** Shared removal path for both the long-press and drag-to-trash gestures. */
     private void removeAnimated(final ViewGroup parent, boolean withHaptic) {
+        removeAnimated(parent, withHaptic, null);
+    }
+
+    /** Same, but when {@code suckTarget} is given the sticker is pulled into it while shrinking + spinning. */
+    private void removeAnimated(final ViewGroup parent, boolean withHaptic, View suckTarget) {
+        // v651: remember where this sticker was (state + z-index) so the composer can undo the delete.
+        preRemovalState = preRemovalOverride != null ? preRemovalOverride : captureState();
+        preRemovalOverride = null;
+        preRemovalIndex = parent.indexOfChild(this);
+        removing = true;
         if (withHaptic) performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         if (countdownTimer != null) { countdownTimer.cancel(); countdownTimer = null; }
-        animate().scaleX(0f).scaleY(0f).alpha(0f).setDuration(180)
-            .setInterpolator(new android.view.animation.AccelerateInterpolator())
-            .withEndAction(() -> {
-                parent.removeView(this);
-                if (removedListener != null) removedListener.onRemoved(this);
-            }).start();
+        animate().cancel();
+        android.view.ViewPropertyAnimator a = animate().scaleX(0f).scaleY(0f).alpha(0f).setDuration(180)
+            .setInterpolator(new android.view.animation.AccelerateInterpolator());
+        if (suckTarget != null && suckTarget.getParent() == parent) {
+            float tx = suckTarget.getX() + suckTarget.getWidth() / 2f - getWidth() / 2f;
+            float ty = suckTarget.getY() + suckTarget.getHeight() / 2f - getHeight() / 2f;
+            a.x(tx).y(ty).rotationBy(120f).setDuration(240);
+        }
+        a.withEndAction(() -> {
+            parent.removeView(this);
+            if (removedListener != null) removedListener.onRemoved(this);
+        }).start();
     }
 
     // ── Viewer "tap to zoom, react to return" gate ───────────────────────────
@@ -171,7 +571,7 @@ public class StatusStickerOverlayView extends LinearLayout {
         overlayParent.bringChildToFront(this);
         overlayParent.invalidate();
         setElevation(24f * getContext().getResources().getDisplayMetrics().density);
-        final float targetScale = Math.min(SCALE_MAX, Math.max(stickerScale, SCALE_MEDIUM) * 1.35f);
+        final float targetScale = Math.min(SCALE_MAX * viewerFitK, Math.max(stickerScale, SCALE_MEDIUM) * 1.35f * viewerFitK);
         overlayParent.post(() -> {
             float targetX = (overlayParent.getWidth()  - getWidth())  / 2f;
             float targetY = (overlayParent.getHeight() - getHeight()) / 2f;
@@ -285,6 +685,24 @@ public class StatusStickerOverlayView extends LinearLayout {
         setOrientation(VERTICAL);
         setClickable(true);
         setFocusable(true);
+    }
+
+    /** Sticker type used by {@link #wrapContent} for the composer's text layer. */
+    public static final String TYPE_TEXT = "text";
+
+    /**
+     * v650: wraps an arbitrary content view (the composer's text overlay) in the SAME transform engine every
+     * sticker uses — snap guides (frame centre + other stickers), corner resize/rotate handle with a minimum
+     * touch size, undo/redo, lock, trash drop, canvas-wide pinch. The wrapper has no padding / background of
+     * its own, so its bounds are exactly the content's bounds.
+     */
+    public static StatusStickerOverlayView wrapContent(Context ctx, View content, String type) {
+        StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.addView(content, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        v.stickerType = type;
+        v.stickerJson = "{\"type\":\"" + type + "\"}";
+        return v;
     }
 
     /** The sticker's type — "music"/"countdown"/"quiz"/"question". */
@@ -608,6 +1026,7 @@ public class StatusStickerOverlayView extends LinearLayout {
         float savedRotation = 0f;
         try { savedRotation = Float.parseFloat(jsonNum(json, "rotationDeg", "0")); } catch (Exception ignored) {}
         v.applyRotation(savedRotation);
+        v.locked = json != null && json.replace(" ", "").contains("\"locked\":true");   // v651
 
         // Saved finger-adjusted position (posXRatio/posYRatio, 0..1 relative to
         // the parent frame) baked in by toJsonWithScale() at post-time. -1 means
@@ -621,7 +1040,56 @@ public class StatusStickerOverlayView extends LinearLayout {
             v.savedPosXRatio = -1f;
             v.savedPosYRatio = -1f;
         }
+        // v650: centre-based placement + the composer canvas it was made on (viewer maps it into the same 9:16 box).
+        try {
+            v.savedCxRatio = Float.parseFloat(jsonNum(json, "cxRatio", "-1"));
+            v.savedCyRatio = Float.parseFloat(jsonNum(json, "cyRatio", "-1"));
+            v.savedFrameWdp = Float.parseFloat(jsonNum(json, "frameWdp", "0"));
+            v.savedFrameHdp = Float.parseFloat(jsonNum(json, "frameHdp", "0"));
+            v.savedWdp = Float.parseFloat(jsonNum(json, "wDp", "0"));
+        } catch (Exception ignored) {
+            v.savedCxRatio = v.savedCyRatio = -1f;
+            v.savedFrameWdp = v.savedFrameHdp = v.savedWdp = 0f;
+        }
         return v;
+    }
+
+    // ── v650 centre placement (posted by the v650+ composer; older posts only have posXRatio/posYRatio) ──
+    private float viewerFitK = 1f;   // viewer-only: box width / composer canvas width (zoom-to-front keeps this ratio)
+    private float savedCxRatio = -1f, savedCyRatio = -1f, savedFrameWdp, savedFrameHdp, savedWdp;
+    /** True when the post carries centre ratios + the composer canvas size (see {@link #toJsonWithScale()}). */
+    public boolean hasCenterPlacement() {
+        return savedCxRatio >= 0f && savedCyRatio >= 0f && savedFrameWdp > 0f && savedFrameHdp > 0f && savedWdp > 0f;
+    }
+    public float getSavedCxRatio() { return savedCxRatio; }
+    public float getSavedCyRatio() { return savedCyRatio; }
+    /** Composer canvas size (dp) this sticker was placed on. */
+    public float getSavedFrameWdp() { return savedFrameWdp; }
+    public float getSavedFrameHdp() { return savedFrameHdp; }
+    /** Layout width (dp) the card had in the composer — the viewer re-uses it so text wraps identically. */
+    public float getSavedWdp() { return savedWdp; }
+
+    /**
+     * Viewer: scales the card by {@code k} (viewer box width / composer canvas width) and, once laid out, puts its
+     * CENTRE at (cx, cy) px of the parent — centre clamped to the parent like the composer does. Runs in a pre-draw
+     * pass so the sticker never flashes at a wrong spot. Pivot stays the centre, so scale + rotation line up.
+     */
+    public void placeCenteredOnceLaidOut(final float cx, final float cy, float k, final float parentW, final float parentH) {
+        final float kk = (k > 0.05f && k < 20f) ? k : 1f;
+        viewerFitK = kk;
+        setScaleX(stickerScale * kk);
+        setScaleY(stickerScale * kk);
+        getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                if (getWidth() == 0 || getHeight() == 0) return true;
+                getViewTreeObserver().removeOnPreDrawListener(this);
+                float x = Math.max(0f, Math.min(parentW, cx));
+                float y = Math.max(0f, Math.min(parentH, cy));
+                setX(x - getWidth() / 2f);
+                setY(y - getHeight() / 2f);
+                return true;
+            }
+        });
     }
 
     // ── Saved position (where the user's finger left it in the composer) ────
@@ -638,12 +1106,15 @@ public class StatusStickerOverlayView extends LinearLayout {
         stickerScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, scale));
         setScaleX(stickerScale);
         setScaleY(stickerScale);
+        if (selectedUi) invalidate(); // keep the selection chrome the same on-screen size
     }
 
     /** Animated variant used by the Small/Medium/Large preset buttons. */
     public void animateToScale(float scale) {
         stickerScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, scale));
-        animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(150).start();
+        animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(150)
+            .setInterpolator(new DecelerateInterpolator()).start();
+        if (selectedUi) invalidate();
     }
 
     /**
@@ -660,11 +1131,19 @@ public class StatusStickerOverlayView extends LinearLayout {
             org.json.JSONObject o = new org.json.JSONObject(stickerJson != null ? stickerJson : "{}");
             o.put("scale", stickerScale);
             o.put("rotationDeg", stickerRotationDeg);
+            if (locked) o.put("locked", true); else o.remove("locked");   // v651: lock survives a draft reopen (composer strips it from posts)
             if (getParent() instanceof View) {
                 View parent = (View) getParent();
                 if (parent.getWidth() > 0 && parent.getHeight() > 0) {
                     o.put("posXRatio", getX() / parent.getWidth());
                     o.put("posYRatio", getY() / parent.getHeight());
+                    // v650: centre ratios + canvas size → the viewer maps the SAME 9:16 box and scales the card by width
+                    float d = getResources().getDisplayMetrics().density;
+                    o.put("cxRatio", (getX() + getWidth() / 2f) / parent.getWidth());
+                    o.put("cyRatio", (getY() + getHeight() / 2f) / parent.getHeight());
+                    o.put("frameWdp", parent.getWidth() / d);
+                    o.put("frameHdp", parent.getHeight() / d);
+                    o.put("wDp", getWidth() / d);
                 }
             }
             return o.toString();
@@ -1027,6 +1506,8 @@ public class StatusStickerOverlayView extends LinearLayout {
     }
 
     private void startCountdown(String targetDateStr, TextView[] timeViews) {
+        lastCountdownTarget = targetDateStr;
+        lastCountdownViews = timeViews;
         long targetMs = 0;
         try {
             if (targetDateStr != null && !targetDateStr.isEmpty()) {
@@ -1768,15 +2249,20 @@ public class StatusStickerOverlayView extends LinearLayout {
         return v;
     }
 
-    // ─── Drag support (ultra-advanced: drag, pinch-scale, twist-rotate, ────
-    // ─── center-snap alignment guides, and drag-to-trash removal) ──────────
+    // ─── Drag support v2 (drag + pinch + twist + pan, snap guides, corner handle, trash) ───
+    //
+    // One shared trash pill + shared guide lines per parent FrameLayout — however many
+    // stickers live in that parent they reuse the same overlay chrome.
+    //   pink   guides : frame centre lines (existing)
+    //   yellow guides : alignment with another sticker's centre / edges
+    //   rotation chrome: white line through the sticker at its angle + "45°" read-out
 
-    // One shared trash pill + one shared pair of snap-guide lines per parent
-    // FrameLayout — however many stickers live in that parent, they all
-    // reuse the same overlay chrome instead of each sticker adding its own
-    // (which used to stack duplicate trash icons/guides on screen).
     private static final java.util.WeakHashMap<ViewGroup, View> trashChrome = new java.util.WeakHashMap<>();
     private static final java.util.WeakHashMap<ViewGroup, View[]> guideChrome = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<ViewGroup, View[]> alignChrome = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<ViewGroup, View[]> rotChrome = new java.util.WeakHashMap<>();
+
+    private static float dpf(Context ctx) { return ctx.getResources().getDisplayMetrics().density; }
 
     private static View getOrCreateTrash(ViewGroup parent) {
         View existing = trashChrome.get(parent);
@@ -1840,194 +2326,403 @@ public class StatusStickerOverlayView extends LinearLayout {
         return pair;
     }
 
+    /** Yellow alignment guides (vertical, horizontal) used when snapping to another sticker. */
+    private static View[] getOrCreateAlign(ViewGroup parent) {
+        View[] existing = alignChrome.get(parent);
+        if (existing != null && existing[0].getParent() == parent) return existing;
+        Context ctx = parent.getContext();
+        int dp = dp(ctx);
+        View v = new View(ctx);
+        v.setBackgroundColor(0xCCFFD60A);
+        v.setAlpha(0f);
+        v.setLayoutParams(new FrameLayout.LayoutParams(
+            Math.max(1, dp / 2), FrameLayout.LayoutParams.MATCH_PARENT, Gravity.TOP | Gravity.START));
+        View h = new View(ctx);
+        h.setBackgroundColor(0xCCFFD60A);
+        h.setAlpha(0f);
+        h.setLayoutParams(new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp / 2), Gravity.TOP | Gravity.START));
+        parent.addView(v);
+        parent.addView(h);
+        View[] pair = { v, h };
+        alignChrome.put(parent, pair);
+        return pair;
+    }
+
+    /** {angle line, degree read-out pill}. */
+    private static View[] getOrCreateRot(ViewGroup parent) {
+        View[] existing = rotChrome.get(parent);
+        if (existing != null && existing[0].getParent() == parent) return existing;
+        Context ctx = parent.getContext();
+        int dp = dp(ctx);
+        View line = new View(ctx);
+        line.setBackgroundColor(0xCCFFFFFF);
+        line.setAlpha(0f);
+        line.setLayoutParams(new FrameLayout.LayoutParams(dp * 400, Math.max(2, dp), Gravity.TOP | Gravity.START));
+
+        TextView label = new TextView(ctx);
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(13);
+        label.setTypeface(null, Typeface.BOLD);
+        label.setGravity(Gravity.CENTER);
+        label.setPadding(dp * 10, dp * 4, dp * 10, dp * 4);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp * 14);
+        bg.setColor(0xCC000000);
+        label.setBackground(bg);
+        label.setAlpha(0f);
+        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        llp.topMargin = dp * 84;
+        label.setLayoutParams(llp);
+
+        parent.addView(line);
+        parent.addView(label);
+        View[] pair = { line, label };
+        rotChrome.put(parent, pair);
+        return pair;
+    }
+
     /**
-     * Make this sticker draggable, pinch-to-scale, twist-to-rotate, and
-     * removable within the given FrameLayout parent — the same "ultra
-     * advanced" adjustment gesture set on every screen that uses stickers
-     * (Reels editor, photo-slideshow editor, Status composer, …):
+     * Fades a chrome view in/out ONLY when its target state actually changes. Calling animate() on every
+     * MOVE (the old behaviour) cancelled and restarted 4-6 animators per touch event → jank on drag.
+     */
+    private static void fadeTo(View v, boolean show, int durMs) {
+        Object cur = v.getTag(com.callx.app.core.R.id.callx_chrome_shown);
+        if (cur == null) {
+            if (!show && v.getAlpha() == 0f) { v.setTag(com.callx.app.core.R.id.callx_chrome_shown, Boolean.FALSE); return; }
+        } else if (((Boolean) cur) == show) {
+            return;
+        }
+        v.setTag(com.callx.app.core.R.id.callx_chrome_shown, show ? Boolean.TRUE : Boolean.FALSE);
+        v.animate().alpha(show ? 1f : 0f).setDuration(durMs).start();
+    }
+
+    private void updateRotChrome(ViewGroup parent, boolean snapped, float rotDeg, boolean showLabel) {
+        final int pw = parent.getWidth(), ph = parent.getHeight();
+        if (pw <= 0 || ph <= 0) return;
+        View[] r = rotCur;
+        if (r == null || r[0].getParent() != parent) r = rotCur = getOrCreateRot(parent);
+        if (snapped) {   // the angle line is only visible while snapped → position it only then
+            float cx = getX() + getWidth() / 2f, cy = getY() + getHeight() / 2f;
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) r[0].getLayoutParams();
+            int len = (int) Math.hypot(pw, ph);
+            if (lp.width != len) { lp.width = len; r[0].setLayoutParams(lp); }
+            r[0].setPivotX(len / 2f);
+            r[0].setPivotY(lp.height / 2f);
+            r[0].setTranslationX(cx - len / 2f);
+            r[0].setTranslationY(cy - lp.height / 2f);
+            r[0].setRotation(rotDeg);
+        }
+        fadeTo(r[0], snapped, 80);
+        if (showLabel) {
+            int deg = Math.round(normDeg(rotDeg));
+            Object last = r[1].getTag(com.callx.app.core.R.id.callx_chrome_deg);
+            if (!(last instanceof Integer) || ((Integer) last) != deg) {
+                r[1].setTag(com.callx.app.core.R.id.callx_chrome_deg, deg);
+                ((TextView) r[1]).setText(deg + "\u00B0");
+            }
+        }
+        fadeTo(r[1], showLabel, 80);
+    }
+
+    private static void hideSnapChrome(ViewGroup parent) {
+        View[] g = guideChrome.get(parent);
+        if (g != null) { fadeTo(g[0], false, 100); fadeTo(g[1], false, 100); }
+        View[] a = alignChrome.get(parent);
+        if (a != null) { fadeTo(a[0], false, 100); fadeTo(a[1], false, 100); }
+        View[] r = rotChrome.get(parent);
+        if (r != null) { fadeTo(r[0], false, 120); fadeTo(r[1], false, 120); }
+    }
+
+    private static void bringChromeToFront(ViewGroup parent) {
+        View t = trashChrome.get(parent);
+        if (t != null) t.bringToFront();
+        View[][] sets = { guideChrome.get(parent), alignChrome.get(parent), rotChrome.get(parent) };
+        for (View[] set : sets) if (set != null) { set[0].bringToFront(); set[1].bringToFront(); }
+    }
+
+    private void requestParentDisallow(boolean disallow) {
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(disallow);
+    }
+
+    /**
+     * Make this sticker draggable, pinch-to-scale, twist-to-rotate and removable inside {@code parent}:
      *
-     *  • 1-finger drag repositions it, with magnetic center-snap alignment
-     *    guides (like CapCut/Instagram) that give a light haptic tick when
-     *    the sticker's center crosses the frame's horizontal/vertical middle.
-     *  • 2-finger pinch resizes it; 2-finger twist rotates it — both at once.
-     *  • Dragging it down onto the trash pill that fades in at the bottom
-     *    removes it (release-to-delete), with a haptic tick on entry and a
-     *    shrink-and-fade on release, exactly like the long-press shortcut.
-     *  • A quick tap (no drag) still fires {@link #setOnStickerTappedListener}.
-     *
-     * Call {@link #setOnStickerRemovedListener} beforehand if the host screen
-     * needs to know when removal happens (e.g. to drop it from its own list
-     * and rebuild sticker JSON) — both removal gestures route through it, so
-     * hosts never need to reimplement removal themselves.
+     *  • 1-finger drag, with magnetic snap to the frame centre (pink) AND to other stickers'
+     *    centre / edges (yellow), haptic tick on each new snap. The centre can never leave the frame.
+     *  • 2 fingers: pinch + twist + pan in ONE transform around the fingers' midpoint
+     *    (the old twist used view-local coordinates, so it chased its own rotation and felt half-speed).
+     *    Rotation magnets every 45° (line + degree read-out), scale magnet at 1.0x.
+     *  • When selected ({@link #setSelectedUi}), the bottom-right handle resizes + rotates with ONE finger.
+     *  • Drag onto the trash pill → the sticker is sucked in and removed.
+     *  • A quick tap fires {@link #setOnStickerTappedListener}.
      */
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     public void attachDragToParent(final ViewGroup parent) {
-        final float[] startTouch = new float[2];
-        final float[] startPos   = new float[2];
-        final long[]  downTime   = new long[1];
-        final boolean[] moved    = new boolean[1];
+        final float[] startP   = new float[2];   // finger at gesture start, parent space
+        final float[] curP     = new float[2];
+        final float[] p2       = new float[2];
+        final float[] startPos = new float[2];   // sticker x/y at gesture start
+        final long[]  downTime = new long[1];
+        final boolean[] moved  = new boolean[1];
         final boolean[] hoveringTrash = new boolean[1];
-        final boolean[] snappedX = new boolean[1];
-        final boolean[] snappedY = new boolean[1];
-        final float[] startAngle = new float[1];
-        final float[] startRotation = new float[1];
+        final boolean[] trashShown    = new boolean[1];
         final int touchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
-        final int snapPx = dp(getContext()) * 10;
 
-        final ScaleGestureDetector scaleDetector = new ScaleGestureDetector(getContext(),
-            new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                @Override public boolean onScale(ScaleGestureDetector detector) {
-                    applyScale(stickerScale * detector.getScaleFactor());
-                    moved[0] = true;
-                    return true;
-                }
-            });
+        // v650: chrome views are looked up ONCE per gesture (ACTION_DOWN), not on every MOVE.
+        final View[] trashH = new View[1];
+        final View[][] guidesH = new View[1][];
+        final View[][] alignH = new View[1][];
 
         setOnTouchListener((view, event) -> {
-            scaleDetector.onTouchEvent(event);
-            View trash = getOrCreateTrash(parent);
-            View[] guides = getOrCreateGuides(parent);
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN || trashH[0] == null
+                    || trashH[0].getParent() != parent) {
+                trashH[0] = getOrCreateTrash(parent);
+                guidesH[0] = getOrCreateGuides(parent);
+                alignH[0] = getOrCreateAlign(parent);
+                rotCur = getOrCreateRot(parent);
+            }
+            final View trash = trashH[0];
+            final View[] guides = guidesH[0];
+            final View[] align = alignH[0];
 
             switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    // BUG FIX (whole preview screen scrolling while dragging a
-                    // sticker): the compose/preview screen's media area sits
-                    // inside a NestedScrollView. Returning true from this
-                    // listener only tells Android THIS view handled the
-                    // touch — it does nothing to stop the ScrollView ancestor
-                    // from also intercepting the same finger-move as a
-                    // vertical scroll gesture, which is exactly what was
-                    // happening: dragging a sticker up/down/left/right
-                    // dragged the whole screen with it. Explicitly disallow
-                    // any ancestor from intercepting for as long as this
-                    // finger (or these fingers) are down on the sticker.
-                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
-                    startTouch[0] = event.getRawX();
-                    startTouch[1] = event.getRawY();
-                    startPos[0]   = view.getX();
-                    startPos[1]   = view.getY();
-                    downTime[0]   = System.currentTimeMillis();
-                    moved[0]      = false;
+                case MotionEvent.ACTION_DOWN: {
+                    requestParentDisallow(true);
+                    toParent(event, 0, startP);
+                    startPos[0] = getX();
+                    startPos[1] = getY();
+                    downTime[0] = System.currentTimeMillis();
+                    moved[0] = false;
                     hoveringTrash[0] = false;
-                    snappedX[0] = false; snappedY[0] = false;
-                    bringToFront();
-                    trash.bringToFront();
-                    guides[0].bringToFront();
-                    guides[1].bringToFront();
-                    animate().scaleX(stickerScale * 1.05f).scaleY(stickerScale * 1.05f).setDuration(80).start();
-                    if (dragListener != null) dragListener.onDragStart(this);
-                    return true;
-                case MotionEvent.ACTION_POINTER_DOWN:
-                    // Second finger just landed — rebase the drag anchor so the sticker
-                    // doesn't jump when we go from 1-finger drag to 2-finger pinch/rotate.
-                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
-                    startTouch[0] = event.getRawX();
-                    startTouch[1] = event.getRawY();
-                    startPos[0]   = view.getX();
-                    startPos[1]   = view.getY();
-                    if (event.getPointerCount() == 2) {
-                        startAngle[0] = (float) Math.toDegrees(Math.atan2(
-                            event.getY(1) - event.getY(0), event.getX(1) - event.getX(0)));
-                        startRotation[0] = stickerRotationDeg;
-                    }
-                    moved[0]      = true;
-                    hideTrashAndGuides(trash, guides);
-                    return true;
-                case MotionEvent.ACTION_MOVE:
-                    // Keep re-asserting this every move: some ScrollView/
-                    // RecyclerView ancestors re-arm their own interception on
-                    // each new touch sequence, so a single ACTION_DOWN call
-                    // isn't always enough for the whole drag.
-                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
-                    if (event.getPointerCount() == 2) {
-                        // Twist-to-rotate, concurrent with the pinch above.
-                        float angle = (float) Math.toDegrees(Math.atan2(
-                            event.getY(1) - event.getY(0), event.getX(1) - event.getX(0)));
-                        applyRotation(startRotation[0] + (angle - startAngle[0]));
-                    } else if (event.getPointerCount() == 1 && !scaleDetector.isInProgress()) {
-                        float dx = event.getRawX() - startTouch[0];
-                        float dy = event.getRawY() - startTouch[1];
-                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
-                            if (!moved[0]) showTrash(trash); // first real movement — reveal the trash pill
-                            moved[0] = true;
-                        }
-                        float targetX = startPos[0] + dx;
-                        float targetY = startPos[1] + dy;
-
-                        // Magnetic center-snap: pull onto the parent's exact
-                        // horizontal/middle once the sticker's own center gets
-                        // close, and light up a thin guide line while snapped.
-                        if (parent.getWidth() > 0 && parent.getHeight() > 0) {
-                            float centerX = targetX + view.getWidth()  / 2f;
-                            float centerY = targetY + view.getHeight() / 2f;
-                            float parentCx = parent.getWidth()  / 2f;
-                            float parentCy = parent.getHeight() / 2f;
-
-                            boolean nowSnapX = Math.abs(centerX - parentCx) < snapPx;
-                            if (nowSnapX) targetX = parentCx - view.getWidth() / 2f;
-                            if (nowSnapX && !snappedX[0]) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
-                            guides[0].animate().alpha(nowSnapX ? 1f : 0f).setDuration(100).start();
-                            snappedX[0] = nowSnapX;
-
-                            boolean nowSnapY = Math.abs(centerY - parentCy) < snapPx;
-                            if (nowSnapY) targetY = parentCy - view.getHeight() / 2f;
-                            if (nowSnapY && !snappedY[0]) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
-                            guides[1].animate().alpha(nowSnapY ? 1f : 0f).setDuration(100).start();
-                            snappedY[0] = nowSnapY;
-                        }
-
-                        view.setX(targetX);
-                        view.setY(targetY);
-                        if (dragListener != null) dragListener.onDragMove(this);
-
-                        // Are we hovering the trash pill? Compare on-screen centers.
-                        boolean hovering = overlaps(view, trash);
-                        if (hovering != hoveringTrash[0]) {
-                            hoveringTrash[0] = hovering;
-                            setTrashArmed(trash, hovering);
-                            if (hovering) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
-                            float warn = hovering ? 0.55f : stickerScale;
-                            view.animate().scaleX(warn).scaleY(warn).alpha(hovering ? 0.6f : 1f).setDuration(120).start();
-                        }
-                    }
-                    return true;
-                case MotionEvent.ACTION_POINTER_UP:
-                    // One finger lifted but one remains — rebase again for the remaining drag.
-                    startTouch[0] = event.getRawX();
-                    startTouch[1] = event.getRawY();
-                    startPos[0]   = view.getX();
-                    startPos[1]   = view.getY();
-                    return true;
-                case MotionEvent.ACTION_UP:
-                    // Gesture is fully done — let the parent scroll normally again.
-                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
-                    hideTrashAndGuides(trash, guides);
-                    if (dragListener != null) dragListener.onDragEnd(this);
-                    if (moved[0] && hoveringTrash[0] && parent == getParent()) {
-                        removeAnimated(parent, true);
+                    trashShown[0] = false;
+                    snapTx = Float.NaN; snapTy = Float.NaN;
+                    rotSnapped = false; scaleSnapped = false;
+                    handleActive = false; tfActive = false;
+                    nudgeTargetX = Float.NaN; nudgeTargetY = Float.NaN;
+                    gBefore = captureState();
+                    collectSnapTargets(parent);
+                    animate().cancel();
+                    if (Math.abs(normDeg(getRotation() - stickerRotationDeg)) > 0.01f) setRotation(stickerRotationDeg);
+                    if (autoRaiseOnTouch) bringToFront();
+                    bringChromeToFront(parent);
+                    if (locked) return true; // locked: only a tap (select / unlock) is allowed
+                    if (selectedUi && inHandle(event.getX(), event.getY())) {
+                        handleActive = true;
+                        moved[0] = true;
+                        handleBegin(event);
+                        if (dragListener != null) dragListener.onDragStart(this);
                         return true;
                     }
-                    animate().scaleX(stickerScale).scaleY(stickerScale).alpha(1f).setDuration(80).start();
-                    boolean isTap = !moved[0] && (System.currentTimeMillis() - downTime[0]) < 300;
+                    animate().scaleX(stickerScale * 1.05f).scaleY(stickerScale * 1.05f)
+                        .setDuration(80).setInterpolator(new DecelerateInterpolator()).start();
+                    if (dragListener != null) dragListener.onDragStart(this);
+                    return true;
+                }
+                case MotionEvent.ACTION_POINTER_DOWN: {
+                    requestParentDisallow(true);
+                    if (locked || handleActive) return true;
+                    if (event.getPointerCount() == 2) {
+                        toParent(event, 0, curP);
+                        toParent(event, 1, p2);
+                        tfBegin(curP[0], curP[1], p2[0], p2[1]);
+                        moved[0] = true;
+                        hoveringTrash[0] = false;
+                        setAlpha(1f);
+                        hideTrashAndGuides(parent, trash, guides);
+                        trashShown[0] = false;
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_MOVE: {
+                    requestParentDisallow(true);
+                    if (locked) return true;
+                    if (handleActive) {
+                        toParent(event, 0, curP);
+                        handleUpdate(parent, curP[0], curP[1]);
+                        if (dragListener != null) dragListener.onDragMove(this);
+                        return true;
+                    }
+                    if (tfActive) {
+                        if (event.getPointerCount() >= 2) {
+                            toParent(event, 0, curP);
+                            toParent(event, 1, p2);
+                            tfUpdate(parent, curP[0], curP[1], p2[0], p2[1]);
+                            if (dragListener != null) dragListener.onDragMove(this);
+                        }
+                        return true;
+                    }
+                    if (event.getPointerCount() != 1) return true;
+
+                    toParent(event, 0, curP);
+                    float dx = curP[0] - startP[0];
+                    float dy = curP[1] - startP[1];
+                    if (!moved[0]) {
+                        if (Math.abs(dx) <= touchSlop && Math.abs(dy) <= touchSlop) return true;
+                        moved[0] = true;
+                    }
+                    if (!trashShown[0]) { showTrash(trash); trashShown[0] = true; }
+
+                    float[] pos = snapPosition(parent, startPos[0] + dx, startPos[1] + dy, guides, align);
+                    float tx = pos[0], ty = pos[1];
+                    if (parent.getWidth() > 0 && parent.getHeight() > 0) {   // centre must stay inside the frame
+                        float cx = Math.max(0f, Math.min(parent.getWidth(),  tx + view.getWidth()  / 2f));
+                        float cy = Math.max(0f, Math.min(parent.getHeight(), ty + view.getHeight() / 2f));
+                        tx = cx - view.getWidth() / 2f;
+                        ty = cy - view.getHeight() / 2f;
+                    }
+                    view.setX(tx);
+                    view.setY(ty);
+                    if (dragListener != null) dragListener.onDragMove(this);
+
+                    boolean hovering = overlaps(view, trash);
+                    if (hovering != hoveringTrash[0]) {
+                        hoveringTrash[0] = hovering;
+                        setTrashArmed(trash, hovering);
+                        if (hovering) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                        float warn = hovering ? 0.55f : stickerScale * 1.05f;
+                        view.animate().scaleX(warn).scaleY(warn).alpha(hovering ? 0.6f : 1f)
+                            .setDuration(120).setInterpolator(new DecelerateInterpolator()).start();
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_POINTER_UP: {
+                    if (locked || handleActive) return true;
+                    int lifted = event.getActionIndex();
+                    int cnt = event.getPointerCount();
+                    int[] rem = new int[2];
+                    int k = 0;
+                    for (int i = 0; i < cnt && k < 2; i++) if (i != lifted) rem[k++] = i;
+                    if (cnt >= 3) {
+                        if (tfActive) {   // re-anchor on the two fingers that are left
+                            toParent(event, rem[0], curP);
+                            toParent(event, rem[1], p2);
+                            tfBegin(curP[0], curP[1], p2[0], p2[1]);
+                        }
+                        return true;
+                    }
+                    // one finger remains → continue as a plain drag from the current pose (no jump)
+                    tfActive = false;
+                    hideSnapChrome(parent);
+                    toParent(event, rem[0], startP);
+                    startPos[0] = getX();
+                    startPos[1] = getY();
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: {
+                    requestParentDisallow(false);
+                    final boolean isUp = event.getActionMasked() == MotionEvent.ACTION_UP;
+                    final boolean willRemove = isUp && moved[0] && hoveringTrash[0] && !locked
+                            && !handleActive && !tfActive && parent == getParent();
+                    if (willRemove) removing = true;
+                    handleActive = false;
+                    tfActive = false;
+                    hideTrashAndGuides(parent, trash, guides);
+                    if (dragListener != null) dragListener.onDragEnd(this);
+                    if (willRemove) {
+                        preRemovalOverride = gBefore;   // undo puts it back where the drag started, not on the trash pill
+                        gBefore = null;
+                        removeAnimated(parent, true, trash);
+                        return true;
+                    }
+                    animateRelease();
+                    boolean isTap = isUp && !moved[0] && (System.currentTimeMillis() - downTime[0]) < 300;
+                    commitTransformIfChanged();
                     if (isTap && stickerTapListener != null) stickerTapListener.onTapped(this);
                     return true;
-                case MotionEvent.ACTION_CANCEL:
-                    // Interrupted (e.g. a system gesture stole it) — always
-                    // restore normal scrolling rather than leaving it stuck
-                    // disallowed for the rest of the screen's lifetime.
-                    if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
-                    hideTrashAndGuides(trash, guides);
-                    if (dragListener != null) dragListener.onDragEnd(this);
-                    animate().scaleX(stickerScale).scaleY(stickerScale).alpha(1f).setDuration(80).start();
-                    return true;
+                }
             }
             return false;
         });
 
         setOnLongClickListener(view -> {
-            removeAnimated(parent, true);
+            if (locked) return true;
+            removeAnimated(parent, true, null);
             return true;
         });
+    }
+
+    /**
+     * Applies snapping to a proposed top-left (tx,ty): frame centre first (pink), else the closest
+     * centre/edge of another sticker (yellow). Also drives the guide lines + haptic ticks.
+     */
+    private float[] snapPosition(ViewGroup parent, float tx, float ty, View[] guides, View[] align) {
+        final int W = parent.getWidth(), H = parent.getHeight();
+        if (W <= 0 || H <= 0) { snapOut[0] = tx; snapOut[1] = ty; return snapOut; }
+        final float w = getWidth(), h = getHeight();
+        float cx = tx + w / 2f, cy = ty + h / 2f;
+        double r = Math.toRadians(stickerRotationDeg);
+        float c = (float) Math.abs(Math.cos(r)), sn = (float) Math.abs(Math.sin(r));
+        float hw = (w * stickerScale * c + h * stickerScale * sn) / 2f;
+        float hh = (w * stickerScale * sn + h * stickerScale * c) / 2f;
+        final float snap = dpf(getContext()) * 9f;
+        final float px = W / 2f, py = H / 2f;
+
+        // ── X axis ── (frame centre wins; else nearest centre/edge of another sticker, from the cached targets)
+        float bestD = Float.MAX_VALUE, bestT = Float.NaN;
+        boolean centerHitX = false;
+        if (Math.abs(cx - px) < snap) { bestD = px - cx; bestT = px; centerHitX = true; }
+        else {
+            for (int i = 0; i < snapTargetCount; i++) {
+                final float tc = snapTargets[i * 4], thw = snapTargets[i * 4 + 2];
+                for (int mi = 0; mi < 3; mi++) {
+                    final float m = mi == 0 ? cx : (mi == 1 ? cx - hw : cx + hw);
+                    for (int ti = 0; ti < 3; ti++) {
+                        final float t = ti == 0 ? tc : (ti == 1 ? tc - thw : tc + thw);
+                        final float d = t - m;
+                        if (Math.abs(d) < snap && Math.abs(d) < Math.abs(bestD)) { bestD = d; bestT = t; }
+                    }
+                }
+            }
+        }
+        if (!Float.isNaN(bestT)) {
+            cx += bestD;
+            if (Float.isNaN(snapTx) || Math.abs(snapTx - bestT) > 0.5f) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            snapTx = bestT;
+            fadeTo(guides[0], centerHitX, 100);
+            align[0].setTranslationX(bestT);
+            fadeTo(align[0], !centerHitX, 100);
+        } else {
+            snapTx = Float.NaN;
+            fadeTo(guides[0], false, 100);
+            fadeTo(align[0], false, 100);
+        }
+
+        // ── Y axis ──
+        bestD = Float.MAX_VALUE; bestT = Float.NaN;
+        boolean centerHitY = false;
+        if (Math.abs(cy - py) < snap) { bestD = py - cy; bestT = py; centerHitY = true; }
+        else {
+            for (int i = 0; i < snapTargetCount; i++) {
+                final float tc = snapTargets[i * 4 + 1], thh = snapTargets[i * 4 + 3];
+                for (int mi = 0; mi < 3; mi++) {
+                    final float m = mi == 0 ? cy : (mi == 1 ? cy - hh : cy + hh);
+                    for (int ti = 0; ti < 3; ti++) {
+                        final float t = ti == 0 ? tc : (ti == 1 ? tc - thh : tc + thh);
+                        final float d = t - m;
+                        if (Math.abs(d) < snap && Math.abs(d) < Math.abs(bestD)) { bestD = d; bestT = t; }
+                    }
+                }
+            }
+        }
+        if (!Float.isNaN(bestT)) {
+            cy += bestD;
+            if (Float.isNaN(snapTy) || Math.abs(snapTy - bestT) > 0.5f) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            snapTy = bestT;
+            fadeTo(guides[1], centerHitY, 100);
+            align[1].setTranslationY(bestT);
+            fadeTo(align[1], !centerHitY, 100);
+        } else {
+            snapTy = Float.NaN;
+            fadeTo(guides[1], false, 100);
+            fadeTo(align[1], false, 100);
+        }
+        snapOut[0] = cx - w / 2f;
+        snapOut[1] = cy - h / 2f;
+        return snapOut;
     }
 
     private static void showTrash(View trash) {
@@ -2035,12 +2730,11 @@ public class StatusStickerOverlayView extends LinearLayout {
         trash.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150).start();
     }
 
-    private static void hideTrashAndGuides(View trash, View[] guides) {
+    private static void hideTrashAndGuides(ViewGroup parent, View trash, View[] guides) {
         trash.animate().alpha(0f).scaleX(0.6f).scaleY(0.6f).setDuration(150)
             .withEndAction(() -> trash.setVisibility(View.GONE)).start();
         setTrashArmed(trash, false);
-        guides[0].animate().alpha(0f).setDuration(100).start();
-        guides[1].animate().alpha(0f).setDuration(100).start();
+        hideSnapChrome(parent);
     }
 
     private static void setTrashArmed(View trash, boolean armed) {
@@ -2059,21 +2753,13 @@ public class StatusStickerOverlayView extends LinearLayout {
         trash.setBackground(bg);
     }
 
-    /** True if the dragged sticker's on-screen center currently sits over the trash pill. */
+    /** True if the dragged sticker's centre currently sits over (or within half a pill of) the trash pill. */
     private static boolean overlaps(View sticker, View trash) {
-        int[] stickerLoc = new int[2];
-        int[] trashLoc = new int[2];
-        sticker.getLocationOnScreen(stickerLoc);
-        trash.getLocationOnScreen(trashLoc);
-        float stickerCx = stickerLoc[0] + sticker.getWidth() * sticker.getScaleX() / 2f;
-        float stickerCy = stickerLoc[1] + sticker.getHeight() * sticker.getScaleY() / 2f;
-        // Generous hit-zone: trash bounds expanded by half its own size, so
-        // the sticker doesn't need pixel-perfect alignment to register — the
-        // same forgiving target size CapCut/Instagram use for drag-to-delete.
-        float pad = trash.getWidth() * 0.5f;
-        float left = trashLoc[0] - pad, right = trashLoc[0] + trash.getWidth() + pad;
-        float top = trashLoc[1] - pad, bottom = trashLoc[1] + trash.getHeight() + pad;
-        return stickerCx >= left && stickerCx <= right && stickerCy >= top && stickerCy <= bottom;
+        float sx = sticker.getX() + sticker.getWidth() / 2f;
+        float sy = sticker.getY() + sticker.getHeight() / 2f;
+        float tx = trash.getX() + trash.getWidth() / 2f;
+        float ty = trash.getY() + trash.getHeight() / 2f;
+        return Math.abs(sx - tx) <= trash.getWidth() && Math.abs(sy - ty) <= trash.getHeight();
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────

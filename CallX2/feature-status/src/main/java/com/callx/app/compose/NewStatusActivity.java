@@ -93,6 +93,9 @@ public class NewStatusActivity extends AppCompatActivity {
     public static final String EXTRA_PREFILL_TOAST = "prefillToast";
     private static final String PREFS_DRAFT = "status_draft";
     private static final String KEY_DRAFT   = "draft_text";
+    private static final String KEY_DRAFT_STICKERS = "draft_stickers";   // v651: JSON array, z-order, incl. lock
+    private static final String KEY_DRAFT_SELECTED = "draft_selected";   // v651: index inside that array (-1 = none)
+    private boolean draftCleared;                                        // posted / scheduled → onPause must not re-save
     private static final int[] BG_COLORS = {
         0xFF6200EE, 0xFF03DAC5, 0xFFE53935, 0xFF43A047,
         0xFF1E88E5, 0xFFFF6F00, 0xFF8E24AA, 0xFF00ACC1,
@@ -183,6 +186,10 @@ public class NewStatusActivity extends AppCompatActivity {
     private View mediaGestureOverlay;
     private StatusDrawOverlayView drawingOverlay;
     private TextView editorTextOverlay;
+    /** v650: the text layer lives inside a sticker-engine wrapper (type "text") → same snap/undo/handle/lock/trash as stickers. */
+    private StatusStickerOverlayView editorTextSticker;
+    /** Sticker that was selected right BEFORE the current touch began (tap on an already-selected text = edit). */
+    private StatusStickerOverlayView touchPrevSelected;
     private TextView editorAiLabel;
     private Uri editorMediaUri;
     private float editorMediaScale = 1f;
@@ -209,7 +216,6 @@ public class NewStatusActivity extends AppCompatActivity {
     /** Small/Medium/Large size-control row shown above whichever sticker was last tapped */
     private LinearLayout stickerSizeBar;
     private com.callx.app.stickers.StatusStickerOverlayView selectedSticker;
-    private LinearLayout stickerMusicRow;
 
     /** Reel-style three-step status composer state. */
     private int wizardStep = 0;
@@ -382,6 +388,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 });
         restoreDraft();
         applyPrefillStickerIfAny();
+        restoreDraftStickers();
         // v216: "Upload" button now opens the WhatsApp-style "Add status" sheet
         //       (Text / Music / Layout / Voice / AI Images + Recents grid) instead
         //       of the old plain Camera/Gallery alert dialog.
@@ -741,10 +748,13 @@ public class NewStatusActivity extends AppCompatActivity {
                     }
                 });
         mediaGestureOverlay.setOnClickListener(v -> {
+            // v650: a tap that only deselects a sticker / text must not also pause the video
+            final boolean hadSelection = selectedSticker != null;
             hideStickerSizeBar();
-            if (!editorPhotoMode) toggleVideoPreview(); // tap on a video = play / pause
+            if (!editorPhotoMode && !hadSelection) toggleVideoPreview(); // tap on a video = play / pause
         });
         mediaGestureOverlay.setOnTouchListener((view, event) -> {
+            if (handleStickerCanvasGesture(event)) return true; // selected sticker owns 2-finger gestures anywhere on the canvas
             if (!editorPhotoMode) return false;
             editorDoubleTapDetector.onTouchEvent(event);
             switch (event.getActionMasked()) {
@@ -1535,18 +1545,26 @@ public class NewStatusActivity extends AppCompatActivity {
     private void setEditorTextOverlay(String text) {
         if (stickerOverlayFrame == null) return;
         if (text == null || text.trim().isEmpty()) {
-            if (editorTextOverlay != null) stickerOverlayFrame.removeView(editorTextOverlay);
-            editorTextOverlay = null;
+            removeEditorTextOverlayView(true);
             return;
         }
         if (editorTextOverlay == null) {
             editorTextOverlay = new TextView(this);
+            editorTextOverlay.setContentDescription(getString(R.string.status_text_overlay_desc));
+            editorTextSticker = StatusStickerOverlayView.wrapContent(this, editorTextOverlay,
+                    StatusStickerOverlayView.TYPE_TEXT);
             android.widget.FrameLayout.LayoutParams textLp =
                     new android.widget.FrameLayout.LayoutParams(-2, -2,
                             android.view.Gravity.CENTER);
-            stickerOverlayFrame.addView(editorTextOverlay, textLp);
-            editorTextOverlay.setContentDescription("Text overlay. Tap to edit, drag to move, pinch to resize and rotate.");
-            attachEditorTextGestures(editorTextOverlay);
+            stickerOverlayFrame.addView(editorTextSticker, textLp);
+            wireStickerEngine(editorTextSticker);
+            pushPresenceUndo(UA_ADD, editorTextSticker, null, -1, editorTextOverlay);   // v651: text add is undoable
+            // tap on an already-selected text edits it; first tap just selects it (bar + handle appear)
+            editorTextSticker.setOnStickerTappedListener(sv -> {
+                if (touchPrevSelected == sv) showEditorTextDialog(false);
+                else showStickerSizeBar(sv);
+            });
+            stickerOverlayFrame.setOnClickListener(v -> hideStickerSizeBar());
         }
         editorTextOverlay.setMaxWidth(Math.max(dp(120), stickerOverlayFrame.getWidth() - dp(105)));
         applyEditorTextStyle(editorTextOverlay);
@@ -1556,101 +1574,19 @@ public class NewStatusActivity extends AppCompatActivity {
         if (editorDrawBar != null && editorDrawBar.getVisibility() == View.VISIBLE) editorDrawBar.bringToFront();
     }
 
-    /** Canvas-space (parent) position of pointer i — stays stable while the view itself rotates/scales. */
-    private float[] textPointerInParent(View v, android.view.MotionEvent e, int i) {
-        float[] pt = {e.getX(i), e.getY(i)};
-        v.getMatrix().mapPoints(pt);
-        pt[0] += v.getX();
-        pt[1] += v.getY();
-        return pt;
-    }
-
-    /** One finger: drag (tap = edit). Two fingers: pinch to resize + twist to rotate. */
-    @android.annotation.SuppressLint("ClickableViewAccessibility")
-    private void attachEditorTextGestures(final TextView tv) {
-        final int slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
-        final float[] startRaw = new float[2], startPos = new float[2];
-        final float[] dist0 = {1f}, scale0 = {1f}, angle0 = {0f}, rot0 = {0f};
-        final boolean[] moved = {false}, rebase = {false};
-        final long[] downAt = {0L};
-        final boolean[] inSafe = {true};
-        tv.setOnTouchListener((view, ev) -> {
-            switch (ev.getActionMasked()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                    showSafeAreaGuide();
-                    setEditorGestureScrollLock(true);
-                    startRaw[0] = ev.getRawX(); startRaw[1] = ev.getRawY();
-                    inSafe[0] = editorSafeArea == null || editorSafeArea.isInsideSafe(view);
-                    startPos[0] = view.getX();  startPos[1] = view.getY();
-                    moved[0] = false; rebase[0] = false;
-                    downAt[0] = ev.getEventTime();
-                    return true;
-                case android.view.MotionEvent.ACTION_POINTER_DOWN:
-                    setEditorGestureScrollLock(true);
-                    moved[0] = true;
-                    rebase[0] = true;
-                    if (ev.getPointerCount() >= 2) {
-                        float[] a = textPointerInParent(view, ev, 0), b = textPointerInParent(view, ev, 1);
-                        dist0[0] = Math.max(1f, (float) Math.hypot(b[0] - a[0], b[1] - a[1]));
-                        angle0[0] = (float) Math.toDegrees(Math.atan2(b[1] - a[1], b[0] - a[0]));
-                        scale0[0] = view.getScaleX();
-                        rot0[0] = view.getRotation();
-                    }
-                    return true;
-                case android.view.MotionEvent.ACTION_MOVE:
-                    if (ev.getPointerCount() >= 2) {
-                        float[] a = textPointerInParent(view, ev, 0), b = textPointerInParent(view, ev, 1);
-                        float dist = (float) Math.hypot(b[0] - a[0], b[1] - a[1]);
-                        float angle = (float) Math.toDegrees(Math.atan2(b[1] - a[1], b[0] - a[0]));
-                        float ns = Math.max(0.4f, Math.min(4f, scale0[0] * dist / dist0[0]));
-                        view.setScaleX(ns);
-                        view.setScaleY(ns);
-                        view.setRotation(rot0[0] + (angle - angle0[0]));
-                    } else if (ev.getPointerCount() == 1) {
-                        if (rebase[0]) {
-                            startRaw[0] = ev.getRawX(); startRaw[1] = ev.getRawY();
-                            startPos[0] = view.getX();  startPos[1] = view.getY();
-                            rebase[0] = false;
-                        } else {
-                            float dx = ev.getRawX() - startRaw[0], dy = ev.getRawY() - startRaw[1];
-                            if (!moved[0] && Math.hypot(dx, dy) < slop) return true;
-                            moved[0] = true;
-                            view.setX(startPos[0] + dx);
-                            view.setY(startPos[1] + dy);
-                            clampEditorTextPosition(view);
-                            inSafe[0] = safeEdgeTick(view, inSafe[0]);
-                        }
-                    }
-                    return true;
-                case android.view.MotionEvent.ACTION_POINTER_UP:
-                    rebase[0] = true;
-                    return true;
-                case android.view.MotionEvent.ACTION_UP:
-                    setEditorGestureScrollLock(false);
-                    hideSafeAreaGuideLater();
-                    if (!moved[0] && ev.getEventTime() - downAt[0] < 300) {
-                        view.post(() -> showEditorTextDialog(false)); // tap → edit
-                    }
-                    return true;
-                case android.view.MotionEvent.ACTION_CANCEL:
-                    setEditorGestureScrollLock(false);
-                    hideSafeAreaGuideLater();
-                    return true;
-                default:
-                    return true;
+    /** @param record true = a user delete (undoable); false = a reset (media swapped) → history of the text is dropped. */
+    private void removeEditorTextOverlayView(boolean record) {
+        if (editorTextSticker != null) {
+            final StatusStickerOverlayView s = editorTextSticker;
+            if (record && stickerOverlayFrame != null && s.getParent() == stickerOverlayFrame) {
+                pushPresenceUndo(UA_REMOVE, s, s.captureState(), stickerOverlayFrame.indexOfChild(s), editorTextOverlay);
             }
-        });
-    }
-
-    /** Keep the text's centre on the canvas and out of the right-hand tool-icon column. */
-    private void clampEditorTextPosition(View v) {
-        if (stickerOverlayFrame == null) return;
-        float fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
-        float cx = v.getX() + v.getWidth() / 2f, cy = v.getY() + v.getHeight() / 2f;
-        cx = Math.max(dp(24), Math.min(fw - dp(48), cx));
-        cy = Math.max(dp(24), Math.min(fh - dp(24), cy));
-        v.setX(cx - v.getWidth() / 2f);
-        v.setY(cy - v.getHeight() / 2f);
+            if (s == selectedSticker) hideStickerSizeBar();
+            if (stickerOverlayFrame != null) stickerOverlayFrame.removeView(s);
+            editorTextSticker = null;
+            if (!record) purgeUndoFor(s);
+        }
+        editorTextOverlay = null;
     }
 
     private void toggleAiLabel() {
@@ -1787,14 +1723,14 @@ public class NewStatusActivity extends AppCompatActivity {
         if (!includeStickers) {
             for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
                 View child = stickerOverlayFrame.getChildAt(i);
-                if (child instanceof StatusStickerOverlayView)
+                if (child instanceof StatusStickerOverlayView && child != editorTextSticker) // text has its own rule below
                     hideForSnapshot(child, hidden, oldVisibility);
             }
         }
         hideForSnapshot(stickerSizeBar, hidden, oldVisibility);
         hideForSnapshot(editorDrawBar, hidden, oldVisibility);
         // Text kept as an overlay layer (see pendingTextOverlayJson) must not also be burned into the photo.
-        if (!includeStickers && pendingTextOverlayJson != null) hideForSnapshot(editorTextOverlay, hidden, oldVisibility);
+        if (!includeStickers && pendingTextOverlayJson != null) hideForSnapshot(editorTextSticker, hidden, oldVisibility);
         try {
             stickerOverlayFrame.draw(canvas);
         } finally {
@@ -1879,8 +1815,8 @@ public class NewStatusActivity extends AppCompatActivity {
     private void startMusicReedit(com.callx.app.stickers.StatusStickerOverlayView st, boolean adjustFirst) {
         hideStickerSizeBar();
         String url = st.getMusicSoundUrl();
-        if (url == null || url.isEmpty()) { toast("Is music sticker me edit karne layak audio nahi hai"); return; }
-        if (musicEditMedia() == null) { toast("Is status par music edit available nahi"); return; }
+        if (url == null || url.isEmpty()) { toast(R.string.sticker_toast_music_no_audio); return; }
+        if (musicEditMedia() == null) { toast(R.string.sticker_toast_music_edit_unavailable); return; }
         reeditSticker = st;
         reUrl    = url.replace("\\/", "/");
         reId     = nz(st.getMusicSoundId());
@@ -1891,7 +1827,7 @@ public class NewStatusActivity extends AppCompatActivity {
         reEnd    = st.getMusicEndMs();
         reAdjusted = false;
         boolean ok = adjustFirst ? launchReeditAdjust() : launchReeditMixer();
-        if (!ok) { reeditSticker = null; toast("Music editor khul nahi paya"); }
+        if (!ok) { reeditSticker = null; toast(R.string.sticker_toast_music_editor_failed); }
     }
 
     private static String nz(String s) { return s != null ? s : ""; }
@@ -2028,10 +1964,11 @@ public class NewStatusActivity extends AppCompatActivity {
                 if (mix[4] != 0f) o.put("pitch", Math.round(mix[4] * 10f) / 10.0);
             }
             musicReeditInPlace = true;
-            try { addStickerOverlay(o.toString()); } finally { musicReeditInPlace = false; }
-            toast("Music update ho gaya");
+            undoSuppress = true;        // in-place edit → swap without a history step
+            try { addStickerOverlay(o.toString()); } finally { musicReeditInPlace = false; undoSuppress = false; }
+            toast(R.string.sticker_toast_music_updated);
         } catch (Exception e) {
-            toast("Music update nahi ho paya");
+            toast(R.string.sticker_toast_music_update_failed);
         }
     }
 
@@ -2113,6 +2050,9 @@ public class NewStatusActivity extends AppCompatActivity {
                 if (child.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
                     topMargin = ((android.widget.FrameLayout.LayoutParams) child.getLayoutParams()).topMargin;
                 }
+                if (child == selectedSticker) hideStickerSizeBar();
+                final StatusStickerOverlayView oldMusic = (StatusStickerOverlayView) child;
+                pushPresenceUndo(UA_REMOVE, oldMusic, oldMusic.captureState(), i, null);
                 stickerOverlayFrame.removeViewAt(i);
                 removedAny = true;
             }
@@ -2122,7 +2062,7 @@ public class NewStatusActivity extends AppCompatActivity {
             if (musicStickerInComposer != null) musicStickerInComposer = null;
             stopMusicPreview();
             applyEditorVideoVolume(); // muted until the replacing sticker sets its own mix
-            if (!musicReeditInPlace) toast("Pehla music sticker replace ho gaya");
+            if (!musicReeditInPlace && !undoBusy) toast(R.string.sticker_toast_music_replaced);
         }
         return removedAny ? Math.max(topMargin, 0) : -1;
     }
@@ -2169,13 +2109,13 @@ public class NewStatusActivity extends AppCompatActivity {
             mp.setOnErrorListener((p, what, extra) -> {
                 if (musicPreview != p) return true;
                 stopMusicPreview();
-                toast("Music preview play nahi ho paya (" + what + "/" + extra + ")");
+                toast(getString(R.string.sticker_toast_music_preview_failed_detail, what, extra));
                 return true;
             });
             mp.prepareAsync();
         } catch (Exception e) {
             stopMusicPreview();
-            toast("Music preview play nahi ho paya");
+            toast(R.string.sticker_toast_music_preview_failed);
         }
     }
 
@@ -2217,6 +2157,11 @@ public class NewStatusActivity extends AppCompatActivity {
      * Falls back gracefully if there is no overlay frame in the layout.
      */
     private void addStickerOverlay(String stickerJson) {
+        undoOpenGroup = ++undoGroupSeq;     // a music replace (remove old + add new) undoes as ONE step
+        try { addStickerOverlayInner(stickerJson); } finally { undoOpenGroup = 0; }
+    }
+
+    private void addStickerOverlayInner(String stickerJson) {
         if (stickerOverlayFrame == null) return;
 
         StatusStickerOverlayView stickerView = StatusStickerOverlayView.fromJson(this, stickerJson);
@@ -2249,19 +2194,8 @@ public class NewStatusActivity extends AppCompatActivity {
         stickerOverlayFrame.addView(stickerView, lp);
         if (editorToolRail != null) editorToolRail.bringToFront();
 
-        // Enable drag + pinch-resize + long-press-remove
-        stickerView.attachDragToParent(stickerOverlayFrame);
-        final boolean[] stickerInSafe = {true};
-        stickerView.setOnStickerDragListener(new StatusStickerOverlayView.OnStickerDragListener() {
-            @Override public void onDragStart(StatusStickerOverlayView sv) {
-                showSafeAreaGuide();
-                stickerInSafe[0] = editorSafeArea == null || editorSafeArea.isInsideSafe(sv);
-            }
-            @Override public void onDragMove(StatusStickerOverlayView sv) {
-                stickerInSafe[0] = safeEdgeTick(sv, stickerInSafe[0]);
-            }
-            @Override public void onDragEnd(StatusStickerOverlayView sv) { hideSafeAreaGuideLater(); }
-        });
+        // Enable drag + pinch/twist/pan + corner handle + drag-to-trash (v649 engine)
+        wireStickerEngine(stickerView);
         if (stickerView.hasSavedPosition()) {
             // v578: Add Yours template → same spot as the original sticker (ratios of the overlay frame).
             final StatusStickerOverlayView sv = stickerView;
@@ -2278,18 +2212,12 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         stickerView.setOnStickerTappedListener(this::showStickerSizeBar);
         stickerOverlayFrame.setOnClickListener(v -> hideStickerSizeBar());
+        pushPresenceUndo(UA_ADD, stickerView, null, -1, null);   // v651: add / copy is undoable
 
         // (6a) Let the poster HEAR the song while composing (viewer will hear the same).
         if (isMusicSticker) {
             musicStickerInComposer = stickerView;
-            // Long-press / drag-to-trash removal → stop the preview with it.
-            stickerView.setOnStickerRemovedListener(removed -> {
-                if (removed == musicStickerInComposer) {
-                    musicStickerInComposer = null;
-                    stopMusicPreview();
-                    applyEditorVideoVolume(); // back to muted
-                }
-            });
+            // Removal → onStickerRemovedFromCanvas() also stops the preview with it.
             startMusicPreview(stickerView);
         }
 
@@ -2312,6 +2240,47 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     /**
+     * One place that plugs a sticker-engine view (real sticker OR the text wrapper) into the composer:
+     * drag/pinch/handle/trash, undo commits, selection, safe-area guide + edge haptics, bar refresh.
+     */
+    private void wireStickerEngine(final StatusStickerOverlayView stickerView) {
+        stickerView.attachDragToParent(stickerOverlayFrame);
+        stickerView.setAutoRaiseOnTouch(false); // z-order is explicit now: ⬆ / ⬇ in the sticker bar
+        stickerView.setOnTransformCommittedListener((sv, before, after) -> pushStickerUndo(sv, before, after));
+        stickerView.setOnStickerRemovedListener(this::onStickerRemovedFromCanvas);
+        final boolean[] stickerInSafe = {true};
+        stickerView.setOnStickerDragListener(new StatusStickerOverlayView.OnStickerDragListener() {
+            @Override public void onDragStart(StatusStickerOverlayView sv) {
+                showSafeAreaGuide();
+                stickerInSafe[0] = editorSafeArea == null || editorSafeArea.isInsideSafe(sv);
+                touchPrevSelected = selectedSticker;                 // remembered so a tap on a selected text can edit it
+                selectSticker(sv);                                   // touching a sticker selects it
+                if (stickerSizeBar != null) stickerSizeBar.setVisibility(View.INVISIBLE); // bar waits until the gesture ends
+            }
+            @Override public void onDragMove(StatusStickerOverlayView sv) {
+                stickerInSafe[0] = safeEdgeTick(sv, stickerInSafe[0]);
+            }
+            @Override public void onDragEnd(StatusStickerOverlayView sv) {
+                hideSafeAreaGuideLater();
+                if (sv.isRemoving()) return;
+                // soft safe-area magnet: slightly outside the safe rect → glide back in (never forces big moves)
+                if (editorSafeArea != null && !sv.isLocked()) {
+                    float[] d = editorSafeArea.nudgeIntoSafe(sv);
+                    float lim = dp(44);
+                    if ((d[0] != 0f || d[1] != 0f) && Math.abs(d[0]) <= lim && Math.abs(d[1]) <= lim) sv.nudgeBy(d[0], d[1]);
+                }
+                if (selectedSticker == sv) {                         // bar comes back above the sticker's new spot
+                    ensureStickerBar();
+                    refreshStickerBar(sv);
+                    stickerSizeBar.setVisibility(View.VISIBLE);
+                    stickerSizeBar.bringToFront();
+                    stickerSizeBar.postDelayed(() -> positionStickerBar(sv), 240);
+                }
+            }
+        });
+    }
+
+    /**
      * Bottom Y (px) of the last sticker card added to {@link #stickerOverlayFrame},
      * used to place the next sticker below it instead of on top of it.
      * -1 until the first sticker has been measured.
@@ -2323,89 +2292,490 @@ public class NewStatusActivity extends AppCompatActivity {
      * Small floating Small/Medium/Large row shown just above a tapped sticker —
      * the explicit alternative to pinch-to-resize for setting sticker size.
      */
+    // ══════════════════════════════════════════════════════════════════════
+    // v649 — ultra-advanced sticker toolbar: size presets + fine slider, undo/redo,
+    // duplicate, bring-to-front / send-to-back, lock. Selection chrome (dotted border +
+    // corner resize/rotate handle) is drawn by StatusStickerOverlayView itself.
+    // ══════════════════════════════════════════════════════════════════════
+
+    private static final float SEEK_MIN = 0.3f, SEEK_MAX = 5.0f; // same range as StatusStickerOverlayView
+
+    // v651: the history now also covers ADD / COPY / DELETE (not just move / size / rotate).
+    private static final int UA_TRANSFORM = 0, UA_ADD = 1, UA_REMOVE = 2;
+    private static final class StickerUndoEntry {
+        final int kind;
+        final com.callx.app.stickers.StatusStickerOverlayView sticker;
+        float[] before, after;      // UA_TRANSFORM
+        float[] state;              // UA_ADD / UA_REMOVE: pose when it last left the canvas (null = use current)
+        int index = -1;             // UA_ADD / UA_REMOVE: z-index when it last left the canvas
+        TextView textView;          // text layer: the inner TextView (re-linked on revive)
+        int group;                  // entries with the same non-zero group undo / redo together (music replace)
+        StickerUndoEntry(com.callx.app.stickers.StatusStickerOverlayView s, float[] b, float[] a) {
+            kind = UA_TRANSFORM; sticker = s; before = b; after = a;
+        }
+        StickerUndoEntry(int kind, com.callx.app.stickers.StatusStickerOverlayView s) {
+            this.kind = kind; sticker = s;
+        }
+    }
+    private boolean undoBusy;        // undo / redo itself is changing the canvas → record nothing
+    private boolean undoSuppress;    // music edit-in-place swap → no history
+    private int undoGroupSeq, undoOpenGroup;
+    private final java.util.ArrayList<StickerUndoEntry> stickerUndo = new java.util.ArrayList<>();
+    private final java.util.ArrayList<StickerUndoEntry> stickerRedo = new java.util.ArrayList<>();
+    private ImageView stickerBtnUndo, stickerBtnRedo, stickerBtnDup, stickerBtnLock, stickerBtnDelete,
+            stickerBtnAdjust, stickerBtnMix, stickerBtnEditText;
+    private SeekBar stickerScaleSeek;
+    private float[] stickerSeekBefore;
+    private boolean stickerCanvasActive, stickerCanvasSwallow;
+
+    private static int scaleToSeek(float s) {
+        double p = Math.log(Math.max(SEEK_MIN, s) / SEEK_MIN) / Math.log(SEEK_MAX / SEEK_MIN);
+        return (int) Math.round(Math.max(0d, Math.min(1d, p)) * 1000d);
+    }
+    private static float seekToScale(int p) {
+        return (float) (SEEK_MIN * Math.pow(SEEK_MAX / SEEK_MIN, p / 1000d));
+    }
+
+    private void selectSticker(com.callx.app.stickers.StatusStickerOverlayView s) {
+        if (selectedSticker != null && selectedSticker != s) selectedSticker.setSelectedUi(false);
+        selectedSticker = s;
+        if (s != null) s.setSelectedUi(true);
+    }
+
+    private TextView stickerBarButton(String text, int minWidthDp, View.OnClickListener l) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(14);
+        t.setGravity(android.view.Gravity.CENTER);
+        t.setTypeface(null, android.graphics.Typeface.BOLD);
+        t.setMinWidth(dp(minWidthDp));
+        t.setPadding(dp(5), 0, dp(5), 0);
+        t.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+        lp.leftMargin = dp(2);
+        t.setLayoutParams(lp);
+        return t;
+    }
+
+    /** 36x40dp vector icon button with a ripple and a contentDescription (TalkBack). */
+    private ImageView stickerBarIcon(int drawableRes, int descRes, View.OnClickListener l) {
+        ImageView v = new ImageView(this);
+        v.setImageResource(drawableRes);
+        v.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        v.setPadding(dp(8), dp(9), dp(8), dp(9));
+        v.setContentDescription(getString(descRes));
+        v.setOnClickListener(l);
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tv, true)) {
+            v.setBackgroundResource(tv.resourceId);
+        }
+        v.setLayoutParams(new LinearLayout.LayoutParams(dp(36), dp(40)));
+        return v;
+    }
+
+    private void ensureStickerBar() {
+        if (stickerSizeBar != null) return;
+        stickerSizeBar = new LinearLayout(this);
+        stickerSizeBar.setOrientation(LinearLayout.VERTICAL);
+        stickerSizeBar.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(20));
+        bg.setColor(0xEE1A1A1A);
+        stickerSizeBar.setBackground(bg);
+        stickerSizeBar.setPadding(dp(6), dp(4), dp(6), dp(4));
+
+        // ── row 1: S / M / L presets + fine slider (0.3x … 5x) ──
+        LinearLayout r1 = new LinearLayout(this);
+        r1.setOrientation(LinearLayout.HORIZONTAL);
+        r1.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        String[] labels = {"S", "M", "L"};
+        float[] scales = {
+            com.callx.app.stickers.StatusStickerOverlayView.SCALE_SMALL,
+            com.callx.app.stickers.StatusStickerOverlayView.SCALE_MEDIUM,
+            com.callx.app.stickers.StatusStickerOverlayView.SCALE_LARGE
+        };
+        for (int i = 0; i < labels.length; i++) {
+            final float scale = scales[i];
+            TextView presetBtn = stickerBarButton(labels[i], 36, v -> {
+                com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+                if (s == null || s.isLocked()) return;
+                float[] before = s.captureState();
+                s.animateToScale(scale);
+                pushStickerUndo(s, before, s.captureState());
+                stickerScaleSeek.setProgress(scaleToSeek(scale));
+            });
+            presetBtn.setContentDescription(getString(i == 0 ? R.string.sticker_bar_size_small
+                    : i == 1 ? R.string.sticker_bar_size_medium : R.string.sticker_bar_size_large));
+            r1.addView(presetBtn);
+        }
+        stickerScaleSeek = new SeekBar(this);
+        stickerScaleSeek.setContentDescription(getString(R.string.sticker_bar_size_slider));
+        stickerScaleSeek.setMax(1000);
+        stickerScaleSeek.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
+        stickerScaleSeek.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
+        stickerScaleSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+                if (!fromUser || s == null || s.isLocked()) return;
+                s.applyScale(seekToScale(progress));
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {
+                stickerSeekBefore = selectedSticker != null ? selectedSticker.captureState() : null;
+            }
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+                if (s != null && stickerSeekBefore != null) {
+                    float[] after = s.captureState();
+                    if (Math.abs(after[2] - stickerSeekBefore[2]) > 0.004f) pushStickerUndo(s, stickerSeekBefore, after);
+                }
+                stickerSeekBefore = null;
+            }
+        });
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(dp(120), dp(40));
+        slp.leftMargin = dp(4);
+        r1.addView(stickerScaleSeek, slp);
+        stickerSizeBar.addView(r1, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // ── row 2 (v651): ONE icon row for everything — undo / redo / copy / front / back / lock / delete,
+        //    plus the music (adjust, mix) or text (edit) action inline. Bar is always 2 rows tall, even on small screens. ──
+        LinearLayout r2 = new LinearLayout(this);
+        r2.setOrientation(LinearLayout.HORIZONTAL);
+        r2.setGravity(android.view.Gravity.CENTER);
+        stickerBtnUndo   = stickerBarIcon(R.drawable.ic_sbar_undo,   R.string.sticker_bar_undo,   v -> undoStickerTransform());
+        stickerBtnRedo   = stickerBarIcon(R.drawable.ic_sbar_redo,   R.string.sticker_bar_redo,   v -> redoStickerTransform());
+        stickerBtnDup    = stickerBarIcon(R.drawable.ic_sbar_copy,   R.string.sticker_bar_copy,   v -> duplicateSelectedSticker());
+        ImageView front  = stickerBarIcon(R.drawable.ic_sbar_front,  R.string.sticker_bar_front,  v -> stickerToFront());
+        ImageView back   = stickerBarIcon(R.drawable.ic_sbar_back,   R.string.sticker_bar_back,   v -> stickerToBack());
+        stickerBtnLock   = stickerBarIcon(R.drawable.ic_sbar_unlock, R.string.sticker_bar_lock,   v -> toggleStickerLock());
+        stickerBtnDelete = stickerBarIcon(R.drawable.ic_sbar_delete, R.string.sticker_bar_delete, v -> deleteSelectedSticker());
+        stickerBtnAdjust = stickerBarIcon(R.drawable.ic_sbar_cut,    R.string.sticker_bar_adjust_music,
+                v -> { if (selectedSticker != null) startMusicReedit(selectedSticker, true); });
+        stickerBtnMix    = stickerBarIcon(R.drawable.ic_sbar_mix,    R.string.sticker_bar_mix_music,
+                v -> { if (selectedSticker != null) startMusicReedit(selectedSticker, false); });
+        stickerBtnEditText = stickerBarIcon(R.drawable.ic_sbar_text, R.string.sticker_bar_edit_text,
+                v -> showEditorTextDialog(false));
+        r2.addView(stickerBtnUndo);
+        r2.addView(stickerBtnRedo);
+        r2.addView(stickerBtnDup);
+        r2.addView(front);
+        r2.addView(back);
+        r2.addView(stickerBtnLock);
+        r2.addView(stickerBtnAdjust);
+        r2.addView(stickerBtnMix);
+        r2.addView(stickerBtnEditText);
+        r2.addView(stickerBtnDelete);
+        stickerSizeBar.addView(r2, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        stickerOverlayFrame.addView(stickerSizeBar, new android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL));
+    }
+
+    private void refreshStickerBar(com.callx.app.stickers.StatusStickerOverlayView sticker) {
+        if (stickerSizeBar == null || sticker == null) return;
+        boolean music = "music".equals(sticker.getStickerType());
+        boolean text = StatusStickerOverlayView.TYPE_TEXT.equals(sticker.getStickerType());
+        stickerBtnAdjust.setVisibility(music ? View.VISIBLE : View.GONE);
+        stickerBtnMix.setVisibility(music ? View.VISIBLE : View.GONE);
+        stickerBtnEditText.setVisibility(text ? View.VISIBLE : View.GONE);
+        stickerBtnDup.setVisibility(music || text ? View.GONE : View.VISIBLE); // one music sticker / one text layer per status
+        boolean locked = sticker.isLocked();
+        stickerBtnLock.setImageResource(locked ? R.drawable.ic_sbar_lock : R.drawable.ic_sbar_unlock);
+        stickerBtnLock.setColorFilter(locked ? 0xFFFFC107 : Color.WHITE);
+        stickerBtnLock.setContentDescription(getString(locked ? R.string.sticker_bar_unlock : R.string.sticker_bar_lock));
+        stickerBtnDelete.setAlpha(locked ? 0.35f : 1f);
+        stickerScaleSeek.setProgress(scaleToSeek(sticker.getStickerScale()));
+        refreshStickerUndoButtons();
+    }
+
+    private void refreshStickerUndoButtons() {
+        if (stickerBtnUndo != null) { stickerBtnUndo.setAlpha(stickerUndo.isEmpty() ? 0.35f : 1f); stickerBtnUndo.setEnabled(!stickerUndo.isEmpty()); }
+        if (stickerBtnRedo != null) { stickerBtnRedo.setAlpha(stickerRedo.isEmpty() ? 0.35f : 1f); stickerBtnRedo.setEnabled(!stickerRedo.isEmpty()); }
+    }
+
+    /** Puts the bar just above the sticker's real on-screen bounds (below it when there is no room above). */
+    private void positionStickerBar(com.callx.app.stickers.StatusStickerOverlayView s) {
+        if (stickerSizeBar == null || s == null || stickerOverlayFrame == null
+                || s.getParent() != stickerOverlayFrame) return;
+        float[] b = s.getVisualBounds();
+        int bh = stickerSizeBar.getHeight(), fh = stickerOverlayFrame.getHeight();
+        float top = b[1] - b[3] - bh - dp(10);
+        if (top < dp(8)) top = b[1] + b[3] + dp(10);
+        top = Math.max(dp(8), Math.min(top, fh - bh - dp(8)));
+        android.widget.FrameLayout.LayoutParams lp =
+                (android.widget.FrameLayout.LayoutParams) stickerSizeBar.getLayoutParams();
+        lp.topMargin = (int) top;
+        stickerSizeBar.setLayoutParams(lp);
+    }
+
     private void showStickerSizeBar(com.callx.app.stickers.StatusStickerOverlayView sticker) {
-        selectedSticker = sticker;
-
-        if (stickerSizeBar == null) {
-            stickerSizeBar = new LinearLayout(this);
-            stickerSizeBar.setOrientation(LinearLayout.HORIZONTAL);
-            stickerSizeBar.setGravity(android.view.Gravity.CENTER);
-            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setCornerRadius(dp(20));
-            bg.setColor(0xDD1A1A1A);
-            stickerSizeBar.setBackground(bg);
-            stickerSizeBar.setPadding(dp(6), dp(6), dp(6), dp(6));
-
-            String[] labels = {"S", "M", "L"};
-            float[]  scales = {
-                com.callx.app.stickers.StatusStickerOverlayView.SCALE_SMALL,
-                com.callx.app.stickers.StatusStickerOverlayView.SCALE_MEDIUM,
-                com.callx.app.stickers.StatusStickerOverlayView.SCALE_LARGE
-            };
-            for (int i = 0; i < labels.length; i++) {
-                TextView btn = new TextView(this);
-                btn.setText(labels[i]);
-                btn.setTextColor(Color.WHITE);
-                btn.setTextSize(14);
-                btn.setGravity(android.view.Gravity.CENTER);
-                btn.setTypeface(null, android.graphics.Typeface.BOLD);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(40), dp(40));
-                lp.leftMargin = i == 0 ? 0 : dp(4);
-                float scale = scales[i];
-                btn.setOnClickListener(v -> {
-                    if (selectedSticker != null) selectedSticker.animateToScale(scale);
-                });
-                stickerSizeBar.addView(btn, lp);
-            }
-
-            // Music sticker only: re-open Adjust Music / Mix Audio with the saved values.
-            stickerMusicRow = new LinearLayout(this);
-            stickerMusicRow.setOrientation(LinearLayout.HORIZONTAL);
-            stickerMusicRow.setGravity(android.view.Gravity.CENTER);
-            String[] mLabels = {"✂ Adjust", "🎚 Mix"};
-            for (int i = 0; i < mLabels.length; i++) {
-                final boolean adjust = (i == 0);
-                TextView mb = new TextView(this);
-                mb.setText(mLabels[i]);
-                mb.setTextColor(Color.WHITE);
-                mb.setTextSize(13);
-                mb.setTypeface(null, android.graphics.Typeface.BOLD);
-                mb.setGravity(android.view.Gravity.CENTER);
-                mb.setPadding(dp(10), 0, dp(10), 0);
-                LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
-                mlp.leftMargin = dp(4);
-                mb.setOnClickListener(v -> {
-                    if (selectedSticker != null) startMusicReedit(selectedSticker, adjust);
-                });
-                stickerMusicRow.addView(mb, mlp);
-            }
-            stickerSizeBar.addView(stickerMusicRow, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-            stickerOverlayFrame.addView(stickerSizeBar, new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL));
-        }
-
-        if (stickerMusicRow != null) {
-            stickerMusicRow.setVisibility("music".equals(sticker.getStickerType()) ? View.VISIBLE : View.GONE);
-        }
+        if (sticker == null || sticker.getParent() != stickerOverlayFrame) return;
+        selectSticker(sticker);
+        ensureStickerBar();
+        refreshStickerBar(sticker);
         stickerSizeBar.setVisibility(View.VISIBLE);
         stickerSizeBar.bringToFront();
-        // Position just above the tapped sticker (falls back near the top if it doesn't fit).
-        stickerSizeBar.post(() -> {
-            float top = sticker.getY() - stickerSizeBar.getHeight() - dp(8);
-            ((android.widget.FrameLayout.LayoutParams) stickerSizeBar.getLayoutParams()).topMargin =
-                (int) Math.max(dp(8), top);
-            stickerSizeBar.requestLayout();
-        });
+        stickerSizeBar.post(() -> positionStickerBar(sticker));
     }
 
     private void hideStickerSizeBar() {
+        if (selectedSticker != null) selectedSticker.setSelectedUi(false);
         selectedSticker = null;
         if (stickerSizeBar != null) stickerSizeBar.setVisibility(View.GONE);
     }
+
+    /**
+     * Single exit point for every sticker that leaves the canvas (long-press, drag-to-trash, delete button,
+     * undo of an add, redo of a delete). Records the delete for undo, then cleans up music / text state.
+     */
+    private void onStickerRemovedFromCanvas(com.callx.app.stickers.StatusStickerOverlayView removed) {
+        if (!undoBusy && !undoSuppress && removed.getPreRemovalState() != null) {
+            pushPresenceUndo(UA_REMOVE, removed, removed.getPreRemovalState(), removed.getPreRemovalIndex(),
+                    removed == editorTextSticker ? editorTextOverlay : null);
+        }
+        if (removed == selectedSticker) hideStickerSizeBar();
+        if (removed == musicStickerInComposer) {
+            musicStickerInComposer = null;
+            stopMusicPreview();
+            applyEditorVideoVolume(); // back to muted
+        }
+        if (removed == editorTextSticker) { editorTextSticker = null; editorTextOverlay = null; }
+        refreshStickerUndoButtons();
+    }
+
+    // ── undo / redo: every drag / pinch / twist / handle-drag / S-M-L / slider change AND every add / copy / delete is one step ──
+    private void pushStickerUndo(com.callx.app.stickers.StatusStickerOverlayView s, float[] before, float[] after) {
+        if (undoBusy) return;
+        pushUndoEntry(new StickerUndoEntry(s, before, after));
+    }
+
+    private void pushPresenceUndo(int kind, com.callx.app.stickers.StatusStickerOverlayView s,
+                                  float[] state, int index, TextView tv) {
+        if (undoBusy || undoSuppress) return;
+        StickerUndoEntry e = new StickerUndoEntry(kind, s);
+        e.state = state; e.index = index; e.textView = tv; e.group = undoOpenGroup;
+        pushUndoEntry(e);
+    }
+
+    private void pushUndoEntry(StickerUndoEntry e) {
+        stickerUndo.add(e);
+        if (stickerUndo.size() > 60) stickerUndo.remove(0);
+        stickerRedo.clear();
+        refreshStickerUndoButtons();
+    }
+
+    /** Forget every history step that touches this sticker (it is gone for good, e.g. the media was swapped). */
+    private void purgeUndoFor(com.callx.app.stickers.StatusStickerOverlayView s) {
+        for (int i = stickerUndo.size() - 1; i >= 0; i--) if (stickerUndo.get(i).sticker == s) stickerUndo.remove(i);
+        for (int i = stickerRedo.size() - 1; i >= 0; i--) if (stickerRedo.get(i).sticker == s) stickerRedo.remove(i);
+        refreshStickerUndoButtons();
+    }
+
+    private void undoStickerTransform() { stepStickerHistory(stickerUndo, stickerRedo, true); }
+    private void redoStickerTransform() { stepStickerHistory(stickerRedo, stickerUndo, false); }
+
+    private void stepStickerHistory(java.util.ArrayList<StickerUndoEntry> from,
+                                    java.util.ArrayList<StickerUndoEntry> to, boolean undo) {
+        undoBusy = true;
+        try {
+            while (!from.isEmpty()) {
+                StickerUndoEntry e = from.remove(from.size() - 1);
+                if (!applyHistoryEntry(e, undo)) continue;          // stale step (sticker gone) → dropped
+                to.add(e);
+                final int g = e.group;
+                while (g != 0 && !from.isEmpty() && from.get(from.size() - 1).group == g) {   // grouped steps move together
+                    StickerUndoEntry m = from.remove(from.size() - 1);
+                    if (applyHistoryEntry(m, undo)) to.add(m);
+                }
+                break;
+            }
+        } finally {
+            undoBusy = false;
+        }
+        refreshStickerUndoButtons();
+    }
+
+    private boolean applyHistoryEntry(StickerUndoEntry e, boolean undo) {
+        final com.callx.app.stickers.StatusStickerOverlayView s = e.sticker;
+        final boolean attached = s.getParent() == stickerOverlayFrame && !s.isRemoving();
+        if (e.kind == UA_TRANSFORM) {
+            if (!attached) return false;
+            s.restoreState(undo ? e.before : e.after);
+            afterStickerRestore(s);
+            return true;
+        }
+        // UA_ADD: undo removes, redo re-adds.  UA_REMOVE: undo re-adds, redo removes.
+        final boolean makePresent = (e.kind == UA_REMOVE) == undo;
+        if (makePresent) {
+            if (s.getParent() != null) return false;
+            return reviveSticker(e);
+        }
+        if (!attached) return false;
+        e.state = s.captureState();
+        e.index = stickerOverlayFrame.indexOfChild(s);
+        if (s == editorTextSticker) e.textView = editorTextOverlay;
+        s.animate().cancel();
+        stickerOverlayFrame.removeView(s);
+        onStickerRemovedFromCanvas(s);
+        return true;
+    }
+
+    /** Puts a removed sticker back at its old z-index and pose (same view instance → older history steps stay valid). */
+    private boolean reviveSticker(StickerUndoEntry e) {
+        final com.callx.app.stickers.StatusStickerOverlayView s = e.sticker;
+        if (stickerOverlayFrame == null) return false;
+        final boolean text = StatusStickerOverlayView.TYPE_TEXT.equals(s.getStickerType());
+        final boolean music = "music".equals(s.getStickerType());
+        if (text && editorTextSticker != null) return false;          // only one text layer
+        if (music) removeExistingMusicStickers();                      // only one music sticker (silent while undoBusy)
+        int idx = Math.max(0, Math.min(e.index < 0 ? stickerOverlayFrame.getChildCount() : e.index,
+                stickerOverlayFrame.getChildCount()));
+        stickerOverlayFrame.addView(s, idx, s.getLayoutParams());
+        s.reviveAt(e.state);
+        restoreOverlayChrome();
+        if (text) { editorTextSticker = s; editorTextOverlay = e.textView; }
+        if (music) { musicStickerInComposer = s; startMusicPreview(s); }
+        afterStickerRestore(s);
+        return true;
+    }
+
+    /** Toolbar delete button: same shrink animation + undo step as long-press / trash. */
+    private void deleteSelectedSticker() {
+        com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (s == null || s.getParent() != stickerOverlayFrame) return;
+        s.removeWithAnimation();
+    }
+
+    private void afterStickerRestore(final com.callx.app.stickers.StatusStickerOverlayView s) {
+        if (selectedSticker != s || stickerSizeBar == null
+                || stickerSizeBar.getVisibility() != View.VISIBLE) showStickerSizeBar(s);
+        stickerScaleSeek.setProgress(scaleToSeek(s.getStickerScale()));
+        stickerSizeBar.postDelayed(() -> positionStickerBar(s), 280);
+    }
+
+    // ── duplicate / layers / lock ──
+    private void duplicateSelectedSticker() {
+        final com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (s == null || s.getParent() != stickerOverlayFrame || "music".equals(s.getStickerType())
+                || StatusStickerOverlayView.TYPE_TEXT.equals(s.getStickerType())) return;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(s.toJsonWithScale());
+            o.remove("locked");   // the copy starts unlocked
+            double px = o.optDouble("posXRatio", -1d), py = o.optDouble("posYRatio", -1d);
+            if (px >= 0d && py >= 0d) {            // nudge the copy so it doesn't hide the original
+                o.put("posXRatio", Math.min(0.85d, px + 0.05d));
+                o.put("posYRatio", Math.min(0.90d, py + 0.04d));
+            }
+            String json = o.toString();
+            addedStickerJsons.add(json);
+            addStickerOverlay(json);
+            for (int i = stickerOverlayFrame.getChildCount() - 1; i >= 0; i--) {   // select the new copy
+                View c = stickerOverlayFrame.getChildAt(i);
+                if (c instanceof com.callx.app.stickers.StatusStickerOverlayView && c != s) {
+                    final com.callx.app.stickers.StatusStickerOverlayView copy =
+                            (com.callx.app.stickers.StatusStickerOverlayView) c;
+                    copy.post(() -> showStickerSizeBar(copy));
+                    break;
+                }
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /** Re-stacks the bar / tool rail above every sticker after a layer change. */
+    private void restoreOverlayChrome() {
+        if (editorToolRail != null) editorToolRail.bringToFront();
+        if (editorDrawBar != null) editorDrawBar.bringToFront();
+        if (stickerSizeBar != null) stickerSizeBar.bringToFront();
+    }
+
+    private void stickerToFront() {
+        com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (s == null || s.getParent() != stickerOverlayFrame) return;
+        stickerOverlayFrame.bringChildToFront(s);
+        restoreOverlayChrome();
+        toast(R.string.sticker_toast_front);
+    }
+
+    /**
+     * Sends the sticker below every other sticker WITHOUT touching the rest of the stack: every view
+     * from the lowest sticker upward (except this one) is re-raised in its original order, so this
+     * one is left sitting at the lowest sticker slot. The viewer reads stickers in this same order.
+     */
+    private void stickerToBack() {
+        com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (s == null || s.getParent() != stickerOverlayFrame) return;
+        int n = stickerOverlayFrame.getChildCount(), first = -1;
+        View[] snap = new View[n];
+        for (int i = 0; i < n; i++) {
+            snap[i] = stickerOverlayFrame.getChildAt(i);
+            if (first < 0 && snap[i] instanceof com.callx.app.stickers.StatusStickerOverlayView) first = i;
+        }
+        if (first < 0) return;
+        for (int j = first; j < n; j++) if (snap[j] != s) stickerOverlayFrame.bringChildToFront(snap[j]);
+        restoreOverlayChrome();
+        toast(R.string.sticker_toast_back);
+    }
+
+    private void toggleStickerLock() {
+        com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (s == null) return;
+        s.setLocked(!s.isLocked());
+        s.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+        refreshStickerBar(s);
+        toast(s.isLocked() ? R.string.sticker_toast_locked : R.string.sticker_toast_unlocked);
+    }
+
+    // ── canvas-wide pinch / twist / pan for the SELECTED sticker (Instagram-style) ──
+    /** @return true when this event belongs to the selected sticker's gesture and must not reach the photo. */
+    private boolean handleStickerCanvasGesture(android.view.MotionEvent e) {
+        if (stickerOverlayFrame == null) return false;
+        final int a = e.getActionMasked();
+        final boolean ending = a == android.view.MotionEvent.ACTION_UP || a == android.view.MotionEvent.ACTION_CANCEL;
+        com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (stickerCanvasSwallow) {                 // one finger left over after the gesture: ignore it
+            if (ending) { stickerCanvasSwallow = false; return false; }
+            return true;
+        }
+        if (stickerCanvasActive) {
+            if (s == null || s.getParent() != stickerOverlayFrame) {
+                stickerCanvasActive = false;
+                stickerCanvasSwallow = !ending;
+                return !ending;
+            }
+            if (a == android.view.MotionEvent.ACTION_MOVE) {
+                if (e.getPointerCount() >= 2) {
+                    s.updateCanvasGesture(stickerOverlayFrame, e.getX(0), e.getY(0), e.getX(1), e.getY(1));
+                }
+                return true;
+            }
+            if (a == android.view.MotionEvent.ACTION_POINTER_UP || ending) {
+                s.endCanvasGesture(stickerOverlayFrame);
+                stickerCanvasActive = false;
+                if (ending) return false;           // let the normal UP cleanup run
+                stickerCanvasSwallow = true;
+                return true;
+            }
+            return true;
+        }
+        if (a == android.view.MotionEvent.ACTION_POINTER_DOWN && e.getPointerCount() == 2
+                && s != null && !s.isLocked() && s.getParent() == stickerOverlayFrame) {
+            editorGestureMoved = true;              // never counts as a "tap on empty canvas"
+            android.view.MotionEvent cancel = android.view.MotionEvent.obtain(e);
+            cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+            if (mediaGestureOverlay != null) mediaGestureOverlay.onTouchEvent(cancel); // no stray click / video toggle
+            cancel.recycle();
+            s.beginCanvasGesture(stickerOverlayFrame, e.getX(0), e.getY(0), e.getX(1), e.getY(1));
+            stickerCanvasActive = true;
+            return true;
+        }
+        return false;
+    }
+
     @Override protected void onPause() {
         super.onPause();
         saveDraft();
@@ -3465,15 +3835,74 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     // ── Draft save/restore ────────────────────────────────────────────────
     private void saveDraft() {
-        getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE)
-            .edit().putString(KEY_DRAFT, binding.etText.getText().toString()).apply();
+        if (draftCleared) return;
+        android.content.SharedPreferences.Editor ed = getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE)
+            .edit().putString(KEY_DRAFT, binding.etText.getText().toString());
+        // v651: stickers (pose, size, rotation, z-order, LOCK) + which one was selected.
+        // Only written once the canvas has a size, otherwise toJsonWithScale() has no ratios and would corrupt the draft.
+        if (stickerOverlayFrame != null && stickerOverlayFrame.getWidth() > 0 && stickerOverlayFrame.getHeight() > 0) {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            int sel = -1;
+            try {
+                for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
+                    View c = stickerOverlayFrame.getChildAt(i);
+                    if (!(c instanceof StatusStickerOverlayView) || c == editorTextSticker) continue;
+                    StatusStickerOverlayView sv = (StatusStickerOverlayView) c;
+                    if (sv.isRemoving()) continue;
+                    if (sv == selectedSticker) sel = arr.length();
+                    arr.put(new org.json.JSONObject(sv.toJsonWithScale()));
+                }
+            } catch (Exception ignored) { }
+            if (arr.length() > 0) ed.putString(KEY_DRAFT_STICKERS, arr.toString()).putInt(KEY_DRAFT_SELECTED, sel);
+            else ed.remove(KEY_DRAFT_STICKERS).remove(KEY_DRAFT_SELECTED);
+        }
+        ed.apply();
     }
     private void restoreDraft() {
         String draft = getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).getString(KEY_DRAFT, "");
         if (draft != null && !draft.isEmpty()) binding.etText.setText(draft);
     }
+    /**
+     * v651: brings the draft's stickers back (same pose / size / rotation / z-order / lock) and re-selects the one
+     * that was selected. Undo history is NOT persisted: restored stickers are the new baseline (no history steps).
+     */
+    private void restoreDraftStickers() {
+        if (stickerOverlayFrame == null || getIntent().hasExtra(EXTRA_PREFILL_STICKER_JSON)) return;
+        final android.content.SharedPreferences sp = getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE);
+        final String raw = sp.getString(KEY_DRAFT_STICKERS, "");
+        if (raw == null || raw.isEmpty()) return;
+        final int sel = sp.getInt(KEY_DRAFT_SELECTED, -1);
+        stickerOverlayFrame.post(() -> {
+            StatusStickerOverlayView toSelect = null;
+            undoSuppress = true;
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray(raw);
+                for (int i = 0; i < arr.length(); i++) {
+                    String json = arr.getJSONObject(i).toString();
+                    addedStickerJsons.add(json);
+                    addStickerOverlay(json);
+                    if (i == sel) {
+                        for (int k = stickerOverlayFrame.getChildCount() - 1; k >= 0; k--) {
+                            View c = stickerOverlayFrame.getChildAt(k);
+                            if (c instanceof StatusStickerOverlayView) { toSelect = (StatusStickerOverlayView) c; break; }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            } finally {
+                undoSuppress = false;
+            }
+            if (toSelect != null) {
+                final StatusStickerOverlayView s = toSelect;
+                s.postDelayed(() -> showStickerSizeBar(s), 350);   // after its saved position has been applied
+            }
+        });
+    }
+
     private void clearDraft() {
-        getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).edit().remove(KEY_DRAFT).apply();
+        draftCleared = true;
+        getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE).edit()
+            .remove(KEY_DRAFT).remove(KEY_DRAFT_STICKERS).remove(KEY_DRAFT_SELECTED).apply();
     }
     // ── Media preview helpers ─────────────────────────────────────────────
     /**
@@ -3515,10 +3944,7 @@ public class NewStatusActivity extends AppCompatActivity {
             if (!preserveStoryOverlaysOnNextPhoto) {
                 editorAiLabelEnabled = false;
                 if (drawingOverlay != null) drawingOverlay.clearDrawing();
-                if (editorTextOverlay != null) {
-                    stickerOverlayFrame.removeView(editorTextOverlay);
-                    editorTextOverlay = null;
-                }
+                removeEditorTextOverlayView(false);
                 if (editorAiLabel != null) {
                     stickerOverlayFrame.removeView(editorAiLabel);
                     editorAiLabel = null;
@@ -3578,10 +4004,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 drawingOverlay.clearDrawing();
                 drawingOverlay.setDrawEnabled(false);
             }
-            if (editorTextOverlay != null) {
-                stickerOverlayFrame.removeView(editorTextOverlay);
-                editorTextOverlay = null;
-            }
+            removeEditorTextOverlayView(false);
             if (editorAiLabel != null) {
                 stickerOverlayFrame.removeView(editorAiLabel);
                 editorAiLabel = null;
@@ -3630,10 +4053,7 @@ public class NewStatusActivity extends AppCompatActivity {
             drawingOverlay.clearDrawing();
             drawingOverlay.setDrawEnabled(false);
         }
-        if (editorTextOverlay != null) {
-            stickerOverlayFrame.removeView(editorTextOverlay);
-            editorTextOverlay = null;
-        }
+        removeEditorTextOverlayView(false);
         if (editorAiLabel != null) {
             stickerOverlayFrame.removeView(editorAiLabel);
             editorAiLabel = null;
@@ -3669,11 +4089,15 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** null = nothing to keep as data (no text / not a baked photo / serialising failed) -> text is baked as before. */
     private String snapshotTextOverlayJson() {
-        if (!editorPhotoMode || stickerOverlayFrame == null || editorTextOverlay == null
-                || editorTextOverlay.getVisibility() != View.VISIBLE
+        if (!editorPhotoMode || stickerOverlayFrame == null || editorTextOverlay == null || editorTextSticker == null
+                || editorTextSticker.getVisibility() != View.VISIBLE
                 || editorTextOverlay.getText().toString().trim().isEmpty()
                 || stickerOverlayFrame.getWidth() <= 0 || stickerOverlayFrame.getHeight() <= 0) return null;
-        return com.callx.app.utils.StatusTextOverlayRenderer.toJson(this, editorTextOverlay,
+        // geometry comes from the engine state (includes a pending safe-area nudge); wrapper has no padding → same box as the text
+        final float[] st = editorTextSticker.captureState();
+        return com.callx.app.utils.StatusTextOverlayRenderer.toJson(this,
+                editorTextOverlay.getText().toString(),
+                st[0] + editorTextSticker.getWidth() / 2f, st[1] + editorTextSticker.getHeight() / 2f, st[2], st[3],
                 DRAW_COLORS[editorTextColorIdx], editorTextBgMode, editorTextSizeSp,
                 editorTextFontIdx, editorTextAlignIdx,
                 stickerOverlayFrame.getWidth(), stickerOverlayFrame.getHeight(),
@@ -3688,10 +4112,13 @@ public class NewStatusActivity extends AppCompatActivity {
         if (textOverlayJson != null) jsons.add(textOverlayJson);
         for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
             View child = stickerOverlayFrame.getChildAt(i);
+            if (child == editorTextSticker) continue; // saved above as "overlaytext" (or baked into the photo)
             if (child instanceof com.callx.app.stickers.StatusStickerOverlayView) {
                 com.callx.app.stickers.StatusStickerOverlayView sv =
                         (com.callx.app.stickers.StatusStickerOverlayView) child;
                 String j = sv.toJsonWithScale();
+                try { org.json.JSONObject lo = new org.json.JSONObject(j); if (lo.has("locked")) { lo.remove("locked"); j = lo.toString(); } }
+                catch (Exception ignored) { }   // "locked" is a composer-only flag
                 if ("addyours".equals(sv.getStickerType())) j = withAddYoursTemplate(j);
                 jsons.add(j);
             }
@@ -4363,6 +4790,7 @@ public class NewStatusActivity extends AppCompatActivity {
         try { return FirebaseUtils.getCurrentUid(); } catch (Exception e) { return null; }
     }
     private void toast(String msg) { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show(); }
+    private void toast(int resId) { Toast.makeText(this, resId, Toast.LENGTH_SHORT).show(); }
 
     @Override
     protected void onDestroy() {

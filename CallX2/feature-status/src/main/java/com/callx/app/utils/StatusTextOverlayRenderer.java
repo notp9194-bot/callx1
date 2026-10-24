@@ -59,20 +59,33 @@ public final class StatusTextOverlayRenderer {
     /** Composer side: serialise the on-canvas text. Positions are fractions of the canvas, sizes are dp-based. */
     public static String toJson(Context ctx, TextView tv, int color, int bgMode, int sizeSp,
                                 int fontIdx, int alignIdx, int frameWpx, int frameHpx, int maxWidthPx) {
+        return toJson(ctx, tv.getText().toString(),
+                tv.getX() + tv.getWidth() / 2f, tv.getY() + tv.getHeight() / 2f, tv.getScaleX(), tv.getRotation(),
+                color, bgMode, sizeSp, fontIdx, alignIdx, frameWpx, frameHpx, maxWidthPx);
+    }
+
+    /**
+     * Same, but with the geometry given explicitly (centre in canvas px, scale, rotation deg) — the composer's
+     * text now lives inside the sticker engine, whose state is the single source of truth for it.
+     * The JSON format is unchanged, so the viewer needs no change.
+     */
+    public static String toJson(Context ctx, String text, float centerXpx, float centerYpx, float scale, float rotDeg,
+                                int color, int bgMode, int sizeSp,
+                                int fontIdx, int alignIdx, int frameWpx, int frameHpx, int maxWidthPx) {
         try {
             float d = ctx.getResources().getDisplayMetrics().density;
             JSONObject o = new JSONObject();
             o.put("type", TYPE);
-            o.put("text", tv.getText().toString());
+            o.put("text", text);
             o.put("color", color);
             o.put("bgMode", bgMode);
             o.put("sizeSp", sizeSp);
             o.put("font", fontIdx);
             o.put("align", alignIdx);
-            o.put("cx", (tv.getX() + tv.getWidth() / 2f) / frameWpx);
-            o.put("cy", (tv.getY() + tv.getHeight() / 2f) / frameHpx);
-            o.put("scale", tv.getScaleX());
-            o.put("rot", tv.getRotation());
+            o.put("cx", centerXpx / frameWpx);
+            o.put("cy", centerYpx / frameHpx);
+            o.put("scale", scale);
+            o.put("rot", rotDeg);
             o.put("frameWdp", frameWpx / d);
             o.put("maxWdp", maxWidthPx / d);
             return o.toString();

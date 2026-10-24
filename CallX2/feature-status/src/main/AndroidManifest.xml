@@ -208,6 +208,7 @@
         <activity
             android:name="com.callx.app.compose.NewStatusActivity"
             android:theme="@style/Theme.CallX"
+            android:screenOrientation="portrait"
             android:exported="false"/>
 
         <!-- Scheduled statuses: list, publish now, delete / cancel -->

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v651: sticker toolbar (icons need contentDescription) -->
+    <string name="sticker_bar_size_small">Small size</string>
+    <string name="sticker_bar_size_medium">Medium size</string>
+    <string name="sticker_bar_size_large">Large size</string>
+    <string name="sticker_bar_size_slider">Sticker size</string>
+    <string name="sticker_bar_undo">Undo</string>
+    <string name="sticker_bar_redo">Redo</string>
+    <string name="sticker_bar_copy">Copy sticker</string>
+    <string name="sticker_bar_front">Bring to front</string>
+    <string name="sticker_bar_back">Send to back</string>
+    <string name="sticker_bar_lock">Lock sticker</string>
+    <string name="sticker_bar_unlock">Unlock sticker</string>
+    <string name="sticker_bar_delete">Delete sticker</string>
+    <string name="sticker_bar_adjust_music">Adjust music</string>
+    <string name="sticker_bar_mix_music">Mix audio</string>
+    <string name="sticker_bar_edit_text">Edit text</string>
+
+    <!-- v651: sticker toasts (were hardcoded in NewStatusActivity) -->
+    <string name="sticker_toast_front">Sabse aage</string>
+    <string name="sticker_toast_back">Sabse peeche</string>
+    <string name="sticker_toast_locked">Sticker lock ho gaya</string>
+    <string name="sticker_toast_unlocked">Sticker unlock ho gaya</string>
+    <string name="sticker_toast_music_replaced">Pehla music sticker replace ho gaya</string>
+    <string name="sticker_toast_music_no_audio">Is music sticker me edit karne layak audio nahi hai</string>
+    <string name="sticker_toast_music_edit_unavailable">Is status par music edit available nahi</string>
+    <string name="sticker_toast_music_editor_failed">Music editor khul nahi paya</string>
+    <string name="sticker_toast_music_updated">Music update ho gaya</string>
+    <string name="sticker_toast_music_update_failed">Music update nahi ho paya</string>
+    <string name="sticker_toast_music_preview_failed">Music preview play nahi ho paya</string>
+    <string name="sticker_toast_music_preview_failed_detail">Music preview play nahi ho paya (%1$d/%2$d)</string>
+</resources>

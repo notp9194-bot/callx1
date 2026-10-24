@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v650: text layer now uses the sticker engine -->
+    <string name="status_text_overlay_desc">Text layer. Tap to select, tap again to edit. Drag to move, pinch or use the corner handle to resize and rotate.</string>
+    <string name="status_text_edit">Aa  Edit</string>
+</resources>

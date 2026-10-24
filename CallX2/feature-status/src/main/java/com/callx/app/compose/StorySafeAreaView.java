@@ -135,6 +135,32 @@ public final class StorySafeAreaView extends View {
                 v.getRotation(), w, h, insets);
     }
 
+    /**
+     * (dx, dy) in canvas px that would bring {@code v}'s rotated + scaled bounds fully inside the safe rect
+     * ({0,0} when already inside, or when it is larger than the safe rect on that axis).
+     */
+    public float[] nudgeIntoSafe(View v) {
+        int w = getWidth(), h = getHeight();
+        if (v == null || w <= 0 || h <= 0) return new float[]{0f, 0f};
+        refreshInsets(w, h);
+        float l = insets[2], t = insets[0], r = w - insets[3], b = h - insets[1];
+        double rad = Math.toRadians(v.getRotation());
+        float c = (float) Math.abs(Math.cos(rad)), sn = (float) Math.abs(Math.sin(rad));
+        float sw = v.getWidth() * Math.abs(v.getScaleX()), sh = v.getHeight() * Math.abs(v.getScaleY());
+        float hw = (sw * c + sh * sn) / 2f, hh = (sw * sn + sh * c) / 2f;
+        float cx = v.getX() + v.getWidth() / 2f, cy = v.getY() + v.getHeight() / 2f;
+        float dx = 0f, dy = 0f;
+        if (hw * 2f <= r - l) {
+            if (cx - hw < l) dx = l - (cx - hw);
+            else if (cx + hw > r) dx = r - (cx + hw);
+        }
+        if (hh * 2f <= b - t) {
+            if (cy - hh < t) dy = t - (cy - hh);
+            else if (cy + hh > b) dy = b - (cy + hh);
+        }
+        return new float[]{dx, dy};
+    }
+
     @Override protected void onDraw(Canvas c) {
         int w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0) return;

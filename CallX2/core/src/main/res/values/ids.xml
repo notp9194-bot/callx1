@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- v650: sticker snap-guide chrome keeps its shown/degree state in view tags (no re-animating every MOVE) -->
+    <item name="callx_chrome_shown" type="id"/>
+    <item name="callx_chrome_deg"   type="id"/>
     <!-- Group chat dynamic menu item IDs -->
     <item name="menu_invite"        type="id"/>
     <item name="menu_starred"       type="id"/>
