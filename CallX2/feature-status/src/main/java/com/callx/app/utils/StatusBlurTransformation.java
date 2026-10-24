@@ -41,7 +41,7 @@ import java.security.MessageDigest;
 public class StatusBlurTransformation extends BitmapTransformation {
 
     private static final String ID =
-            "com.callx.app.utils.StatusBlurTransformation.v3";
+            "com.callx.app.utils.StatusBlurTransformation.v4";
     private static final byte[] ID_BYTES =
             ID.getBytes(Charset.forName("UTF-8"));
 
@@ -79,8 +79,8 @@ public class StatusBlurTransformation extends BitmapTransformation {
         blurred.recycle();
 
         // Darken so the sharp foreground photo pops over the blurred backdrop.
-        // One pass of 0x8C (~55% black) = the earlier 40% + 25% scrims combined.
-        canvas.drawColor(0x8C000000);
+        // Light ~25% black tint (Instagram-style: mostly colour, slight dim).
+        canvas.drawColor(0x40000000);
         return result;
     }
 
