@@ -1181,6 +1181,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   break;
               default: next();
           }
+          applyReshareCardMode(s);
           renderStickers(s);
           deferAfterFirstFrame(seq, this::prefetchNextImage);
 
@@ -1224,6 +1225,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           final String cUid = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
                           final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
                           chip.setOnClickListener(v -> openOriginalStory(cUid, cId, chipLabel));
+                          if (reshareCardActive) flReshare.setVisibility(android.view.View.GONE); // header on the card replaces the chip
                           return;
                       }
                       if (chip != null) chip.setVisibility(android.view.View.GONE);
@@ -1972,7 +1974,167 @@ import com.callx.app.utils.AlertDialogStyler;
                .transition(com.bumptech.glide.load.resource.bitmap.BitmapTransitionOptions.withCrossFade(150))
                .into(binding.ivRootBg);
       }
+      // ── Instagram-style reposted story: the original story sits in a rounded 9:16 card (≈80% width)
+      //    over the blurred backdrop, with the ORIGINAL owner's avatar + name on the card's top-left.
+      private boolean reshareCardActive;
+      private View    reshareHeaderView, reshareHeaderScrim;
+      private int reshareBoxW, reshareBoxH;         // card box size → stickers / text overlays map into THIS box
+      private StatusItem reshareCardItem;
+      private boolean reshareLayoutListenerSet;
+      private void applyReshareCardMode(StatusItem s) { applyReshareCardMode(s, true); }
+      private void applyReshareCardMode(StatusItem s, boolean animate) {
+          if (!"status_reshare".equals(s.type)) return;
+          final boolean hasMedia = (s.mediaUrl != null && !s.mediaUrl.isEmpty())
+                  || (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty())
+                  || (s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty());
+          if (!hasMedia) return;
+          final android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+          final android.widget.FrameLayout card = binding.flStoryCard;
+          final int w = card.getWidth() > 0 ? card.getWidth() : dm.widthPixels;
+          final int h = card.getHeight() > 0 ? card.getHeight() : dm.heightPixels;
+          final int topInset = dpToPx(96), bottomInset = dpToPx(24);
+          final int availH = Math.max(1, h - topInset - bottomInset);
+          // Card follows the media's own aspect ratio (clamped 1:2 … 1:1), 9:16 when unknown → nothing gets cropped.
+          float ratio = (s.mediaWidth > 0 && s.mediaHeight > 0) ? (float) s.mediaWidth / s.mediaHeight : 9f / 16f;
+          ratio = Math.max(0.5f, Math.min(1f, ratio));
+          int bw0 = Math.round(w * 0.8f), bh = Math.round(bw0 / ratio);
+          if (bh > availH) bh = availH;
+          final int bw = Math.min(bw0, Math.round(bh * ratio));
+          final int top = topInset + (availH - bh) / 2;
+          final int left = (w - bw) / 2;
+          final int radius = mediaCornerPx(); // same corner as every other media (no double rounding)
+
+          final android.view.ViewOutlineProvider round = new android.view.ViewOutlineProvider() {
+              @Override public void getOutline(View v, android.graphics.Outline o) {
+                  o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius);
+              }
+          };
+          for (View v : new View[] { binding.ivStatus, binding.playerView }) {
+              final android.widget.FrameLayout.LayoutParams lp =
+                      new android.widget.FrameLayout.LayoutParams(bw, bh, android.view.Gravity.TOP | android.view.Gravity.START);
+              lp.leftMargin = left; lp.topMargin = top;
+              v.setLayoutParams(lp);
+              v.setOutlineProvider(round);
+              v.setClipToOutline(true);
+          }
+          binding.ivStatus.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+          reshareCardActive = true;
+          binding.playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM); // video fills the card, no black bars
+          reshareBoxW = bw; reshareBoxH = bh; reshareCardItem = s;
+
+          // Stickers + text overlays live in the SAME box as the card (so they land where the poster placed them).
+          if (stickerOverlayView != null || (s.stickersJson != null && !s.stickersJson.isEmpty())) {
+              final FrameLayout so = stickerOverlay();
+              final FrameLayout.LayoutParams olp = new FrameLayout.LayoutParams(bw, bh, Gravity.TOP | Gravity.START);
+              olp.leftMargin = left; olp.topMargin = top;
+              so.setLayoutParams(olp);
+          }
+
+          // Re-fit the card when the story area changes size (keyboard, rotation, split-screen).
+          if (!reshareLayoutListenerSet) {
+              reshareLayoutListenerSet = true;
+              card.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, orr, ob) -> {
+                  if (!reshareCardActive || reshareCardItem == null) return;
+                  if ((r - l) == (orr - ol) && (b - t) == (ob - ot)) return;
+                  v.post(() -> { if (reshareCardActive && reshareCardItem != null) applyReshareCardMode(reshareCardItem, false); });
+              });
+          }
+
+          // Soft top scrim so the header stays readable on bright photos.
+          if (reshareHeaderScrim == null) {
+              reshareHeaderScrim = new View(this);
+              reshareHeaderScrim.setClickable(false);
+              reshareHeaderScrim.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+              card.addView(reshareHeaderScrim);
+          }
+          final android.graphics.drawable.GradientDrawable sg = new android.graphics.drawable.GradientDrawable(
+                  android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0x80000000, 0x00000000 });
+          sg.setCornerRadii(new float[] { radius, radius, radius, radius, 0, 0, 0, 0 });
+          reshareHeaderScrim.setBackground(sg);
+          final android.widget.FrameLayout.LayoutParams slp =
+                  new android.widget.FrameLayout.LayoutParams(bw, dpToPx(72), android.view.Gravity.TOP | android.view.Gravity.START);
+          slp.leftMargin = left; slp.topMargin = top;
+          reshareHeaderScrim.setLayoutParams(slp);
+          reshareHeaderScrim.setVisibility(View.VISIBLE);
+
+          // Header: original owner avatar + name, top-left inside the card.
+          if (reshareHeaderView == null) {
+              final android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+              row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+              row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+              final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
+              av.setId(R.id.iv_reshare_chip_avatar);
+              av.setImageResource(R.drawable.ic_person);
+              row.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(32), dpToPx(32)));
+              final TextView tv = new TextView(this);
+              tv.setTag("reshare_header_name");
+              tv.setTextColor(Color.WHITE);
+              tv.setTextSize(14f);
+              tv.setTypeface(null, android.graphics.Typeface.BOLD);
+              tv.setMaxLines(1);
+              tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+              tv.setShadowLayer(4f, 0f, 1f, 0xB3000000);
+              final android.widget.LinearLayout.LayoutParams tlp =
+                      new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+              tlp.setMarginStart(dpToPx(8));
+              row.addView(tv, tlp);
+              reshareHeaderView = row;
+              card.addView(row);
+          }
+          final android.widget.LinearLayout row = (android.widget.LinearLayout) reshareHeaderView;
+          final android.widget.FrameLayout.LayoutParams hlp =
+                  new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                          android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.START);
+          hlp.leftMargin = left + dpToPx(12); hlp.topMargin = top + dpToPx(12);
+          hlp.rightMargin = w - left - bw + dpToPx(12);
+          row.setLayoutParams(hlp);
+          final String cName = s.resharedFromOwnerName != null ? s.resharedFromOwnerName : "";
+          final String cUser = s.resharedFromOwnerUsername;
+          final String label = (cUser != null && !cUser.isEmpty()) ? cUser : cName;
+          final TextView tv = (TextView) row.findViewWithTag("reshare_header_name");
+          if (tv != null) tv.setText(label);
+          final android.widget.ImageView av = (android.widget.ImageView) row.findViewById(R.id.iv_reshare_chip_avatar);
+          if (av != null) {
+              if (s.resharedFromOwnerAvatar != null && !s.resharedFromOwnerAvatar.isEmpty())
+                  Glide.with(this).load(s.resharedFromOwnerAvatar).override(dpToPx(64)).dontAnimate().into(av);
+              else av.setImageResource(R.drawable.ic_person);
+          }
+          final String cUid = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
+          final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
+          row.setClickable("status".equals(s.resharedFromType));
+          row.setOnClickListener("status".equals(s.resharedFromType) ? v -> openOriginalStory(cUid, cId, label) : null);
+          row.setVisibility(cName.isEmpty() ? View.GONE : View.VISIBLE);
+          row.bringToFront();
+          // entry: fade-in (+ 6dp drop) for header and scrim together
+          final float endA = chromeHidden ? 0f : 1f;
+          for (View v : new View[] { reshareHeaderScrim, row }) {
+              v.animate().cancel();
+              if (animate) {
+                  v.setAlpha(0f);
+                  v.setTranslationY(v == row ? -dpToPx(6) : 0f);
+                  v.animate().alpha(endA).translationY(0f).setDuration(220L).setStartDelay(120L).start();
+              } else { v.setAlpha(endA); v.setTranslationY(0f); }
+          }
+      }
+      private void resetReshareCardMode() {
+          if (reshareHeaderView != null) { reshareHeaderView.animate().cancel(); reshareHeaderView.setVisibility(View.GONE); }
+          if (reshareHeaderScrim != null) { reshareHeaderScrim.animate().cancel(); reshareHeaderScrim.setVisibility(View.GONE); }
+          if (!reshareCardActive) return;
+          reshareCardActive = false; reshareCardItem = null; reshareBoxW = reshareBoxH = 0;
+          if (stickerOverlayView != null)
+              stickerOverlayView.setLayoutParams(new FrameLayout.LayoutParams(
+                      android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+          for (View v : new View[] { binding.ivStatus, binding.playerView }) {
+              v.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+                      android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+              v.setClipToOutline(false);
+              v.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+          }
+          binding.ivStatus.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+          binding.playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
+      }
       private void hideAllContent() {
+          resetReshareCardMode();
           if (binding.ivRootBg != null) { binding.ivRootBg.setVisibility(View.GONE); binding.ivRootBg.setImageDrawable(null); }
           binding.flStoryCard.setBackgroundColor(Color.BLACK); // video / text: solid card again
           if (textLayerView != null) textLayerView.setVisibility(View.GONE);
@@ -2351,8 +2513,9 @@ import com.callx.app.utils.AlertDialogStyler;
           float frameH = ov.getHeight() > 0 ? ov.getHeight()
                   : binding.flStoryCard.getHeight() > 0 ? binding.flStoryCard.getHeight()
                   : getResources().getDisplayMetrics().heightPixels;
+          if (reshareCardActive && reshareBoxW > 0) { frameW = reshareBoxW; frameH = reshareBoxH; }
           float fitW = frameW, fitH = frameH, left = 0f, top = 0f;
-          if (item != null && item.mediaWidth > 0 && item.mediaHeight > 0) {
+          if (!reshareCardActive && item != null && item.mediaWidth > 0 && item.mediaHeight > 0) {
               float f = Math.min(frameW / item.mediaWidth, frameH / item.mediaHeight);
               fitW = item.mediaWidth * f;
               fitH = item.mediaHeight * f;
@@ -2393,6 +2556,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           : binding.flStoryCard.getHeight() > 0 ? binding.flStoryCard.getHeight()
                           : getResources().getDisplayMetrics().heightPixels;
 
+                  if (reshareCardActive && reshareBoxW > 0) { frameW = reshareBoxW; frameH = reshareBoxH; } // reposted card box
                   final boolean centred = sticker.hasCenterPlacement() && frameW > 0 && frameH > 0;
                   final float density = getResources().getDisplayMetrics().density;
                   FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -3290,6 +3454,15 @@ import com.callx.app.utils.AlertDialogStyler;
               rb.animate().alpha(hide ? 0f : 1f).translationY(0f).setDuration(hide ? 150L : 200L).start();
               rb.setClickable(!hide);
               setReplyHitSlop(!hide);
+          }
+          // Reposted-story card header (+ its scrim) hides/shows with the chrome too.
+          if (reshareCardActive && reshareHeaderView != null && reshareHeaderView.getVisibility() == View.VISIBLE) {
+              reshareHeaderView.animate().cancel();
+              reshareHeaderView.animate().alpha(hide ? 0f : 1f).translationY(0f).setDuration(hide ? 150L : 200L).start();
+              if (reshareHeaderScrim != null) {
+                  reshareHeaderScrim.animate().cancel();
+                  reshareHeaderScrim.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
+              }
           }
           // Live comment stack hides/shows with the chrome too.
           if (binding.llLiveComments != null && binding.llLiveComments.getVisibility() == View.VISIBLE) {
