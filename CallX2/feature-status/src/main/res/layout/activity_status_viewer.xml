@@ -112,14 +112,14 @@
       <com.callx.app.viewer.NoOverlapView
           android:id="@+id/view_top_scrim"
           android:layout_width="match_parent"
-          android:layout_height="120dp"
+          android:layout_height="80dp"
           android:layout_gravity="top"
           android:background="@drawable/bg_status_top_scrim"
           android:importantForAccessibility="no"/>
       <com.callx.app.viewer.NoOverlapView
           android:id="@+id/view_bottom_scrim"
           android:layout_width="match_parent"
-          android:layout_height="140dp"
+          android:layout_height="80dp"
           android:layout_gravity="bottom"
           android:background="@drawable/bg_status_bottom_scrim"
           android:importantForAccessibility="no"/>
@@ -159,7 +159,7 @@
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
               android:orientation="horizontal"
-              android:paddingStart="12dp"
+              android:paddingStart="15dp"
               android:paddingEnd="8dp"
               android:paddingTop="6dp"
               android:paddingBottom="8dp"
@@ -168,8 +168,8 @@
               <de.hdodenhof.circleimageview.CircleImageView
                   android:id="@+id/iv_owner"
                     android:contentDescription="@string/viewer_cd_owner_avatar"
-                  android:layout_width="38dp"
-                  android:layout_height="38dp"
+                  android:layout_width="32dp"
+                  android:layout_height="32dp"
                   android:src="@drawable/ic_person"/>
 
               <LinearLayout
@@ -314,7 +314,6 @@
           android:layout_height="wrap_content"
           android:layout_gravity="bottom"
           android:orientation="vertical"
-          android:background="@drawable/bg_status_reply_overlay"
           android:paddingTop="32dp"
           android:paddingBottom="14dp"
           android:paddingStart="14dp"

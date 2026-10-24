@@ -4095,91 +4095,13 @@ import com.callx.app.utils.AlertDialogStyler;
           final boolean hasMore = newestFirst.size() > 3;
           sigB.append(hasMore ? "+" : "");
           final String sig = sigB.toString();
-          if (lastReplyShown && sig.equals(lastReplySig)
-                  && lastReplyBubbleView != null && lastReplyBubbleView.getVisibility() == View.VISIBLE) return;
-          final boolean firstShow = !lastReplyShown || lastReplyBubbleView == null
-                  || lastReplyBubbleView.getVisibility() != View.VISIBLE;
+          if (sig.equals(lastReplySig)) return; // nothing new → keep the live comment queue as is
           lastReplySig = sig;
-          final View bubble = lastReplyBubble(); // v508: inflated on first status that has replies
-          final android.widget.ImageView[] slots = lastReplyAvatars;
-          // slots[2] (rightmost/top-of-stack) = newest; older ones fill leftward.
-          for (int slot = 0; slot < slots.length; slot++) {
-              int replyIdx = slots.length - 1 - slot; // 2,1,0
-              if (slots[slot] == null) continue;
-              if (replyIdx < newestFirst.size()) {
-                  StatusItem.ReplyPreview r = newestFirst.get(replyIdx);
-                  slots[slot].setVisibility(View.VISIBLE);
-                  if (r.avatarUrl != null && !r.avatarUrl.isEmpty()) {
-                      // TINY tier (32dp) + exact override: same cache key as reels comments / the replies sheet,
-                      // so the sheet's avatars are already warm when it opens.
-                      if (!r.avatarUrl.equals(slots[slot].getTag(R.id.iv_last_reply_avatar_1))) {
-                          slots[slot].setTag(R.id.iv_last_reply_avatar_1, r.avatarUrl);
-                          final int px = com.callx.app.utils.AvatarUrlBuilder.tierPx(this, com.callx.app.utils.AvatarSizeTier.TINY);
-                          Glide.with(this)
-                              .load(com.callx.app.utils.AvatarUrlBuilder.buildResponsive(
-                                      this, r.avatarUrl, com.callx.app.utils.AvatarSizeTier.TINY))
-                              .apply(new com.bumptech.glide.request.RequestOptions()
-                                      .override(px, px)
-                                      .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
-                                      .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE))
-                              .into(slots[slot]);
-                      }
-                  }
-                  else {
-                      slots[slot].setTag(R.id.iv_last_reply_avatar_1, null);
-                      slots[slot].setImageResource(R.drawable.ic_person);
-                  }
-              } else {
-                  slots[slot].setVisibility(View.GONE);
-              }
-          }
-          StatusItem.ReplyPreview latest = newestFirst.get(0);
-          String who = latest.name != null && !latest.name.isEmpty() ? latest.name : "Someone";
-          if (who.length() > 14) who = who.substring(0, 13).trim() + "\u2026"; // long names never eat the comment
-          final String body = latest.text != null ? latest.text.replace('\n', ' ') : "";
-          if (lastReplyTextTv != null) {
-              android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(who);
-              sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, who.length(),
-                      android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-              sb.append("  ");
-              int bs = sb.length();
-              sb.append(body);
-              sb.setSpan(new android.text.style.ForegroundColorSpan(0xCCFFFFFF), bs, sb.length(),
-                      android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-              lastReplyTextTv.setText(sb);
-          }
-          if (lastReplyMoreTv != null) lastReplyMoreTv.setVisibility(hasMore ? View.VISIBLE : View.GONE);
-          bubble.setContentDescription(getString(R.string.viewer_cd_latest_comment, who, body,
-                  hasMore ? getString(R.string.viewer_cd_more_comments) : ""));
-          bubble.animate().cancel();
-          bubble.setVisibility(View.VISIBLE);
-          // The pill is now just the persistent avatar stack (+ badge, always tappable). The comment TEXT
-          // lives in the live stack above it (updateLiveComments), so the pill never shows text.
-          replyCollapsed = true;
-          if (lastReplyTextTv != null) lastReplyTextTv.setVisibility(View.GONE);
-          final float risePx = dpToPx(8);
-          if (firstShow) {
-              // Entry: fade + 8dp rise (GPU layer only for the 220ms the animation runs).
-              bubble.setAlpha(0f);
-              bubble.setTranslationY(risePx);
-              bubble.animate().alpha(chromeHidden ? 0f : 1f).translationY(0f).setDuration(220L)
-                      .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                      .withLayer().start();
-          } else {
-              // New comment while visible: newest avatar pops in.
-              bubble.setAlpha(chromeHidden ? 0f : 1f);
-              bubble.setTranslationY(0f);
-              final android.widget.ImageView top = lastReplyAvatars != null ? lastReplyAvatars[lastReplyAvatars.length - 1] : null;
-              if (top != null && top.getVisibility() == View.VISIBLE) {
-                  top.animate().cancel();
-                  top.setScaleX(0.5f); top.setScaleY(0.5f);
-                  top.animate().scaleX(1f).scaleY(1f).setDuration(200L)
-                          .setInterpolator(new android.view.animation.OvershootInterpolator(2f))
-                          .withLayer().start();
-              }
-          }
-          lastReplyShown = true; lastReplyExiting = false;
-          setReplyHitSlop(!chromeHidden);
+          // The 3-avatar stack pill is removed: the (inflated, always GONE) bubble only stays as the
+          // tap target for the live comment row → replies sheet. Live comment animation is untouched.
+          final View bubble = lastReplyBubble();
+          bubble.setVisibility(View.GONE);
+          lastReplyShown = false; lastReplyExiting = false;
           bubble.setOnClickListener(v -> {
               if (replyOverlayAutoHide != null) handler.removeCallbacks(replyOverlayAutoHide);
               pauseProgress();
