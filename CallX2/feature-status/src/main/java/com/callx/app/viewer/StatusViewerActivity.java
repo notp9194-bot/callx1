@@ -1713,7 +1713,7 @@ import com.callx.app.utils.AlertDialogStyler;
                    @Override public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model,
                            com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
                            com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                       if (idx == reqIdx) releaseImageHold();
+                       if (idx == reqIdx) { releaseImageHold(); onReshareMediaSize(resource.getIntrinsicWidth(), resource.getIntrinsicHeight()); }
                        return false;
                    }
                });
@@ -1981,6 +1981,10 @@ import com.callx.app.utils.AlertDialogStyler;
       private int reshareBoxW, reshareBoxH;         // card box size → stickers / text overlays map into THIS box
       private StatusItem reshareCardItem;
       private boolean reshareLayoutListenerSet;
+      private FrameLayout reshareCardFrame;              // rounded, clipping container that HOLDS the media views while the card is shown
+      private int reshareOrigIndex = -1;
+      private float reshareSavedScale = 1f;
+      private float reshareMediaRatio;                   // learned from the decoded media when the post has no mediaWidth/Height
       private void applyReshareCardMode(StatusItem s) { applyReshareCardMode(s, true); }
       private void applyReshareCardMode(StatusItem s, boolean animate) {
           if (!"status_reshare".equals(s.type)) return;
@@ -1995,7 +1999,8 @@ import com.callx.app.utils.AlertDialogStyler;
           final int topInset = dpToPx(96), bottomInset = dpToPx(24);
           final int availH = Math.max(1, h - topInset - bottomInset);
           // Card follows the media's own aspect ratio (clamped 1:2 … 1:1), 9:16 when unknown → nothing gets cropped.
-          float ratio = (s.mediaWidth > 0 && s.mediaHeight > 0) ? (float) s.mediaWidth / s.mediaHeight : 9f / 16f;
+          float ratio = (s.mediaWidth > 0 && s.mediaHeight > 0) ? (float) s.mediaWidth / s.mediaHeight
+                  : reshareMediaRatio > 0f ? reshareMediaRatio : 9f / 16f;
           ratio = Math.max(0.5f, Math.min(1f, ratio));
           int bw0 = Math.round(w * 0.8f), bh = Math.round(bw0 / ratio);
           if (bh > availH) bh = availH;
@@ -2009,14 +2014,30 @@ import com.callx.app.utils.AlertDialogStyler;
                   o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius);
               }
           };
-          for (View v : new View[] { binding.ivStatus, binding.playerView, binding.ivVideoPoster }) {
-              final android.widget.FrameLayout.LayoutParams lp =
-                      new android.widget.FrameLayout.LayoutParams(bw, bh, android.view.Gravity.TOP | android.view.Gravity.START);
-              lp.leftMargin = left; lp.topMargin = top;
-              v.setLayoutParams(lp);
-              v.setOutlineProvider(round);
-              v.setClipToOutline(true);
+          // The media views (photo / player / poster) move INTO one rounded, clipping frame. Whatever they draw
+          // (stabilizer overscan, zoomed video, poster) can never spill outside the card.
+          if (reshareCardFrame == null) {
+              reshareCardFrame = new FrameLayout(this);
+              reshareCardFrame.setOutlineProvider(round);
+              reshareCardFrame.setClipToOutline(true);
+              reshareCardFrame.setClipChildren(true);
           }
+          final View[] media = { binding.ivStatus, binding.playerView, binding.ivVideoPoster };
+          if (reshareCardFrame.getParent() == null) {
+              reshareOrigIndex = Math.max(0, card.indexOfChild(binding.ivStatus));
+              reshareSavedScale = binding.ivStatus.getScaleX();
+              for (View v : media) if (v.getParent() == card) card.removeView(v);
+              for (View v : media) {
+                  v.setScaleX(1f); v.setScaleY(1f); v.setRotation(0f); // card is always level + 1:1 (no 1.42x overscan)
+                  reshareCardFrame.addView(v, new FrameLayout.LayoutParams(
+                          android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+              }
+              card.addView(reshareCardFrame, Math.min(reshareOrigIndex, card.getChildCount()));
+          }
+          final FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(bw, bh, android.view.Gravity.TOP | android.view.Gravity.START);
+          flp.leftMargin = left; flp.topMargin = top;
+          reshareCardFrame.setLayoutParams(flp);
+          reshareCardFrame.invalidateOutline();
           binding.ivStatus.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
           binding.ivVideoPoster.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP); // video poster fills the card too
           reshareCardActive = true;
@@ -2117,6 +2138,18 @@ import com.callx.app.utils.AlertDialogStyler;
               } else { v.setAlpha(endA); v.setTranslationY(0f); }
           }
       }
+      /** Old reposts carry no mediaWidth/Height: learn the real ratio from the decoded photo, then re-fit the card.
+       *  Skipped when the status has stickers (they were already placed in the first box). */
+      private void onReshareMediaSize(int mw, int mh) {
+          final StatusItem it = reshareCardItem;
+          if (!reshareCardActive || it == null || mw <= 0 || mh <= 0) return;
+          if (it.mediaWidth > 0 && it.mediaHeight > 0) return;
+          if (it.stickersJson != null && !it.stickersJson.isEmpty()) return;
+          final float r = Math.max(0.5f, Math.min(1f, (float) mw / mh));
+          if (Math.abs(r - reshareMediaRatio) < 0.01f) return;
+          reshareMediaRatio = r;
+          applyReshareCardMode(it, false);
+      }
       private void resetReshareCardMode() {
           if (reshareHeaderView != null) { reshareHeaderView.animate().cancel(); reshareHeaderView.setVisibility(View.GONE); }
           if (reshareHeaderScrim != null) { reshareHeaderScrim.animate().cancel(); reshareHeaderScrim.setVisibility(View.GONE); }
@@ -2125,11 +2158,18 @@ import com.callx.app.utils.AlertDialogStyler;
           if (stickerOverlayView != null)
               stickerOverlayView.setLayoutParams(new FrameLayout.LayoutParams(
                       android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-          for (View v : new View[] { binding.ivStatus, binding.playerView, binding.ivVideoPoster }) {
-              v.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
-                      android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-              v.setClipToOutline(false);
-              v.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+          reshareMediaRatio = 0f;
+          if (reshareCardFrame != null && reshareCardFrame.getParent() == binding.flStoryCard) {
+              final FrameLayout card = binding.flStoryCard;
+              final View[] media = { binding.ivStatus, binding.playerView, binding.ivVideoPoster };
+              reshareCardFrame.removeAllViews();
+              card.removeView(reshareCardFrame);
+              int at = Math.min(Math.max(0, reshareOrigIndex), card.getChildCount());
+              for (View v : media) {
+                  v.setScaleX(reshareSavedScale); v.setScaleY(reshareSavedScale);
+                  card.addView(v, at++, new FrameLayout.LayoutParams(
+                          android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+              }
           }
           binding.ivStatus.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
           binding.ivVideoPoster.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);

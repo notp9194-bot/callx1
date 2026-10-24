@@ -95,6 +95,10 @@ public final class StatusReshareHelper {
                 || "reel_clip".equals(status.type)) ? "video" : "image";
         i.putExtra(EXTRA_MEDIA_TYPE,    mType);
         i.putExtra(EXTRA_ALLOW_RESHARE, status.allowSharing);
+        if (status.mediaWidth > 0 && status.mediaHeight > 0) { // so the repost card can match the original's aspect ratio
+            i.putExtra("EXTRA_MEDIA_W", status.mediaWidth);
+            i.putExtra("EXTRA_MEDIA_H", status.mediaHeight);
+        }
         // Carry the original text-status content through so the reshare still
         // has something to show when the source status has no media at all
         // (plain text statuses) — without this, the resulting reshare item

@@ -45,6 +45,7 @@ public class StoryReshareActivity extends AppCompatActivity {
     private String contentType, contentId, ownerUid, ownerName, ownerAvatar, mediaUrl, thumbUrl, originalCaption, mediaType;
     private String originalText, originalBgColor, originalTextColor;
     private String originalStickersJson;
+    private int origMediaW, origMediaH;
     private String myUid, myName, myPhoto = "";
     private String selectedColor = "#1A1A2E";
     /** True when we're rendering a plain-text status (no media at all) as the reshare preview. */
@@ -96,6 +97,8 @@ public class StoryReshareActivity extends AppCompatActivity {
         originalBgColor = getIntent().getStringExtra("EXTRA_ORIGINAL_BG_COLOR");
         originalTextColor = getIntent().getStringExtra("EXTRA_ORIGINAL_TEXT_COLOR");
         originalStickersJson = getIntent().getStringExtra(EXTRA_STICKERS_JSON);
+        origMediaW = getIntent().getIntExtra("EXTRA_MEDIA_W", 0);
+        origMediaH = getIntent().getIntExtra("EXTRA_MEDIA_H", 0);
     }
 
     private void bindViews() {
@@ -289,6 +292,7 @@ public class StoryReshareActivity extends AppCompatActivity {
         if (ownerUsername != null && !ownerUsername.isEmpty()) data.put("resharedFromOwnerUsername", ownerUsername);
         data.put("resharedFromOwnerAvatar", ownerAvatar);
         data.put("resharedThumbnailUrl", thumbUrl);
+        if (origMediaW > 0 && origMediaH > 0) { data.put("mediaWidth", origMediaW); data.put("mediaHeight", origMediaH); }
         // BUG FIX (silent-crash-on-repost): the reshare's own "type" is always
         // "status_reshare"/"reel_reshare"/etc — it never tells the viewer
         // whether the underlying media is a photo or a video. StatusViewerActivity
