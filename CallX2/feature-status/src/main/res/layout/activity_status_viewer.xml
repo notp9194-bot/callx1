@@ -102,6 +102,7 @@
       <!-- Touch capture layer -->
       <View
           android:id="@+id/touch_layer"
+                    android:contentDescription="@string/viewer_cd_touch_layer"
           android:layout_width="match_parent"
           android:layout_height="match_parent"/>
 
@@ -166,6 +167,7 @@
 
               <de.hdodenhof.circleimageview.CircleImageView
                   android:id="@+id/iv_owner"
+                    android:contentDescription="@string/viewer_cd_owner_avatar"
                   android:layout_width="38dp"
                   android:layout_height="38dp"
                   android:src="@drawable/ic_person"/>
@@ -202,7 +204,7 @@
                           android:layout_marginStart="4dp"
                           android:src="@drawable/ic_verified_pink"
                           android:visibility="gone"
-                          android:contentDescription="Verified"/>
+                          android:contentDescription="@string/viewer_cd_verified"/>
 
                       <TextView
                           android:id="@+id/tv_timestamp"
@@ -234,7 +236,7 @@
                           android:layout_height="11dp"
                           android:src="@drawable/ic_music_note"
                           android:tint="@color/white"
-                          android:contentDescription="Song"/>
+                          android:contentDescription="@string/viewer_cd_song"/>
 
                       <com.callx.app.views.MusicTickerView
                           android:id="@+id/tv_status_song_name"
@@ -271,12 +273,13 @@
                   android:scaleType="fitCenter"
                   android:src="@drawable/ic_status_more_lines"
                   android:tint="@color/white"
-                  android:contentDescription="More options"
+                  android:contentDescription="@string/viewer_cd_more"
                   android:background="?attr/selectableItemBackgroundBorderless"/>
 
               <!-- Close -->
               <ImageButton
                   android:id="@+id/btn_close_status"
+                    android:contentDescription="@string/viewer_cd_close"
                   android:layout_width="40dp"
                   android:layout_height="40dp"
                   android:visibility="gone"
@@ -301,7 +304,7 @@
           android:background="@drawable/bg_circle_dark"
           android:padding="8dp"
           android:visibility="gone"
-          android:contentDescription="Mute"/>
+          android:contentDescription="@string/viewer_cd_mute"/>
 
 
       <!-- Bottom chrome -->
@@ -439,7 +442,7 @@
                   android:src="@drawable/ic_status_comment"
                   android:tint="@color/white"
                   android:background="?attr/selectableItemBackgroundBorderless"
-                  android:contentDescription="Public comment"/>
+                  android:contentDescription="@string/viewer_cd_public_comment"/>
 
               <!-- WhatsApp-style quick-like: single tap sends a ❤️ reaction
                    immediately (no picker); tap again to remove it. Long-press
@@ -452,7 +455,7 @@
                   android:padding="9dp"
                   android:src="@drawable/ic_heart"
                   android:background="?attr/selectableItemBackgroundBorderless"
-                  android:contentDescription="Like status"/>
+                  android:contentDescription="@string/viewer_cd_like"/>
 
               <ImageButton
                   android:id="@+id/btn_send_reply"

@@ -370,7 +370,7 @@ import com.callx.app.utils.AlertDialogStyler;
           FirebaseUtils.db().getReference("usernames").child(username).get().addOnSuccessListener(ns -> {
               String uid = ns.getValue(String.class);
               if (uid == null || uid.isEmpty()) {
-                  Toast.makeText(this, "@" + username + " not found", Toast.LENGTH_SHORT).show();
+                  Toast.makeText(this, getString(R.string.viewer_toast_user_not_found, username), Toast.LENGTH_SHORT).show();
                   resumeProgress(); return;
               }
               openProfileByUid(uid, username);
@@ -393,7 +393,7 @@ import com.callx.app.utils.AlertDialogStyler;
       /** Dialog listing everyone mentioned in this status (server-resolved mentionNames); tap → profile. */
       private void showMentionsList(StatusItem s) {
           if (s == null || s.mentionNames == null || s.mentionNames.isEmpty()) {
-              Toast.makeText(this, "No mentions", Toast.LENGTH_SHORT).show(); resumeProgress(); return;
+              Toast.makeText(this, R.string.viewer_toast_no_mentions, Toast.LENGTH_SHORT).show(); resumeProgress(); return;
           }
           final List<String> names = new ArrayList<>(s.mentionNames.keySet());
           Collections.sort(names);
@@ -437,7 +437,7 @@ import com.callx.app.utils.AlertDialogStyler;
               final TextView x = new TextView(this);
               x.setText("\u2715"); x.setTextColor(0xCCFFFFFF); x.setTextSize(14);
               x.setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4));
-              x.setContentDescription("Remove mention");
+              x.setContentDescription(getString(R.string.viewer_cd_remove_mention));
               chip.addView(add); chip.addView(x);
               add.setOnClickListener(v -> {
                   StatusItem cur = idx < items.size() ? items.get(idx) : null;
@@ -469,7 +469,7 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           FirebaseUtils.db().getReference("statusMentions").child(myUid).child(ownerUid + "_" + s.id).removeValue();
           if (mentionChip != null) mentionChip.setVisibility(View.GONE);
-          Toast.makeText(this, "Mention removed", Toast.LENGTH_SHORT).show();
+          Toast.makeText(this, R.string.viewer_toast_mention_removed, Toast.LENGTH_SHORT).show();
       }
       private void scheduleReplyHide(long delayMs) {
           if (replyOverlayAutoHide == null) return;
@@ -513,7 +513,7 @@ import com.callx.app.utils.AlertDialogStyler;
               if (tv == null) continue;
               tv.setText(QUICK_EMOJIS[i]);
               tv.setTag(QUICK_EMOJIS[i]);
-              tv.setContentDescription("React with " + QUICK_EMOJI_NAMES[i]);
+              tv.setContentDescription(getString(R.string.viewer_cd_react_with, QUICK_EMOJI_NAMES[i]));
               tv.setOnClickListener(this::onQuickEmojiTapped);
               tv.setOnTouchListener((cv, ev) -> {
                   if (quickReactionSent) return false;
@@ -820,7 +820,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           // after the status already expired/was deleted —
                           // tell the user why instead of silently closing.
                           Toast.makeText(StatusViewerActivity.this,
-                                  "This status is no longer available", Toast.LENGTH_SHORT).show();
+                                  R.string.viewer_toast_status_unavailable, Toast.LENGTH_SHORT).show();
                           finish(); return;
                       }
                       items.sort((a, b) -> Long.compare(
@@ -842,7 +842,7 @@ import com.callx.app.utils.AlertDialogStyler;
                               // silently failing, but say why the exact one
                               // isn't there.
                               Toast.makeText(StatusViewerActivity.this,
-                                      "That status is no longer available", Toast.LENGTH_SHORT).show();
+                                      R.string.viewer_toast_that_status_unavailable, Toast.LENGTH_SHORT).show();
                           }
                       }
                       StatusItem first = items.get(0);
@@ -935,7 +935,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                       if (items.isEmpty()) {
                           Toast.makeText(StatusViewerActivity.this,
-                                  "This highlight is empty", Toast.LENGTH_SHORT).show();
+                                  R.string.viewer_toast_highlight_empty, Toast.LENGTH_SHORT).show();
                           finish(); return;
                       }
                       items.sort((a, b) -> Long.compare(
@@ -1220,7 +1220,7 @@ import com.callx.app.utils.AlertDialogStyler;
                               flReshare.setAlpha(0f); flReshare.setTranslationY(dpToPx(6));
                               flReshare.animate().alpha(chromeHidden ? 0f : 1f).translationY(0f).setDuration(220L).setStartDelay(150L).start();
                           }
-                          chip.setContentDescription("View original story by " + cName);
+                          chip.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
                           final String cUid = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
                           final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
                           chip.setOnClickListener(v -> openOriginalStory(cUid, cId, chipLabel));
@@ -1342,7 +1342,7 @@ import com.callx.app.utils.AlertDialogStyler;
               }
               startActivity(i);
           } catch (Exception e) {
-              android.widget.Toast.makeText(this, "Could not open original post",
+              android.widget.Toast.makeText(this, R.string.viewer_toast_original_post_open_failed,
                   android.widget.Toast.LENGTH_SHORT).show();
           }
       }
@@ -1361,7 +1361,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void openOriginalStory(final String origOwnerUid, final String origStatusId, final String origOwnerName) {
           if (origOwnerUid == null || origOwnerUid.isEmpty()) return;
           if (origStatusId == null || origStatusId.isEmpty()) { // legacy reshare: id was never stored
-              Toast.makeText(this, "Original story unavailable", Toast.LENGTH_SHORT).show();
+              Toast.makeText(this, R.string.viewer_toast_original_unavailable, Toast.LENGTH_SHORT).show();
               openOriginalCreatorProfile(origOwnerUid, origOwnerName);
               return;
           }
@@ -1373,7 +1373,7 @@ import com.callx.app.utils.AlertDialogStyler;
           final Runnable fallback = () -> {
               if (!done.compareAndSet(false, true)) return;
               restore.run();
-              Toast.makeText(this, "Original story is no longer available", Toast.LENGTH_SHORT).show();
+              Toast.makeText(this, R.string.viewer_toast_original_gone, Toast.LENGTH_SHORT).show();
               openOriginalCreatorProfile(origOwnerUid, origOwnerName); // onResume() resumes if it opened
               handler.postDelayed(() -> { if (!isFinishing() && paused && hasWindowFocus()) resumeProgress(); }, 700L);
           };
@@ -1429,7 +1429,7 @@ import com.callx.app.utils.AlertDialogStyler;
               i.putExtra("name", name != null ? name : "");
               startActivity(i);
           } catch (Exception e) {
-              android.widget.Toast.makeText(this, "Could not open profile",
+              android.widget.Toast.makeText(this, R.string.viewer_toast_profile_open_failed,
                   android.widget.Toast.LENGTH_SHORT).show();
           }
       }
@@ -2238,7 +2238,7 @@ import com.callx.app.utils.AlertDialogStyler;
           applyVideoVolume();
           if (isFinishing()) return;
           String code = (what != 0 || extra != 0) ? " (" + what + "/" + extra + ")" : "";
-          android.widget.Toast.makeText(this, "\uD83C\uDFB5 Music play nahi ho paya" + code,
+          android.widget.Toast.makeText(this, getString(R.string.viewer_toast_music_failed, code),
                   android.widget.Toast.LENGTH_SHORT).show();
       }
 
@@ -3496,8 +3496,8 @@ import com.callx.app.utils.AlertDialogStyler;
                   c.setBackgroundResource(isMine ? R.drawable.bg_quick_reaction_current : 0);
                   final String nm = QUICK_EMOJI_NAMES[i];
                   c.setContentDescription(isMine
-                          ? "Your reaction: " + nm + ". Tap to remove"
-                          : "React with " + nm);
+                          ? getString(R.string.viewer_cd_your_reaction, nm)
+                          : getString(R.string.viewer_cd_react_with, nm));
                   c.setAlpha(0f); c.setScaleX(0.3f); c.setScaleY(0.3f);
                   c.animate().alpha(1f).scaleX(1f).scaleY(1f)
                           .setStartDelay(40L + i * 35L).setDuration(240).setInterpolator(pop).start();
@@ -3625,7 +3625,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
               if (sentImm != null) sentImm.hideSoftInputFromWindow(binding.etReply.getWindowToken(), 0);
               resumeProgress();
-              Toast.makeText(this, "Sent privately", Toast.LENGTH_SHORT).show();
+              Toast.makeText(this, R.string.viewer_toast_sent_privately, Toast.LENGTH_SHORT).show();
           });
           // v511: separate comment icon = PUBLIC comment (visible to all viewers, no DM).
           binding.btnPublicComment.setOnClickListener(v -> {
@@ -3668,7 +3668,7 @@ import com.callx.app.utils.AlertDialogStyler;
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null) return;
               if (!current.allowSharing) {
-                  Toast.makeText(this, ownerName + " has disabled sharing for this status",
+                  Toast.makeText(this, getString(R.string.viewer_toast_sharing_disabled, ownerName),
                           Toast.LENGTH_SHORT).show();
                   return;
               }
@@ -3689,7 +3689,7 @@ import com.callx.app.utils.AlertDialogStyler;
           actStabilizer = () -> {
               boolean nowEnabled = !StoryStabilizerPrefs.isEnabled(this);
               StoryStabilizerPrefs.setEnabled(this, nowEnabled);
-              Toast.makeText(this, nowEnabled ? "Stabilizer on" : "Stabilizer off",
+              Toast.makeText(this, getString(nowEnabled ? R.string.viewer_toast_stabilizer_on : R.string.viewer_toast_stabilizer_off),
                       Toast.LENGTH_SHORT).show();
               startSpinViewIfAllowed();
           };
@@ -3765,14 +3765,14 @@ import com.callx.app.utils.AlertDialogStyler;
                           StatusSeenTracker.deleteStatus(ownerUid, current.id);
                           items.remove(idx);
                           Toast.makeText(this, alsoRemoveFromHighlights
-                                  ? "Deleted & removed from Highlights" : "Deleted", Toast.LENGTH_SHORT).show();
+                                  ? getString(R.string.viewer_toast_deleted_highlights) : getString(R.string.viewer_toast_deleted), Toast.LENGTH_SHORT).show();
                           if (items.isEmpty()) { finish(); return; }
                           idx = Math.min(idx, items.size() - 1);
                           buildSegmentBars(); stopProgress(); showCurrent();
                       });
                   } else if (w == 2 && current != null) {
                       StatusHighlightManager.archiveStatus(ownerUid, current);
-                      Toast.makeText(this, "Archived \u2713", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(this, R.string.viewer_toast_archived, Toast.LENGTH_SHORT).show();
                       resumeProgress();
                   } else if (w == 3 && current != null) {
                       showAddToHighlightBottomSheet(current);
@@ -3808,7 +3808,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   } else if (w == 1 && current != null && current.id != null) {
                       StatusHighlightManager.removeFromHighlight(ownerUid, highlightAlbumId, current.id);
                       items.remove(idx);
-                      Toast.makeText(this, "Removed from Highlight", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(this, R.string.viewer_toast_removed_from_highlight, Toast.LENGTH_SHORT).show();
                       if (items.isEmpty()) { finish(); return; }
                       idx = Math.min(idx, items.size() - 1);
                       buildSegmentBars(); stopProgress(); showCurrent();
@@ -3817,7 +3817,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   } else if (w == 3 && current != null) {
                       String coverUrl = current.thumbnailUrl != null ? current.thumbnailUrl : current.mediaUrl;
                       StatusHighlightManager.setAlbumCover(ownerUid, highlightAlbumId, current.id, coverUrl);
-                      Toast.makeText(this, "Cover updated \u2713", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(this, R.string.viewer_toast_cover_updated, Toast.LENGTH_SHORT).show();
                       resumeProgress();
                   } else if (w == 4) {
                       confirmDeleteHighlightAlbum();
@@ -3844,7 +3844,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       StatusHighlightManager.renameAlbum(ownerUid, highlightAlbumId, newName);
                       ownerName = newName;
                       binding.tvOwner.setText(ownerName);
-                      Toast.makeText(this, "Renamed \u2713", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(this, R.string.viewer_toast_renamed, Toast.LENGTH_SHORT).show();
                   }
                   resumeProgress();
               })
@@ -3858,13 +3858,57 @@ import com.callx.app.utils.AlertDialogStyler;
               .setMessage("All statuses in \"" + ownerName + "\" will be removed from Highlights. The original stories (if still active) won't be affected.")
               .setPositiveButton("Delete", (d, w) -> {
                   StatusHighlightManager.deleteAlbum(ownerUid, highlightAlbumId);
-                  Toast.makeText(this, "Highlight deleted", Toast.LENGTH_SHORT).show();
+                  Toast.makeText(this, R.string.viewer_toast_highlight_deleted, Toast.LENGTH_SHORT).show();
                   finish();
               })
               .setNegativeButton("Cancel", (d, w) -> resumeProgress())
               .setOnCancelListener(d -> resumeProgress())
               .create());
       }
+      /** v653: Report is real now — reason picker, then one write-once record under /reports/{ownerUid}/. */
+      private void showReportDialog(final StatusItem cur) {
+          pauseProgress();
+          final String[] reasons = getResources().getStringArray(R.array.viewer_report_reasons);
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+              .setTitle(R.string.viewer_report_title)
+              .setItems(reasons, (d, w) -> submitStatusReport(cur, reasons[w], w))
+              .setNegativeButton(R.string.viewer_cancel, (d, w) -> resumeProgress())
+              .setOnCancelListener(d -> resumeProgress())
+              .create());
+      }
+
+      private void submitStatusReport(StatusItem cur, String reason, int reasonIndex) {
+          if (cur == null || cur.id == null || ownerUid == null || myUid == null || myUid.isEmpty()) {
+              Toast.makeText(this, R.string.viewer_toast_report_failed, Toast.LENGTH_SHORT).show();
+              resumeProgress();
+              return;
+          }
+          java.util.Map<String, Object> r = new java.util.HashMap<>();
+          r.put("reportedUid", ownerUid);          // same fields the admin "Reports" screen already reads
+          r.put("reporterUid", myUid);
+          r.put("reason", reason);
+          r.put("reasonIndex", reasonIndex);
+          r.put("status", "open");
+          r.put("timestamp", System.currentTimeMillis());
+          r.put("contentType", "status");
+          r.put("statusId", cur.id);
+          // one report per (status, reporter): the rules are write-once, a 2nd attempt is refused
+          final String key = "status_" + cur.id + "_" + myUid;
+          FirebaseUtils.db().getReference("reports").child(ownerUid).child(key).setValue(r)
+              .addOnSuccessListener(u -> {
+                  if (isFinishing()) return;
+                  Toast.makeText(this, R.string.viewer_toast_report_sent, Toast.LENGTH_SHORT).show();
+                  resumeProgress();
+              })
+              .addOnFailureListener(e -> {
+                  if (isFinishing()) return;
+                  String m = e.getMessage() != null ? e.getMessage().toLowerCase(java.util.Locale.ROOT) : "";
+                  Toast.makeText(this, m.contains("permission") ? R.string.viewer_toast_report_already
+                          : R.string.viewer_toast_report_failed, Toast.LENGTH_SHORT).show();
+                  resumeProgress();
+              });
+      }
+
       private void showViewerMoreMenu() {
           final StatusItem cur = idx < items.size() ? items.get(idx) : null;
           // The floating side buttons moved into this menu. The (now hidden) buttons stay as click
@@ -3876,7 +3920,7 @@ import com.callx.app.utils.AlertDialogStyler;
           actions.add(() -> {
               StatusMuteManager.toggle(this, ownerUid);
               Toast.makeText(this, StatusMuteManager.isMuted(this, ownerUid)
-                      ? ownerName + " muted" : ownerName + " unmuted", Toast.LENGTH_SHORT).show();
+                      ? getString(R.string.viewer_toast_muted, ownerName) : getString(R.string.viewer_toast_unmuted, ownerName), Toast.LENGTH_SHORT).show();
               finish();
           });
           labels.add("Download");  actions.add(() -> { runAct(actDownload); resumeProgress(); });
@@ -3889,7 +3933,9 @@ import com.callx.app.utils.AlertDialogStyler;
           if (cur != null && cur.mentionNames != null && !cur.mentionNames.isEmpty()) {
               labels.add("Mentions (" + cur.mentionNames.size() + ")"); actions.add(() -> showMentionsList(cur));
           }
-          labels.add("Report");    actions.add(() -> { Toast.makeText(this, "Reported", Toast.LENGTH_SHORT).show(); resumeProgress(); });
+          if (myUid == null || !myUid.equals(ownerUid)) {   // no point reporting your own status
+              labels.add("Report"); actions.add(() -> showReportDialog(cur));
+          }
           labels.add("Cancel");    actions.add(this::resumeProgress);
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(labels.toArray(new String[0]), (d, w) -> actions.get(w).run())
@@ -3899,7 +3945,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void showAddToHighlightBottomSheet(StatusItem item) {
           pauseProgress();
           StatusAddToHighlightBottomSheet.show(this, ownerUid, item, albumName -> {
-              Toast.makeText(this, "Added to " + albumName + " \u2713", Toast.LENGTH_SHORT).show();
+              Toast.makeText(this, getString(R.string.viewer_toast_added_to_album, albumName), Toast.LENGTH_SHORT).show();
               resumeProgress();
           });
       }
@@ -4103,8 +4149,8 @@ import com.callx.app.utils.AlertDialogStyler;
               lastReplyTextTv.setText(sb);
           }
           if (lastReplyMoreTv != null) lastReplyMoreTv.setVisibility(hasMore ? View.VISIBLE : View.GONE);
-          bubble.setContentDescription("Latest comment by " + who + ": " + body
-                  + (hasMore ? ". More comments." : "") + " Double tap to view all comments.");
+          bubble.setContentDescription(getString(R.string.viewer_cd_latest_comment, who, body,
+                  hasMore ? getString(R.string.viewer_cd_more_comments) : ""));
           bubble.animate().cancel();
           bubble.setVisibility(View.VISIBLE);
           // The pill is now just the persistent avatar stack (+ badge, always tappable). The comment TEXT
@@ -4381,7 +4427,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (binding.btnLikeHeart == null) return;
           boolean liked = s != null && LIKE_EMOJI.equals(s.getReaction(myUid));
           binding.btnLikeHeart.setImageResource(liked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-          binding.btnLikeHeart.setContentDescription(liked ? "Remove like" : "Like status");
+          binding.btnLikeHeart.setContentDescription(getString(liked ? R.string.viewer_cd_remove_like : R.string.viewer_cd_like));
       }
       private String buildReactionSummary(StatusItem s) {
           if (s.reactions == null || s.reactions.isEmpty()) return "";

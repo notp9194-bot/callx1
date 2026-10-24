@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v653: status viewer toasts (were hardcoded) -->
+    <string name="viewer_toast_user_not_found">@%1$s not found</string>
+    <string name="viewer_toast_no_mentions">No mentions</string>
+    <string name="viewer_toast_mention_removed">Mention removed</string>
+    <string name="viewer_toast_status_unavailable">This status is no longer available</string>
+    <string name="viewer_toast_that_status_unavailable">That status is no longer available</string>
+    <string name="viewer_toast_highlight_empty">This highlight is empty</string>
+    <string name="viewer_toast_original_post_open_failed">Could not open original post</string>
+    <string name="viewer_toast_original_unavailable">Original story unavailable</string>
+    <string name="viewer_toast_original_gone">Original story is no longer available</string>
+    <string name="viewer_toast_profile_open_failed">Could not open profile</string>
+    <string name="viewer_toast_music_failed">\uD83C\uDFB5 Music play nahi ho paya%1$s</string>
+    <string name="viewer_toast_sent_privately">Sent privately</string>
+    <string name="viewer_toast_sharing_disabled">%1$s has disabled sharing for this status</string>
+    <string name="viewer_toast_stabilizer_on">Stabilizer on</string>
+    <string name="viewer_toast_stabilizer_off">Stabilizer off</string>
+    <string name="viewer_toast_deleted">Deleted</string>
+    <string name="viewer_toast_deleted_highlights">Deleted &amp; removed from Highlights</string>
+    <string name="viewer_toast_archived">Archived \u2713</string>
+    <string name="viewer_toast_removed_from_highlight">Removed from Highlight</string>
+    <string name="viewer_toast_cover_updated">Cover updated \u2713</string>
+    <string name="viewer_toast_renamed">Renamed \u2713</string>
+    <string name="viewer_toast_highlight_deleted">Highlight deleted</string>
+    <string name="viewer_toast_muted">%1$s muted</string>
+    <string name="viewer_toast_unmuted">%1$s unmuted</string>
+    <string name="viewer_toast_added_to_album">Added to %1$s \u2713</string>
+
+    <!-- v653: report flow (now really saved to /reports) -->
+    <string name="viewer_report_title">Report this status</string>
+    <string name="viewer_cancel">Cancel</string>
+    <string-array name="viewer_report_reasons">
+        <item>Spam</item>
+        <item>Nudity or sexual content</item>
+        <item>Violence or harassment</item>
+        <item>Hate speech</item>
+        <item>False information</item>
+        <item>Scam or fraud</item>
+        <item>Something else</item>
+    </string-array>
+    <string name="viewer_toast_report_sent">Report submitted. Thanks for keeping CallX safe.</string>
+    <string name="viewer_toast_report_already">You already reported this status</string>
+    <string name="viewer_toast_report_failed">Could not send report. Try again</string>
+
+    <!-- v653: contentDescriptions -->
+    <string name="viewer_cd_close">Close</string>
+    <string name="viewer_cd_verified">Verified</string>
+    <string name="viewer_cd_song">Song</string>
+    <string name="viewer_cd_more">More options</string>
+    <string name="viewer_cd_mute">Mute</string>
+    <string name="viewer_cd_public_comment">Public comment</string>
+    <string name="viewer_cd_like">Like status</string>
+    <string name="viewer_cd_remove_like">Remove like</string>
+    <string name="viewer_cd_owner_avatar">Profile photo</string>
+    <string name="viewer_cd_touch_layer">Story. Tap right for next, left for previous, hold to pause</string>
+    <string name="viewer_cd_remove_mention">Remove mention</string>
+    <string name="viewer_cd_react_with">React with %1$s</string>
+    <string name="viewer_cd_your_reaction">Your reaction: %1$s. Tap to remove</string>
+    <string name="viewer_cd_view_original_by">View original story by %1$s</string>
+    <string name="viewer_cd_latest_comment">Latest comment by %1$s: %2$s%3$s Double tap to view all comments.</string>
+    <string name="viewer_cd_more_comments">. More comments.</string>
+</resources>
