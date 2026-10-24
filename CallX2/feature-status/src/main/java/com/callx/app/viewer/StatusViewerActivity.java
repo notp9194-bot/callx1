@@ -2150,7 +2150,112 @@ import com.callx.app.utils.AlertDialogStyler;
           reshareMediaRatio = r;
           applyReshareCardMode(it, false);
       }
+      // ── Long-press on the reposted card → "original owner" pill above the finger (Instagram). Tap it → original story.
+      private View reshareHintView;
+      private boolean reshareHintPaused;
+      private final Runnable reshareHintAutoHide = () -> dismissReshareHint(true);
+      private boolean reshareHintShowing() { return reshareHintView != null && reshareHintView.getVisibility() == View.VISIBLE; }
+      private void maybeShowReshareHint() {
+          final StatusItem it = reshareCardItem;
+          if (!reshareCardActive || it == null || reshareCardFrame == null || reshareCardFrame.getParent() == null) return;
+          // finger must be on the card itself
+          if (touchDownX < reshareCardFrame.getLeft() || touchDownX > reshareCardFrame.getRight()
+                  || touchDownY < reshareCardFrame.getTop() || touchDownY > reshareCardFrame.getBottom()) return;
+          if (it.resharedFromOwnerName == null || it.resharedFromOwnerName.isEmpty()) return;
+          final FrameLayout card = binding.flStoryCard;
+          dismissReshareHint(false);
+          final String cName = it.resharedFromOwnerName;
+          final String cUser = it.resharedFromOwnerUsername;
+          final String label = (cUser != null && !cUser.isEmpty()) ? cUser : cName;
+          final String cUid = it.resharedFromOwnerUid != null ? it.resharedFromOwnerUid : "";
+          final String cId  = it.resharedFromId != null ? it.resharedFromId : "";
+          final boolean isStory = "status".equals(it.resharedFromType);
+
+          final android.widget.LinearLayout root = new android.widget.LinearLayout(this);
+          root.setOrientation(android.widget.LinearLayout.VERTICAL);
+          final android.widget.LinearLayout pill = new android.widget.LinearLayout(this);
+          pill.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+          pill.setGravity(Gravity.CENTER_VERTICAL);
+          pill.setPadding(dpToPx(10), dpToPx(8), dpToPx(12), dpToPx(8));
+          final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+          bg.setColor(0xE63A3A3A); bg.setCornerRadius(dpToPx(16));
+          pill.setBackground(bg);
+          final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
+          av.setImageResource(R.drawable.ic_person);
+          pill.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(32), dpToPx(32)));
+          if (it.resharedFromOwnerAvatar != null && !it.resharedFromOwnerAvatar.isEmpty())
+              Glide.with(this).load(it.resharedFromOwnerAvatar).override(dpToPx(64)).dontAnimate().into(av);
+          final TextView tv = new TextView(this);
+          tv.setText(label); tv.setTextColor(Color.WHITE); tv.setTextSize(15f);
+          tv.setTypeface(null, android.graphics.Typeface.BOLD);
+          tv.setMaxLines(1); tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+          tv.setMaxWidth(dpToPx(200));
+          final android.widget.LinearLayout.LayoutParams tlp = new android.widget.LinearLayout.LayoutParams(
+                  android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+          tlp.setMarginStart(dpToPx(10));
+          pill.addView(tv, tlp);
+          final TextView chev = new TextView(this);
+          chev.setText("\u203A"); chev.setTextColor(Color.WHITE); chev.setTextSize(24f);
+          final android.widget.LinearLayout.LayoutParams clp = new android.widget.LinearLayout.LayoutParams(
+                  android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+          clp.setMarginStart(dpToPx(12));
+          pill.addView(chev, clp);
+          root.addView(pill, new android.widget.LinearLayout.LayoutParams(
+                  android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+          // tail pointing down at the finger
+          final View tail = new View(this);
+          final android.graphics.drawable.GradientDrawable tbg = new android.graphics.drawable.GradientDrawable();
+          tbg.setColor(0xE63A3A3A); tbg.setCornerRadius(dpToPx(2));
+          tail.setBackground(tbg);
+          tail.setRotation(45f);
+          final android.widget.LinearLayout.LayoutParams tail_lp = new android.widget.LinearLayout.LayoutParams(dpToPx(12), dpToPx(12));
+          tail_lp.topMargin = -dpToPx(7);
+          root.addView(tail, tail_lp);
+
+          root.measure(View.MeasureSpec.makeMeasureSpec(card.getWidth(), View.MeasureSpec.AT_MOST),
+                  View.MeasureSpec.makeMeasureSpec(card.getHeight(), View.MeasureSpec.AT_MOST));
+          final int rw = root.getMeasuredWidth(), rh = root.getMeasuredHeight(), edge = dpToPx(8);
+          final int rootLeft = Math.max(edge, Math.min(Math.round(touchDownX - rw / 2f), card.getWidth() - rw - edge));
+          final int rootTop = Math.max(edge, Math.round(touchDownY) - rh - dpToPx(20));
+          tail_lp.leftMargin = Math.max(dpToPx(14), Math.min(Math.round(touchDownX) - rootLeft - dpToPx(6), rw - dpToPx(26)));
+          root.requestLayout();
+          final FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(
+                  android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                  Gravity.TOP | Gravity.START);
+          rlp.leftMargin = rootLeft; rlp.topMargin = rootTop;
+          root.setLayoutParams(rlp);
+          root.setOnClickListener(v -> {
+              dismissReshareHint(false);
+              if (isStory) openOriginalStory(cUid, cId, label); else openOriginalCreatorProfile(cUid, cName);
+          });
+          root.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
+          root.setAlpha(0f); root.setScaleX(0.9f); root.setScaleY(0.9f);
+          root.setPivotX(Math.max(0, Math.min(rw, Math.round(touchDownX) - rootLeft))); root.setPivotY(rh);
+          card.addView(root);
+          root.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(160L).start();
+          reshareHintView = root;
+          reshareHintPaused = true; // the hold already paused the story; stay paused while the pill is open
+          handler.removeCallbacks(reshareHintAutoHide);
+          handler.postDelayed(reshareHintAutoHide, 5_000L);
+      }
+      private void dismissReshareHint(boolean resume) {
+          handler.removeCallbacks(reshareHintAutoHide);
+          final View hv = reshareHintView;
+          reshareHintView = null;
+          if (hv != null) {
+              hv.animate().cancel();
+              hv.animate().alpha(0f).setDuration(120L).withEndAction(() -> {
+                  if (hv.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) hv.getParent()).removeView(hv);
+              }).start();
+              hv.setClickable(false);
+          }
+          if (reshareHintPaused) {
+              reshareHintPaused = false;
+              if (resume && !isFinishing() && !isDestroyed()) resumeProgress();
+          }
+      }
       private void resetReshareCardMode() {
+          dismissReshareHint(false);
           if (reshareHeaderView != null) { reshareHeaderView.animate().cancel(); reshareHeaderView.setVisibility(View.GONE); }
           if (reshareHeaderScrim != null) { reshareHeaderScrim.animate().cancel(); reshareHeaderScrim.setVisibility(View.GONE); }
           if (!reshareCardActive) return;
@@ -3463,7 +3568,8 @@ import com.callx.app.utils.AlertDialogStyler;
       private static final float PREV_ZONE_FRACTION = 1f / 3f;
       private float   touchDownX, touchDownY;
       private boolean touchMoved, touchHoldPaused;
-      private final Runnable holdPauseRunnable = () -> { touchHoldPaused = true; pauseProgress(); setChromeHidden(true); };
+      private final Runnable holdPauseRunnable = () -> { touchHoldPaused = true; pauseProgress(); setChromeHidden(true); maybeShowReshareHint(); };
+      private boolean touchSwallow;
 
       // Swipe-down drag-to-close (Instagram style): the whole card + reply bar follows the finger,
       // shrinks a little, and on release either flies off (close) or springs back.
@@ -3541,6 +3647,17 @@ import com.callx.app.utils.AlertDialogStyler;
       private void setupTouchZones() {
           final int slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
           binding.touchLayer.setOnTouchListener((v, e) -> {
+              // The "view original" pill is open: the next touch only closes it (no next/prev, no pause).
+              if (e.getActionMasked() == MotionEvent.ACTION_DOWN && reshareHintView != null
+                      && reshareHintView.getVisibility() == View.VISIBLE) {
+                  dismissReshareHint(true);
+                  touchSwallow = true;
+                  return true;
+              }
+              if (touchSwallow) {
+                  if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) touchSwallow = false;
+                  return true;
+              }
               final boolean flung = swipeDetector.onTouchEvent(e); // true only when a fling was consumed (UP)
               switch (e.getActionMasked()) {
                   case MotionEvent.ACTION_DOWN:
@@ -3594,7 +3711,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           break;
                       }
                       if (captionExpanded) { touchHoldPaused = false; collapseCaption(); break; } // tap outside closes the expanded caption
-                      if (touchHoldPaused) { touchHoldPaused = false; resumeProgress(); }
+                      if (touchHoldPaused) { touchHoldPaused = false; if (!reshareHintShowing()) resumeProgress(); } // pill open → stay paused until it is dismissed
                       // Slow upward drag (no fling) also opens the reaction grid, like a fast swipe.
                       if (isUp && !flung && touchMoved && !isQuickReactionOverlayShown()) {
                           final float udy = e.getRawY() - dragDownRawY;
