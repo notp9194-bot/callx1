@@ -639,6 +639,8 @@ import com.callx.app.utils.AlertDialogStyler;
               (android.widget.ImageView) findViewById(R.id.iv_owner_verified), ownerUid);
           spinView = new StorySpinViewController(this);
           spinView.attachTargets(binding.ivStatus, binding.playerView, binding.ivVideoPoster);
+          // Story viewer drives play/pause itself (touch_layer hold/tap + progress bar) — never show Media3's built-in controller.
+          binding.playerView.setUseController(false);
           setupStabilizerButton();
           setupMediaRoundedCorners();
           bindOwnerAvatar(null); // instant: tray's own URL (L2/L3 cache hit), before the status list even loads
@@ -2220,7 +2222,7 @@ import com.callx.app.utils.AlertDialogStyler;
           // Near the card's top edge there is no room above the finger → pill goes BELOW it, tail points up.
           final boolean below = touchDownY < dpToPx(82);
           final int hintColor = reshareHintColor(touchDownX, below ? touchDownY + dpToPx(40) : touchDownY - dpToPx(40));
-          bg.setColor(hintColor); bg.setCornerRadius(dpToPx(14));
+          bg.setColor(hintColor); bg.setCornerRadius(dpToPx(8));
           bg.setStroke(dpToPx(1), 0x26FFFFFF); // hairline edge so the pill never melts into a same-coloured backdrop
           pill.setBackground(bg);
           pill.setElevation(dpToPx(3));
