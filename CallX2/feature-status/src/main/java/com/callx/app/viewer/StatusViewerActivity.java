@@ -2210,13 +2210,20 @@ import com.callx.app.utils.AlertDialogStyler;
 
           final android.widget.LinearLayout root = new android.widget.LinearLayout(this);
           root.setOrientation(android.widget.LinearLayout.VERTICAL);
+          root.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4)); // transparent pad → tap area ≈ 48dp (pill itself stays 40dp)
+          root.setClipChildren(false); root.setClipToPadding(false);
           final android.widget.LinearLayout pill = new android.widget.LinearLayout(this);
           pill.setOrientation(android.widget.LinearLayout.HORIZONTAL);
           pill.setGravity(Gravity.CENTER_VERTICAL);
-          pill.setPadding(dpToPx(10), dpToPx(8), dpToPx(12), dpToPx(8));
+          pill.setPadding(dpToPx(8), dpToPx(6), dpToPx(10), dpToPx(6));
           final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-          bg.setColor(0xFF3A3A3A); bg.setCornerRadius(dpToPx(16));
+          // Near the card's top edge there is no room above the finger → pill goes BELOW it, tail points up.
+          final boolean below = touchDownY < dpToPx(82);
+          final int hintColor = reshareHintColor(touchDownX, below ? touchDownY + dpToPx(40) : touchDownY - dpToPx(40));
+          bg.setColor(hintColor); bg.setCornerRadius(dpToPx(14));
+          bg.setStroke(dpToPx(1), 0x26FFFFFF); // hairline edge so the pill never melts into a same-coloured backdrop
           pill.setBackground(bg);
+          pill.setElevation(dpToPx(3));
           final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
           pill.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(28), dpToPx(28)));
           // Reuse the header's already-loaded avatar (own copy of the drawable → painted on the very first frame,
@@ -2230,38 +2237,40 @@ import com.callx.app.utils.AlertDialogStyler;
               bindReshareAvatar(av, it.resharedFromOwnerAvatar, cName, it.resharedFromOwnerUid);
           }
           final TextView tv = new TextView(this);
-          tv.setText(label); tv.setTextColor(Color.WHITE); tv.setTextSize(15f);
+          tv.setText(label); tv.setTextColor(Color.WHITE); tv.setTextSize(13f);
           tv.setTypeface(null, android.graphics.Typeface.BOLD);
           tv.setMaxLines(1); tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
           tv.setMaxWidth(dpToPx(200));
           final android.widget.LinearLayout.LayoutParams tlp = new android.widget.LinearLayout.LayoutParams(
                   android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-          tlp.setMarginStart(dpToPx(10));
+          tlp.setMarginStart(dpToPx(8));
           pill.addView(tv, tlp);
           final TextView chev = new TextView(this);
-          chev.setText("\u203A"); chev.setTextColor(Color.WHITE); chev.setTextSize(24f);
+          chev.setText("\u203A"); chev.setTextColor(Color.WHITE); chev.setTextSize(20f);
           final android.widget.LinearLayout.LayoutParams clp = new android.widget.LinearLayout.LayoutParams(
                   android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-          clp.setMarginStart(dpToPx(12));
+          clp.setMarginStart(dpToPx(8));
           pill.addView(chev, clp);
-          root.addView(pill, new android.widget.LinearLayout.LayoutParams(
-                  android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+          final android.widget.LinearLayout.LayoutParams pillLp = new android.widget.LinearLayout.LayoutParams(
+                  android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+          if (!below) root.addView(pill, pillLp);
           // tail pointing down at the finger
           final View tail = new View(this);
           final android.graphics.drawable.GradientDrawable tbg = new android.graphics.drawable.GradientDrawable();
-          tbg.setColor(0xFF3A3A3A); tbg.setCornerRadius(dpToPx(2));
+          tbg.setColor(hintColor); tbg.setCornerRadius(dpToPx(2));
           tail.setBackground(tbg);
           tail.setRotation(45f);
-          final android.widget.LinearLayout.LayoutParams tail_lp = new android.widget.LinearLayout.LayoutParams(dpToPx(12), dpToPx(12));
-          tail_lp.topMargin = -dpToPx(7);
-          root.addView(tail, tail_lp);
+          final android.widget.LinearLayout.LayoutParams tail_lp = new android.widget.LinearLayout.LayoutParams(dpToPx(10), dpToPx(10));
+          if (below) { tail_lp.bottomMargin = -dpToPx(6); root.addView(tail, tail_lp); root.addView(pill, pillLp); }
+          else { tail_lp.topMargin = -dpToPx(6); root.addView(tail, tail_lp); }
 
           root.measure(View.MeasureSpec.makeMeasureSpec(card.getWidth(), View.MeasureSpec.AT_MOST),
                   View.MeasureSpec.makeMeasureSpec(card.getHeight(), View.MeasureSpec.AT_MOST));
           final int rw = root.getMeasuredWidth(), rh = root.getMeasuredHeight(), edge = dpToPx(8);
           final int rootLeft = Math.max(edge, Math.min(Math.round(touchDownX - rw / 2f), card.getWidth() - rw - edge));
-          final int rootTop = Math.max(edge, Math.round(touchDownY) - rh - dpToPx(20));
-          tail_lp.leftMargin = Math.max(dpToPx(14), Math.min(Math.round(touchDownX) - rootLeft - dpToPx(6), rw - dpToPx(26)));
+          final int rootTop = below ? Math.round(touchDownY) + dpToPx(20)
+                  : Math.max(edge, Math.round(touchDownY) - rh - dpToPx(20));
+          tail_lp.leftMargin = Math.max(dpToPx(12), Math.min(Math.round(touchDownX) - rootLeft - dpToPx(5) - dpToPx(4), rw - dpToPx(26)));
           root.requestLayout();
           final FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(
                   android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -2274,7 +2283,7 @@ import com.callx.app.utils.AlertDialogStyler;
           });
           root.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
           root.setAlpha(0f); root.setScaleX(0.9f); root.setScaleY(0.9f);
-          root.setPivotX(Math.max(0, Math.min(rw, Math.round(touchDownX) - rootLeft))); root.setPivotY(rh);
+          root.setPivotX(Math.max(0, Math.min(rw, Math.round(touchDownX) - rootLeft))); root.setPivotY(below ? 0f : rh);
           card.addView(root);
           root.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220L)
                   .setInterpolator(new android.view.animation.OvershootInterpolator(1.6f)).start();
@@ -2285,6 +2294,70 @@ import com.callx.app.utils.AlertDialogStyler;
           handler.removeCallbacks(reshareHintAutoHide);
           handler.postDelayed(reshareHintAutoHide, 5_000L);
       }
+      /** Pill colour = the status's own backdrop colour at the pill's spot, 20% darker (Instagram look), then pushed
+       *  dark enough that the white name always reads. Image: the blurred backdrop at that spot. Video: the poster's
+       *  average. Nothing available (text): neutral dark grey. */
+      private int reshareHintColor(float cardX, float cardY) {
+          int r = 0x3A, g = 0x3A, b = 0x3A;
+          try {
+              int[] rgb = sampleBackdropAt(cardX, cardY);
+              if (rgb == null) rgb = sampleDrawableAverage(binding.ivVideoPoster);
+              if (rgb != null) { r = rgb[0]; g = rgb[1]; b = rgb[2]; }
+          } catch (Exception ignored) { /* keep grey */ }
+          float k = 0.8f; // 20% darker
+          float rr = r * k, gg = g * k, bb = b * k;
+          final float lum = (0.299f * rr + 0.587f * gg + 0.114f * bb) / 255f;
+          if (lum > 0.38f) { final float f = 0.38f / lum; rr *= f; gg *= f; bb *= f; } // light photo → keep white text readable
+          return 0xFF000000 | (Math.round(rr) << 16) | (Math.round(gg) << 8) | Math.round(bb);
+      }
+      private static android.graphics.Bitmap bitmapOf(android.graphics.drawable.Drawable d) {
+          if (d instanceof android.graphics.drawable.TransitionDrawable) {
+              final android.graphics.drawable.TransitionDrawable td = (android.graphics.drawable.TransitionDrawable) d;
+              d = td.getDrawable(td.getNumberOfLayers() - 1); // final frame, not the cross-fade start
+          }
+          if (!(d instanceof android.graphics.drawable.BitmapDrawable)) return null;
+          android.graphics.Bitmap bmp = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
+          if (bmp == null || bmp.isRecycled()) return null;
+          if (android.os.Build.VERSION.SDK_INT >= 26 && bmp.getConfig() == android.graphics.Bitmap.Config.HARDWARE)
+              bmp = bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false);
+          return bmp;
+      }
+      /** Blurred whole-window backdrop (iv_root_bg, centerCrop) colour around a point given in story-card coords. */
+      private int[] sampleBackdropAt(float cardX, float cardY) {
+          final ImageView rb = binding.ivRootBg;
+          if (rb == null || rb.getVisibility() != View.VISIBLE || rb.getWidth() == 0 || rb.getHeight() == 0) return null;
+          final android.graphics.Bitmap bmp = bitmapOf(rb.getDrawable());
+          if (bmp == null) return null;
+          final int bw = bmp.getWidth(), bh = bmp.getHeight(), vw = rb.getWidth(), vh = rb.getHeight();
+          final float sc = Math.max((float) vw / bw, (float) vh / bh);
+          final float ox = (bw * sc - vw) / 2f, oy = (bh * sc - vh) / 2f;
+          final int[] cl = new int[2], rl = new int[2];
+          binding.flStoryCard.getLocationInWindow(cl);
+          rb.getLocationInWindow(rl);
+          final int cx = Math.max(0, Math.min(bw - 1, Math.round((cl[0] + cardX - rl[0] + ox) / sc)));
+          final int cy = Math.max(0, Math.min(bh - 1, Math.round((cl[1] + cardY - rl[1] + oy) / sc)));
+          long r = 0, g = 0, b = 0; int n = 0;
+          for (int yy = Math.max(0, cy - 2); yy <= Math.min(bh - 1, cy + 2); yy++)
+              for (int xx = Math.max(0, cx - 2); xx <= Math.min(bw - 1, cx + 2); xx++) {
+                  final int px = bmp.getPixel(xx, yy);
+                  r += (px >> 16) & 0xff; g += (px >> 8) & 0xff; b += px & 0xff; n++;
+              }
+          return n == 0 ? null : new int[] { Math.round(r / (float) n), Math.round(g / (float) n), Math.round(b / (float) n) };
+      }
+      /** Average colour of a whole image view's bitmap (8x8 grid) — used for the video poster. */
+      private int[] sampleDrawableAverage(ImageView iv) {
+          if (iv == null || iv.getVisibility() != View.VISIBLE) return null;
+          final android.graphics.Bitmap bmp = bitmapOf(iv.getDrawable());
+          if (bmp == null) return null;
+          long r = 0, g = 0, b = 0; int n = 0;
+          for (int yi = 0; yi < 8; yi++)
+              for (int xi = 0; xi < 8; xi++) {
+                  final int px = bmp.getPixel(Math.min(bmp.getWidth() - 1, (xi * 2 + 1) * bmp.getWidth() / 16),
+                          Math.min(bmp.getHeight() - 1, (yi * 2 + 1) * bmp.getHeight() / 16));
+                  r += (px >> 16) & 0xff; g += (px >> 8) & 0xff; b += px & 0xff; n++;
+              }
+          return new int[] { Math.round(r / (float) n), Math.round(g / (float) n), Math.round(b / (float) n) };
+      }
       private void dismissReshareHint(boolean resume) {
           handler.removeCallbacks(reshareHintAutoHide);
           if (reshareHintBackCb != null) reshareHintBackCb.setEnabled(false);
@@ -2292,7 +2365,7 @@ import com.callx.app.utils.AlertDialogStyler;
           reshareHintView = null;
           if (hv != null) {
               hv.animate().cancel();
-              hv.animate().alpha(0f).setDuration(120L).withEndAction(() -> {
+              hv.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(120L).withEndAction(() -> {
                   if (hv.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) hv.getParent()).removeView(hv);
               }).start();
               hv.setClickable(false);
