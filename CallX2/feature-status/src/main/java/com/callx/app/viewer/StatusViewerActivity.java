@@ -1211,7 +1211,13 @@ import com.callx.app.utils.AlertDialogStyler;
                           if (cAv != null) {
                               if (s.resharedFromOwnerAvatar != null && !s.resharedFromOwnerAvatar.isEmpty()) {
                                   cAv.setVisibility(android.view.View.VISIBLE);
-                                  Glide.with(this).load(s.resharedFromOwnerAvatar).circleCrop().override(dpToPx(36)).dontAnimate().into(cAv);
+                                  cAv.setOutlineProvider(new android.view.ViewOutlineProvider() { // round (was Glide circleCrop)
+                                      @Override public void getOutline(View v, android.graphics.Outline o) {
+                                          o.setOval(0, 0, v.getWidth(), v.getHeight());
+                                      }
+                                  });
+                                  cAv.setClipToOutline(true);
+                                  bindReshareAvatar(cAv, s.resharedFromOwnerAvatar, cName, s.resharedFromOwnerUid);
                               } else cAv.setVisibility(android.view.View.GONE);
                           }
                           reshareChipView = chip;
@@ -2058,6 +2064,7 @@ import com.callx.app.utils.AlertDialogStyler;
               card.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, orr, ob) -> {
                   if (!reshareCardActive || reshareCardItem == null) return;
                   if ((r - l) == (orr - ol) && (b - t) == (ob - ot)) return;
+                  if (reshareHintShowing()) dismissReshareHint(true); // pill was placed for the old size
                   v.post(() -> { if (reshareCardActive && reshareCardItem != null) applyReshareCardMode(reshareCardItem, false); });
               });
           }
@@ -2070,11 +2077,11 @@ import com.callx.app.utils.AlertDialogStyler;
               card.addView(reshareHeaderScrim);
           }
           final android.graphics.drawable.GradientDrawable sg = new android.graphics.drawable.GradientDrawable(
-                  android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0x80000000, 0x00000000 });
+                  android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0x4D000000, 0x00000000 });
           sg.setCornerRadii(new float[] { radius, radius, radius, radius, 0, 0, 0, 0 });
           reshareHeaderScrim.setBackground(sg);
           final android.widget.FrameLayout.LayoutParams slp =
-                  new android.widget.FrameLayout.LayoutParams(bw, dpToPx(72), android.view.Gravity.TOP | android.view.Gravity.START);
+                  new android.widget.FrameLayout.LayoutParams(bw, dpToPx(48), android.view.Gravity.TOP | android.view.Gravity.START);
           slp.leftMargin = left; slp.topMargin = top;
           reshareHeaderScrim.setLayoutParams(slp);
           reshareHeaderScrim.setVisibility(View.VISIBLE);
@@ -2087,7 +2094,7 @@ import com.callx.app.utils.AlertDialogStyler;
               final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
               av.setId(R.id.iv_reshare_chip_avatar);
               av.setImageResource(R.drawable.ic_person);
-              row.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(32), dpToPx(32)));
+              row.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)));
               final TextView tv = new TextView(this);
               tv.setTag("reshare_header_name");
               tv.setTextColor(Color.WHITE);
@@ -2116,15 +2123,12 @@ import com.callx.app.utils.AlertDialogStyler;
           final TextView tv = (TextView) row.findViewWithTag("reshare_header_name");
           if (tv != null) tv.setText(label);
           final android.widget.ImageView av = (android.widget.ImageView) row.findViewById(R.id.iv_reshare_chip_avatar);
-          if (av != null) {
-              if (s.resharedFromOwnerAvatar != null && !s.resharedFromOwnerAvatar.isEmpty())
-                  Glide.with(this).load(s.resharedFromOwnerAvatar).override(dpToPx(64)).dontAnimate().into(av);
-              else av.setImageResource(R.drawable.ic_person);
-          }
+          if (av != null) bindReshareAvatar(av, s.resharedFromOwnerAvatar, cName, s.resharedFromOwnerUid);
           final String cUid = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
           final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
           row.setClickable("status".equals(s.resharedFromType));
           row.setOnClickListener("status".equals(s.resharedFromType) ? v -> openOriginalStory(cUid, cId, label) : null);
+          row.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
           row.setVisibility(cName.isEmpty() ? View.GONE : View.VISIBLE);
           row.bringToFront();
           // entry: fade-in (+ 6dp drop) for header and scrim together
@@ -2140,6 +2144,29 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       /** Old reposts carry no mediaWidth/Height: learn the real ratio from the decoded photo, then re-fit the card.
        *  Skipped when the status has stickers (they were already placed in the first box). */
+      /** Original owner's avatar for the repost header + the long-press pill — through the core avatar
+       *  optimizer (same TINY tier / URL / cache key as the live comments and the replies sheet),
+       *  initials drawable when there is no photo. */
+      private void bindReshareAvatar(android.widget.ImageView av, String url, String name, String uid) {
+          final android.graphics.drawable.Drawable initials = new com.callx.app.utils.InitialsAvatarDrawable(name, uid);
+          if (url == null || url.isEmpty()) {
+              Glide.with(this).clear(av);
+              av.setImageDrawable(initials);
+              return;
+          }
+          final int px = com.callx.app.utils.AvatarUrlBuilder.tierPx(this, com.callx.app.utils.AvatarSizeTier.TINY);
+          Glide.with(this)
+                  .load(com.callx.app.utils.AvatarUrlBuilder.buildResponsive(
+                          this, url, com.callx.app.utils.AvatarSizeTier.TINY))
+                  .apply(new com.bumptech.glide.request.RequestOptions()
+                          .override(px, px)
+                          .placeholder(initials)
+                          .error(initials)
+                          .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                          .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE))
+                  .dontAnimate()
+                  .into(av);
+      }
       private void onReshareMediaSize(int mw, int mh) {
           final StatusItem it = reshareCardItem;
           if (!reshareCardActive || it == null || mw <= 0 || mh <= 0) return;
@@ -2154,6 +2181,16 @@ import com.callx.app.utils.AlertDialogStyler;
       private View reshareHintView;
       private boolean reshareHintPaused;
       private final Runnable reshareHintAutoHide = () -> dismissReshareHint(true);
+      private androidx.activity.OnBackPressedCallback reshareHintBackCb;
+      private androidx.activity.OnBackPressedCallback reshareHintBack() {
+          if (reshareHintBackCb == null) {
+              reshareHintBackCb = new androidx.activity.OnBackPressedCallback(false) {
+                  @Override public void handleOnBackPressed() { dismissReshareHint(true); } // Back closes just the pill
+              };
+              getOnBackPressedDispatcher().addCallback(this, reshareHintBackCb);
+          }
+          return reshareHintBackCb;
+      }
       private boolean reshareHintShowing() { return reshareHintView != null && reshareHintView.getVisibility() == View.VISIBLE; }
       private void maybeShowReshareHint() {
           final StatusItem it = reshareCardItem;
@@ -2178,13 +2215,20 @@ import com.callx.app.utils.AlertDialogStyler;
           pill.setGravity(Gravity.CENTER_VERTICAL);
           pill.setPadding(dpToPx(10), dpToPx(8), dpToPx(12), dpToPx(8));
           final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-          bg.setColor(0xE63A3A3A); bg.setCornerRadius(dpToPx(16));
+          bg.setColor(0xFF3A3A3A); bg.setCornerRadius(dpToPx(16));
           pill.setBackground(bg);
           final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
-          av.setImageResource(R.drawable.ic_person);
-          pill.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(32), dpToPx(32)));
-          if (it.resharedFromOwnerAvatar != null && !it.resharedFromOwnerAvatar.isEmpty())
-              Glide.with(this).load(it.resharedFromOwnerAvatar).override(dpToPx(64)).dontAnimate().into(av);
+          pill.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)));
+          // Reuse the header's already-loaded avatar (own copy of the drawable → painted on the very first frame,
+          // no initials flash). Only if the header has no photo yet do we go through the avatar optimizer.
+          final android.widget.ImageView headerAv = reshareHeaderView != null
+                  ? (android.widget.ImageView) reshareHeaderView.findViewById(R.id.iv_reshare_chip_avatar) : null;
+          final android.graphics.drawable.Drawable hd = headerAv != null ? headerAv.getDrawable() : null;
+          if (hd != null && !(hd instanceof com.callx.app.utils.InitialsAvatarDrawable) && hd.getConstantState() != null) {
+              av.setImageDrawable(hd.getConstantState().newDrawable(getResources()).mutate());
+          } else {
+              bindReshareAvatar(av, it.resharedFromOwnerAvatar, cName, it.resharedFromOwnerUid);
+          }
           final TextView tv = new TextView(this);
           tv.setText(label); tv.setTextColor(Color.WHITE); tv.setTextSize(15f);
           tv.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -2205,7 +2249,7 @@ import com.callx.app.utils.AlertDialogStyler;
           // tail pointing down at the finger
           final View tail = new View(this);
           final android.graphics.drawable.GradientDrawable tbg = new android.graphics.drawable.GradientDrawable();
-          tbg.setColor(0xE63A3A3A); tbg.setCornerRadius(dpToPx(2));
+          tbg.setColor(0xFF3A3A3A); tbg.setCornerRadius(dpToPx(2));
           tail.setBackground(tbg);
           tail.setRotation(45f);
           final android.widget.LinearLayout.LayoutParams tail_lp = new android.widget.LinearLayout.LayoutParams(dpToPx(12), dpToPx(12));
@@ -2232,7 +2276,10 @@ import com.callx.app.utils.AlertDialogStyler;
           root.setAlpha(0f); root.setScaleX(0.9f); root.setScaleY(0.9f);
           root.setPivotX(Math.max(0, Math.min(rw, Math.round(touchDownX) - rootLeft))); root.setPivotY(rh);
           card.addView(root);
-          root.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(160L).start();
+          root.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220L)
+                  .setInterpolator(new android.view.animation.OvershootInterpolator(1.6f)).start();
+          root.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+          reshareHintBack().setEnabled(true);
           reshareHintView = root;
           reshareHintPaused = true; // the hold already paused the story; stay paused while the pill is open
           handler.removeCallbacks(reshareHintAutoHide);
@@ -2240,6 +2287,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void dismissReshareHint(boolean resume) {
           handler.removeCallbacks(reshareHintAutoHide);
+          if (reshareHintBackCb != null) reshareHintBackCb.setEnabled(false);
           final View hv = reshareHintView;
           reshareHintView = null;
           if (hv != null) {
@@ -3680,6 +3728,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       if (!swipeDragging && !captionExpanded && rdy > slop * 2 && rdy > Math.abs(rdx) * 1.2f
                               && !isQuickReactionOverlayShown()) {
                           swipeDragging = true;
+                          if (reshareHintShowing()) dismissReshareHint(false); // dragging away → pill goes
                           handler.removeCallbacks(holdPauseRunnable);
                           if (!touchHoldPaused) { touchHoldPaused = true; pauseProgress(); }
                       }
