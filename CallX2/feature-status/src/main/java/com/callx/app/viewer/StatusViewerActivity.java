@@ -2094,7 +2094,7 @@ import com.callx.app.utils.AlertDialogStyler;
               final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
               av.setId(R.id.iv_reshare_chip_avatar);
               av.setImageResource(R.drawable.ic_person);
-              row.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)));
+              row.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(28), dpToPx(28)));
               final TextView tv = new TextView(this);
               tv.setTag("reshare_header_name");
               tv.setTextColor(Color.WHITE);
@@ -2218,7 +2218,7 @@ import com.callx.app.utils.AlertDialogStyler;
           bg.setColor(0xFF3A3A3A); bg.setCornerRadius(dpToPx(16));
           pill.setBackground(bg);
           final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
-          pill.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)));
+          pill.addView(av, new android.widget.LinearLayout.LayoutParams(dpToPx(28), dpToPx(28)));
           // Reuse the header's already-loaded avatar (own copy of the drawable → painted on the very first frame,
           // no initials flash). Only if the header has no photo yet do we go through the avatar optimizer.
           final android.widget.ImageView headerAv = reshareHeaderView != null
