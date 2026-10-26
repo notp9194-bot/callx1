@@ -1379,6 +1379,32 @@ import com.callx.app.utils.AlertDialogStyler;
           }
       }
 
+      /** Reel card → the original reel. If the reel is known to be deleted, say so instead of opening a dead player. */
+      private void openReelFromCard(final String rid, final String uid) {
+          if (rid == null || rid.isEmpty()) return;
+          final Boolean known = reelExistsCache.get(rid);
+          if (Boolean.FALSE.equals(known)) {
+              android.widget.Toast.makeText(this, R.string.viewer_toast_reel_unavailable, android.widget.Toast.LENGTH_SHORT).show();
+              return;
+          }
+          if (Boolean.TRUE.equals(known)) { openOriginalContent("reel", rid, uid); return; }
+          try {
+              FirebaseUtils.db().getReference("reels").child(rid).limitToFirst(1).get().addOnCompleteListener(t -> { // first child only → tiny
+                  if (isFinishing() || isDestroyed()) return;
+                  if (t.isSuccessful() && t.getResult() != null) {
+                      final boolean ex = t.getResult().exists();
+                      reelExistsCache.put(rid, ex);
+                      if (!ex) {
+                          if (reshareCardActive && reshareCardItem != null) applyReshareCardMode(reshareCardItem, false); // chip → "Reel unavailable"
+                          android.widget.Toast.makeText(this, R.string.viewer_toast_reel_unavailable, android.widget.Toast.LENGTH_SHORT).show();
+                          return;
+                      }
+                  }
+                  openOriginalContent("reel", rid, uid); // offline / unknown → let the player deal with it
+              });
+          } catch (Exception e) { openOriginalContent("reel", rid, uid); }
+      }
+
       /** Tapping the reshare attribution card (anywhere except the explicit
        *  "View Original →" sub-text) opens the ORIGINAL CREATOR's reels
        *  profile screen — same UserReelsActivity used everywhere else in the
@@ -2123,6 +2149,52 @@ import com.callx.app.utils.AlertDialogStyler;
       private View reshareTimeView;
       private final java.util.HashMap<String, String[]> reelOwnerCache = new java.util.HashMap<>();   // reelId → {uid,name,username,avatar}
       private final java.util.HashSet<String> reelOwnerInflight = new java.util.HashSet<>();
+      private final java.util.HashMap<String, Boolean> reelExistsCache = new java.util.HashMap<>();   // reelId → reels/{id} exists
+      private final java.util.HashMap<String, Integer> reelOwnerRetries = new java.util.HashMap<>();  // reelId → failed owner fetches
+      private TextView reshareReelChip;                    // "▶ Reel ›" chip under the header (tap → the reel)
+      private FrameLayout.LayoutParams muteOrigLp;         // btn_mute's normal spot, restored when the card goes away
+      private final java.util.HashMap<String, Integer> reelDurationCache = new java.util.HashMap<>(); // reelId → seconds
+      private final java.util.HashSet<String> reelDurInflight = new java.util.HashSet<>();
+      private int reelDurPolls;
+      private static final int STATUS_VIDEO_MAX_SEC = 30; // = videoTotalMs() cap
+      /** Reel card's right-hand label is the reel's DURATION: it may arrive late (status row / reels/{id} / the player), so poll briefly. */
+      private final Runnable reshareTimeTick = new Runnable() {
+          @Override public void run() {
+              final StatusItem it = reshareCardItem;
+              if (!reshareCardActive || it == null || !isReelCardType(it) || reshareTimeView == null
+                      || isFinishing() || isDestroyed()) return;
+              final String t = reelDurationText(it);
+              final TextView tt = (TextView) reshareTimeView;
+              tt.setText(t);
+              tt.setVisibility(t.isEmpty() ? View.GONE : View.VISIBLE);
+              if (reshareHeaderView != null) {
+                  final TextView nm = (TextView) reshareHeaderView.findViewWithTag("reshare_header_name");
+                  if (nm != null && !t.isEmpty())
+                      reshareHeaderView.setContentDescription(getString(R.string.viewer_cd_open_reel_by_time, nm.getText(), t));
+              }
+              if (t.isEmpty() && reelDurPolls++ < 24) handler.postDelayed(this, 500L);
+          }
+      };
+      private int reelDurationSec(StatusItem s) {
+          if (s == null) return 0;
+          if (s.durationSec > 0) return s.durationSec;
+          final String rid = reelIdOf(s);
+          final Integer c = rid.isEmpty() ? null : reelDurationCache.get(rid);
+          if (c != null && c > 0) return c;
+          try {
+              if (player != null && player.getPlaybackState() == Player.STATE_READY) {
+                  final long d = player.getDuration();
+                  if (d > 0) return (int) ((d + 500L) / 1000L);
+              }
+          } catch (Exception ignored) {}
+          return 0;
+      }
+      /** m:ss ("" while unknown). */
+      private String reelDurationText(StatusItem s) {
+          final int d = Math.min(reelDurationSec(s), STATUS_VIDEO_MAX_SEC); // the status plays at most this long
+          if (d <= 0) return "";
+          return (d / 60) + ":" + (d % 60 < 10 ? "0" : "") + (d % 60);
+      }
       private static String nzs(String v) { return v == null ? "" : v; }
       private static boolean isReelCardType(StatusItem s) {
           return s != null && ("reel_story".equals(s.type) || "reel_clip".equals(s.type) || "reel_reshare".equals(s.type));
@@ -2153,29 +2225,72 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           return new String[] { uid, name, user, av };
       }
+      private interface StrCb { void on(String v); }
+      private void fetchReelStr(com.google.firebase.database.DatabaseReference rr, String field, String cur, final StrCb cb) {
+          if (!cur.isEmpty()) { cb.on(cur); return; }
+          try {
+              rr.child(field).get().addOnCompleteListener(t -> {
+                  String v = "";
+                  try { if (t.isSuccessful() && t.getResult() != null) v = nzs(t.getResult().getValue(String.class)); }
+                  catch (Exception ignored) {}
+                  cb.on(v);
+              });
+          } catch (Exception e) { cb.on(""); }
+      }
+      /** Owner of a reel — tiny child reads only (uid / ownerName / ownerPhoto), never the whole reel node (likes, comments…). */
       private void fetchReelOwner(final String rid, final StatusItem s,
                                   final String uid0, final String name0, final String user0, final String av0) {
           try {
-              FirebaseUtils.db().getReference("reels").child(rid).get().addOnCompleteListener(t -> {
-                  String uid = uid0, name = name0, av = av0;
+              final com.google.firebase.database.DatabaseReference rr = FirebaseUtils.db().getReference("reels").child(rid);
+              rr.child("uid").get().addOnCompleteListener(t -> {
+                  if (!t.isSuccessful()) {
+                      // Network / permission hiccup ≠ "reel not found": retry twice with a back-off before giving up.
+                      final Integer tried = reelOwnerRetries.get(rid);
+                      final int n = tried == null ? 0 : tried;
+                      if (n < 2 && !isFinishing() && !isDestroyed()) {
+                          reelOwnerRetries.put(rid, n + 1);
+                          reelOwnerInflight.remove(rid);
+                          handler.postDelayed(() -> {
+                              if (isFinishing() || isDestroyed() || reelOwnerCache.containsKey(rid)) return;
+                              if (reelOwnerInflight.add(rid)) fetchReelOwner(rid, s, uid0, name0, user0, av0);
+                          }, 2000L * (n + 1));
+                          return;
+                      }
+                      finishReelOwner(rid, s, uid0, name0, user0, av0);
+                      return;
+                  }
+                  String uid = uid0;
+                  boolean there = false;
                   try {
-                      if (t.isSuccessful() && t.getResult() != null) {
-                          com.google.firebase.database.DataSnapshot d = t.getResult();
-                          if (uid.isEmpty())  uid  = nzs(d.child("uid").getValue(String.class));
-                          if (name.isEmpty()) name = nzs(d.child("ownerName").getValue(String.class));
-                          if (av.isEmpty())   av   = nzs(d.child("ownerPhoto").getValue(String.class));
+                      if (t.getResult() != null && t.getResult().exists()) {
+                          there = true;
+                          if (uid.isEmpty()) uid = nzs(t.getResult().getValue(String.class));
                       }
                   } catch (Exception ignored) {}
-                  if (uid.isEmpty() || !user0.isEmpty()) { finishReelOwner(rid, s, uid, name, user0, av); return; }
-                  final String fUid = uid, fName = name, fAv = av;
-                  FirebaseUtils.getUserRef(fUid).child("username").get().addOnCompleteListener(t2 -> {
-                      String un = "";
-                      try { if (t2.isSuccessful() && t2.getResult() != null) un = nzs(t2.getResult().getValue(String.class)); }
-                      catch (Exception ignored) {}
-                      finishReelOwner(rid, s, fUid, fName, un, fAv);
+                  final String fUid = uid;
+                  if (there) { reelExistsCache.put(rid, true); fetchReelRest(rr, rid, s, fUid, name0, user0, av0); return; }
+                  // No uid field: does the reel exist at all? (first child only → tiny read)
+                  rr.limitToFirst(1).get().addOnCompleteListener(t3 -> {
+                      final boolean ok = t3.isSuccessful() && t3.getResult() != null;
+                      final boolean ex = !ok || t3.getResult().exists(); // unknown → assume it exists
+                      if (ok) reelExistsCache.put(rid, ex);
+                      if (!ex) finishReelOwner(rid, s, fUid, name0, user0, av0);
+                      else fetchReelRest(rr, rid, s, fUid, name0, user0, av0);
                   });
               });
           } catch (Exception e) { finishReelOwner(rid, s, uid0, name0, user0, av0); }
+      }
+      private void fetchReelRest(final com.google.firebase.database.DatabaseReference rr, final String rid, final StatusItem s,
+                                 final String uid, final String name0, final String user0, final String av0) {
+          fetchReelStr(rr, "ownerName", name0, n -> fetchReelStr(rr, "ownerPhoto", av0, a -> {
+              if (uid.isEmpty() || !user0.isEmpty()) { finishReelOwner(rid, s, uid, n, user0, a); return; }
+              FirebaseUtils.getUserRef(uid).child("username").get().addOnCompleteListener(t2 -> {
+                  String un = "";
+                  try { if (t2.isSuccessful() && t2.getResult() != null) un = nzs(t2.getResult().getValue(String.class)); }
+                  catch (Exception ignored) {}
+                  finishReelOwner(rid, s, uid, n, un, a);
+              });
+          }));
       }
       private void finishReelOwner(String rid, StatusItem s, String uid, String name, String user, String av) {
           reelOwnerCache.put(rid, new String[] { uid, name, user, av }); // also caches "not found" → never re-fetched
@@ -2236,7 +2351,7 @@ import com.callx.app.utils.AlertDialogStyler;
               card.addView(reshareCardFrame, Math.min(reshareOrigIndex, card.getChildCount()));
           }
           final FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(bw, bh, android.view.Gravity.TOP | android.view.Gravity.START);
-          flp.leftMargin = left; flp.topMargin = top;
+          flp.setMarginStart(left); flp.topMargin = top;
           reshareCardFrame.setLayoutParams(flp);
           reshareCardFrame.invalidateOutline();
           binding.ivStatus.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
@@ -2249,7 +2364,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (stickerOverlayView != null || (s.stickersJson != null && !s.stickersJson.isEmpty())) {
               final FrameLayout so = stickerOverlay();
               final FrameLayout.LayoutParams olp = new FrameLayout.LayoutParams(bw, bh, Gravity.TOP | Gravity.START);
-              olp.leftMargin = left; olp.topMargin = top;
+              olp.setMarginStart(left); olp.topMargin = top;
               so.setLayoutParams(olp);
           }
 
@@ -2272,12 +2387,12 @@ import com.callx.app.utils.AlertDialogStyler;
               card.addView(reshareHeaderScrim);
           }
           final android.graphics.drawable.GradientDrawable sg = new android.graphics.drawable.GradientDrawable(
-                  android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0x4D000000, 0x00000000 });
+                  android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0x66000000, 0x00000000 });
           sg.setCornerRadii(new float[] { radius, radius, radius, radius, 0, 0, 0, 0 });
           reshareHeaderScrim.setBackground(sg);
           final android.widget.FrameLayout.LayoutParams slp =
-                  new android.widget.FrameLayout.LayoutParams(bw, dpToPx(48), android.view.Gravity.TOP | android.view.Gravity.START);
-          slp.leftMargin = left; slp.topMargin = top;
+                  new android.widget.FrameLayout.LayoutParams(bw, dpToPx(96), android.view.Gravity.TOP | android.view.Gravity.START);
+          slp.setMarginStart(left); slp.topMargin = top;
           reshareHeaderScrim.setLayoutParams(slp);
           reshareHeaderScrim.setVisibility(View.VISIBLE);
 
@@ -2306,66 +2421,170 @@ import com.callx.app.utils.AlertDialogStyler;
               card.addView(row);
           }
           final android.widget.LinearLayout row = (android.widget.LinearLayout) reshareHeaderView;
-          final android.widget.FrameLayout.LayoutParams hlp =
-                  new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                          android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.START);
-          hlp.leftMargin = left + dpToPx(12); hlp.topMargin = top + dpToPx(12);
-          hlp.rightMargin = w - left - bw + dpToPx(12);
-          row.setLayoutParams(hlp);
           final boolean reelCard = isReelCardType(s);
+          // Reel card: the header row spans the card (name takes the slack and ellipsizes, the time sits flush right
+          // INSIDE the row) → no magic right-margin. Other cards keep the compact wrap-content row.
+          final android.widget.FrameLayout.LayoutParams hlp =
+                  new android.widget.FrameLayout.LayoutParams(
+                          reelCard ? Math.max(1, bw - dpToPx(24)) : android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                          android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.START);
+          hlp.setMarginStart(left + dpToPx(12)); hlp.topMargin = top + dpToPx(reelCard ? 8 : 12);
+          if (!reelCard) hlp.setMarginEnd(w - left - bw + dpToPx(12));
+          row.setMinimumHeight(reelCard ? dpToPx(40) : 0); // bigger tap target on the reel card
+          row.setLayoutParams(hlp);
           final String[] ro = reelCard ? reelOwnerInfo(s) : null; // {uid,name,username,avatar}
           final String cUser = ro != null ? ro[2] : s.resharedFromOwnerUsername;
           final String cName = ro != null ? (!ro[1].isEmpty() ? ro[1] : nzs(ro[2])) : (s.resharedFromOwnerName != null ? s.resharedFromOwnerName : "");
           final String label = (cUser != null && !cUser.isEmpty()) ? cUser : cName;
+          // Owner still resolving (old rows) / reel gone: show a neutral "Reel" instead of a blank, popping-in header.
+          final String shownLabel = !reelCard ? label : label.isEmpty() ? getString(R.string.viewer_reel_card_label)
+                  : (cUser != null && !cUser.isEmpty() ? "@" + cUser : label);
           final String cAvatar = ro != null ? ro[3] : s.resharedFromOwnerAvatar;
           final String cUid = ro != null ? ro[0] : (s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "");
           final TextView tv = (TextView) row.findViewWithTag("reshare_header_name");
-          if (tv != null) tv.setText(label);
+          if (tv != null) {
+              tv.setText(shownLabel);
+              final android.widget.LinearLayout.LayoutParams nlp = reelCard
+                      ? new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                      : new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+              nlp.setMarginStart(reelCard ? 0 : dpToPx(8));
+              tv.setLayoutParams(nlp);
+          }
           final android.widget.ImageView av = (android.widget.ImageView) row.findViewById(R.id.iv_reshare_chip_avatar);
-          if (av != null) bindReshareAvatar(av, cAvatar, cName, cUid);
+          if (av != null) { // reel card: username only — no avatar
+              if (reelCard) av.setVisibility(View.GONE);
+              else { av.setVisibility(View.VISIBLE); bindReshareAvatar(av, cAvatar, cName, cUid); }
+          }
           final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
-          row.setClickable("status".equals(s.resharedFromType));
-          row.setOnClickListener("status".equals(s.resharedFromType) ? v -> openOriginalStory(cUid, cId, label) : null);
-          row.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
-          row.setVisibility(label.isEmpty() ? View.GONE : View.VISIBLE);
-          row.bringToFront();
-          // Reel card: post time sits top-right on the card (name/avatar stay top-left, ellipsized before the time).
+          final String rid = reelCard ? reelIdOf(s) : "";
+          final boolean isStoryRes = "status".equals(s.resharedFromType);
+          // Story reshare → original story; reel card → the SAME reel (name / avatar / chip all tappable).
+          if (isStoryRes) {
+              row.setClickable(true);
+              row.setOnClickListener(v -> openOriginalStory(cUid, cId, label));
+          } else if (reelCard && !rid.isEmpty()) {
+              row.setClickable(true);
+              row.setOnClickListener(v -> openReelFromCard(rid, cUid));
+          } else {
+              row.setClickable(false);
+              row.setOnClickListener(null);
+          }
           if (reelCard) {
-              hlp.rightMargin = w - left - bw + dpToPx(12) + dpToPx(56);
-              row.setLayoutParams(hlp);
+              final String agoTxt = reelDurationText(s);
+              row.setContentDescription(agoTxt.isEmpty()
+                      ? getString(R.string.viewer_cd_open_reel_by, shownLabel)
+                      : getString(R.string.viewer_cd_open_reel_by_time, shownLabel, agoTxt));
+          } else {
+              row.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
+          }
+          row.setVisibility(shownLabel.isEmpty() ? View.GONE : View.VISIBLE);
+          row.bringToFront();
+          // Reel card: post time lives INSIDE the header row, flush right.
+          if (reelCard) {
               if (reshareTimeView == null) {
-                  final TextView tt = new TextView(this);
-                  tt.setTextColor(Color.WHITE);
-                  tt.setTextSize(12f);
-                  tt.setTypeface(null, android.graphics.Typeface.BOLD);
-                  tt.setMaxLines(1);
-                  tt.setShadowLayer(4f, 0f, 1f, 0xB3000000);
-                  tt.setClickable(false);
-                  tt.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-                  reshareTimeView = tt;
-                  card.addView(tt);
+                  final TextView tt0 = new TextView(this);
+                  tt0.setTextColor(Color.WHITE);
+                  tt0.setTextSize(12f);
+                  tt0.setTypeface(null, android.graphics.Typeface.BOLD);
+                  tt0.setMaxLines(1);
+                  final android.graphics.drawable.GradientDrawable pbg = new android.graphics.drawable.GradientDrawable();
+                  pbg.setColor(0x66000000); pbg.setCornerRadius(dpToPx(10));
+                  tt0.setBackground(pbg);                       // pill → reads as a duration badge, not a timestamp
+                  tt0.setPadding(dpToPx(8), dpToPx(3), dpToPx(8), dpToPx(3));
+                  tt0.setClickable(false);
+                  tt0.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); // row's description already says the time
+                  reshareTimeView = tt0;
               }
               final TextView tt = (TextView) reshareTimeView;
-              final android.widget.FrameLayout.LayoutParams tlp2 =
-                      new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                              android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.END);
-              tlp2.topMargin = top + dpToPx(12) + dpToPx(6); // optically centred with the 28dp avatar
-              tlp2.rightMargin = w - left - bw + dpToPx(12);
-              tt.setLayoutParams(tlp2);
-              tt.setText(s.timestamp != null ? formatAgoShort(System.currentTimeMillis() - s.timestamp) : "");
-              tt.setVisibility(View.VISIBLE);
-              tt.bringToFront();
+              if (tt.getParent() != row) {
+                  if (tt.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) tt.getParent()).removeView(tt);
+                  final android.widget.LinearLayout.LayoutParams tlp2 =
+                          new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                                  android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                  tlp2.setMarginStart(dpToPx(8));
+                  row.addView(tt, tlp2);
+              }
+              tt.animate().cancel(); tt.setAlpha(1f); tt.setTranslationY(0f); // the row owns the fade now
+              handler.removeCallbacks(reshareTimeTick);
+              reelDurPolls = 0;
+              final String durTxt = reelDurationText(s);
+              tt.setText(durTxt);
+              tt.setVisibility(durTxt.isEmpty() ? View.GONE : View.VISIBLE);
+              if (durTxt.isEmpty()) {
+                  handler.postDelayed(reshareTimeTick, 500L);
+                  if (!rid.isEmpty() && reelDurInflight.add(rid)) {
+                      try {
+                          FirebaseUtils.db().getReference("reels").child(rid).child("duration").get().addOnCompleteListener(t -> {
+                              reelDurInflight.remove(rid);
+                              try {
+                                  final Long v = t.isSuccessful() && t.getResult() != null ? t.getResult().getValue(Long.class) : null;
+                                  if (v != null && v > 0) reelDurationCache.put(rid, (int) (v < 1000L ? v : (v + 500L) / 1000L)); // ms (or already sec)
+                              } catch (Exception ignored) {}
+                              if (isFinishing() || isDestroyed()) return;
+                              handler.removeCallbacks(reshareTimeTick);
+                              reelDurPolls = 0;
+                              handler.post(reshareTimeTick);
+                          });
+                      } catch (Exception e) { reelDurInflight.remove(rid); }
+                  }
+              }
           } else if (reshareTimeView != null) {
               reshareTimeView.setVisibility(View.GONE);
+              handler.removeCallbacks(reshareTimeTick);
           }
-          // entry: fade-in (+ 6dp drop) for header and scrim together
+          // Reel card: "▶ Reel ›" chip under the header → makes it obvious this is a reel and opens it.
+          // No chip while the owner is still resolving (header already says "Reel"); a deleted reel shows "Reel unavailable".
+          final boolean gone = reelCard && !rid.isEmpty() && Boolean.FALSE.equals(reelExistsCache.get(rid));
+          final boolean showChip = reelCard && !rid.isEmpty() && (gone || !label.isEmpty());
+          if (showChip) {
+              if (reshareReelChip == null) {
+                  final TextView chip = new TextView(this);
+                  chip.setText(R.string.viewer_reel_chip);
+                  chip.setTextColor(Color.WHITE);
+                  chip.setTextSize(12f);
+                  chip.setTypeface(null, android.graphics.Typeface.BOLD);
+                  chip.setMaxLines(1);
+                  chip.setGravity(Gravity.CENTER_VERTICAL);
+                  chip.setMinHeight(dpToPx(36));
+                  chip.setPadding(dpToPx(14), 0, dpToPx(14), 0);
+                  final android.graphics.drawable.GradientDrawable cbg = new android.graphics.drawable.GradientDrawable();
+                  cbg.setColor(0x66000000); cbg.setCornerRadius(dpToPx(14)); cbg.setStroke(dpToPx(1), 0x33FFFFFF);
+                  chip.setBackground(cbg);
+                  chip.setClickable(true);
+                  reshareReelChip = chip;
+                  card.addView(chip);
+              }
+              final android.widget.FrameLayout.LayoutParams clp2 =
+                      new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                              android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.START);
+              clp2.setMarginStart(left + dpToPx(12)); clp2.topMargin = top + dpToPx(50);
+              reshareReelChip.setLayoutParams(clp2);
+              reshareReelChip.setText(gone ? R.string.viewer_reel_chip_unavailable : R.string.viewer_reel_chip);
+              reshareReelChip.setOnClickListener(v -> openReelFromCard(rid, cUid));
+              reshareReelChip.setContentDescription(getString(R.string.viewer_cd_open_reel_by, shownLabel));
+              reshareReelChip.setVisibility(View.VISIBLE);
+              reshareReelChip.bringToFront();
+          } else if (reshareReelChip != null) {
+              reshareReelChip.animate().cancel();
+              reshareReelChip.setVisibility(View.GONE);
+          }
+          // Mute button rides on the card (top-right, under the header) instead of floating at a fixed screen spot.
+          final android.view.ViewGroup.LayoutParams mlp0 = binding.btnMute.getLayoutParams();
+          if (mlp0 instanceof FrameLayout.LayoutParams) {
+              if (muteOrigLp == null) muteOrigLp = new FrameLayout.LayoutParams((FrameLayout.LayoutParams) mlp0);
+              final FrameLayout.LayoutParams mlp = new FrameLayout.LayoutParams(mlp0.width, mlp0.height, Gravity.TOP | Gravity.START);
+              mlp.setMarginStart(left + bw - mlp0.width - dpToPx(8));
+              mlp.topMargin = top + dpToPx(50);
+              binding.btnMute.setLayoutParams(mlp);
+          }
+          // entry: fade-in (+ 6dp drop) for header, chip and scrim together
           final float endA = chromeHidden ? 0f : 1f;
-          for (View v : new View[] { reshareHeaderScrim, row, (reelCard ? reshareTimeView : null) }) {
+          for (View v : new View[] { reshareHeaderScrim, row, (showChip ? reshareReelChip : null) }) {
               if (v == null) continue;
               v.animate().cancel();
               if (animate) {
                   v.setAlpha(0f);
-                  v.setTranslationY(v == row || v == reshareTimeView ? -dpToPx(6) : 0f);
+                  v.setTranslationY(v == reshareHeaderScrim ? 0f : -dpToPx(6));
                   v.animate().alpha(endA).translationY(0f).setDuration(220L).setStartDelay(120L).start();
               } else { v.setAlpha(endA); v.setTranslationY(0f); }
           }
@@ -2510,7 +2729,7 @@ import com.callx.app.utils.AlertDialogStyler;
           root.setOnClickListener(v -> {
               dismissReshareHint(false);
               if (isStory) openOriginalStory(cUid, cId, label);
-              else if (hro != null && !cId.isEmpty()) openOriginalContent("reel", cId, cUid); // reel card → the SAME reel opens
+              else if (hro != null && !cId.isEmpty()) openReelFromCard(cId, cUid); // reel card → the SAME reel opens
               else openOriginalCreatorProfile(cUid, cName);
           });
           root.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
@@ -2612,7 +2831,10 @@ import com.callx.app.utils.AlertDialogStyler;
           if (reshareHeaderView != null) { reshareHeaderView.animate().cancel(); reshareHeaderView.setVisibility(View.GONE); }
           if (reshareHeaderScrim != null) { reshareHeaderScrim.animate().cancel(); reshareHeaderScrim.setVisibility(View.GONE); }
           if (reshareTimeView != null) { reshareTimeView.animate().cancel(); reshareTimeView.setVisibility(View.GONE); }
+          handler.removeCallbacks(reshareTimeTick);
+          if (reshareReelChip != null) { reshareReelChip.animate().cancel(); reshareReelChip.setVisibility(View.GONE); }
           if (!reshareCardActive) return;
+          if (muteOrigLp != null) binding.btnMute.setLayoutParams(new FrameLayout.LayoutParams(muteOrigLp)); // back to its normal spot
           reshareCardActive = false; reshareCardItem = null; reshareBoxW = reshareBoxH = 0;
           if (stickerOverlayView != null)
               stickerOverlayView.setLayoutParams(new FrameLayout.LayoutParams(
@@ -3977,9 +4199,9 @@ import com.callx.app.utils.AlertDialogStyler;
                   reshareHeaderScrim.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
               }
           }
-          if (reshareCardActive && reshareTimeView != null && reshareTimeView.getVisibility() == View.VISIBLE) {
-              reshareTimeView.animate().cancel();
-              reshareTimeView.animate().alpha(hide ? 0f : 1f).translationY(0f).setDuration(hide ? 150L : 200L).start();
+          if (reshareCardActive && reshareReelChip != null && reshareReelChip.getVisibility() == View.VISIBLE) {
+              reshareReelChip.animate().cancel();
+              reshareReelChip.animate().alpha(hide ? 0f : 1f).translationY(0f).setDuration(hide ? 150L : 200L).start();
           }
           // Live comment stack hides/shows with the chrome too.
           if (binding.llLiveComments != null && binding.llLiveComments.getVisibility() == View.VISIBLE) {
