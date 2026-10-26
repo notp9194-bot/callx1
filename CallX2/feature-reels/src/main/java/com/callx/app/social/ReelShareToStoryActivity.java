@@ -34,6 +34,9 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
     public static final String EXTRA_REEL_ID        = "reel_id";
     public static final String EXTRA_REEL_URL        = "reel_url";
     public static final String EXTRA_REEL_OWNER_NAME = "owner_name";
+    public static final String EXTRA_REEL_OWNER_UID   = "reel_owner_uid";
+    public static final String EXTRA_REEL_OWNER_PHOTO = "reel_owner_photo";
+    public static final String EXTRA_REEL_THUMB       = "reel_thumb_url";
     public static final String EXTRA_PRIVACY_PRESET  = "privacy_preset";
 
     private ImageButton  btnBack;
@@ -49,7 +52,7 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
     private LinearLayout layoutStickerPreview;
     private TextView     tvStickerOnVideo;
 
-    private String myUid, reelId, reelUrl, ownerName;
+    private String myUid, reelId, reelUrl, ownerName, reelOwnerUid, reelOwnerPhoto, reelThumb;
     // ✅ NEW: resolves the Stories-sized watermark variant to bake into the shared clip.
     private String watermarkOwnerUid, watermarkOwnerName;
     private Boolean watermarkPerReelOverride;
@@ -63,6 +66,9 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
         reelId    = getIntent().getStringExtra(EXTRA_REEL_ID);
         reelUrl   = getIntent().getStringExtra(EXTRA_REEL_URL);
         ownerName = getIntent().getStringExtra(EXTRA_REEL_OWNER_NAME);
+        reelOwnerUid   = getIntent().getStringExtra(EXTRA_REEL_OWNER_UID);
+        reelOwnerPhoto = getIntent().getStringExtra(EXTRA_REEL_OWNER_PHOTO);
+        reelThumb      = getIntent().getStringExtra(EXTRA_REEL_THUMB);
         watermarkOwnerUid  = getIntent().getStringExtra("watermark_owner_uid");
         watermarkOwnerName = getIntent().getStringExtra("watermark_owner_name");
         watermarkPerReelOverride = getIntent().hasExtra("watermark_per_reel_override")
@@ -281,6 +287,16 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
         m.put("type",        "reel_clip");
         m.put("reelId",      reelId != null ? reelId : "");
         m.put("videoUrl",    videoUrlToUse != null ? videoUrlToUse : "");
+        m.put("mediaUrl",    videoUrlToUse != null ? videoUrlToUse : ""); // the status viewer plays mediaUrl
+        if (reelThumb != null && !reelThumb.isEmpty()) m.put("thumbnailUrl", reelThumb);
+        // Reel card header (username top-left, time top-right) + media hints
+        m.put("resharedFromType",  "reel");
+        m.put("resharedFromId",    reelId != null ? reelId : "");
+        m.put("resharedMediaType", "video");
+        if (reelOwnerUid != null && !reelOwnerUid.isEmpty())     m.put("resharedFromOwnerUid", reelOwnerUid);
+        if (ownerName != null && !ownerName.isEmpty())           m.put("resharedFromOwnerName", ownerName);
+        if (reelOwnerPhoto != null && !reelOwnerPhoto.isEmpty()) m.put("resharedFromOwnerAvatar", reelOwnerPhoto);
+        if (reelThumb != null && !reelThumb.isEmpty())           m.put("resharedThumbnailUrl", reelThumb);
         m.put("caption",     caption);
         m.put("stickerText", stickerText);
         m.put("attribution", "@" + (ownerName != null ? ownerName : ""));

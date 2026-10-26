@@ -276,6 +276,10 @@ public class StatusItem {
     public String resharedFromOwnerUsername = "";
     /** Thumbnail URL of the original content for the card sticker */
     public String resharedThumbnailUrl   = "";
+    /** Reel the status was made from (reel_story / reel_clip) — lets the viewer resolve the reel owner for old rows. */
+    public String reelId                 = "";
+    /** Old reel_clip rows (ReelShareToStory) stored only videoUrl — the viewer plays it as mediaUrl. */
+    public String videoUrl               = "";
     /** Attribution text e.g. "Originally posted by @username" */
     public String attribution            = "";
     /** Text overlay typed by the resharer on top of story background */
@@ -397,6 +401,8 @@ public class StatusItem {
             m.put("resharedFromType", resharedFromType);
         if (resharedFromId != null && !resharedFromId.isEmpty())
             m.put("resharedFromId", resharedFromId);
+        if (reelId != null && !reelId.isEmpty())
+            m.put("reelId", reelId);
         if (resharedFromOwnerUid != null && !resharedFromOwnerUid.isEmpty())
             m.put("resharedFromOwnerUid", resharedFromOwnerUid);
         if (resharedFromOwnerName != null && !resharedFromOwnerName.isEmpty())

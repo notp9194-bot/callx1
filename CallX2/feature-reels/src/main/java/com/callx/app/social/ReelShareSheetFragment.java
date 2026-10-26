@@ -860,6 +860,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
         story.put("expiresAt",    expiresAt);
         story.put("deleted",      false);
         story.put("isReelStory",  true);                   // explicit flag for adapters
+        putReelCardFields(story);                          // reel owner → status viewer's reel card header
 
         storyRef.setValue(story).addOnCompleteListener(task -> {
             if (!isAdded()) return;
@@ -912,6 +913,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
         status.put("timestamp",    now);
         status.put("expiresAt",    expiresAt);
         status.put("deleted",      false);
+        putReelCardFields(status);                         // reel owner → status viewer's reel card header
 
         statusRef.setValue(status).addOnCompleteListener(task -> {
             if (!isAdded()) return;
@@ -923,6 +925,20 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
                 toast("Failed to add status. Try again.");
             }
         });
+    }
+
+    /** Who made this reel + media hints, so the status viewer can draw the reel card (username top-left, time top-right). */
+    private void putReelCardFields(Map<String, Object> m) {
+        m.put("resharedFromType", "reel");
+        m.put("resharedFromId",   reelId != null ? reelId : "");
+        m.put("resharedMediaType", "video");
+        if (ownerUid != null && !ownerUid.isEmpty()) m.put("resharedFromOwnerUid", ownerUid);
+        if (ownerUsername != null && !ownerUsername.isEmpty()) {
+            m.put("resharedFromOwnerUsername", ownerUsername);
+            m.put("resharedFromOwnerName",     ownerUsername);
+        }
+        if (ownerPhoto != null && !ownerPhoto.isEmpty()) m.put("resharedFromOwnerAvatar", ownerPhoto);
+        if (thumbUrl != null && !thumbUrl.isEmpty())     m.put("resharedThumbnailUrl", thumbUrl);
     }
 
     private void openRepostWithCaption() {

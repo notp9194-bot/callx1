@@ -9142,6 +9142,12 @@ public class HomeFragment extends Fragment
             reel.videoUrl != null && !reel.videoUrl.isEmpty() ? reel.videoUrl : reel.video480);
         i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_REEL_OWNER_NAME,
             reel.ownerName == null ? "" : reel.ownerName);
+        i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_REEL_OWNER_UID,
+            reel.uid == null ? "" : reel.uid);
+        i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_REEL_OWNER_PHOTO,
+            reel.ownerPhoto == null ? "" : reel.ownerPhoto);
+        i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_REEL_THUMB,
+            reel.thumbUrl == null ? "" : reel.thumbUrl);
         if (closeFriends) {
             i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_PRIVACY_PRESET,
                 "close_friends");

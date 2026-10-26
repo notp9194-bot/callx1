@@ -133,6 +133,15 @@ import com.callx.app.utils.AlertDialogStyler;
       private ExoPlayer standbyPlayer;             // idle, or holding `standbyUrl` prepared-but-paused
       private String    standbyUrl;                // null = standbyPlayer is idle
       private boolean   videoFrameRendered;        // first frame of the CURRENT video is on screen
+      private boolean   videoReadyOnce;            // CURRENT video reached STATE_READY once (progress bar already started)
+      private boolean   videoStalled;              // mid-playback rebuffer: bar frozen until READY, then re-synced to player position
+      private int       videoRetryCount;           // transient-error retries used for the CURRENT video (max 1)
+      private boolean   pausedByAudio;             // video paused by audio focus loss / headphones unplugged → tap resumes
+      private boolean   standbyMemoryOff;          // system reported low memory → no more standby pre-buffering this session
+      private final Runnable showBufferSpinner = () -> {
+          if (binding != null && binding.pbVideoBuffering != null && videoStalled)
+              binding.pbVideoBuffering.setVisibility(View.VISIBLE);
+      };
       // Separate audio-only player for a 🎵 music sticker's linked preview
       // clip — independent of `player` above (which only ever holds the
       // status's own video track). Autoplays as soon as the status carrying
@@ -780,6 +789,17 @@ import com.callx.app.utils.AlertDialogStyler;
           return null;
       }
       @Override
+      public void onTrimMemory(int level) {
+          super.onTrimMemory(level);
+          // Two ExoPlayers live here (main + standby). Under memory pressure drop the standby (it is only an optimisation).
+          if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+              releaseStandby();                                   // backgrounded: free it, may be re-prepared on return
+          } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+              releaseStandby();
+              standbyMemoryOff = true;                            // foreground + low memory: stop pre-buffering this session
+          }
+      }
+      @Override
       protected void onDestroy() {
           handler.removeCallbacks(expiryWatchRunnable);
           detachAddYoursCounts();
@@ -1125,6 +1145,7 @@ import com.callx.app.utils.AlertDialogStyler;
               if (!seenInSession.contains(s.id)) seenInSession.add(s.id);
           binding.btnMute.setVisibility(View.GONE);
           hideAllContent();
+          if (isReelCardType(s) && nzs(s.mediaUrl).isEmpty() && !nzs(s.videoUrl).isEmpty()) s.mediaUrl = s.videoUrl;
           switch (s.type != null ? s.type : "") {
               case "text":
                   showTextStatus(s); break;
@@ -1195,7 +1216,8 @@ import com.callx.app.utils.AlertDialogStyler;
                                    || "post_reshare".equals(s.type)
                                    || "channel_post_reshare".equals(s.type)
                                    || "status_reshare".equals(s.type);
-                  if (isReshare && s.resharedFromOwnerName != null && !s.resharedFromOwnerName.isEmpty()) {
+                  if (isReshare && !(reshareCardActive && isReelCardType(s))
+                          && s.resharedFromOwnerName != null && !s.resharedFromOwnerName.isEmpty()) {
                       final android.view.View flReshare = reshareContainer();
                       flReshare.setVisibility(android.view.View.VISIBLE);
                       final android.view.View chip = flReshare.findViewById(R.id.ll_reshare_chip);
@@ -1343,8 +1365,8 @@ import com.callx.app.utils.AlertDialogStyler;
           try {
               android.content.Intent i;
               if ("reel".equals(fromType)) {
-                  try { i = new android.content.Intent(this, Class.forName("com.callx.app.feed.SingleReelPlayerActivity")); } catch (ClassNotFoundException _e) { return; }
-                  i.putExtra("reel_id", fromId);
+                  try { i = new android.content.Intent(this, Class.forName("com.callx.app.player.SingleReelPlayerActivity")); } catch (ClassNotFoundException _e) { return; }
+                  i.putExtra("reelId", fromId); // SingleReelPlayerActivity.EXTRA_REEL_ID
                   i.putExtra("owner_uid", fromUid);
               } else {
                   try { i = new android.content.Intent(this, Class.forName("com.callx.app.activities.UserProfileActivity")); } catch (ClassNotFoundException _e) { return; }
@@ -1547,8 +1569,19 @@ import com.callx.app.utils.AlertDialogStyler;
 
       /** Warms the player cache with the first ~2MB of the NEXT status's video. */
       private void prefetchNextVideo(String url) { prefetchNextVideo(url, true); }
+      /** Data Saver on (and this app not exempted) → don't spend data on videos the user may never reach. */
+      private boolean canPrefetchVideo() {
+          try {
+              android.net.ConnectivityManager cm =
+                      (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+              if (cm != null && cm.getRestrictBackgroundStatus()
+                      == android.net.ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED) return false;
+          } catch (Exception ignored) {}
+          return true;
+      }
       private void prefetchNextVideo(String url, boolean standby) {
           if (url == null || url.isEmpty()) return;
+          if (!canPrefetchVideo()) return; // metered w/o Data Saver stays "limited": 2 MB cache warm-up + 15 s standby buffer cap
           try {
               if (videoPreloader == null) videoPreloader = new com.callx.app.cache.StatusMediaPreloader(this);
               videoPreloader.preloadVideoUrl(url);
@@ -1808,6 +1841,16 @@ import com.callx.app.utils.AlertDialogStyler;
                   .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
                           .setBufferDurationsMs(2_500, 15_000, 500, 1_000)
                           .build())
+                  // Focus is switched on per-status by applyVideoVolume() (off for standby / muted / music-sticker statuses).
+                  .setAudioAttributes(statusAudioAttrs(), false)
+                  .setHandleAudioBecomingNoisy(true) // headphones unplugged → pause, never blast from the speaker
+                  .build();
+      }
+      @OptIn(markerClass = UnstableApi.class)
+      private static androidx.media3.common.AudioAttributes statusAudioAttrs() {
+          return new androidx.media3.common.AudioAttributes.Builder()
+                  .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                  .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
                   .build();
       }
       @OptIn(markerClass = UnstableApi.class)
@@ -1823,7 +1866,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       /** Pre-prepares the NEXT video on the standby player (paused). Main thread. */
       private void prepareStandby(String url) {
-          if (!STANDBY_PLAYER_ENABLED || url == null || url.isEmpty()) return;
+          if (!STANDBY_PLAYER_ENABLED || standbyMemoryOff || url == null || url.isEmpty()) return;
           if (isFinishing() || isDestroyed() || url.equals(standbyUrl)) return;
           try {
               if (standbyPlayer == null) standbyPlayer = buildStatusPlayer();
@@ -1863,6 +1906,8 @@ import com.callx.app.utils.AlertDialogStyler;
           final String thumb = s.thumbnailUrl;
           if (thumb == null || thumb.isEmpty() || binding.ivVideoPoster == null) return;
           final int seq = showSeq;
+          binding.ivVideoPoster.animate().cancel();
+          binding.ivVideoPoster.setAlpha(1f);
           binding.ivVideoPoster.setVisibility(View.VISIBLE);
           Glide.with(this).load(thumb)
                   .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
@@ -1886,8 +1931,22 @@ import com.callx.app.utils.AlertDialogStyler;
                   })
                   .into(binding.ivVideoPoster);
       }
+      /** First video frame is up: crossfade the poster out (~140 ms) instead of popping it off. */
+      private void hideVideoPosterFade() {
+          if (binding == null || binding.ivVideoPoster == null) return;
+          final android.widget.ImageView poster = binding.ivVideoPoster;
+          if (poster.getVisibility() != View.VISIBLE) return;
+          poster.animate().cancel();
+          poster.animate().alpha(0f).setDuration(140L).withEndAction(() -> {
+              poster.setVisibility(View.GONE);
+              poster.setAlpha(1f);
+              if (!isDestroyed()) Glide.with(this).clear(poster); // free the bitmap
+          }).start();
+      }
       private void hideVideoPoster() {
           if (binding == null || binding.ivVideoPoster == null) return;
+          binding.ivVideoPoster.animate().cancel(); // a running fade must never leak into the next status
+          binding.ivVideoPoster.setAlpha(1f);
           if (binding.ivVideoPoster.getVisibility() == View.VISIBLE) {
               binding.ivVideoPoster.setVisibility(View.GONE);
               if (!isDestroyed()) Glide.with(this).clear(binding.ivVideoPoster); // free the bitmap
@@ -1903,12 +1962,39 @@ import com.callx.app.utils.AlertDialogStyler;
           } catch (Exception ignored) {}
       }
 
+      // ── Video stall handling: bar follows the PLAYER, not the wall clock ──
+      private long videoTotalMs(StatusItem s) {
+          long real = (player != null) ? player.getDuration() : Long.MIN_VALUE;
+          if (real > 0 && real != Long.MIN_VALUE) return Math.min(real, 30_000L);
+          return s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L;
+      }
+      private void beginVideoStall() {
+          videoStalled = true;
+          if (!paused) stopProgress(); // freeze the bar where it is (remainingMs is kept current by progressFrame)
+          handler.removeCallbacks(showBufferSpinner);
+          handler.postDelayed(showBufferSpinner, 400L); // only show the loader if the stall isn't just a blink
+      }
+      private void resumeAfterVideoStall() {
+          videoStalled = false;
+          hideBufferSpinner();
+          if (player == null || paused || idx >= items.size()) return; // paused: resumeProgress() re-syncs from the player position
+          long total = videoTotalMs(items.get(idx));
+          long pos = Math.max(0L, player.getCurrentPosition());
+          remainingMs = Math.max(1L, total - pos);
+          runProgressTick(total, remainingMs);
+      }
+      private void hideBufferSpinner() {
+          handler.removeCallbacks(showBufferSpinner);
+          if (binding != null && binding.pbVideoBuffering != null) binding.pbVideoBuffering.setVisibility(View.GONE);
+      }
+
       @OptIn(markerClass = UnstableApi.class)
       private void showVideoStatus(StatusItem s) {
           binding.playerView.setVisibility(View.VISIBLE);
           binding.btnMute.setVisibility(View.VISIBLE);
           releasePlayer(); // stops + resets the shared player and detaches the previous video's listener
           videoFrameRendered = false;
+          videoReadyOnce = false; videoStalled = false; videoRetryCount = 0;
           showVideoPoster(s);
           // Video → video: if the standby player already holds THIS video prepared, swap to it (the
           // old player goes idle and becomes the next standby). Otherwise the normal single-player path.
@@ -1931,16 +2017,38 @@ import com.callx.app.utils.AlertDialogStyler;
               if (player == null) return;
               long real = player.getDuration();
               long dur = (real > 0 && real != Long.MIN_VALUE) ? Math.min(real, 30_000L) : estimated;
+              videoReadyOnce = true; videoStalled = false; hideBufferSpinner();
               stopProgress(); startProgress(dur);
           };
           playerListener = new Player.Listener() {
               @Override public void onPlaybackStateChanged(int state) {
-                  if (state == Player.STATE_READY) onReady.run();
-                  else if (state == Player.STATE_ENDED) { next(); }
+                  if (state == Player.STATE_READY) {
+                      if (!videoReadyOnce) onReady.run();              // first READY: start the bar with the real duration
+                      else if (videoStalled) resumeAfterVideoStall();  // rebuffer over: continue from the player's position (never restart at 0)
+                      else hideBufferSpinner();
+                  } else if (state == Player.STATE_BUFFERING) {
+                      if (videoReadyOnce && !videoStalled) beginVideoStall(); // mid-video stall: freeze the bar + delayed spinner
+                  } else if (state == Player.STATE_ENDED) {
+                      hideBufferSpinner();
+                      stopProgress();
+                      if (idx < segmentBars.size()) segmentBars.get(idx).setProgress(1000);
+                      next();
+                  }
+              }
+              @Override public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                  if (!playWhenReady && !paused
+                          && (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
+                           || reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY)) {
+                      pausedByAudio = true; // call / other app took audio, or headphones unplugged: freeze the bar with the video
+                      pauseProgress();
+                  } else if (playWhenReady && pausedByAudio) {
+                      pausedByAudio = false; // focus came back on its own
+                      if (paused) resumeProgress();
+                  }
               }
               @Override public void onRenderedFirstFrame() {
                   videoFrameRendered = true;
-                  hideVideoPoster();
+                  hideVideoPosterFade();
               }
               // Previously unhandled — ExoPlayer delivers a bad/unsupported
               // media URL (e.g. a reshared IMAGE wrongly routed here, a dead
@@ -1954,6 +2062,24 @@ import com.callx.app.utils.AlertDialogStyler;
               @Override public void onPlayerError(@NonNull PlaybackException error) {
                   Log.e(DBG, "showVideoStatus onPlayerError id=" + statusIdForLog
                           + " mediaUrl=" + s.mediaUrl + " errorCode=" + error.errorCode, error);
+                  // One quiet retry first (network blip / cache hiccup) — resumes from the same position.
+                  if (videoRetryCount < 1 && player != null) {
+                      videoRetryCount++;
+                      final ExoPlayer p = player;
+                      final long resumePos = Math.max(0L, p.getCurrentPosition());
+                      if (videoReadyOnce && !videoStalled) beginVideoStall();
+                      handler.postDelayed(() -> {
+                          if (isFinishing() || isDestroyed() || player != p || playerListener != this) return; // status changed meanwhile
+                          try {
+                              setStatusMedia(p, s.mediaUrl);
+                              p.seekTo(resumePos);
+                              p.prepare();
+                              p.setPlayWhenReady(!paused);
+                          } catch (Exception e) { hideBufferSpinner(); next(); }
+                      }, 700L);
+                      return;
+                  }
+                  hideBufferSpinner();
                   CrashReporter.reportSilently(StatusViewerActivity.this,
                           "StatusViewer.showVideoStatus.onPlayerError", error);
                   next();
@@ -1993,9 +2119,76 @@ import com.callx.app.utils.AlertDialogStyler;
       private int reshareOrigIndex = -1;
       private float reshareSavedScale = 1f;
       private float reshareMediaRatio;                   // learned from the decoded media when the post has no mediaWidth/Height
+      // ── Reel status card: same rounded card as a reposted story, username top-left + time top-right ──
+      private View reshareTimeView;
+      private final java.util.HashMap<String, String[]> reelOwnerCache = new java.util.HashMap<>();   // reelId → {uid,name,username,avatar}
+      private final java.util.HashSet<String> reelOwnerInflight = new java.util.HashSet<>();
+      private static String nzs(String v) { return v == null ? "" : v; }
+      private static boolean isReelCardType(StatusItem s) {
+          return s != null && ("reel_story".equals(s.type) || "reel_clip".equals(s.type) || "reel_reshare".equals(s.type));
+      }
+      private static boolean isCardType(StatusItem s) {
+          return s != null && ("status_reshare".equals(s.type) || isReelCardType(s));
+      }
+      private static String reelIdOf(StatusItem s) {
+          if (!nzs(s.reelId).isEmpty()) return s.reelId;
+          if ("reel".equals(s.resharedFromType) && !nzs(s.resharedFromId).isEmpty()) return s.resharedFromId;
+          return "";
+      }
+      /** {uid, name, username, avatar} of the reel's owner: the status row first, then the cache; old rows that lack
+       *  it are resolved ONCE from reels/{id} + users/{uid}/username and the card header refreshes itself. */
+      private String[] reelOwnerInfo(final StatusItem s) {
+          String uid = nzs(s.resharedFromOwnerUid), name = nzs(s.resharedFromOwnerName);
+          String user = nzs(s.resharedFromOwnerUsername), av = nzs(s.resharedFromOwnerAvatar);
+          final String rid = reelIdOf(s);
+          final String[] c = rid.isEmpty() ? null : reelOwnerCache.get(rid);
+          if (c != null) {
+              if (uid.isEmpty()) uid = c[0];
+              if (name.isEmpty()) name = c[1];
+              if (user.isEmpty()) user = c[2];
+              if (av.isEmpty()) av = c[3];
+          } else if (!rid.isEmpty() && (uid.isEmpty() || (name.isEmpty() && user.isEmpty()) || user.isEmpty() || av.isEmpty())
+                  && reelOwnerInflight.add(rid)) {
+              fetchReelOwner(rid, s, uid, name, user, av);
+          }
+          return new String[] { uid, name, user, av };
+      }
+      private void fetchReelOwner(final String rid, final StatusItem s,
+                                  final String uid0, final String name0, final String user0, final String av0) {
+          try {
+              FirebaseUtils.db().getReference("reels").child(rid).get().addOnCompleteListener(t -> {
+                  String uid = uid0, name = name0, av = av0;
+                  try {
+                      if (t.isSuccessful() && t.getResult() != null) {
+                          com.google.firebase.database.DataSnapshot d = t.getResult();
+                          if (uid.isEmpty())  uid  = nzs(d.child("uid").getValue(String.class));
+                          if (name.isEmpty()) name = nzs(d.child("ownerName").getValue(String.class));
+                          if (av.isEmpty())   av   = nzs(d.child("ownerPhoto").getValue(String.class));
+                      }
+                  } catch (Exception ignored) {}
+                  if (uid.isEmpty() || !user0.isEmpty()) { finishReelOwner(rid, s, uid, name, user0, av); return; }
+                  final String fUid = uid, fName = name, fAv = av;
+                  FirebaseUtils.getUserRef(fUid).child("username").get().addOnCompleteListener(t2 -> {
+                      String un = "";
+                      try { if (t2.isSuccessful() && t2.getResult() != null) un = nzs(t2.getResult().getValue(String.class)); }
+                      catch (Exception ignored) {}
+                      finishReelOwner(rid, s, fUid, fName, un, fAv);
+                  });
+              });
+          } catch (Exception e) { finishReelOwner(rid, s, uid0, name0, user0, av0); }
+      }
+      private void finishReelOwner(String rid, StatusItem s, String uid, String name, String user, String av) {
+          reelOwnerCache.put(rid, new String[] { uid, name, user, av }); // also caches "not found" → never re-fetched
+          reelOwnerInflight.remove(rid);
+          if (isFinishing() || isDestroyed()) return;
+          final StatusItem shown = reshareCardItem;
+          if (reshareCardActive && shown != null && java.util.Objects.equals(shown.id, s.id))
+              applyReshareCardMode(shown, false); // header picks up the resolved owner
+      }
+
       private void applyReshareCardMode(StatusItem s) { applyReshareCardMode(s, true); }
       private void applyReshareCardMode(StatusItem s, boolean animate) {
-          if (!"status_reshare".equals(s.type)) return;
+          if (!isCardType(s)) return;
           final boolean hasMedia = (s.mediaUrl != null && !s.mediaUrl.isEmpty())
                   || (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty())
                   || (s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty());
@@ -2119,27 +2312,60 @@ import com.callx.app.utils.AlertDialogStyler;
           hlp.leftMargin = left + dpToPx(12); hlp.topMargin = top + dpToPx(12);
           hlp.rightMargin = w - left - bw + dpToPx(12);
           row.setLayoutParams(hlp);
-          final String cName = s.resharedFromOwnerName != null ? s.resharedFromOwnerName : "";
-          final String cUser = s.resharedFromOwnerUsername;
+          final boolean reelCard = isReelCardType(s);
+          final String[] ro = reelCard ? reelOwnerInfo(s) : null; // {uid,name,username,avatar}
+          final String cUser = ro != null ? ro[2] : s.resharedFromOwnerUsername;
+          final String cName = ro != null ? (!ro[1].isEmpty() ? ro[1] : nzs(ro[2])) : (s.resharedFromOwnerName != null ? s.resharedFromOwnerName : "");
           final String label = (cUser != null && !cUser.isEmpty()) ? cUser : cName;
+          final String cAvatar = ro != null ? ro[3] : s.resharedFromOwnerAvatar;
+          final String cUid = ro != null ? ro[0] : (s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "");
           final TextView tv = (TextView) row.findViewWithTag("reshare_header_name");
           if (tv != null) tv.setText(label);
           final android.widget.ImageView av = (android.widget.ImageView) row.findViewById(R.id.iv_reshare_chip_avatar);
-          if (av != null) bindReshareAvatar(av, s.resharedFromOwnerAvatar, cName, s.resharedFromOwnerUid);
-          final String cUid = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
+          if (av != null) bindReshareAvatar(av, cAvatar, cName, cUid);
           final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
           row.setClickable("status".equals(s.resharedFromType));
           row.setOnClickListener("status".equals(s.resharedFromType) ? v -> openOriginalStory(cUid, cId, label) : null);
           row.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
-          row.setVisibility(cName.isEmpty() ? View.GONE : View.VISIBLE);
+          row.setVisibility(label.isEmpty() ? View.GONE : View.VISIBLE);
           row.bringToFront();
+          // Reel card: post time sits top-right on the card (name/avatar stay top-left, ellipsized before the time).
+          if (reelCard) {
+              hlp.rightMargin = w - left - bw + dpToPx(12) + dpToPx(56);
+              row.setLayoutParams(hlp);
+              if (reshareTimeView == null) {
+                  final TextView tt = new TextView(this);
+                  tt.setTextColor(Color.WHITE);
+                  tt.setTextSize(12f);
+                  tt.setTypeface(null, android.graphics.Typeface.BOLD);
+                  tt.setMaxLines(1);
+                  tt.setShadowLayer(4f, 0f, 1f, 0xB3000000);
+                  tt.setClickable(false);
+                  tt.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                  reshareTimeView = tt;
+                  card.addView(tt);
+              }
+              final TextView tt = (TextView) reshareTimeView;
+              final android.widget.FrameLayout.LayoutParams tlp2 =
+                      new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                              android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.END);
+              tlp2.topMargin = top + dpToPx(12) + dpToPx(6); // optically centred with the 28dp avatar
+              tlp2.rightMargin = w - left - bw + dpToPx(12);
+              tt.setLayoutParams(tlp2);
+              tt.setText(s.timestamp != null ? formatAgoShort(System.currentTimeMillis() - s.timestamp) : "");
+              tt.setVisibility(View.VISIBLE);
+              tt.bringToFront();
+          } else if (reshareTimeView != null) {
+              reshareTimeView.setVisibility(View.GONE);
+          }
           // entry: fade-in (+ 6dp drop) for header and scrim together
           final float endA = chromeHidden ? 0f : 1f;
-          for (View v : new View[] { reshareHeaderScrim, row }) {
+          for (View v : new View[] { reshareHeaderScrim, row, (reelCard ? reshareTimeView : null) }) {
+              if (v == null) continue;
               v.animate().cancel();
               if (animate) {
                   v.setAlpha(0f);
-                  v.setTranslationY(v == row ? -dpToPx(6) : 0f);
+                  v.setTranslationY(v == row || v == reshareTimeView ? -dpToPx(6) : 0f);
                   v.animate().alpha(endA).translationY(0f).setDuration(220L).setStartDelay(120L).start();
               } else { v.setAlpha(endA); v.setTranslationY(0f); }
           }
@@ -2200,14 +2426,16 @@ import com.callx.app.utils.AlertDialogStyler;
           // finger must be on the card itself
           if (touchDownX < reshareCardFrame.getLeft() || touchDownX > reshareCardFrame.getRight()
                   || touchDownY < reshareCardFrame.getTop() || touchDownY > reshareCardFrame.getBottom()) return;
-          if (it.resharedFromOwnerName == null || it.resharedFromOwnerName.isEmpty()) return;
+          final String[] hro = isReelCardType(it) ? reelOwnerInfo(it) : null; // resolved reel owner (old rows too)
+          final String hName = hro != null ? (!hro[1].isEmpty() ? hro[1] : hro[2]) : it.resharedFromOwnerName;
+          if (hName == null || hName.isEmpty()) return;
           final FrameLayout card = binding.flStoryCard;
           dismissReshareHint(false);
-          final String cName = it.resharedFromOwnerName;
-          final String cUser = it.resharedFromOwnerUsername;
+          final String cName = hName;
+          final String cUser = hro != null ? hro[2] : it.resharedFromOwnerUsername;
           final String label = (cUser != null && !cUser.isEmpty()) ? cUser : cName;
-          final String cUid = it.resharedFromOwnerUid != null ? it.resharedFromOwnerUid : "";
-          final String cId  = it.resharedFromId != null ? it.resharedFromId : "";
+          final String cUid = hro != null ? hro[0] : (it.resharedFromOwnerUid != null ? it.resharedFromOwnerUid : "");
+          final String cId  = hro != null ? reelIdOf(it) : (it.resharedFromId != null ? it.resharedFromId : "");
           final boolean isStory = "status".equals(it.resharedFromType);
 
           final android.widget.LinearLayout root = new android.widget.LinearLayout(this);
@@ -2236,7 +2464,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (hd != null && !(hd instanceof com.callx.app.utils.InitialsAvatarDrawable) && hd.getConstantState() != null) {
               av.setImageDrawable(hd.getConstantState().newDrawable(getResources()).mutate());
           } else {
-              bindReshareAvatar(av, it.resharedFromOwnerAvatar, cName, it.resharedFromOwnerUid);
+              bindReshareAvatar(av, hro != null ? hro[3] : it.resharedFromOwnerAvatar, cName, cUid);
           }
           final TextView tv = new TextView(this);
           tv.setText(label); tv.setTextColor(Color.WHITE); tv.setTextSize(13f);
@@ -2281,7 +2509,9 @@ import com.callx.app.utils.AlertDialogStyler;
           root.setLayoutParams(rlp);
           root.setOnClickListener(v -> {
               dismissReshareHint(false);
-              if (isStory) openOriginalStory(cUid, cId, label); else openOriginalCreatorProfile(cUid, cName);
+              if (isStory) openOriginalStory(cUid, cId, label);
+              else if (hro != null && !cId.isEmpty()) openOriginalContent("reel", cId, cUid); // reel card → the SAME reel opens
+              else openOriginalCreatorProfile(cUid, cName);
           });
           root.setContentDescription(getString(R.string.viewer_cd_view_original_by, cName));
           root.setAlpha(0f); root.setScaleX(0.9f); root.setScaleY(0.9f);
@@ -2381,6 +2611,7 @@ import com.callx.app.utils.AlertDialogStyler;
           dismissReshareHint(false);
           if (reshareHeaderView != null) { reshareHeaderView.animate().cancel(); reshareHeaderView.setVisibility(View.GONE); }
           if (reshareHeaderScrim != null) { reshareHeaderScrim.animate().cancel(); reshareHeaderScrim.setVisibility(View.GONE); }
+          if (reshareTimeView != null) { reshareTimeView.animate().cancel(); reshareTimeView.setVisibility(View.GONE); }
           if (!reshareCardActive) return;
           reshareCardActive = false; reshareCardItem = null; reshareBoxW = reshareBoxH = 0;
           if (stickerOverlayView != null)
@@ -2527,6 +2758,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
 
       /** Single place that decides the status VIDEO volume (mute + sticker-music ducking). */
+      @OptIn(markerClass = UnstableApi.class)
       private void applyVideoVolume() {
           if (player == null) return;
           float v;
@@ -2534,6 +2766,9 @@ import com.callx.app.utils.AlertDialogStyler;
           else if (videoUnderMusic && videoMixVol >= 0f) v = videoMixVol;   // poster's Mix Audio choice
           else v = videoUnderMusic ? VIDEO_VOLUME_UNDER_MUSIC : 1f;
           try { player.setVolume(v); } catch (Exception ignored) {}
+          // Take audio focus only when this video is actually audible and not mixed under a music sticker
+          // (that one has its own musicFocus) — muted statuses must not silence the user's Spotify.
+          try { player.setAudioAttributes(statusAudioAttrs(), !isMuted && !videoUnderMusic); } catch (Exception ignored) {}
       }
 
       /** Muted viewers don't take focus (we would silence their other app for nothing). */
@@ -3459,9 +3694,16 @@ import com.callx.app.utils.AlertDialogStyler;
               StatusItem s = items.get(idx);
               long total;
               if ("video".equals(s.type) || "reel_story".equals(s.type) || "reel_clip".equals(s.type)) {
-                  long real = (player != null) ? player.getDuration() : Long.MIN_VALUE;
-                  total = (real > 0 && real != Long.MIN_VALUE) ? Math.min(real, 30_000L)
-                          : (s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L);
+                  total = videoTotalMs(s);
+                  if (videoReadyOnce && player != null) {
+                      if (player.getPlaybackState() == Player.STATE_BUFFERING) {
+                          // still rebuffering → keep the bar frozen; STATE_READY restarts it from the player position
+                          if (!videoStalled) beginVideoStall();
+                          return;
+                      }
+                      long pos = player.getCurrentPosition();
+                      if (pos > 0) remainingMs = Math.max(1L, total - pos); // bar = player position
+                  }
               } else total = 5_000L;
               runProgressTick(total, remainingMs);
           }
@@ -3735,6 +3977,10 @@ import com.callx.app.utils.AlertDialogStyler;
                   reshareHeaderScrim.animate().alpha(hide ? 0f : 1f).setDuration(hide ? 150L : 200L).start();
               }
           }
+          if (reshareCardActive && reshareTimeView != null && reshareTimeView.getVisibility() == View.VISIBLE) {
+              reshareTimeView.animate().cancel();
+              reshareTimeView.animate().alpha(hide ? 0f : 1f).translationY(0f).setDuration(hide ? 150L : 200L).start();
+          }
           // Live comment stack hides/shows with the chrome too.
           if (binding.llLiveComments != null && binding.llLiveComments.getVisibility() == View.VISIBLE) {
               binding.llLiveComments.animate().cancel();
@@ -3774,6 +4020,13 @@ import com.callx.app.utils.AlertDialogStyler;
               if (e.getActionMasked() == MotionEvent.ACTION_DOWN && reshareHintView != null
                       && reshareHintView.getVisibility() == View.VISIBLE) {
                   dismissReshareHint(true);
+                  touchSwallow = true;
+                  return true;
+              }
+              // Paused by audio focus loss / unplugged headphones: the next touch just resumes (no next/prev).
+              if (e.getActionMasked() == MotionEvent.ACTION_DOWN && pausedByAudio && paused) {
+                  pausedByAudio = false;
+                  resumeProgress();
                   touchSwallow = true;
                   return true;
               }
@@ -4409,9 +4662,14 @@ import com.callx.app.utils.AlertDialogStyler;
           pauseProgress();
           StatusAnalyticsBottomSheet.show(this, item, this::resumeProgress);
       }
+      private static final String VIEWER_PREFS = "status_viewer_prefs";
+      private static final String KEY_MUTED    = "muted";
       private void setupMuteButton() {
+          isMuted = getSharedPreferences(VIEWER_PREFS, MODE_PRIVATE).getBoolean(KEY_MUTED, false); // remembered like WhatsApp / IG
+          binding.btnMute.setImageResource(isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
           binding.btnMute.setOnClickListener(v -> {
               isMuted = !isMuted;
+              getSharedPreferences(VIEWER_PREFS, MODE_PRIVATE).edit().putBoolean(KEY_MUTED, isMuted).apply();
               applyVideoVolume();
               applyMusicVolume();
               // Muted → don't hold other apps' audio hostage; unmuted → take focus again.
@@ -4953,6 +5211,9 @@ import com.callx.app.utils.AlertDialogStyler;
               } catch (Exception ignored) {}
           }
           playerListener = null;
+          videoStalled = false;
+          pausedByAudio = false;
+          hideBufferSpinner();
           releaseMusicPlayer();
           if (binding != null && binding.reactionBurstOverlay != null) binding.reactionBurstOverlay.stop();
       }
