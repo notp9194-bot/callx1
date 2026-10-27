@@ -674,6 +674,17 @@ public class NewStatusActivity extends AppCompatActivity {
             stickerOverlayFrame.addView(editorSafeArea, 4, new android.widget.FrameLayout.LayoutParams(
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+            // The viewer's bottom chrome grows with the caption -> keep the guide in step with the caption field.
+            if (binding.etCaption != null) {
+                editorSafeArea.setCaption(binding.etCaption.getText());
+                binding.etCaption.addTextChangedListener(new android.text.TextWatcher() {
+                    @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
+                    @Override public void onTextChanged(CharSequence c, int a, int b, int d) {}
+                    @Override public void afterTextChanged(android.text.Editable e) {
+                        if (editorSafeArea != null) editorSafeArea.setCaption(e);
+                    }
+                });
+            }
             sizeStoryCanvas();
             setupEditorGestures();
             setupStatusEditorTools();
@@ -1008,6 +1019,37 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void showSafeAreaGuide() { if (editorSafeArea != null) editorSafeArea.show(); }
+
+    /**
+     * "Fit" tool: scales + centres the photo so the WHOLE photo (at its current rotation) sits inside the guide's safe
+     * rectangle - nothing of it can end up under the viewer's header / caption. The baked canvas keeps the blurred
+     * backdrop around it, so the result is exactly what the viewer shows (fitCenter) minus the chrome overlap.
+     */
+    private void fitPhotoIntoSafeArea() {
+        if (!editorPhotoMode || stickerOverlayFrame == null || editorSafeArea == null
+                || binding.ivPreview.getDrawable() == null) {
+            toast("Fit sirf photo status par kaam karta hai");
+            return;
+        }
+        final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+        final android.graphics.drawable.Drawable dr = binding.ivPreview.getDrawable();
+        final int dw = dr.getIntrinsicWidth(), dh = dr.getIntrinsicHeight();
+        final android.graphics.RectF safe = new android.graphics.RectF();
+        editorSafeArea.getSafeRect(safe);
+        if (fw <= 0 || fh <= 0 || dw <= 0 || dh <= 0 || safe.width() < 1f || safe.height() < 1f) return;
+        final float s0 = Math.min(fw / (float) dw, fh / (float) dh);          // fitCenter size of the photo in the frame
+        final float bw = dw * s0, bh = dh * s0;
+        final double rad = Math.toRadians(editorMediaRotation);
+        final float c = (float) Math.abs(Math.cos(rad)), sn = (float) Math.abs(Math.sin(rad));
+        final float bbW = bw * c + bh * sn, bbH = bw * sn + bh * c;           // rotated photo's bounding box
+        final float k = Math.max(0.15f, Math.min(5f, Math.min(safe.width() / bbW, safe.height() / bbH)));
+        final float tx = safe.centerX() - fw / 2f, ty = safe.centerY() - fh / 2f;
+        editorMediaScale = k;
+        binding.ivPreview.animate().cancel();
+        binding.ivPreview.animate().scaleX(k).scaleY(k).translationX(tx).translationY(ty).setDuration(220L).start();
+        showSafeAreaGuide();
+        hideSafeAreaGuideLater();
+    }
     /** Haptic tick when an overlay crosses the safe-area edge; returns the new inside/outside state. */
     private boolean safeEdgeTick(View v, boolean wasInside) {
         if (editorSafeArea == null || v == null) return wasInside;
@@ -1087,7 +1129,7 @@ public class NewStatusActivity extends AppCompatActivity {
         String[][] tools = {
                 {"Text", "Aa"}, {"Stickers", "☺"}, {"Music", "♫"},
                 {"Restyle", "✎"}, {"Effects", "✦"}, {"Mention", "@"},
-                {"Draw", "〰"}, {"Guide", "▭"}, {"Save", "↓"}, {"Label AI", "▣"}, {"More", "···"}
+                {"Draw", "〰"}, {"Guide", "▭"}, {"Fit", "⛶"}, {"Save", "↓"}, {"Label AI", "▣"}, {"More", "···"}
         };
         for (String[] tool : tools) {
             LinearLayout row = new LinearLayout(this);
@@ -1304,6 +1346,9 @@ public class NewStatusActivity extends AppCompatActivity {
             }
         }
         switch (action) {
+            case "Fit":
+                fitPhotoIntoSafeArea();
+                break;
             case "Guide":
                 editorSafeAreaPinned = !editorSafeAreaPinned;
                 if (editorSafeArea != null) {

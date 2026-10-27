@@ -32,6 +32,27 @@ public final class StoryFrameSpec {
     }
 
     // ── v639: viewer-accurate model (4 sides, real window size + insets) ───────────────────
+    // -- v689: bottom chrome follows the CAPTION (activity_status_viewer.xml ll_bottom_chrome) --------------------
+    /** ll_bottom_chrome paddingBottom. */
+    public static final float BOTTOM_PAD_DP     = 14f;
+    /** Part of ll_bottom_chrome's 32dp paddingTop where the dark gradient is already visibly covering the photo. */
+    public static final float BOTTOM_FADE_DP    = 16f;
+    /** tv_caption: 17sp line + paddingBottom 10dp. */
+    public static final float CAPTION_LINE_DP   = 22f;
+    public static final float CAPTION_PAD_DP    = 10f;
+    /** tv_location_tag: 13sp + paddingBottom 4dp. */
+    public static final float LOCATION_DP       = 21f;
+    /** Room always kept for the last-reply bubble / live comments even when there is no caption. */
+    public static final float BOTTOM_MIN_DP     = 80f;
+
+    /** Bottom chrome height (dp) the viewer draws over the card for a caption of {@code captionLines} lines. */
+    public static float bottomChromeDp(int captionLines, boolean hasLocation) {
+        float h = BOTTOM_PAD_DP + BOTTOM_FADE_DP;
+        if (captionLines > 0) h += CAPTION_PAD_DP + CAPTION_LINE_DP * captionLines;
+        if (hasLocation) h += LOCATION_DP;
+        return Math.max(BOTTOM_MIN_DP, h);
+    }
+
     /** Gap between the viewer's top inset (status bar / notch) and the story card (see StatusViewerActivity#setupEdgeToEdge). */
     public static final float CARD_TOP_GAP_DP = 12f;
     /** Header chrome INSIDE the card (progress segments + owner row). Default; the viewer publishes its measured value via StoryChromePrefs. */

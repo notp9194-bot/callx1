@@ -27,7 +27,7 @@ public class StatusVideoCacheManager {
         if (sInitialized) return;
         try {
             UnifiedVideoCacheManager.init(context);
-            sSimpleCache            = UnifiedVideoCacheManager.getSimpleCache();
+            sSimpleCache            = UnifiedVideoCacheManager.getOtherSimpleCache(); // STATUS factory writes to the OTHER cache (was reels' → cache checks never hit)
             sCacheDataSourceFactory = UnifiedVideoCacheManager.getFactory(
                 UnifiedVideoCacheManager.Module.STATUS);
             sInitialized = true;

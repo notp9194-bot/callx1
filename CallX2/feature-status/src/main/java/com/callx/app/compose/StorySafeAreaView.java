@@ -13,6 +13,10 @@ import android.view.WindowManager;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import android.graphics.RectF;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import android.util.TypedValue;
 
 import com.callx.app.status.R;
 import com.callx.app.utils.StoryChromePrefs;
@@ -109,12 +113,41 @@ public final class StorySafeAreaView extends View {
         }
     }
 
+    // v689: the viewer's bottom chrome grows with the caption -> the guide follows the caption typed in the editor.
+    private int captionLines;
+    private boolean hasLocation;
+
+    /** Tell the guide what caption the viewer will draw (null/blank = none). Re-measures at the viewer's caption width. */
+    public void setCaption(CharSequence caption) {
+        int lines = 0;
+        try {
+            if (caption != null && caption.toString().trim().length() > 0) {
+                resolveViewerSize();
+                final TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+                tp.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 17f, getResources().getDisplayMetrics()));
+                final int widthPx = Math.max(1, Math.round(viewer[0] - 28f * density)); // ll_bottom_chrome paddingStart/End 14dp
+                lines = StaticLayout.Builder.obtain(caption, 0, caption.length(), tp, widthPx).build().getLineCount();
+            }
+        } catch (Exception ignored) {}
+        lines = Math.min(lines, 8);
+        if (lines != captionLines) { captionLines = lines; invalidate(); }
+    }
+
+    private float bottomChromePx() { return StoryFrameSpec.bottomChromeDp(captionLines, hasLocation) * density; }
+
+    /** The safe rectangle in this view's own coordinates (the same frame the photo is edited in). */
+    public void getSafeRect(RectF out) {
+        final int w = getWidth(), h = getHeight();
+        refreshInsets(w, h);
+        out.set(insets[2], insets[0], w - insets[3], h - insets[1]);
+    }
+
     /** Recomputes the 4 safe insets (canvas px) for the current size / window. */
     private void refreshInsets(int w, int h) {
         resolveViewerSize();
         StoryFrameSpec.safeInsets(w, h, viewer[0], viewer[1], density,
                 sysTop, sysBottom, sysLeft, sysRight,
-                StoryChromePrefs.topPx(getContext()), 0f, insets);
+                StoryChromePrefs.topPx(getContext()), bottomChromePx(), insets);
     }
 
     /** Pinned = subtle always-on mode: faint border + light shade so it never hides the canvas while editing. */

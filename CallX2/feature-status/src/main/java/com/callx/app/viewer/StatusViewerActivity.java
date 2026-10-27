@@ -867,13 +867,33 @@ import com.callx.app.utils.AlertDialogStyler;
                                       R.string.viewer_toast_that_status_unavailable, Toast.LENGTH_SHORT).show();
                           }
                       }
+                      // WhatsApp-style resume: someone else's story opens at the first status you haven't seen yet
+                      // (all seen → from the start). Explicit targets / highlights / single-status / own story untouched.
+                      if ((targetStatusId == null || targetStatusId.isEmpty()) && !isHighlightMode && !singleStatusOnly
+                              && myUid != null && ownerUid != null && !myUid.equals(ownerUid)) {
+                          idx = firstUnseenIndex();
+                      }
                       StatusItem first = items.get(0);
                       bindOwnerAvatar(first);
                       buildSegmentBars();
+                      if (idx > 0) fillSegmentsBefore(idx);
                       showCurrent();
                       // FIX: show download+forward for viewer, hide for owner
                       boolean isOwner = myUid != null && myUid.equals(ownerUid);
                       // v508: Download/Forward/Repost are menu-only now (no hidden proxy views to toggle)
+      }
+      /** First item of this owner's story that the user hasn't seen (cache seen-map + local seen marks); 0 if all seen. */
+      private int firstUnseenIndex() {
+          try {
+              final java.util.Set<String> seen = com.callx.app.cache.StatusCacheManager.getInstance(this).getSeenMap().get(ownerUid);
+              for (int i = 0; i < items.size(); i++) {
+                  final StatusItem it = items.get(i);
+                  final boolean isSeen = (seen != null && it.id != null && seen.contains(it.id))
+                          || (it.timestamp != null && com.callx.app.utils.StorySeenState.isSeenLocally(this, ownerUid, it.timestamp));
+                  if (!isSeen) return i;
+              }
+          } catch (Exception ignored) {}
+          return 0;
       }
       private void load(String uid) {
           if (isHighlightMode) { loadHighlightAlbum(uid); return; }
@@ -2018,6 +2038,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void showVideoStatus(StatusItem s) {
           binding.playerView.setVisibility(View.VISIBLE);
           binding.btnMute.setVisibility(View.VISIBLE);
+          if (s != null && s.mediaUrl != null) com.callx.app.cache.StatusMediaManifest.record(getApplicationContext(), s.mediaUrl, s.effectiveExpiry()); // evicted when the status expires
           releasePlayer(); // stops + resets the shared player and detaches the previous video's listener
           videoFrameRendered = false;
           videoReadyOnce = false; videoStalled = false; videoRetryCount = 0;
@@ -2147,13 +2168,13 @@ import com.callx.app.utils.AlertDialogStyler;
       private float reshareMediaRatio;                   // learned from the decoded media when the post has no mediaWidth/Height
       // ── Reel status card: same rounded card as a reposted story, username top-left + time top-right ──
       private View reshareTimeView;
-      private final java.util.HashMap<String, String[]> reelOwnerCache = new java.util.HashMap<>();   // reelId → {uid,name,username,avatar}
+      private final com.callx.app.cache.ReelCardMetaCache.Store<String[]> reelOwnerCache = com.callx.app.cache.ReelCardMetaCache.OWNER;   // reelId → {uid,name,username,avatar} (process-wide, TTL)
       private final java.util.HashSet<String> reelOwnerInflight = new java.util.HashSet<>();
-      private final java.util.HashMap<String, Boolean> reelExistsCache = new java.util.HashMap<>();   // reelId → reels/{id} exists
+      private final com.callx.app.cache.ReelCardMetaCache.Store<Boolean> reelExistsCache = com.callx.app.cache.ReelCardMetaCache.EXISTS;   // reelId → reels/{id} exists (process-wide, TTL)
       private final java.util.HashMap<String, Integer> reelOwnerRetries = new java.util.HashMap<>();  // reelId → failed owner fetches
       private TextView reshareReelChip;                    // "▶ Reel ›" chip under the header (tap → the reel)
       private FrameLayout.LayoutParams muteOrigLp;         // btn_mute's normal spot, restored when the card goes away
-      private final java.util.HashMap<String, Integer> reelDurationCache = new java.util.HashMap<>(); // reelId → seconds
+      private final com.callx.app.cache.ReelCardMetaCache.Store<Integer> reelDurationCache = com.callx.app.cache.ReelCardMetaCache.DURATION; // reelId → seconds (process-wide, TTL)
       private final java.util.HashSet<String> reelDurInflight = new java.util.HashSet<>();
       private int reelDurPolls;
       private static final int STATUS_VIDEO_MAX_SEC = 30; // = videoTotalMs() cap
@@ -2293,7 +2314,10 @@ import com.callx.app.utils.AlertDialogStyler;
           }));
       }
       private void finishReelOwner(String rid, StatusItem s, String uid, String name, String user, String av) {
-          reelOwnerCache.put(rid, new String[] { uid, name, user, av }); // also caches "not found" → never re-fetched
+          final boolean unresolved = nzs(uid).isEmpty() && nzs(name).isEmpty() && nzs(user).isEmpty();
+          // resolved owner → 10 min; "not found / failed" → only 1 min so a hiccup doesn't stick
+          reelOwnerCache.put(rid, new String[] { uid, name, user, av },
+                  unresolved ? com.callx.app.cache.ReelCardMetaCache.TTL_SHORT_MS : com.callx.app.cache.ReelCardMetaCache.TTL_DEFAULT_MS);
           reelOwnerInflight.remove(rid);
           if (isFinishing() || isDestroyed()) return;
           final StatusItem shown = reshareCardItem;

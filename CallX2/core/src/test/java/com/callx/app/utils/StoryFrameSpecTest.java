@@ -102,4 +102,12 @@ public class StoryFrameSpecTest {
         assertTrue(StoryFrameSpec.isInsideSafe(540, 1600, 600, 40, 0f, 1080, 1920, ins));
         assertFalse(StoryFrameSpec.isInsideSafe(540, 1600, 600, 40, 90f, 1080, 1920, ins));
     }
+
+    @Test public void v689_bottomChrome_growsWithCaption() {
+        float none = StoryFrameSpec.bottomChromeDp(0, false);
+        assertEquals(StoryFrameSpec.BOTTOM_MIN_DP, none, 0.01f);
+        assertEquals(StoryFrameSpec.BOTTOM_MIN_DP, StoryFrameSpec.bottomChromeDp(1, false), 0.01f); // 62 < min
+        assertTrue(StoryFrameSpec.bottomChromeDp(3, false) > StoryFrameSpec.bottomChromeDp(2, false));
+        assertTrue(StoryFrameSpec.bottomChromeDp(2, true) > StoryFrameSpec.bottomChromeDp(2, false));
+    }
 }

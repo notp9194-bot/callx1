@@ -21,3 +21,7 @@
 - Firebase: poora `reels/{id}` node ki jagah sirf `uid/ownerName/ownerPhoto` child reads; exists check `limitToFirst(1)`.
 - Tap targets: header 40dp, chip 36dp. Scrim 96dp. Duration ab pill badge. Username `@` ke saath.
 - RTL: header/chip/mute/card/scrim `setMarginStart`. Long-press pill intentionally rakha (v682 feature).
+
+## v686 — ReelCardMetaCache
+- Naya `cache/ReelCardMetaCache` (static LRU 256 + TTL): reel owner (10m; unresolved 1m), exists (10m), duration (1h).
+- StatusViewerActivity ke instance caches isi pe point karte hain → viewer band/open hone pe refetch nahi, header turant.

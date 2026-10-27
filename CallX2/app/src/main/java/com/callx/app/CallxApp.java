@@ -375,6 +375,13 @@ public class CallxApp extends Application implements Configuration.Provider {
                 com.callx.app.channel.ChannelScheduledPostWorker.schedulePeriodicWork(this);
                 // Status scheduled posts: same cadence/pattern as the channel worker above.
                 com.callx.app.services.StatusScheduledPostWorker.schedulePeriodicWork(this);
+                // Status media: hourly Wi-Fi background pre-download (scheduled here, not only when the Status tab opens),
+                // and wipe account-specific status caches on sign-out / account switch.
+                com.callx.app.services.StatusMediaPrefetchWorker.schedule(this);
+                com.google.firebase.auth.FirebaseAuth.getInstance().addAuthStateListener(a -> {
+                    com.google.firebase.auth.FirebaseUser u = a.getCurrentUser();
+                    com.callx.app.cache.StatusCacheController.onAuthChanged(CallxApp.this, u == null ? null : u.getUid());
+                });
             } catch (Exception e) {
                 Log.w(TAG, "WorkManager schedule (background) failed: " + e.getMessage());
             }

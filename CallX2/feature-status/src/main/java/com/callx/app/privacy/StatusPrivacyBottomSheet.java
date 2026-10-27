@@ -60,6 +60,24 @@ public class StatusPrivacyBottomSheet {
             });
             root.addView(row);
         }
+        // ── Status media (cache) controls ──
+        TextView mediaTitle = makeTv(ctx, "Status media", 16, true);
+        mediaTitle.setPadding(0, dp(ctx, 20), 0, dp(ctx, 6));
+        root.addView(mediaTitle);
+        android.widget.Switch autoSw = new android.widget.Switch(ctx);
+        autoSw.setText("Auto-download statuses on Wi-Fi");
+        autoSw.setChecked(com.callx.app.cache.StatusCachePrefs.isAutoDownloadOnWifi(ctx));
+        autoSw.setPadding(0, dp(ctx, 8), 0, dp(ctx, 8));
+        autoSw.setOnCheckedChangeListener((b, on) -> com.callx.app.cache.StatusCachePrefs.setAutoDownloadOnWifi(ctx, on));
+        root.addView(autoSw);
+        final long usedMb = com.callx.app.cache.StatusMediaManifest.totalBytes(ctx) / (1024L * 1024L);
+        final TextView clearTv = makeTv(ctx, "Clear status cache (" + usedMb + " MB)", 15, false);
+        clearTv.setPadding(0, dp(ctx, 12), 0, dp(ctx, 12));
+        clearTv.setOnClickListener(v -> com.callx.app.cache.StatusCacheController.clearMedia(ctx, () -> {
+            clearTv.setText("Clear status cache (0 MB)");
+            android.widget.Toast.makeText(ctx, "Status cache cleared", android.widget.Toast.LENGTH_SHORT).show();
+        }));
+        root.addView(clearTv);
         sheet.setContentView(new ScrollView(ctx) {{ addView(root); }});
         sheet.show();
     }

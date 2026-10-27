@@ -335,6 +335,10 @@ public class StatusFragment extends BaseFragment {
         super.onStart();
         if (mediaPreloader == null && getContext() != null)
             mediaPreloader = new com.callx.app.cache.StatusMediaPreloader(requireContext());
+        if (getContext() != null) {
+            com.callx.app.cache.StatusMediaManifest.sweepAsync(requireContext());          // expired status videos leave the player cache
+            com.callx.app.services.StatusMediaPrefetchWorker.schedule(requireContext());   // hourly Wi-Fi background pre-download
+        }
 
         // Channels: trigger Firebase → Room sync via ViewModel
         channelViewModel.refresh();

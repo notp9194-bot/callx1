@@ -50,7 +50,13 @@ import com.callx.app.feed.StatusFragment;
 @OptIn(markerClass = UnstableApi.class)
 public class StatusMediaPreloader {
     private static final String TAG           = "StatusPreloader";
-    private static final long   VIDEO_PRELOAD_BYTES = 2L * 1024 * 1024; // 2MB per video
+    private static final long   VIDEO_PRELOAD_BYTES = 2L * 1024 * 1024;  // 2MB per video on mobile data
+    private static final long   VIDEO_FULL_BYTES    = 24L * 1024 * 1024; // whole video (size-capped) on Wi-Fi / unmetered
+    private static final int    MAX_FULL_PER_SESSION = 12;               // tray: first N videos go full, the rest only warm 2MB
+    private static final long   EST_VIDEO_BYTES     = 8L * 1024 * 1024;  // planning size for quota checks
+    // url → true if cached FULL, false if only the 2MB warm-up (lets a later Wi-Fi call upgrade a partial one)
+    private final ConcurrentHashMap<String, Boolean> mMode = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger mFullQueued = new java.util.concurrent.atomic.AtomicInteger();
     private final Context       mContext;
     private final ExecutorService mExecutor;
     private final RequestOptions  mImageOptions;
@@ -92,14 +98,14 @@ public class StatusMediaPreloader {
     /** Public entry for the viewer: warm the first ~2MB of ONE video (the next status) into the player cache. */
     public void preloadVideoUrl(String videoUrl) {
         if (videoUrl == null || videoUrl.isEmpty()) return;
-        preloadVideo(videoUrl);
+        preloadVideo(videoUrl, 0L);
     }
 
     // ── Internal ──────────────────────────────────────────────────────────
     private void preloadSingle(StatusItem item) {
         if (item == null) return;
         if ("video".equals(item.type) && item.mediaUrl != null && !item.mediaUrl.isEmpty()) {
-            preloadVideo(item.mediaUrl);
+            preloadVideo(item.mediaUrl, item.effectiveExpiry());
         } else if ("image".equals(item.type) && item.mediaUrl != null && !item.mediaUrl.isEmpty()) {
             preloadImage(item.mediaUrl);
             // Thumbnail bhi preload karo agar alag hai
@@ -113,53 +119,99 @@ public class StatusMediaPreloader {
         }
         // text type: nothing to preload
     }
+    /** Unmetered (Wi-Fi) → cache the WHOLE video; metered → only the first 2MB. */
+    public static boolean isUnmetered(Context c) {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+            return cm != null && !cm.isActiveNetworkMetered();
+        } catch (Exception e) { return false; }
+    }
+
+    /** Lets a background worker abort a long download when WorkManager stops it. */
+    public interface CancelCheck { boolean isCancelled(); }
+
+    public static long cacheVideoBlocking(Context ctx, String url, boolean full, long expiryMs) throws Exception {
+        return cacheVideoBlocking(ctx, url, full, expiryMs, null);
+    }
+
     /**
-     * Video ka pehla VIDEO_PRELOAD_BYTES ExoPlayer cache mein download karo.
-     * Cache hit hone par skip karta hai.
+     * Blocking video cache fill (call off the main thread). full=true → whole file up to VIDEO_FULL_BYTES, else first 2MB.
+     * Skips when already cached; records expiry + size in StatusMediaManifest (eviction + quota).
+     * @return bytes newly added to the cache by this call
      */
-    private void preloadVideo(String videoUrl) {
-        if (mPreloading.contains(videoUrl)) {
-            Log.v(TAG, "Already preloading video: " + shortUrl(videoUrl));
-            return;
-        }
-        // Agar already kaafi data cache mein hai to skip
+    public static long cacheVideoBlocking(Context ctx, String url, boolean full, long expiryMs, final CancelCheck cancel) throws Exception {
+        final Context app = ctx.getApplicationContext();
+        StatusVideoCacheManager.init(app);
+        final androidx.media3.datasource.cache.SimpleCache cache = StatusVideoCacheManager.getSimpleCache();
+        final long cap = full ? VIDEO_FULL_BYTES : VIDEO_PRELOAD_BYTES;
+        final long len = androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(url)); // -1 = unknown
+        final long target = len > 0 ? Math.min(cap, len) : cap;
         long cached = 0;
-        try { // real cached byte count of the first 2MB (content-length metadata is the FULL size, not what is cached)
-            cached = StatusVideoCacheManager.getSimpleCache().getCachedBytes(videoUrl, 0, VIDEO_PRELOAD_BYTES);
-        } catch (Exception ignored) {}
-        if (cached >= VIDEO_PRELOAD_BYTES) {
-            Log.v(TAG, "Video already cached (" + cached + " bytes): " + shortUrl(videoUrl));
-            return;
+        try { cached = cache.getCachedBytes(url, 0, target); } catch (Exception ignored) {}
+        StatusMediaManifest.record(app, url, expiryMs);
+        if (len > 0 ? cached >= target : (!full && cached >= target)) { // already there
+            StatusMediaManifest.record(app, url, expiryMs, cached);
+            return 0;
         }
-        mPreloading.add(videoUrl);
+        if (cancel != null && cancel.isCancelled()) return 0;
+        final CacheDataSource ds = StatusVideoCacheManager.getCacheDataSourceFactory().createDataSource();
+        final DataSpec spec = new DataSpec.Builder()
+                .setUri(Uri.parse(url))
+                .setPosition(0)
+                .setLength(full ? androidx.media3.common.C.LENGTH_UNSET : VIDEO_PRELOAD_BYTES)
+                .build();
+        final java.util.concurrent.atomic.AtomicReference<CacheWriter> ref = new java.util.concurrent.atomic.AtomicReference<>();
+        final CacheWriter w = new CacheWriter(ds, spec, null, (requestLength, bytesCached, newBytesCached) -> {
+            if ((full && bytesCached > VIDEO_FULL_BYTES) || (cancel != null && cancel.isCancelled())) { // size cap / worker stopped
+                final CacheWriter c = ref.get();
+                if (c != null) c.cancel();
+            }
+        });
+        ref.set(w);
+        try { w.cache(); } catch (java.io.InterruptedIOException stopped) { /* cap reached or cancelled — keep what we have */ }
+        final long len2 = androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(url));
+        long after = 0;
+        try { after = len2 > 0 ? Math.min(cap, len2) : cache.getCachedBytes(url, 0, cap); } catch (Exception ignored) {}
+        StatusMediaManifest.record(app, url, expiryMs, after);
+        return Math.max(0L, after - cached);
+    }
+
+    /** Blocking image fill into Glide's disk cache (same DATA key the viewer reads). Call off the main thread. */
+    public static void cacheImageBlocking(Context ctx, String url) throws Exception {
+        Glide.with(ctx.getApplicationContext()).downloadOnly().load(url)
+                .submit().get(30, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    /**
+     * Video → whole file on Wi-Fi (if the user allows it, status quota has room and this session's full-video budget
+     * isn't used up), else first 2MB. A partial one is upgraded to full on a later Wi-Fi call. Cache hit → skip.
+     */
+    private void preloadVideo(final String videoUrl, final long expiryMs) {
+        if (mActiveTasks.containsKey(videoUrl)) return;
+        boolean full = isUnmetered(mContext) && StatusCachePrefs.isAutoDownloadOnWifi(mContext);
+        final Boolean prev = mMode.get(videoUrl);
+        if (prev != null && (prev || !full)) return;               // already done at the same or better quality
+        if (full) {
+            if (mFullQueued.get() >= MAX_FULL_PER_SESSION || !StatusMediaManifest.hasRoom(mContext, EST_VIDEO_BYTES)) full = false;
+            else mFullQueued.incrementAndGet();
+        }
+        if (prev != null && !full) return;                          // nothing to upgrade
+        final boolean fullF = full;
         Future<?> task = mExecutor.submit(() -> {
             try {
-                CacheDataSource.Factory factory = StatusVideoCacheManager.getCacheDataSourceFactory();
-                CacheDataSource cacheDataSource = factory.createDataSource();
-                DataSpec dataSpec = new DataSpec.Builder()
-                    .setUri(Uri.parse(videoUrl))
-                    .setPosition(0)
-                    .setLength(VIDEO_PRELOAD_BYTES)
-                    .build();
-                CacheWriter cacheWriter = new CacheWriter(
-                    cacheDataSource,
-                    dataSpec,
-                    null,
-                    (requestLength, bytesCached, newBytesCached) -> {
-                        // Progress — optional
-                    }
-                );
-                cacheWriter.cache();
-                Log.d(TAG, "Video preloaded: " + shortUrl(videoUrl));
+                cacheVideoBlocking(mContext, videoUrl, fullF, expiryMs);
+                mMode.put(videoUrl, fullF);
+                StatusMediaManifest.trimToQuota(mContext);
+                Log.d(TAG, "Video preloaded (" + (fullF ? "full" : "2MB") + "): " + shortUrl(videoUrl));
             } catch (Exception e) {
                 Log.w(TAG, "Video preload failed " + shortUrl(videoUrl) + ": " + e.getMessage());
-                mPreloading.remove(videoUrl); // failed → retry allowed
             } finally {
                 mActiveTasks.remove(videoUrl);
             }
         });
         mActiveTasks.put(videoUrl, task);
     }
+
     /**
      * Image Glide disk cache mein preload karo.
      */
@@ -180,6 +232,7 @@ public class StatusMediaPreloader {
         }
         mActiveTasks.clear();
         mPreloading.clear();
+        mMode.clear();
         Log.d(TAG, "All status preloads cancelled.");
     }
     /** Fragment destroy hone par call karo */
