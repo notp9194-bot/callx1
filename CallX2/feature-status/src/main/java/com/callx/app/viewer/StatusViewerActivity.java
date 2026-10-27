@@ -4673,8 +4673,11 @@ import com.callx.app.utils.AlertDialogStyler;
           boolean isLandscapeMedia = current != null
                   && current.mediaWidth > 0 && current.mediaHeight > 0
                   && current.mediaWidth > current.mediaHeight;
+          // Photos are pre-framed in the composer (guide box / Fit) and must show 1:1 — the stabilizer's
+          // 1.42x overscan would crop their left/right/top/bottom. Stabilizer only for non-image media.
+          boolean isPhoto = current != null && "image".equals(current.type);
           if (StoryStabilizerPrefs.isEnabled(this) && creatorAllows
-                  && !isLandscapeMedia) {
+                  && !isLandscapeMedia && !isPhoto) {
               // First-time-ever "Tilt your phone" hint (Instagram-style),
               // shown the moment the stabilizer actually engages. No-op on
               // every call after the very first, and no-op instantly if

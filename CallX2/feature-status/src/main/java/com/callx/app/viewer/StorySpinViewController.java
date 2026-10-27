@@ -134,15 +134,17 @@ public final class StorySpinViewController implements SensorEventListener {
         this.targets = views;
         for (View v : views) {
             if (v == null) continue;
-            v.setScaleX(OVERSCAN_SCALE);
-            v.setScaleY(OVERSCAN_SCALE);
+            // FIX: overscan zoom is applied ONLY while the stabilizer is running (see start()).
+            // Setting it here left every story permanently zoomed 1.42x when stabilizer was off.
+            v.setScaleX(1f);
+            v.setScaleY(1f);
             // Rotation/scale here is a pure compositor transform (no content
             // redraw needed frame to frame). Promoting to a hardware layer
             // means each setRotation() just re-composites an already-cached
             // GPU layer instead of re-recording/redrawing the whole view
             // (and, for a PlayerView, potentially its child SurfaceTexture
             // path) on every vsync tick.
-            v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            // hardware layer is set in start()
         }
     }
 
@@ -151,6 +153,12 @@ public final class StorySpinViewController implements SensorEventListener {
     public void start() {
         if (rotationSensor == null || sensorManager == null || targets == null || active) return;
         active = true;
+        for (View v : targets) {
+            if (v == null) continue;
+            v.setScaleX(OVERSCAN_SCALE);
+            v.setScaleY(OVERSCAN_SCALE);
+            v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        }
         referenceCaptured = false;
         currentRotationDeg = 0f;
         targetCounterRotationDeg = 0f;
@@ -177,10 +185,12 @@ public final class StorySpinViewController implements SensorEventListener {
      *  Views back to level/identity. Safe to call from onPause(), and safe
      *  to call twice. */
     public void stop() {
-        if (!active) return;
-        active = false;
-        sensorManager.unregisterListener(this);
-        choreographer.removeFrameCallback(frameCallback);
+        if (active) {
+            active = false;
+            if (sensorManager != null) sensorManager.unregisterListener(this);
+            choreographer.removeFrameCallback(frameCallback);
+        }
+        // Always snap back to identity, even if the stabilizer never started.
         if (targets != null) {
             for (View v : targets) {
                 if (v == null) continue;
