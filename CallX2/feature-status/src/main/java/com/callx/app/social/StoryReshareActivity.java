@@ -291,6 +291,13 @@ public class StoryReshareActivity extends AppCompatActivity {
         data.put("resharedFromOwnerName", ownerName);
         if (ownerUsername != null && !ownerUsername.isEmpty()) data.put("resharedFromOwnerUsername", ownerUsername);
         data.put("resharedFromOwnerAvatar", ownerAvatar);
+        // Chain repost (A -> B -> C): remember B so the viewer can show "via B" under the original creator.
+        String viaUid = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_VIA_UID);
+        String viaName = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_VIA_NAME);
+        if (viaUid != null && !viaUid.isEmpty() && !viaUid.equals(ownerUid)) {
+            data.put("resharedViaUid", viaUid);
+            if (viaName != null && !viaName.isEmpty()) data.put("resharedViaName", viaName);
+        }
         data.put("resharedThumbnailUrl", thumbUrl);
         if (origMediaW > 0 && origMediaH > 0) { data.put("mediaWidth", origMediaW); data.put("mediaHeight", origMediaH); }
         // BUG FIX (silent-crash-on-repost): the reshare's own "type" is always
@@ -357,6 +364,13 @@ public class StoryReshareActivity extends AppCompatActivity {
                                 }
                                 @Override public void onComplete(DatabaseError error, boolean committed, DataSnapshot currentData) {}
                             });
+                }
+                if ("status".equals(contentType)) {
+                    // Tell the original creator (and the reposter we took it from, for a chain) about the repost.
+                    com.callx.app.utils.StatusReshareHelper.notifyRepost(ownerUid, myUid, myName, contentId);
+                    String vUid = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_VIA_UID);
+                    if (vUid != null && !vUid.equals(ownerUid))
+                        com.callx.app.utils.StatusReshareHelper.notifyRepost(vUid, myUid, myName, reshareId);
                 }
                 Toast.makeText(this, "Added to your story!", Toast.LENGTH_SHORT).show();
                 setResult(RESULT_OK);

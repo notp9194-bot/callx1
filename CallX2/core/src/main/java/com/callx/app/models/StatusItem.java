@@ -274,6 +274,9 @@ public class StatusItem {
     public String resharedFromOwnerAvatar= "";
     /** @username of the original owner (resharedFromOwnerName is the display name). Empty on older reshares. */
     public String resharedFromOwnerUsername = "";
+    /** Chain repost (A -> B -> C): who the repost was taken FROM directly (B). Empty for a first-level repost. */
+    public String resharedViaUid  = "";
+    public String resharedViaName = "";
     /** Thumbnail URL of the original content for the card sticker */
     public String resharedThumbnailUrl   = "";
     /** Reel the status was made from (reel_story / reel_clip) — lets the viewer resolve the reel owner for old rows. */
@@ -411,6 +414,10 @@ public class StatusItem {
             m.put("resharedFromOwnerAvatar", resharedFromOwnerAvatar);
         if (resharedFromOwnerUsername != null && !resharedFromOwnerUsername.isEmpty())
             m.put("resharedFromOwnerUsername", resharedFromOwnerUsername);
+        if (resharedViaUid != null && !resharedViaUid.isEmpty())
+            m.put("resharedViaUid", resharedViaUid);
+        if (resharedViaName != null && !resharedViaName.isEmpty())
+            m.put("resharedViaName", resharedViaName);
         if (resharedThumbnailUrl != null && !resharedThumbnailUrl.isEmpty())
             m.put("resharedThumbnailUrl", resharedThumbnailUrl);
         if (attribution != null && !attribution.isEmpty())

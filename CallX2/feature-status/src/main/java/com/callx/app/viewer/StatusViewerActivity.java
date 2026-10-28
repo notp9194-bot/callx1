@@ -997,6 +997,35 @@ import com.callx.app.utils.AlertDialogStyler;
               });
       }
       // ── Dead-status pruning (deleted / expired while viewer is open) ──────
+      private final java.util.HashMap<String, Boolean> origGoneCache = new java.util.HashMap<>();
+      private String origStateKey = "";
+      /** Repost card header: dims it and appends "unavailable" once we know the original story expired / was deleted. */
+      private void applyOriginalState(final String uid, final String sid, final TextView tv,
+                                      final View row, final String base) {
+          if (uid == null || uid.isEmpty() || sid == null || sid.isEmpty()) return;
+          final String key = uid + "/" + sid;
+          origStateKey = key;
+          final Boolean cached = origGoneCache.get(key);
+          if (cached != null) { paintOriginalState(cached, tv, row, base); return; }
+          row.setAlpha(1f);
+          try {
+              FirebaseUtils.getStatusRef().child(uid).child(sid).get().addOnCompleteListener(t -> {
+                  if (!t.isSuccessful() || t.getResult() == null) return; // unknown -> leave as is
+                  boolean gone;
+                  try {
+                      StatusItem o = t.getResult().getValue(StatusItem.class);
+                      gone = !t.getResult().exists() || o == null || isDead(o, com.callx.app.utils.ServerClock.now());
+                  } catch (Exception e) { return; }
+                  origGoneCache.put(key, gone);
+                  if (isFinishing() || isDestroyed() || !key.equals(origStateKey)) return; // user moved on
+                  paintOriginalState(gone, tv, row, base);
+              });
+          } catch (Exception ignored) {}
+      }
+      private void paintOriginalState(boolean gone, TextView tv, View row, String base) {
+          row.setAlpha(gone ? 0.55f : 1f);
+          tv.setText(gone ? base + "  \u00B7  unavailable" : base);
+      }
       private static boolean isDead(StatusItem s, long now) {
           return !StatusItem.isLive(s, now);
       }
@@ -2482,6 +2511,13 @@ import com.callx.app.utils.AlertDialogStyler;
           final String cId  = s.resharedFromId != null ? s.resharedFromId : "";
           final String rid = reelCard ? reelIdOf(s) : "";
           final boolean isStoryRes = "status".equals(s.resharedFromType);
+          if (isStoryRes && tv != null) {
+              // Chain repost: credit the ORIGINAL creator, then a small "via B"; dim + tag it if the original is gone.
+              final String via = nzs(s.resharedViaName);
+              final String base = via.isEmpty() ? shownLabel : shownLabel + "  \u00B7  via " + via;
+              tv.setText(base);
+              applyOriginalState(cUid, cId, tv, row, base);
+          }
           // Story reshare → original story; reel card → the SAME reel (name / avatar / chip all tappable).
           if (isStoryRes) {
               row.setClickable(true);
@@ -4628,9 +4664,19 @@ import com.callx.app.utils.AlertDialogStyler;
                   return;
               }
               pauseProgress();
-              android.content.Intent intent = com.callx.app.utils.StatusReshareHelper
-                      .buildReshareStatusIntent(this, current, ownerName, ownerUid);
-              startActivity(intent);
+              final StatusItem src = current;
+              // Verifies the ORIGINAL creator's allowSharing (chain reposts), that the original is still live,
+              // and that this viewer hasn't already reposted it.
+              com.callx.app.utils.StatusReshareHelper.checkCanRepost(src, myUid, (ok, msg) -> {
+                  if (isFinishing() || isDestroyed()) return;
+                  if (!ok) {
+                      if (msg != null) Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+                      resumeProgress();
+                      return;
+                  }
+                  startActivity(com.callx.app.utils.StatusReshareHelper
+                          .buildReshareStatusIntent(this, src, ownerName, ownerUid));
+              });
           };
       }
       /**
