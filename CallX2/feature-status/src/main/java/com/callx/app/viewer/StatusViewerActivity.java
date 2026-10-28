@@ -2354,8 +2354,49 @@ import com.callx.app.utils.AlertDialogStyler;
               applyReshareCardMode(shown, false); // header picks up the resolved owner
       }
 
+      // ── Old chain reposts (saved before the fix: card credits the reposter B instead of the creator A) ──
+      // key = repost id; value = true once resolved (or confirmed not a chain). Mutates the in-memory item only.
+      private final java.util.HashMap<String, Boolean> chainHealed = new java.util.HashMap<>();
+      private final java.util.HashSet<String> chainInflight = new java.util.HashSet<>();
+      private static boolean isRepostOfRepost(StatusItem s) {
+          return s != null && s.type != null && s.type.endsWith("_reshare") && "status".equals(s.resharedFromType)
+                  && !nzs(s.resharedFromId).isEmpty() && !nzs(s.resharedFromOwnerUid).isEmpty();
+      }
+      /** If this repost points at ANOTHER repost, walk the chain back to the real creator and rewrite the card's owner fields. */
+      private void healChainOrigin(final StatusItem s) {
+          if (s == null || nzs(s.id).isEmpty() || !isRepostOfRepost(s) || chainHealed.containsKey(s.id)) return;
+          if (!chainInflight.add(s.id)) return;
+          walkChain(s, s.resharedFromOwnerUid, s.resharedFromId, 0);
+      }
+      private void walkChain(final StatusItem s, final String uid, final String sid, final int depth) {
+          try {
+              FirebaseUtils.getStatusRef().child(uid).child(sid).get().addOnCompleteListener(t -> {
+                  StatusItem o = null;
+                  boolean readOk = t.isSuccessful() && t.getResult() != null;
+                  try { if (readOk && t.getResult().exists()) o = t.getResult().getValue(StatusItem.class); } catch (Exception ignored) {}
+                  if (o != null && depth < 5 && isRepostOfRepost(o)) { // still a repost -> keep walking
+                      final StatusItem fo = o;
+                      if (nzs(s.resharedViaName).isEmpty()) { s.resharedViaUid = nzs(s.resharedFromOwnerUid); s.resharedViaName = nzs(s.resharedFromOwnerName); }
+                      s.resharedFromType = "status";
+                      s.resharedFromId = fo.resharedFromId;
+                      s.resharedFromOwnerUid = fo.resharedFromOwnerUid;
+                      s.resharedFromOwnerName = fo.resharedFromOwnerName;
+                      s.resharedFromOwnerUsername = fo.resharedFromOwnerUsername;
+                      s.resharedFromOwnerAvatar = fo.resharedFromOwnerAvatar;
+                      walkChain(s, fo.resharedFromOwnerUid, fo.resharedFromId, depth + 1);
+                      return;
+                  }
+                  chainInflight.remove(s.id);
+                  if (!readOk) return; // network hiccup: try again next time
+                  chainHealed.put(s.id, true);
+                  if (isFinishing() || isDestroyed()) return;
+                  if (idx < items.size() && items.get(idx) != null && s.id.equals(items.get(idx).id)) applyReshareCardMode(s, false);
+              });
+          } catch (Exception e) { chainInflight.remove(s.id); }
+      }
       private void applyReshareCardMode(StatusItem s) { applyReshareCardMode(s, true); }
       private void applyReshareCardMode(StatusItem s, boolean animate) {
+          healChainOrigin(s);
           if (!isCardType(s)) return;
           final boolean hasMedia = (s.mediaUrl != null && !s.mediaUrl.isEmpty())
                   || (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty())
