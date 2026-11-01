@@ -334,7 +334,7 @@ public class MainActivity extends AppCompatActivity
           // no longer called — those cards now live in the Chats tab quick-access
           // header instead). YouTube's background notification worker still needs
           // to run regardless of the button, so that one scheduling call is kept.
-          YouTubeNotificationWorker.schedule(this);
+          // YouTubeNotificationWorker.schedule(this) -> moved to startup stage 4 (see scheduleStartupStages()).
 
         binding.btnSearchToolbar.setOnClickListener(v -> {
             startActivity(new Intent(this, SearchActivity.class));
@@ -445,11 +445,41 @@ public class MainActivity extends AppCompatActivity
             else                        startActivity(new Intent(this, SearchActivity.class));
         });
 
-        loadMyAvatar();
-        loadReelsAvatarIntoNavTab();  // Reels nav tab mein Reels profile avatar dikhao
-        refreshFcmToken();
-        // ── In-App Update Check — Firebase se version compare karta hai ──
-        AppUpdateManager.check(this);
+        // Everything that is NOT needed to draw the Chats tab now runs in ordered stages
+        // (avatars -> badges/status prewarm -> background work), each after the previous one.
+        scheduleStartupStages();
+    }
+
+    // ── Staged cold start (WhatsApp/Instagram-style) ──────────────────────
+    // Stage 1 (before this): inflate + Chats tab from its cached snapshot.
+    // Stage 2 (after first frame): header/nav avatars.
+    // Stage 3 (+~400ms): nav badges + Status card prewarm (startBadgeListeners).
+    // Stage 4 (+~2.5s):  FCM token, in-app update check, YouTube notification worker.
+    // Each task is queued and run one by one with a small gap so none of them stack on one frame.
+    private final java.util.ArrayDeque<Runnable> startupQueue = new java.util.ArrayDeque<>();
+    private final android.os.Handler startupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean startupBadgesStarted = false;
+
+    private void scheduleStartupStages() {
+        startupQueue.add(() -> loadMyAvatar());
+        startupQueue.add(() -> loadReelsAvatarIntoNavTab());
+        startupQueue.add(() -> { startupBadgesStarted = true; startBadgeListeners(); });
+        startupQueue.add(() -> refreshFcmToken());
+        startupQueue.add(() -> AppUpdateManager.check(this));
+        startupQueue.add(() -> YouTubeNotificationWorker.schedule(this));
+        // Wait for the first frame, then drain.
+        binding.getRoot().post(() -> android.view.Choreographer.getInstance().postFrameCallback(
+                f -> startupHandler.postDelayed(this::drainStartupQueue, 150L)));
+    }
+
+    private void drainStartupQueue() {
+        if (isFinishing() || isDestroyed()) { startupQueue.clear(); return; }
+        Runnable r = startupQueue.poll();
+        if (r == null) return;
+        try { r.run(); } catch (Exception e) { android.util.Log.w("Startup", "stage task failed", e); }
+        // Gap grows for the background-only tail (token/update/worker) so nothing competes with scrolling.
+        long gap = startupQueue.size() <= 3 ? 1200L : 200L;
+        startupHandler.postDelayed(this::drainStartupQueue, gap);
     }
 
     // Called when app is ALREADY running and user taps a reel notification or deep link
@@ -527,7 +557,8 @@ public class MainActivity extends AppCompatActivity
     @Override protected void onStart() {
         super.onStart();
         CallForegroundService.addStateListener(callStateListener);
-        startBadgeListeners();
+        // First start: badges are attached by startup stage 3 (after the Chats tab drew). Later starts: immediately.
+        if (startupBadgesStarted) startBadgeListeners();
         updateReturnToCallBanner();
     }
 
@@ -773,6 +804,8 @@ public class MainActivity extends AppCompatActivity
         // touched by a stray lock()/unlock() call from a Reels fragment
         // still finishing off its own lifecycle.
         com.callx.app.utils.ReelTabSwipeLock.setController(null);
+        startupHandler.removeCallbacksAndMessages(null);
+        startupQueue.clear();
         CallForegroundService.removeStateListener(callStateListener);
         detachBadgeListeners();
         GlobalVoicePlaybackManager.getInstance().removeListener(voiceMiniPlayerListener);
