@@ -212,10 +212,19 @@ public class ImageCompressor {
      * Never recycles {@code src} (the caller owns it); only bitmaps it creates itself are recycled.
      */
     public static Result compressBitmapSync(Context ctx, Bitmap src, boolean hd) throws IOException {
+        return compressBitmapSync(ctx, src, hd, 0, 0L);
+    }
+
+    /**
+     * Same as above with an optional quality / size-cap override (0 = tier default). Used by Status so a
+     * photo-on-blur canvas keeps its crisp photo edge (lossy WebP smears the sharp/blur boundary at q92).
+     */
+    public static Result compressBitmapSync(Context ctx, Bitmap src, boolean hd,
+                                            int qualityOverride, long targetBytesOverride) throws IOException {
         int maxW     = hd ? HD_MAX_WIDTH  : FULL_MAX_WIDTH;
         int maxH     = hd ? HD_MAX_HEIGHT : FULL_MAX_HEIGHT;
-        int quality  = hd ? HD_QUALITY    : FULL_QUALITY;
-        long target  = hd ? HD_TARGET_BYTES : FULL_TARGET_BYTES;
+        int quality  = qualityOverride > 0 ? qualityOverride : (hd ? HD_QUALITY : FULL_QUALITY);
+        long target  = targetBytesOverride > 0 ? targetBytesOverride : (hd ? HD_TARGET_BYTES : FULL_TARGET_BYTES);
 
         Bitmap fullBmp = src;
         int w = src.getWidth(), h = src.getHeight();

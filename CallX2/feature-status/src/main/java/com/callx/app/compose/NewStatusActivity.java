@@ -1890,11 +1890,14 @@ public class NewStatusActivity extends AppCompatActivity {
                 || editorBlurBackground == null || editorBlurBackground.getDrawable() == null) {
             throw new IllegalStateException("Editor layers are not ready");
         }
-        final int outputWidth = 1080;
+        final int outputWidth = 1440; // was 1080: the preview view is ~1000px, so 1080 UP-scaled it (soft photo edge)
         final int outputHeight = Math.max(1, Math.round(outputWidth
                 * stickerOverlayFrame.getHeight() / (float) stickerOverlayFrame.getWidth()));
         Bitmap output = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(output);
+        canvas.setDrawFilter(new android.graphics.PaintFlagsDrawFilter(0,
+                android.graphics.Paint.FILTER_BITMAP_FLAG | android.graphics.Paint.ANTI_ALIAS_FLAG
+                        | android.graphics.Paint.DITHER_FLAG)); // smooth (not nearest) scaling of the photo layer
         canvas.scale(outputWidth / (float) stickerOverlayFrame.getWidth(),
                 outputHeight / (float) stickerOverlayFrame.getHeight());
 
@@ -4209,7 +4212,13 @@ public class NewStatusActivity extends AppCompatActivity {
                             new StatusBlurTransformation(12)))
                     .into(editorBlurBackground);
         }
-        Glide.with(this).load(uri).fitCenter().into(binding.ivPreview);
+        // Decode the photo at (up to) 2400px instead of the view's ~1000px: the story is baked from this view,
+        // so a view-sized bitmap would be stretched again at bake time and the photo edge would look soft.
+        Glide.with(this).load(uri).fitCenter().override(2400, 2400)
+                .downsample(com.bumptech.glide.load.resource.bitmap.DownsampleStrategy.AT_MOST)
+                .format(com.bumptech.glide.load.DecodeFormat.PREFER_ARGB_8888)
+                .disallowHardwareConfig()
+                .into(binding.ivPreview);
         binding.ivPreview.setScaleX(1f);
         binding.ivPreview.setScaleY(1f);
         binding.ivPreview.setTranslationX(0f);
@@ -4460,7 +4469,7 @@ public class NewStatusActivity extends AppCompatActivity {
             // original JPEG -> ImageCompressor route below if anything throws.
             ImageCompressor.Result fastResult = null;
             try {
-                fastResult = ImageCompressor.compressBitmapSync(this, composed, STATUS_PHOTO_HD);
+                fastResult = ImageCompressor.compressBitmapSync(this, composed, STATUS_PHOTO_HD, 96, 4_500_000L);
             } catch (Throwable ignored) { /* fall through to the slow path */ }
             if (fastResult != null) {
                 final ImageCompressor.Result fr = fastResult;
