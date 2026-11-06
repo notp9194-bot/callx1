@@ -291,6 +291,8 @@ public class StoryReshareActivity extends AppCompatActivity {
         data.put("resharedFromOwnerName", ownerName);
         if (ownerUsername != null && !ownerUsername.isEmpty()) data.put("resharedFromOwnerUsername", ownerUsername);
         data.put("resharedFromOwnerAvatar", ownerAvatar);
+        int srcDisplayMs = getIntent().getIntExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_DISPLAY_MS, 0);
+        if (srcDisplayMs > 0) data.put("displayMs", srcDisplayMs); // repost keeps the creator's play time
         // Chain repost (A -> B -> C): remember B so the viewer can show "via B" under the original creator.
         String viaUid = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_VIA_UID);
         String viaName = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_VIA_NAME);

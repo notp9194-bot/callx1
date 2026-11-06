@@ -76,19 +76,29 @@ public final class StatusSeenTracker {
      */
     public static void reactTo(String ownerUid, String statusId, String emoji,
                                 String currentReaction, OnReactionCallback cb) {
+        reactTo(ownerUid, statusId, emoji, currentReaction, cb, null);
+    }
+    /** Same as above, plus {@code onFail} (main thread) when the write is rejected / fails. */
+    public static void reactTo(String ownerUid, String statusId, String emoji,
+                                String currentReaction, OnReactionCallback cb, Runnable onFail) {
         if (ownerUid == null || statusId == null || emoji == null) return;
-        String myUid = safeUid();
+        final String myUid = safeUid();
         if (myUid == null) return;
         com.google.firebase.database.DatabaseReference ref = FirebaseUtils.getStatusRef()
             .child(ownerUid).child(statusId).child("reactions").child(myUid);
         if (emoji.equals(currentReaction)) {
             // Toggle off — remove reaction
-            ref.removeValue().addOnSuccessListener(u -> { if (cb != null) cb.onReaction(null); });
+            ref.removeValue()
+               .addOnSuccessListener(u -> { if (cb != null) cb.onReaction(null); })
+               .addOnFailureListener(e -> { if (onFail != null) onFail.run(); });
         } else {
-            // Set new reaction
-            ref.setValue(emoji).addOnSuccessListener(u -> { if (cb != null) cb.onReaction(emoji); });
-            // Notify owner (fire-and-forget)
-            notifyReaction(ownerUid, statusId, emoji, myUid);
+            // Set new reaction; the owner is notified only once the write really succeeded
+            ref.setValue(emoji)
+               .addOnSuccessListener(u -> {
+                   if (cb != null) cb.onReaction(emoji);
+                   notifyReaction(ownerUid, statusId, emoji, myUid);
+               })
+               .addOnFailureListener(e -> { if (onFail != null) onFail.run(); });
         }
     }
     public static void reactTo(String ownerUid, String statusId, String emoji) {

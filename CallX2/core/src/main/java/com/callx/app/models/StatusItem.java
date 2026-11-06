@@ -59,6 +59,8 @@ public class StatusItem {
     public int     mediaWidth;
     public int     mediaHeight;
     public int     durationSec;      // video duration hint in seconds
+    /** How long a photo/text status plays in the viewer (ms). 0 = default (5s). Videos use their own length. */
+    public int     displayMs;
 
     // ── Text style ────────────────────────────────────────────────────
     public String  bgColor;          // hex, e.g. "#6200EE"
@@ -357,6 +359,7 @@ public class StatusItem {
         if (mediaWidth != 0)          m.put("mediaWidth", mediaWidth);
         if (mediaHeight != 0)         m.put("mediaHeight", mediaHeight);
         if (durationSec != 0)         m.put("durationSec", durationSec);
+        if (displayMs > 0)            m.put("displayMs", displayMs);
         if (bgColor != null)          m.put("bgColor", bgColor);
         if (bgColor2 != null)         m.put("bgColor2", bgColor2);
         if (gradientColors != null)   m.put("gradientColors", gradientColors);

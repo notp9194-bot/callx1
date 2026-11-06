@@ -62,5 +62,14 @@
                 android:includeFontPadding="false"
                 android:clickable="true" android:focusable="true"/>
         </LinearLayout>
+        <TextView android:id="@+id/tv_qr_more"
+            android:layout_width="wrap_content" android:layout_height="40dp"
+            android:layout_marginTop="14dp"
+            android:paddingStart="18dp" android:paddingEnd="18dp"
+            android:gravity="center"
+            android:text="＋  More reactions"
+            android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold"
+            android:background="@drawable/bg_quick_reaction_more"
+            android:clickable="true" android:focusable="true"/>
     </LinearLayout>
 </FrameLayout>

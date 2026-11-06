@@ -61,6 +61,12 @@ public class FloatingReactionOverlayView extends FrameLayout {
 
     private final Runnable spawnTick = this::spawnTick;
 
+    // Optional launch point (overlay-local px): the first particles leave from here instead of the bottom edge
+    // (used so a tapped emoji "flies out" of the grid cell the user pressed).
+    private float originX = -1f, originY = -1f;
+    private int originSpawns = 0;
+    private static final int ORIGIN_SPAWN_COUNT = 9;
+
     public FloatingReactionOverlayView(Context ctx) { super(ctx); init(); }
     public FloatingReactionOverlayView(Context ctx, AttributeSet attrs) { super(ctx, attrs); init(); }
     public FloatingReactionOverlayView(Context ctx, AttributeSet attrs, int defStyle) { super(ctx, attrs, defStyle); init(); }
@@ -107,8 +113,16 @@ public class FloatingReactionOverlayView extends FrameLayout {
         handler.post(spawnTick);
     }
 
+    /** Burst whose first particles rise from (cx, cy) in this view's own coordinates, then continues as usual. */
+    public void playBurstFrom(String emoji, float cx, float cy) {
+        if (emoji == null || emoji.isEmpty()) return;
+        playBurst(emoji);                 // resets origin via stop()
+        originX = cx; originY = cy; originSpawns = 0;
+    }
+
     /** Stops spawning new particles and clears any in-flight ones immediately. */
     public void stop() {
+        originX = -1f; originY = -1f; originSpawns = 0;
         running = false;
         handler.removeCallbacks(spawnTick);
         for (int i = getChildCount() - 1; i >= 0; i--) {
@@ -148,8 +162,17 @@ public class FloatingReactionOverlayView extends FrameLayout {
         lp.gravity = Gravity.BOTTOM | Gravity.START;
         int width = getWidth();
         int startX = width > size ? random.nextInt(width - size) : 0;
+        final boolean fromOrigin = originX >= 0f && originSpawns < ORIGIN_SPAWN_COUNT && getHeight() > 0;
+        float riseFromOrigin = 0f;
+        if (fromOrigin) {
+            originSpawns++;
+            startX = Math.max(0, Math.min(width - size, Math.round(originX - size / 2f) + random.nextInt(dp(40)) - dp(20)));
+            lp.bottomMargin = Math.round(getHeight() - originY - size / 2f);
+            riseFromOrigin = originY + size;
+        } else {
+            lp.bottomMargin = -size; // start just below the visible bottom edge
+        }
         lp.leftMargin = startX;
-        lp.bottomMargin = -size; // start just below the visible bottom edge
         particle.setLayoutParams(lp);
         particle.setAlpha(0f);
         float startRotation = random.nextInt(21) - 10; // -10°..+10°
@@ -158,7 +181,7 @@ public class FloatingReactionOverlayView extends FrameLayout {
 
         // Horizontal drift: a gentle sideways sway, randomized left or right.
         float driftX = (random.nextBoolean() ? 1f : -1f) * (dp(18) + random.nextInt(dp(28)));
-        float riseDistance = getHeight() > 0 ? getHeight() + size : dp(600);
+        float riseDistance = fromOrigin ? riseFromOrigin : (getHeight() > 0 ? getHeight() + size : dp(600));
         float endRotation = startRotation + (random.nextBoolean() ? 18f : -18f);
 
         // A single ValueAnimator drives translation/rotation/alpha together

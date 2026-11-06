@@ -33,6 +33,7 @@ public final class StatusReshareHelper {
     public static final String EXTRA_STICKERS_JSON  = StoryReshareActivity.EXTRA_STICKERS_JSON;
     // ── Original text-status content (WhatsApp preserves this on repost even
     //    when there's no mediaUrl/thumbnailUrl to show, e.g. plain text statuses) ──
+    public static final String EXTRA_DISPLAY_MS = "EXTRA_DISPLAY_MS"; // source play time, kept on the repost
     public static final String EXTRA_VIA_UID  = "EXTRA_VIA_UID";   // chain repost: the reposter we took it from (B)
     public static final String EXTRA_VIA_NAME = "EXTRA_VIA_NAME";
     public static final String EXTRA_ORIGINAL_TEXT       = "EXTRA_ORIGINAL_TEXT";
@@ -95,6 +96,7 @@ public final class StatusReshareHelper {
             i.putExtra(EXTRA_VIA_UID,  safeStr(ownerUid));   // the reposter we are taking it from (B)
             i.putExtra(EXTRA_VIA_NAME, safeStr(ownerName));
         }
+        if (status.displayMs > 0) i.putExtra(EXTRA_DISPLAY_MS, status.displayMs);
         i.putExtra(EXTRA_CONTENT_TYPE,  cType);
         i.putExtra(EXTRA_CONTENT_ID,    safeStr(cId));
         i.putExtra(EXTRA_OWNER_UID,     safeStr(oUid));

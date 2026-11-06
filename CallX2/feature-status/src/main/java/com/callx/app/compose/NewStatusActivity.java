@@ -283,6 +283,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupFontStylePicker();
         setupPrivacyButton();
         setupExpiryButton();
+        setupDisplayDurationButton();
         setupCloseFriendsToggle();
         setupAllowSharingToggle();
         setupStabilizerToggle();
@@ -456,6 +457,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private void showWizardStep(int step) {
         wizardStep = Math.max(0, Math.min(2, step));
+        updateDisplayDurationUi();
 
         for (int i = 0; i < binding.statusFormContent.getChildCount(); i++) {
             View child = binding.statusFormContent.getChildAt(i);
@@ -1129,7 +1131,7 @@ public class NewStatusActivity extends AppCompatActivity {
         String[][] tools = {
                 {"Text", "Aa"}, {"Stickers", "☺"}, {"Music", "♫"},
                 {"Restyle", "✎"}, {"Effects", "✦"}, {"Mention", "@"},
-                {"Draw", "〰"}, {"Guide", "▭"}, {"Fit", "⛶"}, {"Save", "↓"}, {"Label AI", "▣"}, {"More", "···"}
+                {"Draw", "〰"}, {"Guide", "▭"}, {"Fit", "⛶"}, {"Save", "↓"}, {"Label AI", "▣"}, {"Timer", "⏱"}, {"More", "···"}
         };
         for (String[] tool : tools) {
             LinearLayout row = new LinearLayout(this);
@@ -1385,6 +1387,9 @@ public class NewStatusActivity extends AppCompatActivity {
                 break;
             case "Label AI":
                 toggleAiLabel();
+                break;
+            case "Timer":
+                showDisplayDurationPicker();
                 break;
             case "More":
                 showEditorMoreMenu(anchor);
@@ -1653,6 +1658,142 @@ public class NewStatusActivity extends AppCompatActivity {
         if (editorAiLabel != null) editorAiLabel.setVisibility(editorAiLabelEnabled ? View.VISIBLE : View.GONE);
         if (editorToolRail != null) editorToolRail.bringToFront();
         toast(editorAiLabelEnabled ? "AI label added to preview" : "AI label removed");
+    }
+
+    // ── Status play duration (photo/text only; a video plays for its own length) ──
+    private static final int[] DISPLAY_MS_OPTIONS = {3000, 5000, 7000, 10000, 15000, 30000};
+    private int selectedDisplayMs = 5000;   // Instagram-style default
+
+    private static final String PREFS_UI = "status_editor_prefs";
+    private static final String KEY_DISPLAY_MS = "display_ms";
+
+    /** Restores the last chosen play time and wires the publish-step button. */
+    private void setupDisplayDurationButton() {
+        try {
+            int saved = getSharedPreferences(PREFS_UI, MODE_PRIVATE).getInt(KEY_DISPLAY_MS, 5000);
+            for (int o : DISPLAY_MS_OPTIONS) if (o == saved) selectedDisplayMs = saved;
+        } catch (Exception ignored) {}
+        View b = binding.getRoot().findViewWithTag("btn_display_duration");
+        if (b != null) b.setOnClickListener(v -> showDisplayDurationPicker());
+        updateDisplayDurationUi();
+    }
+
+    /** Keeps the publish-step button and the rail Timer tool (label + highlight) in sync with the choice. */
+    private void updateDisplayDurationUi() {
+        boolean video = pickedVideo != null;
+        View b = binding.getRoot().findViewWithTag("btn_display_duration");
+        if (b instanceof Button) {
+            ((Button) b).setText(video ? "▶ Video length" : "▶ " + (selectedDisplayMs / 1000) + " sec");
+            b.setAlpha(video ? 0.5f : 1f);
+        }
+        View row = editorToolRows != null ? editorToolRows.get("Timer") : null;
+        if (row instanceof LinearLayout && ((LinearLayout) row).getChildCount() >= 2) {
+            View l = ((LinearLayout) row).getChildAt(0), ic = ((LinearLayout) row).getChildAt(1);
+            boolean custom = !video && selectedDisplayMs != 5000;
+            if (l instanceof TextView) ((TextView) l).setText(custom ? (selectedDisplayMs / 1000) + "s" : "Timer");
+            if (ic instanceof TextView) setRailIconActive((TextView) ic, custom);
+        }
+    }
+
+    /** Longer text / attached music needs more time than the 5s default. */
+    private int suggestedDisplayMs() {
+        int chars = 0;
+        try {
+            if (binding.etText.getText() != null) chars += binding.etText.getText().toString().trim().length();
+            if (binding.etCaption != null && binding.etCaption.getText() != null)
+                chars += binding.etCaption.getText().toString().trim().length();
+        } catch (Exception ignored) {}
+        int ms = chars > 220 ? 15000 : chars > 120 ? 10000 : chars > 50 ? 7000 : 5000;
+        if (musicStickerInComposer != null) ms = Math.max(ms, 10000);
+        return ms;
+    }
+
+    private void showDisplayDurationPicker() {
+        if (pickedVideo != null) { toast("Video plays for its own length"); return; }
+        final BottomSheetDialog sheet = new BottomSheetDialog(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(18), dp(20), dp(20));
+
+        TextView title = new TextView(this);
+        title.setText("Status duration");
+        title.setTextSize(18);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        root.addView(title);
+
+        final int sug = suggestedDisplayMs();
+        TextView sub = new TextView(this);
+        StringBuilder note = new StringBuilder("How long this photo / text plays.");
+        if (musicStickerInComposer != null) note.append("\n🎵 Music attached \u2014 10s or more fits a music clip better.");
+        else if (sug != 5000) note.append("\n★ Suggested for your text: ").append(sug / 1000).append("s");
+        sub.setText(note);
+        sub.setTextSize(13);
+        sub.setPadding(0, dp(4), 0, dp(12));
+        root.addView(sub);
+
+        // live preview bar: runs for the REAL selected time
+        final android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        final int[] sel = { selectedDisplayMs };
+        final android.animation.ObjectAnimator[] anim = new android.animation.ObjectAnimator[1];
+        final Runnable restartPreview = () -> {
+            if (anim[0] != null) anim[0].cancel();
+            bar.setProgress(0);
+            anim[0] = android.animation.ObjectAnimator.ofInt(bar, "progress", 0, 1000);
+            anim[0].setDuration(sel[0]);
+            anim[0].setInterpolator(new android.view.animation.LinearInterpolator());
+            anim[0].start();
+        };
+        root.addView(bar, new LinearLayout.LayoutParams(-1, dp(6)));
+
+        final java.util.List<com.google.android.material.button.MaterialButton> chips = new java.util.ArrayList<>();
+        final Runnable paintChips = () -> {
+            for (int i = 0; i < chips.size(); i++) {
+                boolean on = DISPLAY_MS_OPTIONS[i] == sel[0];
+                chips.get(i).setAlpha(on ? 1f : 0.55f);
+                chips.get(i).setStrokeWidth(on ? dp(2) : dp(1));
+            }
+        };
+        LinearLayout rowL = null;
+        for (int i = 0; i < DISPLAY_MS_OPTIONS.length; i++) {
+            if (i % 3 == 0) {
+                rowL = new LinearLayout(this);
+                rowL.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+                rlp.topMargin = dp(10);
+                root.addView(rowL, rlp);
+            }
+            final int ms = DISPLAY_MS_OPTIONS[i];
+            com.google.android.material.button.MaterialButton chip = new com.google.android.material.button.MaterialButton(
+                    this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            chip.setText((ms / 1000) + "s" + (ms == sug && sug != 5000 ? " ★" : (ms == 5000 ? " (default)" : "")));
+            chip.setAllCaps(false);
+            chip.setOnClickListener(v -> { sel[0] = ms; paintChips.run(); restartPreview.run(); });
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, dp(46), 1f);
+            clp.setMargins(dp(3), 0, dp(3), 0);
+            rowL.addView(chip, clp);
+            chips.add(chip);
+        }
+        paintChips.run();
+
+        com.google.android.material.button.MaterialButton done = new com.google.android.material.button.MaterialButton(this);
+        done.setText("Done");
+        done.setOnClickListener(v -> {
+            selectedDisplayMs = sel[0];
+            try { getSharedPreferences(PREFS_UI, MODE_PRIVATE).edit().putInt(KEY_DISPLAY_MS, selectedDisplayMs).apply(); }
+            catch (Exception ignored) {}
+            updateDisplayDurationUi();
+            sheet.dismiss();
+        });
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, dp(48));
+        dlp.topMargin = dp(16);
+        root.addView(done, dlp);
+
+        sheet.setOnDismissListener(d -> { if (anim[0] != null) anim[0].cancel(); });
+        sheet.setContentView(root);
+        sheet.show();
+        restartPreview.run();
     }
 
     private void showEditorMoreMenu(View anchor) {
@@ -4516,6 +4657,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.ringColor        = selectedRingColor != null ? selectedRingColor : "";
         item.ringMode         = selectedRingMode  != null ? selectedRingMode  : "";
         item.expiryHours      = selectedExpiryHours;
+        item.displayMs        = (pickedVideo == null && selectedDisplayMs != 5000) ? selectedDisplayMs : 0;
         item.timestamp        = now;
         item.expiresAt        = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
         item.deleted          = false;
@@ -4725,6 +4867,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.ringColor      = selectedRingColor != null ? selectedRingColor : "";
         item.ringMode       = selectedRingMode  != null ? selectedRingMode  : "";
         item.expiryHours    = selectedExpiryHours;
+        item.displayMs      = (!"video".equals(type) && selectedDisplayMs != 5000) ? selectedDisplayMs : 0; // photos only
         item.timestamp      = now;
         item.expiresAt      = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
         item.deleted        = false;

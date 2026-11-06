@@ -286,6 +286,77 @@ import com.callx.app.utils.AlertDialogStyler;
       private static final String[] QUICK_EMOJI_NAMES = {
               "laughing face", "surprised face", "heart-eyes face",
               "crying face", "clapping hands", "fire" };
+      // ── Quick-reaction personalization / guards ───────────────────────────
+      private static final String PREFS_QR = "status_quick_reaction_prefs";
+      private static final java.util.HashMap<String, Long> LAST_REACTION_CHAT_AT = new java.util.HashMap<>();
+      private static final long REACTION_CHAT_COOLDOWN_MS = 60_000L;
+
+      private java.util.LinkedHashMap<String, Integer> loadEmojiUsage() {
+          java.util.LinkedHashMap<String, Integer> m = new java.util.LinkedHashMap<>();
+          try {
+              String raw = getSharedPreferences(PREFS_QR, MODE_PRIVATE).getString("usage", "");
+              for (String part : raw.split(";")) {
+                  int eq = part.lastIndexOf('=');
+                  if (eq <= 0) continue;
+                  try { m.put(part.substring(0, eq), Integer.parseInt(part.substring(eq + 1))); } catch (Exception ignored) {}
+              }
+          } catch (Exception ignored) {}
+          return m;
+      }
+      /** Counts every emoji the viewer reacts with (grid or full picker) so the grid can adapt. */
+      private void recordEmojiUse(String emoji) {
+          if (emoji == null || emoji.isEmpty()) return;
+          try {
+              java.util.LinkedHashMap<String, Integer> m = loadEmojiUsage();
+              Integer c = m.get(emoji);
+              m.put(emoji, c == null ? 1 : c + 1);
+              if (m.size() > 30) { // keep it tiny: drop the least used
+                  String drop = null; int lo = Integer.MAX_VALUE;
+                  for (java.util.Map.Entry<String, Integer> e : m.entrySet()) if (e.getValue() < lo) { lo = e.getValue(); drop = e.getKey(); }
+                  if (drop != null && !drop.equals(emoji)) m.remove(drop);
+              }
+              StringBuilder sb = new StringBuilder();
+              for (java.util.Map.Entry<String, Integer> e : m.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue()).append(';');
+              getSharedPreferences(PREFS_QR, MODE_PRIVATE).edit().putString("usage", sb.toString()).apply();
+          } catch (Exception ignored) {}
+      }
+      /** 6 grid emoji: the viewer's most-used (used 2+ times) first, filled up with the defaults. */
+      private String[] quickEmojiOrder() {
+          java.util.List<String> res = new java.util.ArrayList<>();
+          try {
+              java.util.List<java.util.Map.Entry<String, Integer>> es = new java.util.ArrayList<>(loadEmojiUsage().entrySet());
+              java.util.Collections.sort(es, (a, b) -> b.getValue() - a.getValue());
+              for (java.util.Map.Entry<String, Integer> e : es) if (e.getValue() >= 2 && res.size() < QUICK_EMOJIS.length) res.add(e.getKey());
+          } catch (Exception ignored) {}
+          for (String d : QUICK_EMOJIS) if (res.size() < QUICK_EMOJIS.length && !res.contains(d)) res.add(d);
+          return res.toArray(new String[0]);
+      }
+      private static String quickEmojiName(String emoji) {
+          for (int i = 0; i < QUICK_EMOJIS.length; i++) if (QUICK_EMOJIS[i].equals(emoji)) return QUICK_EMOJI_NAMES[i];
+          return emoji;
+      }
+      /** Shrinks the grid on short (keyboard-open) screens so the card never gets squeezed off-screen. */
+      private void fitQuickReactionGrid() {
+          final View ov = quickReactionOverlayView;
+          if (ov == null || quickReactionCells == null) return;
+          ov.post(() -> {
+              int h = ov.getHeight();
+              if (h <= 0) return;
+              int cell, sp;
+              if (h < dpToPx(330)) { cell = 56; sp = 30; }
+              else if (h < dpToPx(430)) { cell = 72; sp = 40; }
+              else { cell = 88; sp = 48; }
+              final int px = dpToPx(cell);
+              for (TextView c : quickReactionCells) {
+                  if (c == null) continue;
+                  android.view.ViewGroup.LayoutParams lp = c.getLayoutParams();
+                  if (lp != null && lp.width != px) { lp.width = px; lp.height = px; c.setLayoutParams(lp); }
+                  c.setTextSize(sp);
+              }
+              View more = ov.findViewById(R.id.tv_qr_more);
+              if (more != null) more.setVisibility(h < dpToPx(270) ? View.GONE : View.VISIBLE);
+          });
+      }
       /** Keeps the scrim exactly above the reply bar while the keyboard moves it. */
       private final View.OnLayoutChangeListener quickReactionBarListener =
               (v, l, t, r, bt, ol, ot, or, ob) -> syncQuickReactionInsets();
@@ -520,9 +591,10 @@ import com.callx.app.utils.AlertDialogStyler;
               TextView tv = ov.findViewById(ids[i]);
               quickReactionCells[i] = tv;
               if (tv == null) continue;
-              tv.setText(QUICK_EMOJIS[i]);
-              tv.setTag(QUICK_EMOJIS[i]);
-              tv.setContentDescription(getString(R.string.viewer_cd_react_with, QUICK_EMOJI_NAMES[i]));
+              final String[] order0 = quickEmojiOrder();
+              tv.setText(order0[i]);
+              tv.setTag(order0[i]);
+              tv.setContentDescription(getString(R.string.viewer_cd_react_with, quickEmojiName(order0[i])));
               tv.setOnClickListener(this::onQuickEmojiTapped);
               tv.setOnTouchListener((cv, ev) -> {
                   if (quickReactionSent) return false;
@@ -541,6 +613,14 @@ import com.callx.app.utils.AlertDialogStyler;
                   return false; // let the click listener fire
               });
           }
+          // "More reactions" -> the full emoji picker (same sheet the heart's long-press opens).
+          final View moreBtn = ov.findViewById(R.id.tv_qr_more);
+          if (moreBtn != null) moreBtn.setOnClickListener(v -> {
+              if (quickReactionSent) return;
+              quickReactionSent = true;
+              closeQuickReactionOverlay();
+              handler.postDelayed(() -> runAct(actReact), 160);
+          });
           // 2: typing hides the grid (Instagram); clearing the text brings it back.
           binding.etReply.addTextChangedListener(new android.text.TextWatcher() {
               @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
@@ -1157,10 +1237,14 @@ import com.callx.app.utils.AlertDialogStyler;
               r.run();
           }));
       }
+      private long curHoldMs = 5_000L;
+      private boolean curHoldExplicit = false; // creator picked a play time
       private void showCurrent() {
           if (idx >= items.size()) { goToNextQueueEntryOrFinish(); return; }
           final int seq = ++showSeq;
           StatusItem s = items.get(idx);
+          curHoldExplicit = s.displayMs >= 2000 && s.displayMs <= 30000;
+          curHoldMs = curHoldExplicit ? s.displayMs : 5_000L; // creator-chosen play time
           scheduleExpiryWatch(s);
           if (viewStartTime > 0 && idx > 0) {
               StatusItem prev = items.get(idx - 1);
@@ -1578,7 +1662,7 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           if (s.locationName != null && !s.locationName.isEmpty()) showLocationTag(s.locationName);
           showCaption(s.caption);
-          startProgress(5_000L);
+          startProgress(curHoldMs);
       }
       /**
        * Last-resort fallback for a reshare item that truly has no renderable
@@ -1791,7 +1875,7 @@ import com.callx.app.utils.AlertDialogStyler;
           loadRootBackdrop(url);
           final int reqIdx = idx;
           // Hold BEFORE issuing the requests — a memory-cache hit can fire onResourceReady synchronously.
-          beginImageHold(5_000L);
+          beginImageHold(curHoldMs);
           // Full photo, never cropped; the blurred/dimmed backdrop is ONE whole-window layer
           // (iv_root_bg, see loadRootBackdrop) that also shows through the transparent card —
           // so each photo is decoded + blurred once, not twice.
@@ -1869,7 +1953,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void loadGif(final String url, final int attempt) {
           binding.ivStatus.setVisibility(View.VISIBLE);
           final int reqIdx = idx;
-          beginImageHold(4_000L);
+          beginImageHold(curHoldExplicit ? curHoldMs : 4_000L);
           loadRootBackdrop(url);
           com.bumptech.glide.request.RequestOptions fgOpts = new com.bumptech.glide.request.RequestOptions()
                   .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
@@ -4452,7 +4536,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   // touched the 1:1 chat at all, so neither side ever saw
                   // "Reacted 😂 to your status" show up as a chat bubble.
                   // Only fire on an actual new reaction, not on toggle-off.
-                  if (!removed) sendReactionToChat(current, emoji);
+                  if (!removed) { recordEmojiUse(emoji); sendReactionToChat(current, emoji); }
                   updateSeenByInfo(current);
                   resumeProgress();
               });
@@ -4493,6 +4577,7 @@ import com.callx.app.utils.AlertDialogStyler;
       private void syncQuickReactionInsets() {
           final View ov = quickReactionOverlayView;
           if (ov == null) return;
+          fitQuickReactionGrid();
           android.view.ViewGroup.LayoutParams lp = ov.getLayoutParams();
           if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
               android.view.ViewGroup.MarginLayoutParams m = (android.view.ViewGroup.MarginLayoutParams) lp;
@@ -4508,6 +4593,7 @@ import com.callx.app.utils.AlertDialogStyler;
           if (overlay.getVisibility() == View.VISIBLE && overlay.getAlpha() > 0f) return;
           pauseProgress();
           quickReactionSent = false;
+          overlay.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
           overlay.animate().cancel(); // a pending fade-out end action must not hide a re-opened overlay
           syncQuickReactionInsets();
           binding.llReplyBar.removeOnLayoutChangeListener(quickReactionBarListener);
@@ -4520,13 +4606,15 @@ import com.callx.app.utils.AlertDialogStyler;
               final StatusItem curItem = idx < items.size() ? items.get(idx) : null;
               final String mine = (curItem != null && myUid != null) ? curItem.getReaction(myUid) : null;
               final android.view.animation.OvershootInterpolator pop = new android.view.animation.OvershootInterpolator(2.2f);
+              final String[] order = quickEmojiOrder();
               for (int i = 0; i < quickReactionCells.length; i++) {
                   final TextView c = quickReactionCells[i];
                   if (c == null) continue;
                   c.animate().cancel();
+                  c.setText(order[i]); c.setTag(order[i]); // most-used first
                   final boolean isMine = mine != null && mine.equals(c.getTag());
                   c.setBackgroundResource(isMine ? R.drawable.bg_quick_reaction_current : 0);
-                  final String nm = QUICK_EMOJI_NAMES[i];
+                  final String nm = quickEmojiName(order[i]);
                   c.setContentDescription(isMine
                           ? getString(R.string.viewer_cd_your_reaction, nm)
                           : getString(R.string.viewer_cd_react_with, nm));
@@ -4536,6 +4624,7 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           }
           if (quickReactionBack != null) quickReactionBack.setEnabled(true);
+          fitQuickReactionGrid();
       }
 
       /** Hides the grid only (keyboard / focus untouched). */
@@ -4574,24 +4663,48 @@ import com.callx.app.utils.AlertDialogStyler;
                   c.animate().alpha(0f).scaleX(0.8f).scaleY(0.8f).setStartDelay(0).setDuration(120).start();
               }
           }
-          sendQuickReaction(tag.toString());          // Firebase + chat bubble + floating burst (burst shows once grid is gone)
+          float bx = -1f, by = -1f;
+          try { // the burst launches from the cell the user pressed
+              final View burst = binding.reactionBurstOverlay;
+              if (burst != null) {
+                  int[] a = new int[2], b = new int[2];
+                  v.getLocationInWindow(a); burst.getLocationInWindow(b);
+                  bx = a[0] - b[0] + v.getWidth() / 2f; by = a[1] - b[1] + v.getHeight() / 2f;
+              }
+          } catch (Exception ignored) {}
+          sendQuickReaction(tag.toString(), bx, by);  // Firebase + chat bubble + floating burst from the tapped cell
           handler.postDelayed(this::closeQuickReactionOverlay, 140);
       }
       /** Shared by the emoji grid and can be reused anywhere a one-tap emoji reaction is needed. */
-      private void sendQuickReaction(String emoji) {
-          StatusItem current = idx < items.size() ? items.get(idx) : null;
+      private void sendQuickReaction(String emoji) { sendQuickReaction(emoji, -1f, -1f); }
+      private void sendQuickReaction(final String emoji, final float burstX, final float burstY) {
+          final StatusItem current = idx < items.size() ? items.get(idx) : null;
           if (current == null || myUid == null) return;
-          String existing = current.getReaction(myUid);
-          boolean isNew = !emoji.equals(existing);
+          final String existing = current.getReaction(myUid);
+          final boolean isNew = !emoji.equals(existing);
           StatusSeenTracker.reactTo(current.ownerUid, current.id, emoji, existing, newEmoji -> {
               if (current.reactions == null) current.reactions = new HashMap<>();
               if (newEmoji == null) current.reactions.remove(myUid);
               else current.reactions.put(myUid, newEmoji);
               updateSeenByInfo(current);
+              if (isFinishing() || isDestroyed()) return;
+              if (newEmoji != null) {
+                  recordEmojiUse(newEmoji);
+                  sendReactionToChat(current, newEmoji); // chat bubble only once the reaction really saved
+              } else {
+                  // tapped your own reaction again -> it was removed: say so, with Undo
+                  com.google.android.material.snackbar.Snackbar.make(binding.getRoot(), "Reaction removed",
+                          com.google.android.material.snackbar.Snackbar.LENGTH_SHORT)
+                          .setAction("Undo", v2 -> sendQuickReaction(existing)).show();
+              }
+          }, () -> {
+              if (isFinishing() || isDestroyed()) return;
+              Toast.makeText(this, "Couldn\u2019t send reaction. Check your connection and try again.",
+                      Toast.LENGTH_SHORT).show();
           });
-          if (isNew) {
-              sendReactionToChat(current, emoji);
-              if (binding.reactionBurstOverlay != null) binding.reactionBurstOverlay.playBurst(emoji);
+          if (isNew && binding.reactionBurstOverlay != null) {
+              if (burstX >= 0f && burstY >= 0f) binding.reactionBurstOverlay.playBurstFrom(emoji, burstX, burstY);
+              else binding.reactionBurstOverlay.playBurst(emoji);
           }
       }
       private void setupLikeHeartButton() {
@@ -5498,6 +5611,19 @@ import com.callx.app.utils.AlertDialogStyler;
 
       private void sendReactionToChat(StatusItem reactedStatus, String emoji) {
           if (myUid == null || ownerUid == null || reactedStatus == null) return;
+          // Flipping through emoji on one status must not flood the owner's chat: the reaction itself is
+          // always saved (statusReactions mirror below); only the chat bubble is rate-limited per status.
+          final String coolKey = myUid + "|" + (reactedStatus.id != null ? reactedStatus.id : "");
+          final long nowMs = System.currentTimeMillis();
+          final Long lastAt = LAST_REACTION_CHAT_AT.get(coolKey);
+          final boolean skipBubble = lastAt != null && nowMs - lastAt < REACTION_CHAT_COOLDOWN_MS;
+          if (skipBubble) {
+              if (reactedStatus.id != null && !reactedStatus.id.isEmpty())
+                  FirebaseDatabase.getInstance().getReference("statusReactions")
+                          .child(ownerUid).child(reactedStatus.id).child(myUid).setValue(emoji);
+              return;
+          }
+          LAST_REACTION_CHAT_AT.put(coolKey, nowMs);
           String chatId = FirebaseUtils.getChatId(myUid, ownerUid);
           String msgId = FirebaseUtils.getMessagesRef(chatId).push().getKey();
           if (msgId == null) return;
