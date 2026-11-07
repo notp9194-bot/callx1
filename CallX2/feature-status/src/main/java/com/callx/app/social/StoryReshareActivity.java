@@ -45,6 +45,7 @@ public class StoryReshareActivity extends AppCompatActivity {
     private String contentType, contentId, ownerUid, ownerName, ownerAvatar, mediaUrl, thumbUrl, originalCaption, mediaType;
     private String originalText, originalBgColor, originalTextColor;
     private String originalStickersJson;
+    private String tplJson, tplFromUid, tplFromId, tplFromName; // v742: template carried from the reposted status
     private int origMediaW, origMediaH;
     private String myUid, myName, myPhoto = "";
     private String selectedColor = "#1A1A2E";
@@ -97,6 +98,10 @@ public class StoryReshareActivity extends AppCompatActivity {
         originalBgColor = getIntent().getStringExtra("EXTRA_ORIGINAL_BG_COLOR");
         originalTextColor = getIntent().getStringExtra("EXTRA_ORIGINAL_TEXT_COLOR");
         originalStickersJson = getIntent().getStringExtra(EXTRA_STICKERS_JSON);
+        tplJson     = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_TEMPLATE_JSON);
+        tplFromUid  = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_TEMPLATE_FROM_UID);
+        tplFromId   = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_TEMPLATE_FROM_ID);
+        tplFromName = getIntent().getStringExtra(com.callx.app.utils.StatusReshareHelper.EXTRA_TEMPLATE_FROM_NAME);
         origMediaW = getIntent().getIntExtra("EXTRA_MEDIA_W", 0);
         origMediaH = getIntent().getIntExtra("EXTRA_MEDIA_H", 0);
     }
@@ -323,6 +328,13 @@ public class StoryReshareActivity extends AppCompatActivity {
         // Votes/answers are NOT copied: they live under status/{owner}/{statusId}/..., so the repost starts fresh.
         if (originalStickersJson != null && !originalStickersJson.isEmpty()) {
             data.put("stickersJson", originalStickersJson);
+        }
+        // v742: the repost keeps the template (boxes) + points "N used" / attribution at the ORIGINAL template.
+        if ("status".equals(contentType) && tplFromUid != null && !tplFromUid.isEmpty() && tplFromId != null && !tplFromId.isEmpty()) {
+            if (tplJson != null && !tplJson.isEmpty()) data.put("templateJson", tplJson);
+            data.put("templateFromUid", tplFromUid);
+            data.put("templateFromId", tplFromId);
+            if (tplFromName != null && !tplFromName.isEmpty()) data.put("templateFromName", com.callx.app.utils.StatusTemplateUses.capName(tplFromName));
         }
         data.put("stickerText", etTextOverlay.getText().toString());
         data.put("caption", etCaption.getText().toString());

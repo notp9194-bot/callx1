@@ -115,6 +115,7 @@ public final class StatusSeenTracker {
         if (myUid == null || !myUid.equals(ownerUid)) return;
         FirebaseUtils.getStatusRef()
             .child(ownerUid).child(statusId).child("deleted").setValue(true);
+        com.callx.app.utils.StatusTemplateUses.clear(ownerUid, statusId); // v743: no counter for a deleted template
     }
     // ── Forward tracking ──────────────────────────────────────────────────
     public static void incrementForwardCount(String ownerUid, String statusId) {

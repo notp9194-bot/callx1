@@ -36,6 +36,11 @@ public final class StatusReshareHelper {
     public static final String EXTRA_DISPLAY_MS = "EXTRA_DISPLAY_MS"; // source play time, kept on the repost
     public static final String EXTRA_VIA_UID  = "EXTRA_VIA_UID";   // chain repost: the reposter we took it from (B)
     public static final String EXTRA_VIA_NAME = "EXTRA_VIA_NAME";
+    // v742: photo-slot template carried through a repost (+ where the ORIGINAL template lives, for attribution / "N used")
+    public static final String EXTRA_TEMPLATE_JSON      = "EXTRA_TEMPLATE_JSON";
+    public static final String EXTRA_TEMPLATE_FROM_UID  = "EXTRA_TEMPLATE_FROM_UID";
+    public static final String EXTRA_TEMPLATE_FROM_ID   = "EXTRA_TEMPLATE_FROM_ID";
+    public static final String EXTRA_TEMPLATE_FROM_NAME = "EXTRA_TEMPLATE_FROM_NAME";
     public static final String EXTRA_ORIGINAL_TEXT       = "EXTRA_ORIGINAL_TEXT";
     public static final String EXTRA_ORIGINAL_BG_COLOR   = "EXTRA_ORIGINAL_BG_COLOR";
     public static final String EXTRA_ORIGINAL_TEXT_COLOR = "EXTRA_ORIGINAL_TEXT_COLOR";
@@ -135,7 +140,47 @@ public final class StatusReshareHelper {
                 && status.stickersJson.length() < 100_000) {
             i.putExtra(EXTRA_STICKERS_JSON, status.stickersJson);
         }
+        putTemplateExtras(i, status, ownerUid, ownerName);
         return i;
+    }
+
+    private static boolean ne(String v) { return v != null && !v.isEmpty(); }
+
+    /**
+     * v742: a repost of a template status keeps the template (boxes + "Use this template"), and the "N used" counter /
+     * "Template by @name" keep pointing at the ORIGINAL template — never at the reposter. A repost of a status that was
+     * itself made FROM a template keeps just that attribution. Pure extras: no extra Firebase read.
+     */
+    private static void putTemplateExtras(Intent i, com.callx.app.models.StatusItem st, String ownerUid, String ownerName) {
+        final boolean hasFrom = ne(st.templateFromUid) && ne(st.templateFromId);
+        if (ne(st.templateJson) && st.templateJson.length() < 60_000) {
+            final String tUid = hasFrom ? st.templateFromUid : ownerUid;        // already-carried → original owner
+            final String tId  = hasFrom ? st.templateFromId  : st.id;
+            final String tNm  = hasFrom ? st.templateFromName : ownerName;
+            if (!ne(tUid) || !ne(tId)) return;
+            i.putExtra(EXTRA_TEMPLATE_JSON, st.templateJson);
+            i.putExtra(EXTRA_TEMPLATE_FROM_UID, tUid);
+            i.putExtra(EXTRA_TEMPLATE_FROM_ID, tId);
+            i.putExtra(EXTRA_TEMPLATE_FROM_NAME, safeStr(tNm));
+        } else if (hasFrom) {
+            i.putExtra(EXTRA_TEMPLATE_FROM_UID, st.templateFromUid);
+            i.putExtra(EXTRA_TEMPLATE_FROM_ID, st.templateFromId);
+            i.putExtra(EXTRA_TEMPLATE_FROM_NAME, safeStr(st.templateFromName));
+        }
+    }
+
+    /** Same origin rule for chat forwards: returns {json, fromUid, fromId, fromName} or null when the status has no template info. */
+    public static String[] templateOrigin(com.callx.app.models.StatusItem st, String ownerUid, String ownerName) {
+        if (st == null) return null;
+        final boolean hasFrom = ne(st.templateFromUid) && ne(st.templateFromId);
+        if (ne(st.templateJson) && st.templateJson.length() < 60_000) {
+            final String tUid = hasFrom ? st.templateFromUid : (ne(ownerUid) ? ownerUid : st.ownerUid);
+            final String tId  = hasFrom ? st.templateFromId  : st.id;
+            if (!ne(tUid) || !ne(tId)) return null;
+            return new String[]{ st.templateJson, tUid, tId, safeStr(hasFrom ? st.templateFromName : (ne(ownerName) ? ownerName : st.ownerName)) };
+        }
+        if (hasFrom) return new String[]{ "", st.templateFromUid, st.templateFromId, safeStr(st.templateFromName) };
+        return null;
     }
 
     /**

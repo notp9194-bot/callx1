@@ -1364,6 +1364,7 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           applyReshareCardMode(s);
           renderStickers(s);
+          renderTemplateChip(s);
           deferAfterFirstFrame(seq, this::prefetchNextImage);
 
           // ── Reshare attribution card ─────────────────────────────────────
@@ -3730,8 +3731,8 @@ import com.callx.app.utils.AlertDialogStyler;
                   if ("music".equals(sticker.getStickerType())) {
                       // Always tappable now: retry (failed) / sound page (linked) / "Original audio" sheet.
                       armStickerZoomGate(sticker, () -> onMusicStickerTapped(sticker));
-                      // On a repost card the sticker shrinks with the card → bump it back up so it stays readable.
-                      if (reshareCardActive) sticker.applyScale(Math.max(sticker.getStickerScale(), 1.25f));
+                      // On a repost card the sticker shrinks with the card (fitK kept); small min-bump for readability.
+                      if (reshareCardActive) sticker.applyViewerScale(Math.max(sticker.getStickerScale(), 1.1f)); // keeps fitK → shrinks with card
                   }
 
                   if ("countdown".equals(sticker.getStickerType())
@@ -4080,6 +4081,134 @@ import com.callx.app.utils.AlertDialogStyler;
                   launchAddYoursComposer(sticker, chainId, prompt, fOriginUid, fOriginName);
               }
           });
+      }
+
+      // v738/v740/v742: template chip. On a template status: "Use this template · N used" (owner: label + count).
+      // On a status made FROM a template: "Template by @name" → opens the original template.
+      // v742: a REPOST of a template carries templateJson + the original's id, so it shows "Use this template" too and the
+      // count / attribution / launch all point at the ORIGINAL template. The chip also shows a mini layout preview.
+      private void renderTemplateChip(final StatusItem item) {
+          try {
+              if (item == null) return;
+              final boolean hasTpl = item.templateJson != null && !item.templateJson.isEmpty();
+              final boolean hasFrom = item.templateFromUid != null && !item.templateFromUid.isEmpty()
+                      && item.templateFromId != null && !item.templateFromId.isEmpty();
+              final boolean isTemplate = hasTpl;                       // can be used (own template OR carried by a repost)
+              final boolean fromTemplate = !hasTpl && hasFrom;         // "Template by @name"
+              if (!isTemplate && !fromTemplate) return;
+              final boolean carried = hasTpl && hasFrom;               // repost of a template: origin lives elsewhere
+              final String originUid  = carried ? item.templateFromUid : ownerUid;
+              final String originId   = carried ? item.templateFromId  : item.id;
+              final String originName = carried ? (item.templateFromName != null && !item.templateFromName.isEmpty()
+                      ? item.templateFromName : ownerName) : ownerName;
+              if (isTemplate && (myUid == null || originUid == null || originUid.isEmpty()
+                      || originId == null || originId.isEmpty())) return;
+              final boolean mine = myUid != null && myUid.equals(originUid);
+              final FrameLayout ov = stickerOverlay();
+              final boolean inCard = reshareCardActive;               // reposts sit in the card box → chip hugs its bottom
+
+              final android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+              box.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+              box.setGravity(Gravity.CENTER_VERTICAL);
+              box.setPadding(dpToPx(10), dpToPx(7), dpToPx(18), dpToPx(7));
+              final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+              bg.setColor(0xE6000000 | 0x6A3DE8);
+              bg.setCornerRadius(dpToPx(26));
+              box.setBackground(bg);
+              box.setElevation(dpToPx(6));
+
+              final com.callx.app.compose.TemplatePreviewDrawable pv = hasTpl
+                      ? com.callx.app.compose.TemplatePreviewDrawable.fromJson(item.templateJson) : null;
+              if (pv != null) {
+                  final android.widget.ImageView iv = new android.widget.ImageView(this);
+                  pv.setBounds(0, 0, dpToPx(24), dpToPx(42));
+                  iv.setImageDrawable(pv);
+                  final android.widget.LinearLayout.LayoutParams ilp = new android.widget.LinearLayout.LayoutParams(dpToPx(24), dpToPx(42));
+                  ilp.setMarginEnd(dpToPx(10));
+                  box.addView(iv, ilp);
+              }
+
+              final android.widget.TextView chip = new android.widget.TextView(this);
+              final String baseLabel = isTemplate
+                      ? (mine ? "\u2728  Your template" : "\u2728  Use this template")
+                      : "\u2728  Template by @" + (item.templateFromName != null && !item.templateFromName.isEmpty() ? item.templateFromName : "user");
+              chip.setText(baseLabel);
+              chip.setTextColor(0xFFFFFFFF);
+              chip.setTextSize(15f);
+              chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+              chip.setGravity(Gravity.CENTER_VERTICAL);
+              box.addView(chip, new android.widget.LinearLayout.LayoutParams(
+                      android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+
+              if (isTemplate && !mine) box.setOnClickListener(v -> launchTemplateComposer(item, originUid, originId, originName));
+              else if (fromTemplate) box.setOnClickListener(v -> openOriginalTemplate(item));
+              final FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                      Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+              lp.bottomMargin = inCard ? dpToPx(14) : dpToPx(96);
+              ov.addView(box, lp);
+              // sit just above the caption / song row / name block instead of a fixed offset
+              if (!inCard) ov.post(() -> {
+                  try {
+                      View blk = binding.tvCaption;
+                      while (blk != null && blk.getParent() != binding.flStoryCard && blk.getParent() instanceof View) blk = (View) blk.getParent();
+                      final int cardH = binding.flStoryCard.getHeight();
+                      if (blk != null && blk.getParent() == binding.flStoryCard && blk.getHeight() > 0 && cardH > 0) {
+                          final int m = cardH - blk.getTop() + dpToPx(10);
+                          lp.bottomMargin = Math.max(dpToPx(72), Math.min(m, cardH / 2));
+                          box.setLayoutParams(lp);
+                      }
+                  } catch (Exception ignored) { }
+              });
+              if (isTemplate) {
+                  FirebaseUtils.db().getReference("statusTemplateUses").child(originUid).child(originId)
+                          .addListenerForSingleValueEvent(new ValueEventListener() {
+                      @Override public void onDataChange(DataSnapshot snap) {
+                          final long n = snap.getChildrenCount();
+                          if (n > 0 && box.getParent() != null) chip.setText(baseLabel + "  \u2022  " + n + " used");
+                      }
+                      @Override public void onCancelled(DatabaseError e) { }
+                  });
+              }
+          } catch (Exception e) {
+              CrashReporter.report(this, "StatusViewer.templateChip", e);
+          }
+      }
+
+      /** Fetches the ORIGINAL template status (the one this status was made from) and opens it for the viewer. */
+      private void openOriginalTemplate(final StatusItem item) {
+          final String fu = item.templateFromUid, fi = item.templateFromId, fn = item.templateFromName;
+          FirebaseUtils.db().getReference("status").child(fu).child(fi)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot snap) {
+                  final StatusItem o = snap.getValue(StatusItem.class);
+                  if (o == null || o.templateJson == null || o.templateJson.isEmpty()) {
+                      Toast.makeText(StatusViewerActivity.this, "Template ab available nahi hai", Toast.LENGTH_SHORT).show();
+                      return;
+                  }
+                  launchTemplateComposer(o, fu, fi, fn);
+              }
+              @Override public void onCancelled(DatabaseError e) {
+                  Toast.makeText(StatusViewerActivity.this, "Template load nahi hua", Toast.LENGTH_SHORT).show();
+              }
+          });
+      }
+
+      private void launchTemplateComposer(StatusItem item, String fromUid, String fromId, String fromName) {
+          if (isFinishing() || isDestroyed() || item == null || item.templateJson == null) return;
+          try {
+              Intent intent = new Intent(this, com.callx.app.compose.NewStatusActivity.class);
+              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_JSON, item.templateJson);
+              if (item.stickersJson != null && !item.stickersJson.isEmpty() && item.stickersJson.length() < 100_000)
+                  intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_STICKERS_JSON, item.stickersJson);
+              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_FROM_UID, fromUid);
+              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_FROM_ID, fromId);
+              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_FROM_NAME, fromName);
+              pauseProgress();
+              startActivity(intent); // onResume() resumes the progress bar when the viewer comes back
+          } catch (Exception e) {
+              CrashReporter.report(this, "StatusViewer.launchTemplate", e);
+          }
       }
 
       /** Opens NewStatusActivity pre-loaded with the chain's sticker (+ the starter's template look). */

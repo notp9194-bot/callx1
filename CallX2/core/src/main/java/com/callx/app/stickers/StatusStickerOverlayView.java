@@ -1124,6 +1124,14 @@ public class StatusStickerOverlayView extends LinearLayout {
         if (selectedUi) invalidate(); // keep the selection chrome the same on-screen size
     }
 
+    /** Viewer-only: like applyScale() but keeps the box-fit ratio (viewerFitK) so stickers shrink with a repost card. */
+    public void applyViewerScale(float scale) {
+        stickerScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, scale));
+        setScaleX(stickerScale * viewerFitK);
+        setScaleY(stickerScale * viewerFitK);
+        if (selectedUi) invalidate();
+    }
+
     /** Animated variant used by the Small/Medium/Large preset buttons. */
     public void animateToScale(float scale) {
         stickerScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, scale));

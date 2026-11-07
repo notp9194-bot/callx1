@@ -153,6 +153,18 @@ public class StatusForwardBottomSheet {
         msg.put("mediaUrl",  item.mediaUrl);
         msg.put("thumbUrl",  item.thumbnailUrl);
         msg.put("statusType", item.type);
+        // v742: a forwarded template status keeps the template + where the original lives (receiver can "Use this template")
+        final String[] tpl = com.callx.app.utils.StatusReshareHelper.templateOrigin(item, item.ownerUid, item.ownerName);
+        if (tpl != null) {
+            if (!tpl[0].isEmpty()) {
+                msg.put("templateJson", tpl[0]);
+                if (item.stickersJson != null && !item.stickersJson.isEmpty() && item.stickersJson.length() < 60_000)
+                    msg.put("templateStickersJson", item.stickersJson);
+            }
+            msg.put("templateFromUid", tpl[1]);
+            msg.put("templateFromId", tpl[2]);
+            if (!tpl[3].isEmpty()) msg.put("templateFromName", com.callx.app.utils.StatusTemplateUses.capName(tpl[3]));
+        }
         msg.put("timestamp", com.google.firebase.database.ServerValue.TIMESTAMP);
         msg.put("seen",      false);
         ref.child(msgId).setValue(msg);

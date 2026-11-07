@@ -91,6 +91,11 @@ public class NewStatusActivity extends AppCompatActivity {
     public static final String EXTRA_PREFILL_STICKER_JSON = "prefillStickerJson";
     /** Extra: optional toast message to show once the prefilled sticker is attached. */
     public static final String EXTRA_PREFILL_TOAST = "prefillToast";
+    /** v738: photo-slot template to start from (StatusItem.templateJson) + the original's stickersJson (music/text). */
+    public static final String EXTRA_TEMPLATE_JSON = "templateJson";
+    public static final String EXTRA_TEMPLATE_STICKERS_JSON = "templateStickersJson";
+    /** v740: who owns the template being used (attribution + "N used" counter). */
+    public static final String EXTRA_TEMPLATE_FROM_UID = "templateFromUid", EXTRA_TEMPLATE_FROM_ID = "templateFromId", EXTRA_TEMPLATE_FROM_NAME = "templateFromName";
     private static final String PREFS_DRAFT = "status_draft";
     private static final String KEY_DRAFT   = "draft_text";
     private static final String KEY_DRAFT_STICKERS = "draft_stickers";   // v651: JSON array, z-order, incl. lock
@@ -184,6 +189,22 @@ public class NewStatusActivity extends AppCompatActivity {
     private static final int MAX_PHOTO_LAYERS = 8;
     /** Picks extra photos that land ON TOP of the current media (adjustable layers). */
     private ActivityResultLauncher<String> layerPicker;
+    // ── v738 photo-slot templates ──
+    private ActivityResultLauncher<String> slotPicker;
+    private boolean templateMode;                 // opened from "Use this template"
+    private boolean makeTemplate;                 // poster toggled "Make template" on this status
+    private StatusStickerOverlayView pendingSlot; // slot the picker was opened for
+    private int templateTries;
+    private final java.util.ArrayList<StatusStickerOverlayView> templateSlots = new java.util.ArrayList<>();
+    private final java.util.HashMap<StatusStickerOverlayView, android.animation.ObjectAnimator> slotPulse = new java.util.HashMap<>();
+    private boolean templatePickerAutoOpened;
+    private final java.util.HashSet<StatusStickerOverlayView> filledSlots = new java.util.HashSet<>();
+    private final java.util.HashMap<StatusStickerOverlayView, Bitmap> slotSrc = new java.util.HashMap<>();
+    private final java.util.HashMap<StatusStickerOverlayView, float[]> slotXform = new java.util.HashMap<>(); // {zoom, cx, cy} (cx/cy = window centre as 0..1 of the photo)
+    // v742: base photo saved in fit/blur mode → the viewer's WHOLE photo is contained in the base region (no crop)
+    private final java.util.HashSet<StatusStickerOverlayView> fitSlots = new java.util.HashSet<>();
+    private final java.util.HashMap<StatusStickerOverlayView, float[]> slotRegion = new java.util.HashMap<>(); // {w, h} px of the box at creation
+    private final java.util.HashMap<StatusStickerOverlayView, float[]> slotCenter = new java.util.HashMap<>(); // {cx, cy} fractions of the canvas
     /** Result of feature-reels' ReelLocationTagActivity (launched by class name — no module dependency). */
     private ActivityResultLauncher<Intent> locationPickerLauncher;
     /** Every photo layer ever added this session (kept after delete so undo can revive it); source Uri for its strip thumbnail. */
@@ -296,6 +317,19 @@ public class NewStatusActivity extends AppCompatActivity {
                 new ActivityResultContracts.GetMultipleContents(), uris -> {
                     if (uris == null) return;
                     for (Uri u : uris) addPhotoLayer(u);
+                });
+        slotPicker = registerForActivityResult(
+                new ActivityResultContracts.GetMultipleContents(), uris -> {
+                    final StatusStickerOverlayView target = pendingSlot;
+                    pendingSlot = null;
+                    if (uris == null || uris.isEmpty() || target == null) return;
+                    // v739: first photo → the tapped box, the rest → the other EMPTY boxes in order (one pick fills all)
+                    final java.util.ArrayList<StatusStickerOverlayView> empties = new java.util.ArrayList<>();
+                    for (StatusStickerOverlayView sv : templateSlots)
+                        if (sv != target && sv.getParent() == stickerOverlayFrame && !filledSlots.contains(sv)) empties.add(sv);
+                    fillTemplateSlot(target, uris.get(0));
+                    for (int i = 1; i < uris.size() && i - 1 < empties.size(); i++)
+                        fillTemplateSlot(empties.get(i - 1), uris.get(i));
                 });
         locationPickerLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
@@ -412,6 +446,7 @@ public class NewStatusActivity extends AppCompatActivity {
         restoreDraft();
         applyPrefillStickerIfAny();
         restoreDraftStickers();
+        if (getIntent().hasExtra(EXTRA_TEMPLATE_JSON)) binding.getRoot().post(this::applyTemplateIfAny); // after onCreate's showWizardStep(0)
         // v216: "Upload" button now opens the WhatsApp-style "Add status" sheet
         //       (Text / Music / Layout / Voice / AI Images + Recents grid) instead
         //       of the old plain Camera/Gallery alert dialog.
@@ -551,6 +586,7 @@ public class NewStatusActivity extends AppCompatActivity {
         updateWizardProgress();
         refreshStepPreview();
         updateMediaLayerChrome();
+        refreshTemplateGate();
         if (wizardStep == 0 && pickedImage == null && pickedVideo == null) {
             binding.bgColorPickerRow.setVisibility(View.VISIBLE);
         }
@@ -708,6 +744,12 @@ public class NewStatusActivity extends AppCompatActivity {
             binding.tvPillLocation.setOnClickListener(v -> openLocationPicker());
         if (binding.tvPillMention != null)
             binding.tvPillMention.setOnClickListener(v -> onStatusEditorTool("Mention", v));
+        if (binding.tvPillTemplate != null)
+            binding.tvPillTemplate.setOnClickListener(v -> {
+                makeTemplate = !makeTemplate;
+                if (makeTemplate) toast("Template on — viewers apni photos in boxes me daal payenge");
+                refreshMetaPills(); // v742: on → layout preview on the pill; off → preview cleared
+            });
         updateMediaLayerChrome();
     }
 
@@ -725,6 +767,17 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void refreshMetaPills() {
+        if (binding != null && binding.tvPillTemplate != null) {
+            final boolean show = !templateMode && pickedVideo == null && !photoLayers.isEmpty();
+            if (!show) makeTemplate = false;
+            binding.tvPillTemplate.setVisibility(show ? View.VISIBLE : View.GONE);
+            binding.tvPillTemplate.setText(makeTemplate ? "\u2713 Template on (tap to turn off)" : "Make template (viewers add own photos)");
+            // v742: tiny layout preview while the template is on; fully cleared when it is switched off / hidden
+            TemplatePreviewDrawable pv = null;
+            if (show && makeTemplate) pv = TemplatePreviewDrawable.fromJson(buildTemplateJson());
+            if (pv != null) pv.setBounds(0, 0, dp(24), dp(42));
+            binding.tvPillTemplate.setCompoundDrawablesRelative(pv, null, null, null);
+        }
         if (binding == null || binding.tvPillLocation == null) return;
         final boolean has = selectedLocationName != null && !selectedLocationName.isEmpty();
         binding.tvPillLocation.setText(has ? selectedLocationName : "Add location");
@@ -733,6 +786,8 @@ public class NewStatusActivity extends AppCompatActivity {
     /** Rebuilds the strip: [current media] [added photo layers in z-order…] [+]. */
     private void refreshMediaLayerStrip() {
         if (binding == null || binding.mediaLayerStrip == null || stickerOverlayFrame == null) return;
+        refreshMetaPills();
+        refreshTemplateGate();
         final LinearLayout strip = binding.mediaLayerStrip;
         strip.removeAllViews();
         if (pickedImage == null || pickedVideo != null) return;
@@ -4370,7 +4425,7 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     // ── Draft save/restore ────────────────────────────────────────────────
     private void saveDraft() {
-        if (draftCleared) return;
+        if (draftCleared || templateMode) return; // v739: a template session must never leak its music/text into the next status
         android.content.SharedPreferences.Editor ed = getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE)
             .edit().putString(KEY_DRAFT, binding.etText.getText().toString());
         // v651: stickers (pose, size, rotation, z-order, LOCK) + which one was selected.
@@ -4402,7 +4457,8 @@ public class NewStatusActivity extends AppCompatActivity {
      * that was selected. Undo history is NOT persisted: restored stickers are the new baseline (no history steps).
      */
     private void restoreDraftStickers() {
-        if (stickerOverlayFrame == null || getIntent().hasExtra(EXTRA_PREFILL_STICKER_JSON)) return;
+        if (stickerOverlayFrame == null || getIntent().hasExtra(EXTRA_PREFILL_STICKER_JSON)
+                || getIntent().hasExtra(EXTRA_TEMPLATE_JSON)) return;
         final android.content.SharedPreferences sp = getSharedPreferences(PREFS_DRAFT, MODE_PRIVATE);
         final String raw = sp.getString(KEY_DRAFT_STICKERS, "");
         if (raw == null || raw.isEmpty()) return;
@@ -4584,6 +4640,15 @@ public class NewStatusActivity extends AppCompatActivity {
         if (wizardStep == 0) showWizardStep(1);
     }
     private void discardMedia() {
+        if (templateMode) { // v739: the placeholder base IS the template — removing it would break the boxes
+            AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Template chhod du?")
+                    .setMessage("Ye template wala status cancel ho jayega.")
+                    .setPositiveButton("Haan", (d, w) -> finish())
+                    .setNegativeButton("Nahi", null)
+                    .create());
+            return;
+        }
         pickedImage = null; pickedVideo = null; cameraImageUri = null;
         stopVideoPreview();
         updateEditorRailForMedia();
@@ -4708,6 +4773,491 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // v738 — photo-slot templates ("Use this template")
+    // Poster: "Make template" pill → buildTemplateJson() stored on the status.
+    // Viewer: StatusViewerActivity's chip opens this screen at the Edit step with the poster's music/text already
+    // placed and every photo replaced by an empty "+" box; the post button waits until all boxes are filled.
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** Slot geometry (fractions of the story canvas) of the base photo + every photo layer, in z-order. */
+    private String buildTemplateJson() {
+        try {
+            if (stickerOverlayFrame == null || photoLayers.isEmpty()) return null;
+            final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+            if (fw <= 0 || fh <= 0) return null;
+            final org.json.JSONArray slots = new org.json.JSONArray();
+            final org.json.JSONObject baseObj = new org.json.JSONObject().put("base", true);
+            try { // v742: remember how the poster's base photo sat (aspect + fit/blur rect) so "fit" doesn't turn into full-cover
+                final android.graphics.drawable.Drawable dr = binding.ivPreview.getDrawable();
+                final int dw = dr != null ? dr.getIntrinsicWidth() : 0, dh = dr != null ? dr.getIntrinsicHeight() : 0;
+                if (editorPhotoMode && dw > 0 && dh > 0) {
+                    baseObj.put("ar", (double) dw / dh);
+                    final float s0 = Math.min(fw / (float) dw, fh / (float) dh);
+                    final float pw = dw * s0 * editorMediaScale, ph = dh * s0 * editorMediaScale;
+                    final float tx = binding.ivPreview.getTranslationX(), ty = binding.ivPreview.getTranslationY();
+                    final boolean covers = Math.abs(editorMediaRotation) < 0.5f
+                            && pw / 2f - Math.abs(tx) >= fw / 2f - 2f && ph / 2f - Math.abs(ty) >= fh / 2f - 2f;
+                    if (!covers) {
+                        baseObj.put("fit", true);
+                        baseObj.put("cx", 0.5 + tx / fw);
+                        baseObj.put("cy", 0.5 + ty / fh);
+                        baseObj.put("w", pw / fw);
+                        baseObj.put("h", ph / fh);
+                        baseObj.put("rot", editorMediaRotation);
+                    }
+                }
+            } catch (Exception ignored) { /* no fit info → plain full-cover base (old behaviour) */ }
+            slots.put(baseObj);
+            for (int i = 0; i < stickerOverlayFrame.getChildCount() && slots.length() <= MAX_PHOTO_LAYERS; i++) {
+                final View c = stickerOverlayFrame.getChildAt(i);
+                if (!isPhotoLayerView(c) || c.getWidth() <= 0) continue;
+                final StatusStickerOverlayView sv = (StatusStickerOverlayView) c;
+                final float[] st = sv.captureState();
+                final org.json.JSONObject o = new org.json.JSONObject();
+                o.put("cx", (st[0] + sv.getWidth() / 2f) / fw);
+                o.put("cy", (st[1] + sv.getHeight() / 2f) / fh);
+                o.put("w", sv.getWidth() * st[2] / fw);
+                o.put("h", sv.getHeight() * st[2] / fh);
+                o.put("rot", st[3]);
+                slots.put(o);
+            }
+            if (slots.length() < 2) return null;
+            final String out = new org.json.JSONObject().put("v", 1).put("slots", slots).toString();
+            return out.length() <= com.callx.app.utils.StatusTemplateUses.MAX_JSON ? out : null; // rules cap templateJson
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Plain dark-gradient 9:16 base so the normal photo editor (Edit step) can open before any photo exists. */
+    private Uri makeTemplatePlaceholder() {
+        try {
+            final Bitmap b = Bitmap.createBitmap(540, 960, Bitmap.Config.ARGB_8888);
+            final Canvas cv = new Canvas(b);
+            final android.graphics.Paint p = new android.graphics.Paint();
+            p.setShader(new android.graphics.LinearGradient(0, 0, 0, 960, 0xFF2B1B3D, 0xFF0F0A18, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(0, 0, 540, 960, p);
+            final java.io.File f = new java.io.File(getCacheDir(), "template_base_" + System.currentTimeMillis() + ".jpg");
+            try (java.io.FileOutputStream os = new java.io.FileOutputStream(f)) { b.compress(Bitmap.CompressFormat.JPEG, 85, os); }
+            b.recycle();
+            return Uri.fromFile(f);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void applyTemplateIfAny() {
+        final String tj = getIntent().getStringExtra(EXTRA_TEMPLATE_JSON);
+        if (tj == null || tj.isEmpty() || stickerOverlayFrame == null || isFinishing() || isDestroyed()) return;
+        final Uri ph = makeTemplatePlaceholder();
+        if (ph == null) { toast("Template khul nahi paya"); return; }
+        templateMode = true;
+        pickedImage = ph; pickedVideo = null;
+        showImagePreview(ph);              // opens the Edit step (step 2) straight away
+        templateTries = 0;
+        stickerOverlayFrame.postDelayed(this::buildTemplateWhenReady, 150);
+    }
+
+    private void buildTemplateWhenReady() {
+        if (isFinishing() || isDestroyed() || stickerOverlayFrame == null) return;
+        if (stickerOverlayFrame.getWidth() <= 0 || stickerOverlayFrame.getHeight() <= 0) {
+            if (++templateTries < 40) stickerOverlayFrame.postDelayed(this::buildTemplateWhenReady, 100);
+            return;
+        }
+        try {
+            final org.json.JSONArray slots = new org.json.JSONObject(
+                    getIntent().getStringExtra(EXTRA_TEMPLATE_JSON)).getJSONArray("slots");
+            final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+            // 1) photo boxes first (so music / text land on top of them)
+            for (int i = 0; i < slots.length() && i <= MAX_PHOTO_LAYERS; i++) {
+                final org.json.JSONObject o = slots.getJSONObject(i);
+                if (o.optBoolean("base", false)) {
+                    if (o.optBoolean("fit", false) && o.has("w") && o.has("h")) // v742: poster's base was fit + blurred
+                        addTemplateSlot((float) o.optDouble("cx", 0.5), (float) o.optDouble("cy", 0.5),
+                                (float) o.optDouble("w", 1), (float) o.optDouble("h", 1), (float) o.optDouble("rot", 0), true, true);
+                    else addTemplateSlot(0.5f, 0.5f, 1f, 1f, 0f, true, false);
+                }
+                else addTemplateSlot((float) o.optDouble("cx", 0.5), (float) o.optDouble("cy", 0.5),
+                        (float) o.optDouble("w", 0.5), (float) o.optDouble("h", 0.3), (float) o.optDouble("rot", 0), false);
+            }
+            // 2) the poster's music + text (+ other plain stickers), exactly where they were
+            final String sj = getIntent().getStringExtra(EXTRA_TEMPLATE_STICKERS_JSON);
+            if (sj != null && !sj.isEmpty()) {
+                final org.json.JSONArray arr = new org.json.JSONArray(sj);
+                for (int i = 0; i < arr.length(); i++) {
+                    final org.json.JSONObject o = arr.getJSONObject(i);
+                    final String type = o.optString("type", "");
+                    if ("addyours".equals(type)) continue;
+                    if (com.callx.app.utils.StatusTextOverlayRenderer.isOverlayText(o)) { restoreTemplateText(o); continue; }
+                    o.remove("locked");
+                    final String j = o.toString();
+                    addedStickerJsons.add(j);
+                    addStickerOverlay(j);
+                }
+            }
+            // v739: open the gallery right away (pick all photos at once); cancelling leaves the pulsing "+" boxes
+            stickerOverlayFrame.postDelayed(() -> {
+                if (templatePickerAutoOpened || isFinishing() || isDestroyed()) return;
+                for (StatusStickerOverlayView sv : templateSlots) {
+                    if (sv.getParent() == stickerOverlayFrame && !filledSlots.contains(sv)) {
+                        templatePickerAutoOpened = true;
+                        toast("Apni photos chuno — pehli photo pehle box me jayegi");
+                        openTemplateSlotPicker(sv);
+                        break;
+                    }
+                }
+            }, 700);
+        } catch (Exception e) {
+            toast("Template load nahi hua");
+        }
+    }
+
+    /** Re-creates the poster's text layer (style + spot) from its "overlaytext" JSON entry. */
+    private void restoreTemplateText(org.json.JSONObject o) {
+        final int color = o.optInt("color", 0xFFFFFFFF);
+        int ci = 0;
+        for (int i = 0; i < DRAW_COLORS.length; i++) if (DRAW_COLORS[i] == color) { ci = i; break; }
+        editorTextColorIdx = ci;
+        editorTextBgMode   = o.optInt("bgMode", 0);
+        editorTextSizeSp   = o.optInt("sizeSp", 30);
+        editorTextFontIdx  = o.optInt("font", 1);
+        editorTextAlignIdx = o.optInt("align", 0);
+        setEditorTextOverlay(o.optString("text", ""));
+        final StatusStickerOverlayView ts = editorTextSticker;
+        if (ts == null) return;
+        final float cx = (float) o.optDouble("cx", 0.5), cy = (float) o.optDouble("cy", 0.5);
+        final float sc = (float) o.optDouble("scale", 1.0), rot = (float) o.optDouble("rot", 0.0);
+        ts.setAlpha(0f);
+        placeWhenLaidOut(ts, () -> {
+            ts.setX(cx * stickerOverlayFrame.getWidth() - ts.getWidth() / 2f);
+            ts.setY(cy * stickerOverlayFrame.getHeight() - ts.getHeight() / 2f);
+            ts.applyScale(sc);
+            ts.applyRotation(rot);
+            ts.setAlpha(1f);
+        });
+        ts.postDelayed(() -> ts.setAlpha(1f), 2000);
+    }
+
+    private void placeWhenLaidOut(final View v, final Runnable r) {
+        final int[] tries = {0};
+        v.post(new Runnable() {
+            @Override public void run() {
+                if (v.getParent() != stickerOverlayFrame || isFinishing() || isDestroyed()) return;
+                if (v.getWidth() > 0 && v.getHeight() > 0 && stickerOverlayFrame.getWidth() > 0) r.run();
+                else if (++tries[0] < 30) v.postDelayed(this, 50);
+            }
+        });
+    }
+
+    /** One empty "+" photo box (a photo-layer sticker, so it bakes into the story image like any added photo). */
+    private void addTemplateSlot(final float cx, final float cy, final float wR, final float hR,
+                                 final float rot, final boolean base) {
+        addTemplateSlot(cx, cy, wR, hR, rot, base, false);
+    }
+
+    private void addTemplateSlot(final float cx, final float cy, final float wR, final float hR,
+                                 final float rot, final boolean base, final boolean fit) {
+        final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+        final int w = Math.max(dp(48), Math.round(wR * fw)), h = Math.max(dp(48), Math.round(hR * fh));
+        final ImageView iv = new ImageView(this);
+        final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0x33FFFFFF);
+        bg.setCornerRadius(base && !fit ? 0f : dp(14));
+        if (!base || fit) bg.setStroke(dp(2), 0xCCFFFFFF, dp(8), dp(5));
+        iv.setBackground(bg);
+        iv.setImageResource(R.drawable.ic_layer_plus);
+        iv.setScaleType(ImageView.ScaleType.CENTER);
+        iv.setContentDescription("Tap to add photo");
+        final StatusStickerOverlayView sv = StatusStickerOverlayView.wrapContent(this, iv, TYPE_PHOTO_LAYER);
+        iv.setLayoutParams(new LinearLayout.LayoutParams(w, h));
+        stickerOverlayFrame.addView(sv, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.START));
+        wireStickerEngine(sv);
+        photoLayers.put(sv, pickedImage);          // thumbnail source until a photo is chosen
+        templateSlots.add(sv);
+        slotRegion.put(sv, new float[]{w, h});
+        slotCenter.put(sv, new float[]{cx, cy});
+        if (fit) fitSlots.add(sv);
+        if (base) sv.setLocked(true);              // full-canvas box stays put
+        sv.setOnStickerTappedListener(st -> {
+            if (!filledSlots.contains(st) || fitSlots.contains(st)) openTemplateSlotPicker(st); // fit box: whole photo shows, nothing to pan
+            else if (st.isLocked() || touchPrevSelected == st) showSlotAdjustDialog(st); // v739: pan / zoom the photo inside its box
+            else showStickerSizeBar(st);
+        });
+        sv.setAlpha(0f); // v739: invisible until it sits in its real spot (no first-frame jump on slow devices)
+        placeWhenLaidOut(sv, () -> {
+            sv.setX(cx * stickerOverlayFrame.getWidth() - sv.getWidth() / 2f);
+            sv.setY(cy * stickerOverlayFrame.getHeight() - sv.getHeight() / 2f);
+            sv.applyRotation(rot);
+            sv.setAlpha(1f);
+        });
+        sv.postDelayed(() -> sv.setAlpha(1f), 2000); // safety: never stay hidden
+        startSlotPulse(sv);
+        refreshMediaLayerStrip();
+    }
+
+    private void openTemplateSlotPicker(StatusStickerOverlayView slot) {
+        if (slotPicker == null) return;
+        pendingSlot = slot;
+        slotPicker.launch("image/*");
+    }
+
+    /** Centre-crops the chosen photo to the box's shape and drops it in. */
+    private void fillTemplateSlot(final StatusStickerOverlayView slot, final Uri uri) {
+        Glide.with(this).asBitmap().load(uri)
+                .downsample(com.bumptech.glide.load.resource.bitmap.DownsampleStrategy.AT_MOST)
+                .override(1600, 1600)
+                .disallowHardwareConfig()   // renderStoryCanvas() draws into a software Canvas
+                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                    @Override public void onResourceReady(@NonNull Bitmap bmp,
+                            @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> t) {
+                        if (isFinishing() || isDestroyed() || slot.getParent() != stickerOverlayFrame) return;
+                        final android.view.View c = slot.getChildCount() > 0 ? slot.getChildAt(0) : null;
+                        if (!(c instanceof ImageView) || slot.getWidth() <= 0 || slot.getHeight() <= 0) return;
+                        final ImageView iv = (ImageView) c;
+                        iv.setBackground(null);
+                        iv.setScaleType(ImageView.ScaleType.FIT_XY);
+                        stopSlotPulse(slot);
+                        if (fitSlots.contains(slot)) {
+                            applyFitSlot(slot, iv, bmp, uri);
+                        } else {
+                            slotSrc.put(slot, bmp);
+                            slotXform.put(slot, new float[]{1f, 0.5f, 0.5f});
+                            renderTemplateSlot(slot);
+                        }
+                        filledSlots.add(slot);
+                        photoLayers.put(slot, uri);
+                        refreshMediaLayerStrip();
+                    }
+                    @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable p) { }
+                    @Override public void onLoadFailed(@androidx.annotation.Nullable android.graphics.drawable.Drawable e) {
+                        toast("Photo load nahi hui");
+                    }
+                });
+    }
+
+
+    /**
+     * v742: base photo that the poster saved in fit/blur mode. The viewer's whole photo is contained (never cropped) inside
+     * the poster's base rectangle, re-centred on it, and the blurred backdrop is rebuilt from the viewer's photo.
+     */
+    private void applyFitSlot(final StatusStickerOverlayView slot, final ImageView iv, final Bitmap bmp, final Uri uri) {
+        final float[] reg = slotRegion.get(slot), ctr = slotCenter.get(slot);
+        if (reg == null || ctr == null || bmp.getWidth() <= 0 || bmp.getHeight() <= 0) return;
+        final float pa = bmp.getWidth() / (float) bmp.getHeight(), ra = reg[0] / reg[1];
+        final int nw, nh;
+        if (pa > ra) { nw = Math.round(reg[0]); nh = Math.max(1, Math.round(reg[0] / pa)); }
+        else         { nh = Math.round(reg[1]); nw = Math.max(1, Math.round(reg[1] * pa)); }
+        iv.setImageBitmap(bmp);
+        iv.setLayoutParams(new LinearLayout.LayoutParams(nw, nh));
+        slot.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int t, int r, int b, int oldL, int oldT, int oldR, int oldB) {
+                if ((r - l) != nw || (b - t) != nh || stickerOverlayFrame == null) return; // wait for the resized layout
+                v.removeOnLayoutChangeListener(this);
+                v.setX(ctr[0] * stickerOverlayFrame.getWidth() - (r - l) / 2f);
+                v.setY(ctr[1] * stickerOverlayFrame.getHeight() - (b - t) / 2f);
+            }
+        });
+        slot.requestLayout();
+        if (editorBlurBackground != null) {
+            Glide.with(this).load(uri)
+                    .apply(new RequestOptions().transform(new CenterCrop(), new StatusBlurTransformation(12)))
+                    .into(editorBlurBackground);
+        }
+        binding.ivPreview.setVisibility(View.INVISIBLE); // placeholder gradient must not hide the blur behind the fit box
+    }
+
+    /** {left, top, width, height} of the part of {@code src} that shows in a box of aspect {@code aspect}. */
+    private static float[] slotWindow(Bitmap src, float aspect, float[] xf) {
+        final float bw = src.getWidth(), bh = src.getHeight();
+        float cw = bw, ch = bh;
+        if (bw / bh > aspect) cw = bh * aspect; else ch = bw / aspect;
+        final float z = Math.max(1f, Math.min(5f, xf[0]));
+        cw /= z; ch /= z;
+        final float left = Math.max(0f, Math.min(bw - cw, xf[1] * bw - cw / 2f));
+        final float top  = Math.max(0f, Math.min(bh - ch, xf[2] * bh - ch / 2f));
+        xf[0] = z; xf[1] = (left + cw / 2f) / bw; xf[2] = (top + ch / 2f) / bh; // keep the model inside the photo
+        return new float[]{left, top, cw, ch};
+    }
+
+    /** Draws the slot's photo from its source bitmap + zoom/pan model. */
+    private void renderTemplateSlot(StatusStickerOverlayView slot) {
+        if (fitSlots.contains(slot)) return; // v742: fit box shows the whole photo (set in applyFitSlot)
+        final Bitmap src = slotSrc.get(slot);
+        final float[] xf = slotXform.get(slot);
+        final View c = slot.getChildCount() > 0 ? slot.getChildAt(0) : null;
+        if (src == null || xf == null || !(c instanceof ImageView) || slot.getWidth() <= 0 || slot.getHeight() <= 0) return;
+        final float[] w = slotWindow(src, slot.getWidth() / (float) slot.getHeight(), xf);
+        final int x = Math.max(0, Math.min(src.getWidth() - 1, Math.round(w[0])));
+        final int y = Math.max(0, Math.min(src.getHeight() - 1, Math.round(w[1])));
+        final int cw = Math.max(1, Math.min(src.getWidth() - x, Math.round(w[2])));
+        final int ch = Math.max(1, Math.min(src.getHeight() - y, Math.round(w[3])));
+        final Bitmap cropped = Bitmap.createBitmap(src, x, y, cw, ch);
+        ((ImageView) c).setImageBitmap(slot.isLocked() ? cropped : roundedLayerBitmap(cropped));
+    }
+
+    /** Full-screen "pinch to zoom, drag to move" editor for the photo inside one template box. */
+    private void showSlotAdjustDialog(final StatusStickerOverlayView slot) {
+        final Bitmap src = slotSrc.get(slot);
+        final float[] saved = slotXform.get(slot);
+        if (src == null || saved == null || slot.getWidth() <= 0 || slot.getHeight() <= 0) { openTemplateSlotPicker(slot); return; }
+        final float aspect = slot.getWidth() / (float) slot.getHeight();
+        final android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int bw = Math.round(dm.widthPixels * 0.88f), bh = Math.round(bw / aspect);
+        final int maxH = Math.round(dm.heightPixels * 0.62f);
+        if (bh > maxH) { bh = maxH; bw = Math.round(bh * aspect); }
+        final int fbw = bw, fbh = bh;
+        final float[] xf = {saved[0], saved[1], saved[2]};
+
+        final android.app.Dialog d = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(android.view.Gravity.CENTER);
+        root.setBackgroundColor(0xF2000000);
+        final TextView hint = new TextView(this);
+        hint.setText("Pinch = zoom  •  Drag = move");
+        hint.setTextColor(0xCCFFFFFF);
+        hint.setTextSize(14f);
+        hint.setPadding(0, 0, 0, dp(14));
+        root.addView(hint);
+
+        final ImageView iv = new ImageView(this);
+        iv.setScaleType(ImageView.ScaleType.MATRIX);
+        iv.setImageBitmap(src);
+        final FrameLayout box = new FrameLayout(this);
+        box.setClipChildren(true);
+        box.setClipToOutline(true);
+        final android.graphics.drawable.GradientDrawable boxBg = new android.graphics.drawable.GradientDrawable();
+        boxBg.setColor(0xFF111111);
+        boxBg.setCornerRadius(slot.isLocked() ? 0f : dp(14));
+        box.setBackground(boxBg);
+        box.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+        box.addView(iv, new FrameLayout.LayoutParams(fbw, fbh));
+        root.addView(box, new LinearLayout.LayoutParams(fbw, fbh));
+
+        final android.graphics.Matrix m = new android.graphics.Matrix();
+        final Runnable apply = () -> {
+            final float[] w = slotWindow(src, aspect, xf);
+            final float sc = fbw / w[2];
+            m.setScale(sc, sc);
+            m.postTranslate(-w[0] * sc, -w[1] * sc);
+            iv.setImageMatrix(m);
+        };
+        apply.run();
+
+        final android.view.ScaleGestureDetector sgd = new android.view.ScaleGestureDetector(this,
+                new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    @Override public boolean onScale(android.view.ScaleGestureDetector det) {
+                        xf[0] = Math.max(1f, Math.min(5f, xf[0] * det.getScaleFactor()));
+                        apply.run();
+                        return true;
+                    }
+                });
+        final float[] last = new float[2];
+        box.setOnTouchListener((v, ev) -> {
+            sgd.onTouchEvent(ev);
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    last[0] = ev.getX(); last[1] = ev.getY();
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                    break;
+                case android.view.MotionEvent.ACTION_POINTER_UP: {
+                    final int keep = ev.getActionIndex() == 0 ? 1 : 0;
+                    last[0] = ev.getX(keep); last[1] = ev.getY(keep);
+                    break;
+                }
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (ev.getPointerCount() == 1 && !sgd.isInProgress()) {
+                        final float[] w = slotWindow(src, aspect, xf);
+                        final float sc = fbw / w[2]; // view px per photo px
+                        xf[1] -= (ev.getX() - last[0]) / sc / src.getWidth();
+                        xf[2] -= (ev.getY() - last[1]) / sc / src.getHeight();
+                        last[0] = ev.getX(); last[1] = ev.getY();
+                        apply.run();
+                    }
+                    break;
+                default: break;
+            }
+            return true;
+        });
+
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER);
+        row.setPadding(0, dp(18), 0, 0);
+        final TextView change = new TextView(this), done = new TextView(this);
+        for (TextView t : new TextView[]{change, done}) {
+            t.setTextColor(0xFFFFFFFF); t.setTextSize(16f); t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            t.setGravity(android.view.Gravity.CENTER);
+            t.setPadding(dp(24), dp(12), dp(24), dp(12));
+            final android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+            g.setCornerRadius(dp(26));
+            g.setColor(t == done ? 0xFF6A3DE8 : 0x33FFFFFF);
+            t.setBackground(g);
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.setMargins(dp(8), 0, dp(8), 0);
+            row.addView(t, lp);
+        }
+        change.setText("Change photo");
+        done.setText("Done");
+        change.setOnClickListener(v -> { d.dismiss(); openTemplateSlotPicker(slot); });
+        done.setOnClickListener(v -> {
+            slotXform.put(slot, xf);
+            renderTemplateSlot(slot);
+            refreshMediaLayerStrip();
+            d.dismiss();
+        });
+        root.addView(row);
+        d.setContentView(root);
+        d.show();
+    }
+
+    /** One entry per (template, user) → the viewer counts children for "N used". Written once the post is live. */
+    private void recordTemplateUse() {
+        if (!templateMode) return;
+        com.callx.app.utils.StatusTemplateUses.record(
+                getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID), getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID));
+    }
+
+    /** v740: Post button shows how many boxes are still empty (and looks disabled) on the Post step. */
+    private void refreshTemplateGate() {
+        if (!templateMode || binding == null || binding.btnStepNext == null) return;
+        final int open = countOpenTemplateSlots();
+        if (wizardStep == 2 && open > 0) {
+            binding.btnStepNext.setText("Fill " + open + " photo box" + (open == 1 ? "" : "es"));
+            binding.btnStepNext.setAlpha(0.5f);
+        } else {
+            binding.btnStepNext.setAlpha(1f);
+            if (wizardStep == 2) binding.btnStepNext.setText("Post now");
+        }
+    }
+
+    private void startSlotPulse(StatusStickerOverlayView sv) {
+        final View c = sv.getChildCount() > 0 ? sv.getChildAt(0) : null;
+        if (c == null) return;
+        final android.animation.ObjectAnimator a = android.animation.ObjectAnimator.ofFloat(c, "alpha", 1f, 0.45f);
+        a.setDuration(800);
+        a.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        a.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+        a.start();
+        slotPulse.put(sv, a);
+    }
+
+    private void stopSlotPulse(StatusStickerOverlayView sv) {
+        final android.animation.ObjectAnimator a = slotPulse.remove(sv);
+        if (a != null) a.cancel();
+        final View c = sv.getChildCount() > 0 ? sv.getChildAt(0) : null;
+        if (c != null) c.setAlpha(1f);
+    }
+
+    private int countOpenTemplateSlots() {
+        int n = 0;
+        for (StatusStickerOverlayView sv : templateSlots)
+            if (sv.getParent() == stickerOverlayFrame && !filledSlots.contains(sv)) n++;
+        return n;
+    }
+
     /** v578: pre-applies the chain starter's text-status look (background, font, colour, alignment) for a joiner. */
     private void applyAddYoursTemplate(String stickerJson) {
         try {
@@ -4736,6 +5286,10 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     // ── Post ──────────────────────────────────────────────────────────────
     private void post() {
+        if (templateMode) {
+            final int open = countOpenTemplateSlots();
+            if (open > 0) { toast("Pehle sabhi photo boxes bharo (" + open + " baaki)"); return; }
+        }
         String txt     = binding.etText.getText().toString().trim();
         String caption = binding.etCaption != null ? binding.etCaption.getText().toString().trim() : "";
         // the "gif" tag is only trusted while pickedImage is still the pasted web URL — a
@@ -5030,6 +5584,12 @@ public class NewStatusActivity extends AppCompatActivity {
         if (!stickersJson.isEmpty()) {
             item.stickersJson = stickersJson;
         }
+        if (makeTemplate) { String tj = buildTemplateJson(); if (tj != null) item.templateJson = tj; }
+        if (templateMode) {
+            item.templateFromUid  = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID);
+            item.templateFromId   = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID);
+            item.templateFromName = com.callx.app.utils.StatusTemplateUses.capName(getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME));
+        }
         // Mentions: uid resolution + notification are done server-side (functions: onStatusCreatedMentions),
         // which writes status/{owner}/{id}/mentionNames/{username} = uid. The client must not write them.
         // Link metadata
@@ -5068,6 +5628,7 @@ public class NewStatusActivity extends AppCompatActivity {
         ref.setValue(item.toMap())
             .addOnSuccessListener(u -> {
                 clearDraft();
+                recordTemplateUse();
                 StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt);
                 toast("Status posted!");
                 warnUnresolvedMentions(item);
@@ -5243,6 +5804,12 @@ public class NewStatusActivity extends AppCompatActivity {
         if (!stickersJson.isEmpty()) {
             item.stickersJson = stickersJson;
         }
+        if (makeTemplate) { String tj = buildTemplateJson(); if (tj != null) item.templateJson = tj; }
+        if (templateMode) {
+            item.templateFromUid  = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID);
+            item.templateFromId   = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID);
+            item.templateFromName = com.callx.app.utils.StatusTemplateUses.capName(getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME));
+        }
         // ── Scheduled post? Route to statusScheduled instead of going live now ──
         if (pendingScheduledAt > 0) {
             long scheduledAt = pendingScheduledAt;
@@ -5348,6 +5915,8 @@ public class NewStatusActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         if (activeStepRingSpin != null) activeStepRingSpin.cancel();
+        for (android.animation.ObjectAnimator a : slotPulse.values()) a.cancel();
+        slotPulse.clear();
         stopMusicPreview(); // (6a) release MediaPlayer + audio focus
         stopVideoPreview(); // v589: release the editor's VideoView player
         super.onDestroy();

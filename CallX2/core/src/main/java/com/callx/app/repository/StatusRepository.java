@@ -102,6 +102,7 @@ public class StatusRepository {
         executor.execute(() -> dao.pruneExpired(0)); // prune everything first
         FirebaseUtils.getUserStatusRef(ownerUid).child(statusId)
             .removeValue((e, ref) -> {
+                if (e == null) com.callx.app.utils.StatusTemplateUses.clear(ownerUid, statusId); // v743: drop the "N used" counter
                 if (cb != null) mainHandler.post(() -> cb.onDone(e == null));
             });
     }
@@ -160,8 +161,13 @@ public class StatusRepository {
                         java.util.Map<String, Object> finalUpdates = new java.util.HashMap<>();
                         finalUpdates.put("status/" + ownerUid + "/" + statusId, item.toMap());
                         finalUpdates.put("statusScheduled/" + ownerUid + "/" + statusId, null);
-                        FirebaseUtils.db().getReference().updateChildren(finalUpdates, (e, ref) ->
-                            mainHandler.post(() -> { if (cb != null) cb.onDone(e == null); }));
+                        final StatusItem published = item;
+                        FirebaseUtils.db().getReference().updateChildren(finalUpdates, (e, ref) -> {
+                            // v743: a scheduled status made FROM a template only goes live now → count the use now
+                            if (e == null && published.templateFromUid != null && published.templateFromId != null)
+                                com.callx.app.utils.StatusTemplateUses.record(published.templateFromUid, published.templateFromId);
+                            mainHandler.post(() -> { if (cb != null) cb.onDone(e == null); });
+                        });
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {
                         mainHandler.post(() -> { if (cb != null) cb.onDone(false); });

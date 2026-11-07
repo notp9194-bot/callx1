@@ -809,6 +809,29 @@
                     android:clickable="true"
                     android:focusable="true"
                     android:contentDescription="Mention people"/>
+
+                <TextView
+                    android:id="@+id/tv_pill_template"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_gravity="start"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="22dp"
+                    android:drawablePadding="12dp"
+                    android:text="Make template (viewers add own photos)"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="1"
+                    android:background="@drawable/bg_status_meta_pill"
+                    android:foreground="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:visibility="gone"
+                    android:contentDescription="Make template"/>
             </LinearLayout>
 
             <!-- ── Upload progress ── -->

@@ -164,6 +164,11 @@ public class StatusItem {
      *  Each element is a sticker produced by StatusStickerPickerSheet. */
     public String stickersJson;
 
+    /** v738: photo-slot template (JSON {v,slots:[{base}|{cx,cy,w,h,rot}]}); set when the poster tapped "Make template". */
+    public String templateJson;
+    /** v740: set on a status made FROM a template — who/what it came from ("Template by @name"). */
+    public String templateFromUid, templateFromId, templateFromName;
+
     // ── Link preview ──────────────────────────────────────────────────
     public String linkUrl;
     public String linkTitle;
@@ -390,6 +395,11 @@ public class StatusItem {
         if (gifUrl != null)           m.put("gifUrl", gifUrl);
         if (stickerUrl != null)       m.put("stickerUrl", stickerUrl);
         if (stickersJson != null && !stickersJson.isEmpty()) m.put("stickersJson", stickersJson);
+        if (templateJson != null && !templateJson.isEmpty()) m.put("templateJson", templateJson);
+        if (templateFromUid != null && !templateFromUid.isEmpty() && templateFromId != null && !templateFromId.isEmpty()) {
+            m.put("templateFromUid", templateFromUid); m.put("templateFromId", templateFromId);
+            if (templateFromName != null) m.put("templateFromName", com.callx.app.utils.StatusTemplateUses.capName(templateFromName));
+        }
         if (linkUrl != null)          m.put("linkUrl", linkUrl);
         if (linkTitle != null)        m.put("linkTitle", linkTitle);
         if (linkDescription != null)  m.put("linkDescription", linkDescription);
