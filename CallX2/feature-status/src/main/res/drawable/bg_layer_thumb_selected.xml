@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selected media-layer thumbnail tile: blue→violet gradient ring around a dark tile. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:angle="45"
+                android:startColor="#FF29B6F6"
+                android:endColor="#FF7C4DFF"/>
+            <corners android:radius="17dp"/>
+        </shape>
+    </item>
+    <item android:left="3dp" android:top="3dp" android:right="3dp" android:bottom="3dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#FF1E1E22"/>
+            <corners android:radius="14dp"/>
+        </shape>
+    </item>
+</layer-list>

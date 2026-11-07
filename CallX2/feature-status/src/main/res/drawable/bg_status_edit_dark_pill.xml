@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Edit Status screen: dark pill for "Save draft" (same dark-on-dark look in light/dark app theme). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FF22252B"/>
-    <corners android:radius="28dp"/>
-</shape>

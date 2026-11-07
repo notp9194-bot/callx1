@@ -21,7 +21,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.*;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
-import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.status.R;
 import com.callx.app.status.databinding.ActivityNewStatusBinding;
@@ -179,6 +178,19 @@ public class NewStatusActivity extends AppCompatActivity {
     // composed collage can never turn back into N individual photos.
     private ActivityResultLauncher<Intent>  layoutMediaEditLauncher;
 
+    // ── v732: media layers (strip with "+") + location pill ───────────────
+    /** Sticker-engine type of a photo added on top of the current media via the strip's "+" tile. */
+    private static final String TYPE_PHOTO_LAYER = "photo_layer";
+    private static final int MAX_PHOTO_LAYERS = 8;
+    /** Picks extra photos that land ON TOP of the current media (adjustable layers). */
+    private ActivityResultLauncher<String> layerPicker;
+    /** Result of feature-reels' ReelLocationTagActivity (launched by class name — no module dependency). */
+    private ActivityResultLauncher<Intent> locationPickerLauncher;
+    /** Every photo layer ever added this session (kept after delete so undo can revive it); source Uri for its strip thumbnail. */
+    private final java.util.LinkedHashMap<StatusStickerOverlayView, Uri> photoLayers = new java.util.LinkedHashMap<>();
+    private String selectedLocationName = null;
+    private double selectedLocationLat = 0d, selectedLocationLng = 0d;
+
     /** FrameLayout that holds the status preview + sticker overlays */
     private android.widget.FrameLayout stickerOverlayFrame;
     /** Instagram-style editor state for a picked photo. */
@@ -201,7 +213,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private boolean editorDrawMode;
     // v587: draw toolbar state
     private LinearLayout editorDrawBar;
-    private View editorDrawIcon;   // v732: ImageView rail icon (was TextView glyph)
+    private TextView editorDrawIcon;
     private TextView editorUndoBtn, editorRedoBtn, editorEraserBtn;
     private final java.util.ArrayList<GradientDrawable> editorSwatchBgs = new java.util.ArrayList<>();
     private final java.util.ArrayList<TextView> editorSizeBtns = new java.util.ArrayList<>();
@@ -280,6 +292,14 @@ public class NewStatusActivity extends AppCompatActivity {
         musicReeditMixLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> onMusicReeditMixResult(result.getResultCode(), result.getData()));
+        layerPicker = registerForActivityResult(
+                new ActivityResultContracts.GetMultipleContents(), uris -> {
+                    if (uris == null) return;
+                    for (Uri u : uris) addPhotoLayer(u);
+                });
+        locationPickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> onLocationPicked(result.getResultCode(), result.getData()));
         setupBgColorPicker();
         setupFontStylePicker();
         setupPrivacyButton();
@@ -292,7 +312,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupTextAlignButtons();
         setupTextInput();
         setupStickerOverlayFrame();
-        setupEditStepChrome();   // v732: "Edit Status" top bar / chips / thumbnail strip / Save draft + Share
+        setupMediaLayerStrip();
         setupWizard();
         // v216: Layout picker launcher — receives URIs + layoutStyle from StatusLayoutPickerActivity.
         //
@@ -475,6 +495,10 @@ public class NewStatusActivity extends AppCompatActivity {
                 visible = wizardStep == 2;
             } else if (child.getId() == R.id.media_preview_frame) {
                 visible = wizardStep == 1;
+            } else if ("media_caption_row".equals(section)) {
+                visible = wizardStep == 1;   // strip (photo only) + caption share this row
+            } else if ("status_meta_pills".equals(section)) {
+                visible = wizardStep == 1 && (pickedImage != null || pickedVideo != null);
             } else if ("btn_gif".equals(section) || "btn_add_sticker".equals(section)) {
                 // These two standalone buttons are represented by the compact
                 // right-side tool rail while editing media.
@@ -526,12 +550,10 @@ public class NewStatusActivity extends AppCompatActivity {
 
         updateWizardProgress();
         refreshStepPreview();
+        updateMediaLayerChrome();
         if (wizardStep == 0 && pickedImage == null && pickedVideo == null) {
             binding.bgColorPickerRow.setVisibility(View.VISIBLE);
         }
-
-        // v732: full-screen "Edit Status" chrome only for the media Edit step (text-only keeps the old layout).
-        applyEditStepChrome(wizardStep == 1 && (pickedImage != null || pickedVideo != null));
 
         binding.statusFormContent.post(() -> {
             View parent = (View) binding.statusFormContent.getParent();
@@ -653,6 +675,269 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // v732 — Edit step: rounded preview, media layer strip ("+"), location + mention pills
+    // ══════════════════════════════════════════════════════════════════════
+
+    private boolean isPhotoLayerView(View v) {
+        return v instanceof StatusStickerOverlayView
+                && TYPE_PHOTO_LAYER.equals(((StatusStickerOverlayView) v).getStickerType());
+    }
+
+    /**
+     * Rounded corners for the Edit-step preview canvas. Outline clipping only affects the on-screen
+     * (hardware) render — renderStoryCanvas() draws into a software Canvas, so the exported story
+     * image keeps full square corners.
+     */
+    private void applyRoundedPreviewCorners() {
+        if (stickerOverlayFrame == null) return;
+        final int radius = dp(22);
+        stickerOverlayFrame.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+            }
+        });
+        stickerOverlayFrame.setClipToOutline(true);
+        stickerOverlayFrame.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) v.invalidateOutline();
+        });
+    }
+
+    private void setupMediaLayerStrip() {
+        if (binding.tvPillLocation != null)
+            binding.tvPillLocation.setOnClickListener(v -> openLocationPicker());
+        if (binding.tvPillMention != null)
+            binding.tvPillMention.setOnClickListener(v -> onStatusEditorTool("Mention", v));
+        updateMediaLayerChrome();
+    }
+
+    /** Visibility + content of the strip and pills for the current step / media. */
+    private void updateMediaLayerChrome() {
+        if (binding == null) return;
+        final boolean photo = pickedImage != null && pickedVideo == null;
+        final boolean any = pickedImage != null || pickedVideo != null;
+        if (binding.mediaLayerStripScroll != null)
+            binding.mediaLayerStripScroll.setVisibility(wizardStep == 1 && photo ? View.VISIBLE : View.GONE);
+        if (binding.statusMetaPills != null)
+            binding.statusMetaPills.setVisibility(wizardStep == 1 && any ? View.VISIBLE : View.GONE);
+        refreshMetaPills();
+        refreshMediaLayerStrip();
+    }
+
+    private void refreshMetaPills() {
+        if (binding == null || binding.tvPillLocation == null) return;
+        final boolean has = selectedLocationName != null && !selectedLocationName.isEmpty();
+        binding.tvPillLocation.setText(has ? selectedLocationName : "Add location");
+    }
+
+    /** Rebuilds the strip: [current media] [added photo layers in z-order…] [+]. */
+    private void refreshMediaLayerStrip() {
+        if (binding == null || binding.mediaLayerStrip == null || stickerOverlayFrame == null) return;
+        final LinearLayout strip = binding.mediaLayerStrip;
+        strip.removeAllViews();
+        if (pickedImage == null || pickedVideo != null) return;
+
+        final boolean baseSelected = selectedSticker == null || !photoLayers.containsKey(selectedSticker);
+        strip.addView(makeLayerThumb(pickedImage, baseSelected, v -> hideStickerSizeBar(), null));
+
+        for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
+            final View c = stickerOverlayFrame.getChildAt(i);
+            if (!isPhotoLayerView(c)) continue;
+            final StatusStickerOverlayView sv = (StatusStickerOverlayView) c;
+            final Uri src = photoLayers.get(sv);
+            if (src == null || sv.isRemoving()) continue;
+            strip.addView(makeLayerThumb(src, sv == selectedSticker, v -> {
+                if (sv.getParent() != stickerOverlayFrame) return;
+                stickerOverlayFrame.bringChildToFront(sv);
+                restoreOverlayChrome();
+                showStickerSizeBar(sv);
+            }, sv));
+        }
+        if (photoLayers.size() < MAX_PHOTO_LAYERS) strip.addView(makeLayerPlusTile());
+        capLayerStripWidth();
+    }
+
+    /** Strip shares a row with the caption box: it keeps its natural width up to ~46% of the row, then scrolls. */
+    private void capLayerStripWidth() {
+        final View scroll = binding.mediaLayerStripScroll;
+        final View row = binding.mediaCaptionRow;
+        if (scroll == null || row == null) return;
+        row.post(() -> {
+            final int rowW = row.getWidth();
+            if (rowW <= 0) return;
+            final int cap = Math.round(rowW * 0.46f);
+            final int tiles = binding.mediaLayerStrip.getChildCount();
+            final int natural = Math.max(0, tiles * dp(70) - dp(10));   // 60dp tile + 10dp gap
+            final ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) scroll.getLayoutParams();
+            final int w = Math.min(natural, cap);
+            final int end = scroll.getVisibility() == View.VISIBLE ? dp(10) : 0;
+            if (lp.width != w || lp.getMarginEnd() != end) {
+                lp.width = w;
+                lp.setMarginEnd(end);
+                scroll.setLayoutParams(lp);
+            }
+        });
+    }
+
+    private View makeLayerThumb(Uri uri, boolean selected, View.OnClickListener click,
+                                final StatusStickerOverlayView layer) {
+        final FrameLayout box = new FrameLayout(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(60), dp(60));
+        lp.setMarginEnd(dp(10));
+        box.setLayoutParams(lp);
+        box.setBackgroundResource(selected ? R.drawable.bg_layer_thumb_selected : R.drawable.bg_layer_thumb);
+        box.setPadding(dp(3), dp(3), dp(3), dp(3));
+        box.setContentDescription(layer == null ? "Current media" : "Added photo — tap to adjust, hold to remove");
+        final ImageView iv = new ImageView(this);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        iv.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View view, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(14));
+            }
+        });
+        iv.setClipToOutline(true);
+        box.addView(iv, new FrameLayout.LayoutParams(-1, -1));
+        Glide.with(this).load(uri).centerCrop().override(dp(120), dp(120)).dontAnimate().into(iv);
+        box.setOnClickListener(click);
+        if (layer != null) {
+            box.setOnLongClickListener(v -> {
+                if (layer.getParent() == stickerOverlayFrame && !layer.isRemoving()) {
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                    layer.removeWithAnimation();   // same undoable delete as the sticker bar / trash
+                }
+                return true;
+            });
+        }
+        return box;
+    }
+
+    private View makeLayerPlusTile() {
+        final FrameLayout box = new FrameLayout(this);
+        box.setLayoutParams(new LinearLayout.LayoutParams(dp(60), dp(60)));
+        box.setBackgroundResource(R.drawable.bg_layer_plus);
+        box.setClickable(true);
+        box.setFocusable(true);
+        box.setContentDescription("Add photo on top");
+        final ImageView plus = new ImageView(this);
+        plus.setImageResource(R.drawable.ic_layer_plus);
+        box.addView(plus, new FrameLayout.LayoutParams(dp(28), dp(28), android.view.Gravity.CENTER));
+        box.setOnClickListener(v -> {
+            if (photoLayers.size() >= MAX_PHOTO_LAYERS) { toast("Max " + MAX_PHOTO_LAYERS + " photos"); return; }
+            if (layerPicker != null) layerPicker.launch("image/*");
+        });
+        return box;
+    }
+
+    /** Decodes {@code uri} and drops it on top of the current media as an adjustable layer. */
+    private void addPhotoLayer(final Uri uri) {
+        if (uri == null || stickerOverlayFrame == null || pickedImage == null || pickedVideo != null) return;
+        if (photoLayers.size() >= MAX_PHOTO_LAYERS) { toast("Max " + MAX_PHOTO_LAYERS + " photos"); return; }
+        Glide.with(this).asBitmap().load(uri)
+                .downsample(com.bumptech.glide.load.resource.bitmap.DownsampleStrategy.AT_MOST)
+                .override(1600, 1600)
+                .disallowHardwareConfig()   // renderStoryCanvas() draws into a software Canvas
+                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                    @Override public void onResourceReady(@NonNull Bitmap bmp,
+                            @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> t) {
+                        if (isFinishing() || isDestroyed() || stickerOverlayFrame == null
+                                || pickedImage == null || pickedVideo != null) return;
+                        attachPhotoLayer(uri, bmp);
+                    }
+                    @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable p) { }
+                    @Override public void onLoadFailed(@androidx.annotation.Nullable android.graphics.drawable.Drawable e) {
+                        toast("Photo load nahi hui");
+                    }
+                });
+    }
+
+    private void attachPhotoLayer(final Uri uri, Bitmap bmp) {
+        final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+        if (fw <= 0 || fh <= 0 || bmp.getWidth() <= 0 || bmp.getHeight() <= 0) return;
+        // ~60% of the canvas width (≤ 50% of its height) — the person then pinches / drags it into place
+        final float k = Math.min(fw * 0.60f / bmp.getWidth(), fh * 0.50f / bmp.getHeight());
+        final int w = Math.max(dp(48), Math.round(bmp.getWidth() * k));
+        final int h = Math.max(dp(48), Math.round(bmp.getHeight() * k));
+
+        final ImageView iv = new ImageView(this);
+        iv.setImageBitmap(roundedLayerBitmap(bmp));
+        iv.setScaleType(ImageView.ScaleType.FIT_XY);
+        iv.setAdjustViewBounds(true);
+        iv.setContentDescription("Added photo");
+        final StatusStickerOverlayView sv = StatusStickerOverlayView.wrapContent(this, iv, TYPE_PHOTO_LAYER);
+        iv.setLayoutParams(new LinearLayout.LayoutParams(w, h));   // wrapper is a LinearLayout
+        stickerOverlayFrame.addView(sv, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.CENTER));
+        wireStickerEngine(sv);
+        photoLayers.put(sv, uri);
+        sv.setOnStickerTappedListener(this::showStickerSizeBar);
+        pushPresenceUndo(UA_ADD, sv, null, -1, null);   // add is undoable like every other layer
+        restoreOverlayChrome();
+        sv.post(() -> showStickerSizeBar(sv));          // select it right away: drag / pinch / twist to adjust
+        refreshMediaLayerStrip();
+    }
+
+    /** Soft rounded corners baked into the layer's pixels so what you see is what gets exported. */
+    private static Bitmap roundedLayerBitmap(Bitmap src) {
+        final int w = src.getWidth(), h = src.getHeight();
+        final Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        final android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG
+                | android.graphics.Paint.FILTER_BITMAP_FLAG);
+        p.setShader(new android.graphics.BitmapShader(src, android.graphics.Shader.TileMode.CLAMP,
+                android.graphics.Shader.TileMode.CLAMP));
+        final float r = Math.min(w, h) * 0.06f;
+        new Canvas(out).drawRoundRect(new android.graphics.RectF(0, 0, w, h), r, r, p);
+        return out;
+    }
+
+    /** Removes every added photo layer (media discarded / replaced). */
+    private void clearPhotoLayers() {
+        if (photoLayers.isEmpty()) return;
+        final java.util.ArrayList<StatusStickerOverlayView> all = new java.util.ArrayList<>(photoLayers.keySet());
+        if (selectedSticker != null && photoLayers.containsKey(selectedSticker)) hideStickerSizeBar();
+        for (StatusStickerOverlayView s : all) {
+            s.animate().cancel();
+            if (stickerOverlayFrame != null && s.getParent() == stickerOverlayFrame) stickerOverlayFrame.removeView(s);
+            purgeUndoFor(s);
+        }
+        photoLayers.clear();
+        refreshMediaLayerStrip();
+    }
+
+    // ── location pill ────────────────────────────────────────────────────
+
+    private void openLocationPicker() {
+        if (locationPickerLauncher == null) return;
+        Intent i = new Intent();
+        i.setClassName(getPackageName(), "com.callx.app.upload.ReelLocationTagActivity");
+        i.putExtra("current_location", selectedLocationName == null ? "" : selectedLocationName);
+        try {
+            locationPickerLauncher.launch(i);
+        } catch (Exception e) {
+            toast("Location picker abhi available nahi hai");
+        }
+    }
+
+    private void onLocationPicked(int resultCode, Intent data) {
+        if (resultCode != RESULT_OK || data == null) return;
+        String name = data.getStringExtra("place_name");
+        if (name == null || name.trim().isEmpty()) {            // "Remove location" in the picker
+            selectedLocationName = null; selectedLocationLat = 0d; selectedLocationLng = 0d;
+        } else {
+            selectedLocationName = name.trim();
+            selectedLocationLat = data.getDoubleExtra("place_lat", 0d);
+            selectedLocationLng = data.getDoubleExtra("place_lng", 0d);
+        }
+        refreshMetaPills();
+    }
+
+    private void applyLocationToItem(com.callx.app.models.StatusItem item) {
+        if (item == null || selectedLocationName == null || selectedLocationName.isEmpty()) return;
+        item.locationName = selectedLocationName;
+        item.locationLat = selectedLocationLat;
+        item.locationLng = selectedLocationLng;
+    }
+
     // ── Sticker overlay frame setup ───────────────────────────────────────
 
     /**
@@ -693,6 +978,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 });
             }
             sizeStoryCanvas();
+            applyRoundedPreviewCorners();
             setupEditorGestures();
             setupStatusEditorTools();
         }
@@ -719,17 +1005,6 @@ public class NewStatusActivity extends AppCompatActivity {
                         + ((ViewGroup.MarginLayoutParams) lp).rightMargin;
             }
             int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.80f);
-            if (editChromeOn && host.getParent() instanceof View) {
-                // v732: Edit Status screen — canvas fills the space between the top bar and the thumbnail/Share bars.
-                View sv = (View) host.getParent();
-                int availH = sv.getHeight() - sv.getPaddingTop() - sv.getPaddingBottom()
-                        - host.getPaddingTop() - host.getPaddingBottom();
-                if (lp instanceof ViewGroup.MarginLayoutParams) {
-                    availH -= ((ViewGroup.MarginLayoutParams) lp).topMargin
-                            + ((ViewGroup.MarginLayoutParams) lp).bottomMargin;
-                }
-                if (availH > dp(200)) maxH = availH;
-            }
             int h = Math.round(availW * (16f / 9f));
             int w = ViewGroup.LayoutParams.MATCH_PARENT;
             if (h > maxH) {
@@ -1144,47 +1419,41 @@ public class NewStatusActivity extends AppCompatActivity {
         editorToolRail.setPadding(0, dp(4), dp(2), dp(4));
         editorToolRail.setTag("status_editor_tool_rail");
 
-        // v732: rail follows the "Edit Status" reference: icon discs + dark label pills.
-        // {action, label, icon}. Guide / Fit / Save / Label AI / Timer moved into "More" — nothing removed.
-        Object[][] tools = {
-                {"Text",     "Text",     com.callx.app.chat.R.drawable.ic_media_edit_text},
-                {"Stickers", "Stickers", R.drawable.ic_sticker},
-                {"Music",    "Music",    R.drawable.ic_music_note},
-                {"Draw",     "Draw",     com.callx.app.chat.R.drawable.ic_media_edit_draw},
-                {"Effects",  "Effects",  R.drawable.ic_sparkle},
-                {"Mention",  "Mention",  R.drawable.ic_alternate_email},
-                {"Crop",     "Crop",     com.callx.app.chat.R.drawable.ic_media_edit_crop},
-                {"Restyle",  "Filters",  R.drawable.ic_filters},
-                {"Emoji",    "Emoji",    R.drawable.ic_emoji},
-                {"More",     "More",     R.drawable.ic_more_vert}
+        String[][] tools = {
+                {"Text", "Aa"}, {"Stickers", "☺"}, {"Music", "♫"},
+                {"Restyle", "✎"}, {"Effects", "✦"}, {"Mention", "@"},
+                {"Draw", "〰"}, {"Guide", "▭"}, {"Fit", "⛶"}, {"Save", "↓"}, {"Label AI", "▣"}, {"Timer", "⏱"}, {"More", "···"}
         };
-        for (Object[] tool : tools) {
-            final String action = (String) tool[0];
-            final LinearLayout row = new LinearLayout(this);
+        for (String[] tool : tools) {
+            LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
-            row.setContentDescription((String) tool[1]);
+            row.setContentDescription(tool[0]);
             TextView label = new TextView(this);
-            label.setText((String) tool[1]);
+            label.setText(tool[0]);
             label.setTextColor(Color.WHITE);
-            label.setTextSize(13);
-            label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-            label.setBackgroundResource(R.drawable.bg_status_reply_pill);
-            label.setPadding(dp(12), dp(5), dp(12), dp(5));
+            label.setTextSize(10);
+            label.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
+            label.setShadowLayer(dp(2), 0, dp(1), 0xCC000000);
             label.setMaxLines(1);
-            LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-2, -2);
-            labelLp.setMarginEnd(dp(8));
-            row.addView(label, labelLp);
+            label.setPadding(0, 0, dp(5), 0);
+            row.addView(label, new LinearLayout.LayoutParams(dp(57), -2));
 
-            android.widget.ImageView icon = new android.widget.ImageView(this);
-            icon.setImageResource((Integer) tool[2]);
-            icon.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
-            icon.setPadding(dp(10), dp(10), dp(10), dp(10));
-            setRailIconActive(icon, false);
-            row.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
-            if ("Draw".equals(action)) editorDrawIcon = icon;
-            editorToolRows.put(action, row);
-            row.setOnClickListener(v -> onStatusEditorTool(action, row));
+            TextView icon = new TextView(this);
+            icon.setText(tool[1]);
+            icon.setTextColor(Color.WHITE);
+            icon.setTextSize(tool[1].length() > 1 ? 13 : 20);
+            icon.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            icon.setGravity(android.view.Gravity.CENTER);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(0xCC25272B);
+            circle.setStroke(dp(1), 0x66FFFFFF);
+            icon.setBackground(circle);
+            row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+            if ("Draw".equals(tool[0])) editorDrawIcon = icon;
+            editorToolRows.put(tool[0], row);
+            row.setOnClickListener(v -> onStatusEditorTool(tool[0], row));
             editorToolRail.addView(row, new LinearLayout.LayoutParams(-2, 0, 1f));
         }
         android.widget.FrameLayout.LayoutParams railLp =
@@ -1196,21 +1465,14 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     /** v587: highlighted (white) vs normal (dark) state for a rail icon. */
-    private void setRailIconActive(View icon, boolean active) {
+    private void setRailIconActive(TextView icon, boolean active) {
         if (icon == null) return;
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(active ? 0xFFFFFFFF : 0xCC25272B);
         circle.setStroke(dp(1), active ? 0xFFFFFFFF : 0x66FFFFFF);
         icon.setBackground(circle);
-        int fg = active ? 0xFF111111 : Color.WHITE;
-        if (icon instanceof TextView) {
-            ((TextView) icon).setTextColor(fg);
-        } else if (icon instanceof android.widget.ImageView) {
-            // explicit tint: several modules ship same-named icons with different baked colours
-            androidx.core.widget.ImageViewCompat.setImageTintList((android.widget.ImageView) icon,
-                    android.content.res.ColorStateList.valueOf(fg));
-        }
+        icon.setTextColor(active ? 0xFF111111 : Color.WHITE);
     }
 
     private TextView drawBarButton(String label, View.OnClickListener click) {
@@ -1362,7 +1624,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (pickedVideo != null) {
             if ("Text".equals(action) || "Mention".equals(action)
                     || "Restyle".equals(action) || "Effects".equals(action)
-                    || "Draw".equals(action) || "Crop".equals(action) || "Emoji".equals(action)) {
+                    || "Draw".equals(action)) {
                 // ReelEditor already bakes these edits into video output.
                 if (!editorVideoToolHintShown) {
                     editorVideoToolHintShown = true;
@@ -1404,12 +1666,6 @@ public class NewStatusActivity extends AppCompatActivity {
                 break;
             case "Mention":
                 showEditorTextDialog(true);
-                break;
-            case "Crop":
-                showEditorCropMenu(anchor);
-                break;
-            case "Emoji":
-                showEditorEmojiDialog();
                 break;
             case "Draw":
                 if (drawingOverlay != null) {
@@ -1838,20 +2094,7 @@ public class NewStatusActivity extends AppCompatActivity {
         menu.getMenu().add("Reset photo position");
         menu.getMenu().add("Clear drawing");
         menu.getMenu().add("Remove text");
-        // v732: tools that used to be separate rail icons now live here (same actions as before).
-        menu.getMenu().add(0, 101, 10, "Safe-area guide: " + (editorSafeAreaPinned ? "ON" : "OFF"));
-        menu.getMenu().add(0, 102, 11, "Save to gallery");
-        menu.getMenu().add(0, 103, 12, "AI label: " + (editorAiLabelEnabled ? "ON" : "OFF"));
-        menu.getMenu().add(0, 104, 13, "Display time: " + (selectedDisplayMs / 1000) + "s");
-        final View moreAnchor = anchor;
         menu.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 101: onStatusEditorTool("Guide", moreAnchor); return true;
-                case 102: onStatusEditorTool("Save", moreAnchor); return true;
-                case 103: onStatusEditorTool("Label AI", moreAnchor); return true;
-                case 104: onStatusEditorTool("Timer", moreAnchor); return true;
-                default: break;
-            }
             String title = item.getTitle().toString();
             if ("Reset photo position".equals(title)) {
                 resetEditorMediaTransform(true);
@@ -1863,189 +2106,6 @@ public class NewStatusActivity extends AppCompatActivity {
             return true;
         });
         menu.show();
-    }
-
-    // ══════════ v732: "Edit Status" screen chrome ══════════════════════════════════════
-    private static final int EDIT_SCREEN_BG = 0xFF0D0D12;
-    private boolean editChromeOn;
-    private String editorLocationName;   // optional place name → StatusItem.locationName
-
-    private void setupEditStepChrome() {
-        if (binding.editTopBar == null) return;
-        binding.editBtnBack.setOnClickListener(v -> binding.btnStepBack.performClick());
-        // Done / Share → existing Publish step (privacy, expiry, schedule, "Post now" all unchanged).
-        View.OnClickListener toPublish = v -> {
-            if (!hasComposerContent()) { toast("Pehle text ya media add karo"); return; }
-            showWizardStep(2);
-        };
-        binding.editBtnDone.setOnClickListener(toPublish);
-        binding.editBtnShare.setOnClickListener(toPublish);
-        binding.editBtnSaveDraft.setOnClickListener(v -> {
-            saveDraft();
-            toast("Draft saved (text + stickers). Photo/video dobara chunni hogi");
-            finish();
-        });
-        binding.editBtnAdd.setOnClickListener(v -> showStatusAddSheet());
-        binding.editChipLocation.setOnClickListener(v -> showEditLocationDialog());
-        binding.editChipMention.setOnClickListener(v -> onStatusEditorTool("Mention", v));
-        binding.editChipCaption.setOnClickListener(v -> toggleEditCaption());
-
-        // Caption field sits on the dark pill → light text.
-        binding.etCaption.setTextColor(Color.WHITE);
-        android.content.res.ColorStateList light = android.content.res.ColorStateList.valueOf(0xCCFFFFFF);
-        binding.captionGroup.setDefaultHintTextColor(light);
-        binding.captionGroup.setHintTextColor(light);
-        binding.captionGroup.setBoxStrokeColor(Color.WHITE);
-        binding.etCaption.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
-            @Override public void onTextChanged(CharSequence c, int a, int b, int d) {}
-            @Override public void afterTextChanged(android.text.Editable e) { refreshEditChips(); }
-        });
-
-        View.OnLayoutChangeListener relayout = (v, l, t, r, b, ol, ot, or, ob) -> {
-            if (editChromeOn && (b - t) != (ob - ot)) binding.editScroll.post(this::applyEditStepInsets);
-        };
-        binding.editTopBar.addOnLayoutChangeListener(relayout);
-        binding.editLowerBar.addOnLayoutChangeListener(relayout);
-    }
-
-    private void applyEditStepChrome(boolean on) {
-        if (binding.editTopBar == null) return;
-        editChromeOn = on;
-        int vis = on ? View.VISIBLE : View.GONE;
-        binding.editTopBar.setVisibility(vis);
-        binding.editBottomBar.setVisibility(vis);
-        binding.appBar.setVisibility(on ? View.GONE : View.VISIBLE);
-        binding.statusWizardNav.setVisibility(on ? View.GONE : View.VISIBLE);
-        binding.getRoot().setBackgroundColor(on ? EDIT_SCREEN_BG
-                : ContextCompat.getColor(this, R.color.trim_screen_bg));
-        if (on) {
-            binding.statusFormContent.setPadding(dp(12), dp(4), dp(12), dp(4));
-            refreshEditThumb();
-            refreshEditChips();
-            binding.editBottomBar.post(this::applyEditStepInsets);
-        } else {
-            binding.statusFormContent.setPadding(dp(16), dp(16), dp(16), dp(16));
-            binding.editScroll.setPadding(0, 0, 0, 0);
-            binding.editCaptionHolder.setVisibility(View.GONE);
-        }
-        sizeStoryCanvas();
-    }
-
-    /** Canvas area = between the top bar and the thumbnail/Save-draft/Share bar (chips + caption overlay the canvas). */
-    private void applyEditStepInsets() {
-        if (!editChromeOn || binding == null) return;
-        int top = binding.editTopBar.getHeight();
-        int bottom = binding.editLowerBar.getHeight();
-        if (top <= 0 || bottom <= 0) return;
-        if (binding.editScroll.getPaddingTop() != top || binding.editScroll.getPaddingBottom() != bottom) {
-            binding.editScroll.setPadding(0, top, 0, bottom);
-        }
-        sizeStoryCanvas();
-    }
-
-    private void refreshEditThumb() {
-        if (binding == null || binding.editThumb == null) return;
-        Uri u = pickedVideo != null ? pickedVideo : pickedImage;
-        if (u == null) { binding.editThumb.setImageDrawable(null); return; }
-        Glide.with(this).load(u)
-                .apply(new RequestOptions().transform(new CenterCrop(), new RoundedCorners(dp(12))))
-                .into(binding.editThumb);
-    }
-
-    private void refreshEditChips() {
-        if (binding == null || binding.editChipLocation == null) return;
-        binding.editChipLocation.setText(editorLocationName == null || editorLocationName.isEmpty()
-                ? "Add location" : editorLocationName);
-        CharSequence cap = binding.etCaption.getText();
-        binding.editChipCaption.setText(cap == null || cap.toString().trim().isEmpty() ? "Caption" : "Caption ✓");
-    }
-
-    private void toggleEditCaption() {
-        boolean show = binding.editCaptionHolder.getVisibility() != View.VISIBLE;
-        binding.editCaptionHolder.setVisibility(show ? View.VISIBLE : View.GONE);
-        binding.captionGroup.setVisibility(View.VISIBLE);
-        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
-                getSystemService(INPUT_METHOD_SERVICE);
-        if (show) {
-            binding.etCaption.requestFocus();
-            if (imm != null) imm.showSoftInput(binding.etCaption, 0);
-        } else {
-            binding.etCaption.clearFocus();
-            if (imm != null) imm.hideSoftInputFromWindow(binding.etCaption.getWindowToken(), 0);
-        }
-    }
-
-    private void showEditLocationDialog() {
-        final android.widget.EditText input = new android.widget.EditText(this);
-        input.setHint("Place name");
-        input.setSingleLine(true);
-        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(60)});
-        if (editorLocationName != null) { input.setText(editorLocationName); input.setSelection(input.length()); }
-        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        box.setPadding(dp(20), dp(8), dp(20), 0);
-        box.addView(input);
-        com.google.android.material.dialog.MaterialAlertDialogBuilder b =
-                new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                        .setTitle("Add location")
-                        .setView(box)
-                        .setPositiveButton("Set", (d, w) -> {
-                            String t = input.getText().toString().trim();
-                            editorLocationName = t.isEmpty() ? null : t;
-                            refreshEditChips();
-                        })
-                        .setNegativeButton("Cancel", null);
-        if (editorLocationName != null) {
-            b.setNeutralButton("Remove", (d, w) -> { editorLocationName = null; refreshEditChips(); });
-        }
-        b.show();
-    }
-
-    /** "Crop" rail tool: framing actions that already existed (Fit / Fill / Reset) in one menu. */
-    private void showEditorCropMenu(View anchor) {
-        View a = anchor != null ? anchor : editorToolRail;
-        if (a == null) return;
-        android.widget.PopupMenu m = new android.widget.PopupMenu(this, a);
-        m.getMenu().add(0, 1, 0, "Fit whole photo inside guide");
-        m.getMenu().add(0, 2, 1, "Fill screen / Fit toggle");
-        m.getMenu().add(0, 3, 2, "Reset photo position");
-        m.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 1: fitPhotoIntoSafeArea(); break;
-                case 2: toggleEditorFitFill(); break;
-                default: resetEditorMediaTransform(true); break;
-            }
-            return true;
-        });
-        m.show();
-    }
-
-    /** "Emoji" rail tool: appends the tapped emoji to the story's text overlay. */
-    private void showEditorEmojiDialog() {
-        final String[] emojis = {"😀","😂","🥰","😍","😎","🤩","😭","😡","👍","🙏","👏","🔥",
-                "❤️","💯","🎉","✨","🌟","🎂","🎁","☕","🍕","🌹","🌈","⚡"};
-        final android.widget.GridLayout grid = new android.widget.GridLayout(this);
-        grid.setColumnCount(6);
-        grid.setPadding(dp(12), dp(12), dp(12), dp(4));
-        final androidx.appcompat.app.AlertDialog[] dlg = new androidx.appcompat.app.AlertDialog[1];
-        for (final String e : emojis) {
-            TextView tv = new TextView(this);
-            tv.setText(e);
-            tv.setTextSize(28);
-            tv.setGravity(android.view.Gravity.CENTER);
-            tv.setOnClickListener(v -> {
-                CharSequence cur = editorTextOverlay != null ? editorTextOverlay.getText() : "";
-                setEditorTextOverlay(cur.toString() + e);
-                if (dlg[0] != null) dlg[0].dismiss();
-            });
-            grid.addView(tv, new android.widget.GridLayout.LayoutParams(
-                    android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED),
-                    android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED)));
-            ViewGroup.LayoutParams lp = tv.getLayoutParams();
-            lp.width = dp(48); lp.height = dp(48);
-        }
-        dlg[0] = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Emoji").setView(grid).setNegativeButton("Close", null).show();
     }
 
     private void saveEditorPreviewToGallery() {
@@ -2143,7 +2203,8 @@ public class NewStatusActivity extends AppCompatActivity {
         if (!includeStickers) {
             for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
                 View child = stickerOverlayFrame.getChildAt(i);
-                if (child instanceof StatusStickerOverlayView && child != editorTextSticker) // text has its own rule below
+                if (child instanceof StatusStickerOverlayView && child != editorTextSticker // text has its own rule below
+                        && !isPhotoLayerView(child))                                         // v732: photo layers are pixels, always baked
                     hideForSnapshot(child, hidden, oldVisibility);
             }
         }
@@ -2780,9 +2841,11 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void selectSticker(com.callx.app.stickers.StatusStickerOverlayView s) {
+        final boolean changed = selectedSticker != s;
         if (selectedSticker != null && selectedSticker != s) selectedSticker.setSelectedUi(false);
         selectedSticker = s;
         if (s != null) s.setSelectedUi(true);
+        if (changed) refreshMediaLayerStrip();   // v732: strip ring follows the active layer
     }
 
     private TextView stickerBarButton(String text, int minWidthDp, View.OnClickListener l) {
@@ -2937,7 +3000,8 @@ public class NewStatusActivity extends AppCompatActivity {
         stickerBtnFront.setVisibility(music ? View.GONE : View.VISIBLE);
         stickerBtnBack.setVisibility(music ? View.GONE : View.VISIBLE);
         stickerBtnEditText.setVisibility(text ? View.VISIBLE : View.GONE);
-        stickerBtnDup.setVisibility(music || text ? View.GONE : View.VISIBLE); // one music sticker / one text layer per status
+        final boolean photoLayer = TYPE_PHOTO_LAYER.equals(sticker.getStickerType());
+        stickerBtnDup.setVisibility(music || text || photoLayer ? View.GONE : View.VISIBLE); // one music sticker / one text layer per status; photo layers are re-added with "+"
         boolean locked = sticker.isLocked();
         stickerBtnLock.setImageResource(locked ? R.drawable.ic_sbar_lock : R.drawable.ic_sbar_unlock);
         stickerBtnLock.setColorFilter(locked ? 0xFFFFC107 : Color.WHITE);
@@ -2978,9 +3042,11 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void hideStickerSizeBar() {
+        final boolean had = selectedSticker != null;
         if (selectedSticker != null) selectedSticker.setSelectedUi(false);
         selectedSticker = null;
         if (stickerSizeBar != null) stickerSizeBar.setVisibility(View.GONE);
+        if (had) refreshMediaLayerStrip();
     }
 
     /**
@@ -3000,6 +3066,7 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         if (removed == editorTextSticker) { editorTextSticker = null; editorTextOverlay = null; }
         refreshStickerUndoButtons();
+        refreshMediaLayerStrip();   // v732: a deleted photo layer leaves the strip
     }
 
     // ── undo / redo: every drag / pinch / twist / handle-drag / S-M-L / slider change AND every add / copy / delete is one step ──
@@ -3116,6 +3183,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private void duplicateSelectedSticker() {
         final com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
         if (s == null || s.getParent() != stickerOverlayFrame || "music".equals(s.getStickerType())
+                || TYPE_PHOTO_LAYER.equals(s.getStickerType())
                 || StatusStickerOverlayView.TYPE_TEXT.equals(s.getStickerType())) return;
         try {
             org.json.JSONObject o = new org.json.JSONObject(s.toJsonWithScale());
@@ -4300,7 +4368,7 @@ public class NewStatusActivity extends AppCompatActivity {
             try {
                 for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
                     View c = stickerOverlayFrame.getChildAt(i);
-                    if (!(c instanceof StatusStickerOverlayView) || c == editorTextSticker) continue;
+                    if (!(c instanceof StatusStickerOverlayView) || c == editorTextSticker || isPhotoLayerView(c)) continue;
                     StatusStickerOverlayView sv = (StatusStickerOverlayView) c;
                     if (sv.isRemoving()) continue;
                     if (sv == selectedSticker) sel = arr.length();
@@ -4399,6 +4467,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 editorAiLabelEnabled = false;
                 if (drawingOverlay != null) drawingOverlay.clearDrawing();
                 removeEditorTextOverlayView(false);
+                clearPhotoLayers();
                 if (editorAiLabel != null) {
                     stickerOverlayFrame.removeView(editorAiLabel);
                     editorAiLabel = null;
@@ -4442,7 +4511,7 @@ public class NewStatusActivity extends AppCompatActivity {
         else if (!text.isEmpty()) setEditorTextOverlay(text);
         refreshStepPreview();
         updateEditorRailForMedia();
-        refreshEditThumb();
+        updateMediaLayerChrome();
         if (wizardStep == 0) showWizardStep(1);
     }
     private void showVideoPreview(Uri uri) {
@@ -4460,6 +4529,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 drawingOverlay.setDrawEnabled(false);
             }
             removeEditorTextOverlayView(false);
+            clearPhotoLayers();   // v732: photo layers are photo-only
             if (editorAiLabel != null) {
                 stickerOverlayFrame.removeView(editorAiLabel);
                 editorAiLabel = null;
@@ -4496,8 +4566,8 @@ public class NewStatusActivity extends AppCompatActivity {
         sizeStoryCanvas();
         refreshStepPreview();
         updateEditorRailForMedia();
+        updateMediaLayerChrome();
         startVideoPreview(uri);
-        refreshEditThumb();
         if (wizardStep == 0) showWizardStep(1);
     }
     private void discardMedia() {
@@ -4516,6 +4586,8 @@ public class NewStatusActivity extends AppCompatActivity {
             drawingOverlay.setDrawEnabled(false);
         }
         removeEditorTextOverlayView(false);
+        clearPhotoLayers();
+        selectedLocationName = null; selectedLocationLat = 0d; selectedLocationLng = 0d;
         if (editorAiLabel != null) {
             stickerOverlayFrame.removeView(editorAiLabel);
             editorAiLabel = null;
@@ -4538,6 +4610,7 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.captionGroup.setVisibility(View.GONE);
         showBgColorPicker();
         refreshStepPreview();
+        updateMediaLayerChrome();
         if (wizardStep == 1) showWizardStep(0);
     }
 
@@ -4575,6 +4648,7 @@ public class NewStatusActivity extends AppCompatActivity {
         for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
             View child = stickerOverlayFrame.getChildAt(i);
             if (child == editorTextSticker) continue; // saved above as "overlaytext" (or baked into the photo)
+            if (isPhotoLayerView(child)) continue;    // v732: photo layers are baked into the story image
             if (child instanceof com.callx.app.stickers.StatusStickerOverlayView) {
                 com.callx.app.stickers.StatusStickerOverlayView sv =
                         (com.callx.app.stickers.StatusStickerOverlayView) child;
@@ -4913,7 +4987,6 @@ public class NewStatusActivity extends AppCompatActivity {
         item.type             = type;
         item.text             = txt.isEmpty() ? null : txt;
         item.caption          = caption.isEmpty() ? null : caption;
-        if (editorLocationName != null && !editorLocationName.isEmpty()) item.locationName = editorLocationName; // v732
         item.mediaUrl         = mediaUrl;
         item.thumbnailUrl     = thumbUrl;
         if ("image".equals(type) || "video".equals(type)) item.thumbHash = pendingThumbHash;
@@ -4927,6 +5000,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.textColor        = String.format("#%08X", selectedTextColor);
         item.textAlign        = selectedTextAlign;
         item.privacy          = selectedPrivacy;
+        applyLocationToItem(item);
         item.privacyList      = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends   = isCloseFriends;
         item.allowSharing     = allowSharing;
@@ -5124,7 +5198,6 @@ public class NewStatusActivity extends AppCompatActivity {
         item.type           = type;
         item.text           = null;
         item.caption        = (caption == null || caption.isEmpty()) ? null : caption;
-        if (editorLocationName != null && !editorLocationName.isEmpty()) item.locationName = editorLocationName; // v732
         item.mediaUrl       = mediaUrl;
         item.thumbnailUrl   = thumbUrl;
         if ("image".equals(type) || "video".equals(type)) item.thumbHash = pendingThumbHash;
@@ -5138,6 +5211,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.textColor      = String.format("#%08X", selectedTextColor);
         item.textAlign      = selectedTextAlign;
         item.privacy        = selectedPrivacy;
+        applyLocationToItem(item);
         item.privacyList    = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends = isCloseFriends;
         item.allowSharing   = allowSharing;
