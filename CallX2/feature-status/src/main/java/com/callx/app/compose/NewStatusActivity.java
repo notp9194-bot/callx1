@@ -21,6 +21,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.*;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.status.R;
 import com.callx.app.status.databinding.ActivityNewStatusBinding;
@@ -200,7 +201,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private boolean editorDrawMode;
     // v587: draw toolbar state
     private LinearLayout editorDrawBar;
-    private TextView editorDrawIcon;
+    private View editorDrawIcon;   // v732: ImageView rail icon (was TextView glyph)
     private TextView editorUndoBtn, editorRedoBtn, editorEraserBtn;
     private final java.util.ArrayList<GradientDrawable> editorSwatchBgs = new java.util.ArrayList<>();
     private final java.util.ArrayList<TextView> editorSizeBtns = new java.util.ArrayList<>();
@@ -291,6 +292,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupTextAlignButtons();
         setupTextInput();
         setupStickerOverlayFrame();
+        setupEditStepChrome();   // v732: "Edit Status" top bar / chips / thumbnail strip / Save draft + Share
         setupWizard();
         // v216: Layout picker launcher — receives URIs + layoutStyle from StatusLayoutPickerActivity.
         //
@@ -528,6 +530,9 @@ public class NewStatusActivity extends AppCompatActivity {
             binding.bgColorPickerRow.setVisibility(View.VISIBLE);
         }
 
+        // v732: full-screen "Edit Status" chrome only for the media Edit step (text-only keeps the old layout).
+        applyEditStepChrome(wizardStep == 1 && (pickedImage != null || pickedVideo != null));
+
         binding.statusFormContent.post(() -> {
             View parent = (View) binding.statusFormContent.getParent();
             if (parent instanceof androidx.core.widget.NestedScrollView) {
@@ -714,6 +719,17 @@ public class NewStatusActivity extends AppCompatActivity {
                         + ((ViewGroup.MarginLayoutParams) lp).rightMargin;
             }
             int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.80f);
+            if (editChromeOn && host.getParent() instanceof View) {
+                // v732: Edit Status screen — canvas fills the space between the top bar and the thumbnail/Share bars.
+                View sv = (View) host.getParent();
+                int availH = sv.getHeight() - sv.getPaddingTop() - sv.getPaddingBottom()
+                        - host.getPaddingTop() - host.getPaddingBottom();
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    availH -= ((ViewGroup.MarginLayoutParams) lp).topMargin
+                            + ((ViewGroup.MarginLayoutParams) lp).bottomMargin;
+                }
+                if (availH > dp(200)) maxH = availH;
+            }
             int h = Math.round(availW * (16f / 9f));
             int w = ViewGroup.LayoutParams.MATCH_PARENT;
             if (h > maxH) {
@@ -1128,41 +1144,47 @@ public class NewStatusActivity extends AppCompatActivity {
         editorToolRail.setPadding(0, dp(4), dp(2), dp(4));
         editorToolRail.setTag("status_editor_tool_rail");
 
-        String[][] tools = {
-                {"Text", "Aa"}, {"Stickers", "☺"}, {"Music", "♫"},
-                {"Restyle", "✎"}, {"Effects", "✦"}, {"Mention", "@"},
-                {"Draw", "〰"}, {"Guide", "▭"}, {"Fit", "⛶"}, {"Save", "↓"}, {"Label AI", "▣"}, {"Timer", "⏱"}, {"More", "···"}
+        // v732: rail follows the "Edit Status" reference: icon discs + dark label pills.
+        // {action, label, icon}. Guide / Fit / Save / Label AI / Timer moved into "More" — nothing removed.
+        Object[][] tools = {
+                {"Text",     "Text",     com.callx.app.chat.R.drawable.ic_media_edit_text},
+                {"Stickers", "Stickers", R.drawable.ic_sticker},
+                {"Music",    "Music",    R.drawable.ic_music_note},
+                {"Draw",     "Draw",     com.callx.app.chat.R.drawable.ic_media_edit_draw},
+                {"Effects",  "Effects",  R.drawable.ic_sparkle},
+                {"Mention",  "Mention",  R.drawable.ic_alternate_email},
+                {"Crop",     "Crop",     com.callx.app.chat.R.drawable.ic_media_edit_crop},
+                {"Restyle",  "Filters",  R.drawable.ic_filters},
+                {"Emoji",    "Emoji",    R.drawable.ic_emoji},
+                {"More",     "More",     R.drawable.ic_more_vert}
         };
-        for (String[] tool : tools) {
-            LinearLayout row = new LinearLayout(this);
+        for (Object[] tool : tools) {
+            final String action = (String) tool[0];
+            final LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
-            row.setContentDescription(tool[0]);
+            row.setContentDescription((String) tool[1]);
             TextView label = new TextView(this);
-            label.setText(tool[0]);
+            label.setText((String) tool[1]);
             label.setTextColor(Color.WHITE);
-            label.setTextSize(10);
-            label.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
-            label.setShadowLayer(dp(2), 0, dp(1), 0xCC000000);
+            label.setTextSize(13);
+            label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            label.setBackgroundResource(R.drawable.bg_status_reply_pill);
+            label.setPadding(dp(12), dp(5), dp(12), dp(5));
             label.setMaxLines(1);
-            label.setPadding(0, 0, dp(5), 0);
-            row.addView(label, new LinearLayout.LayoutParams(dp(57), -2));
+            LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-2, -2);
+            labelLp.setMarginEnd(dp(8));
+            row.addView(label, labelLp);
 
-            TextView icon = new TextView(this);
-            icon.setText(tool[1]);
-            icon.setTextColor(Color.WHITE);
-            icon.setTextSize(tool[1].length() > 1 ? 13 : 20);
-            icon.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            icon.setGravity(android.view.Gravity.CENTER);
-            GradientDrawable circle = new GradientDrawable();
-            circle.setShape(GradientDrawable.OVAL);
-            circle.setColor(0xCC25272B);
-            circle.setStroke(dp(1), 0x66FFFFFF);
-            icon.setBackground(circle);
-            row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
-            if ("Draw".equals(tool[0])) editorDrawIcon = icon;
-            editorToolRows.put(tool[0], row);
-            row.setOnClickListener(v -> onStatusEditorTool(tool[0], row));
+            android.widget.ImageView icon = new android.widget.ImageView(this);
+            icon.setImageResource((Integer) tool[2]);
+            icon.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+            icon.setPadding(dp(10), dp(10), dp(10), dp(10));
+            setRailIconActive(icon, false);
+            row.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+            if ("Draw".equals(action)) editorDrawIcon = icon;
+            editorToolRows.put(action, row);
+            row.setOnClickListener(v -> onStatusEditorTool(action, row));
             editorToolRail.addView(row, new LinearLayout.LayoutParams(-2, 0, 1f));
         }
         android.widget.FrameLayout.LayoutParams railLp =
@@ -1174,14 +1196,21 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     /** v587: highlighted (white) vs normal (dark) state for a rail icon. */
-    private void setRailIconActive(TextView icon, boolean active) {
+    private void setRailIconActive(View icon, boolean active) {
         if (icon == null) return;
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(active ? 0xFFFFFFFF : 0xCC25272B);
         circle.setStroke(dp(1), active ? 0xFFFFFFFF : 0x66FFFFFF);
         icon.setBackground(circle);
-        icon.setTextColor(active ? 0xFF111111 : Color.WHITE);
+        int fg = active ? 0xFF111111 : Color.WHITE;
+        if (icon instanceof TextView) {
+            ((TextView) icon).setTextColor(fg);
+        } else if (icon instanceof android.widget.ImageView) {
+            // explicit tint: several modules ship same-named icons with different baked colours
+            androidx.core.widget.ImageViewCompat.setImageTintList((android.widget.ImageView) icon,
+                    android.content.res.ColorStateList.valueOf(fg));
+        }
     }
 
     private TextView drawBarButton(String label, View.OnClickListener click) {
@@ -1333,7 +1362,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (pickedVideo != null) {
             if ("Text".equals(action) || "Mention".equals(action)
                     || "Restyle".equals(action) || "Effects".equals(action)
-                    || "Draw".equals(action)) {
+                    || "Draw".equals(action) || "Crop".equals(action) || "Emoji".equals(action)) {
                 // ReelEditor already bakes these edits into video output.
                 if (!editorVideoToolHintShown) {
                     editorVideoToolHintShown = true;
@@ -1375,6 +1404,12 @@ public class NewStatusActivity extends AppCompatActivity {
                 break;
             case "Mention":
                 showEditorTextDialog(true);
+                break;
+            case "Crop":
+                showEditorCropMenu(anchor);
+                break;
+            case "Emoji":
+                showEditorEmojiDialog();
                 break;
             case "Draw":
                 if (drawingOverlay != null) {
@@ -1803,7 +1838,20 @@ public class NewStatusActivity extends AppCompatActivity {
         menu.getMenu().add("Reset photo position");
         menu.getMenu().add("Clear drawing");
         menu.getMenu().add("Remove text");
+        // v732: tools that used to be separate rail icons now live here (same actions as before).
+        menu.getMenu().add(0, 101, 10, "Safe-area guide: " + (editorSafeAreaPinned ? "ON" : "OFF"));
+        menu.getMenu().add(0, 102, 11, "Save to gallery");
+        menu.getMenu().add(0, 103, 12, "AI label: " + (editorAiLabelEnabled ? "ON" : "OFF"));
+        menu.getMenu().add(0, 104, 13, "Display time: " + (selectedDisplayMs / 1000) + "s");
+        final View moreAnchor = anchor;
         menu.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case 101: onStatusEditorTool("Guide", moreAnchor); return true;
+                case 102: onStatusEditorTool("Save", moreAnchor); return true;
+                case 103: onStatusEditorTool("Label AI", moreAnchor); return true;
+                case 104: onStatusEditorTool("Timer", moreAnchor); return true;
+                default: break;
+            }
             String title = item.getTitle().toString();
             if ("Reset photo position".equals(title)) {
                 resetEditorMediaTransform(true);
@@ -1815,6 +1863,189 @@ public class NewStatusActivity extends AppCompatActivity {
             return true;
         });
         menu.show();
+    }
+
+    // ══════════ v732: "Edit Status" screen chrome ══════════════════════════════════════
+    private static final int EDIT_SCREEN_BG = 0xFF0D0D12;
+    private boolean editChromeOn;
+    private String editorLocationName;   // optional place name → StatusItem.locationName
+
+    private void setupEditStepChrome() {
+        if (binding.editTopBar == null) return;
+        binding.editBtnBack.setOnClickListener(v -> binding.btnStepBack.performClick());
+        // Done / Share → existing Publish step (privacy, expiry, schedule, "Post now" all unchanged).
+        View.OnClickListener toPublish = v -> {
+            if (!hasComposerContent()) { toast("Pehle text ya media add karo"); return; }
+            showWizardStep(2);
+        };
+        binding.editBtnDone.setOnClickListener(toPublish);
+        binding.editBtnShare.setOnClickListener(toPublish);
+        binding.editBtnSaveDraft.setOnClickListener(v -> {
+            saveDraft();
+            toast("Draft saved (text + stickers). Photo/video dobara chunni hogi");
+            finish();
+        });
+        binding.editBtnAdd.setOnClickListener(v -> showStatusAddSheet());
+        binding.editChipLocation.setOnClickListener(v -> showEditLocationDialog());
+        binding.editChipMention.setOnClickListener(v -> onStatusEditorTool("Mention", v));
+        binding.editChipCaption.setOnClickListener(v -> toggleEditCaption());
+
+        // Caption field sits on the dark pill → light text.
+        binding.etCaption.setTextColor(Color.WHITE);
+        android.content.res.ColorStateList light = android.content.res.ColorStateList.valueOf(0xCCFFFFFF);
+        binding.captionGroup.setDefaultHintTextColor(light);
+        binding.captionGroup.setHintTextColor(light);
+        binding.captionGroup.setBoxStrokeColor(Color.WHITE);
+        binding.etCaption.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
+            @Override public void onTextChanged(CharSequence c, int a, int b, int d) {}
+            @Override public void afterTextChanged(android.text.Editable e) { refreshEditChips(); }
+        });
+
+        View.OnLayoutChangeListener relayout = (v, l, t, r, b, ol, ot, or, ob) -> {
+            if (editChromeOn && (b - t) != (ob - ot)) binding.editScroll.post(this::applyEditStepInsets);
+        };
+        binding.editTopBar.addOnLayoutChangeListener(relayout);
+        binding.editLowerBar.addOnLayoutChangeListener(relayout);
+    }
+
+    private void applyEditStepChrome(boolean on) {
+        if (binding.editTopBar == null) return;
+        editChromeOn = on;
+        int vis = on ? View.VISIBLE : View.GONE;
+        binding.editTopBar.setVisibility(vis);
+        binding.editBottomBar.setVisibility(vis);
+        binding.appBar.setVisibility(on ? View.GONE : View.VISIBLE);
+        binding.statusWizardNav.setVisibility(on ? View.GONE : View.VISIBLE);
+        binding.getRoot().setBackgroundColor(on ? EDIT_SCREEN_BG
+                : ContextCompat.getColor(this, R.color.trim_screen_bg));
+        if (on) {
+            binding.statusFormContent.setPadding(dp(12), dp(4), dp(12), dp(4));
+            refreshEditThumb();
+            refreshEditChips();
+            binding.editBottomBar.post(this::applyEditStepInsets);
+        } else {
+            binding.statusFormContent.setPadding(dp(16), dp(16), dp(16), dp(16));
+            binding.editScroll.setPadding(0, 0, 0, 0);
+            binding.editCaptionHolder.setVisibility(View.GONE);
+        }
+        sizeStoryCanvas();
+    }
+
+    /** Canvas area = between the top bar and the thumbnail/Save-draft/Share bar (chips + caption overlay the canvas). */
+    private void applyEditStepInsets() {
+        if (!editChromeOn || binding == null) return;
+        int top = binding.editTopBar.getHeight();
+        int bottom = binding.editLowerBar.getHeight();
+        if (top <= 0 || bottom <= 0) return;
+        if (binding.editScroll.getPaddingTop() != top || binding.editScroll.getPaddingBottom() != bottom) {
+            binding.editScroll.setPadding(0, top, 0, bottom);
+        }
+        sizeStoryCanvas();
+    }
+
+    private void refreshEditThumb() {
+        if (binding == null || binding.editThumb == null) return;
+        Uri u = pickedVideo != null ? pickedVideo : pickedImage;
+        if (u == null) { binding.editThumb.setImageDrawable(null); return; }
+        Glide.with(this).load(u)
+                .apply(new RequestOptions().transform(new CenterCrop(), new RoundedCorners(dp(12))))
+                .into(binding.editThumb);
+    }
+
+    private void refreshEditChips() {
+        if (binding == null || binding.editChipLocation == null) return;
+        binding.editChipLocation.setText(editorLocationName == null || editorLocationName.isEmpty()
+                ? "Add location" : editorLocationName);
+        CharSequence cap = binding.etCaption.getText();
+        binding.editChipCaption.setText(cap == null || cap.toString().trim().isEmpty() ? "Caption" : "Caption ✓");
+    }
+
+    private void toggleEditCaption() {
+        boolean show = binding.editCaptionHolder.getVisibility() != View.VISIBLE;
+        binding.editCaptionHolder.setVisibility(show ? View.VISIBLE : View.GONE);
+        binding.captionGroup.setVisibility(View.VISIBLE);
+        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                getSystemService(INPUT_METHOD_SERVICE);
+        if (show) {
+            binding.etCaption.requestFocus();
+            if (imm != null) imm.showSoftInput(binding.etCaption, 0);
+        } else {
+            binding.etCaption.clearFocus();
+            if (imm != null) imm.hideSoftInputFromWindow(binding.etCaption.getWindowToken(), 0);
+        }
+    }
+
+    private void showEditLocationDialog() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("Place name");
+        input.setSingleLine(true);
+        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(60)});
+        if (editorLocationName != null) { input.setText(editorLocationName); input.setSelection(input.length()); }
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
+        box.addView(input);
+        com.google.android.material.dialog.MaterialAlertDialogBuilder b =
+                new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                        .setTitle("Add location")
+                        .setView(box)
+                        .setPositiveButton("Set", (d, w) -> {
+                            String t = input.getText().toString().trim();
+                            editorLocationName = t.isEmpty() ? null : t;
+                            refreshEditChips();
+                        })
+                        .setNegativeButton("Cancel", null);
+        if (editorLocationName != null) {
+            b.setNeutralButton("Remove", (d, w) -> { editorLocationName = null; refreshEditChips(); });
+        }
+        b.show();
+    }
+
+    /** "Crop" rail tool: framing actions that already existed (Fit / Fill / Reset) in one menu. */
+    private void showEditorCropMenu(View anchor) {
+        View a = anchor != null ? anchor : editorToolRail;
+        if (a == null) return;
+        android.widget.PopupMenu m = new android.widget.PopupMenu(this, a);
+        m.getMenu().add(0, 1, 0, "Fit whole photo inside guide");
+        m.getMenu().add(0, 2, 1, "Fill screen / Fit toggle");
+        m.getMenu().add(0, 3, 2, "Reset photo position");
+        m.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case 1: fitPhotoIntoSafeArea(); break;
+                case 2: toggleEditorFitFill(); break;
+                default: resetEditorMediaTransform(true); break;
+            }
+            return true;
+        });
+        m.show();
+    }
+
+    /** "Emoji" rail tool: appends the tapped emoji to the story's text overlay. */
+    private void showEditorEmojiDialog() {
+        final String[] emojis = {"😀","😂","🥰","😍","😎","🤩","😭","😡","👍","🙏","👏","🔥",
+                "❤️","💯","🎉","✨","🌟","🎂","🎁","☕","🍕","🌹","🌈","⚡"};
+        final android.widget.GridLayout grid = new android.widget.GridLayout(this);
+        grid.setColumnCount(6);
+        grid.setPadding(dp(12), dp(12), dp(12), dp(4));
+        final androidx.appcompat.app.AlertDialog[] dlg = new androidx.appcompat.app.AlertDialog[1];
+        for (final String e : emojis) {
+            TextView tv = new TextView(this);
+            tv.setText(e);
+            tv.setTextSize(28);
+            tv.setGravity(android.view.Gravity.CENTER);
+            tv.setOnClickListener(v -> {
+                CharSequence cur = editorTextOverlay != null ? editorTextOverlay.getText() : "";
+                setEditorTextOverlay(cur.toString() + e);
+                if (dlg[0] != null) dlg[0].dismiss();
+            });
+            grid.addView(tv, new android.widget.GridLayout.LayoutParams(
+                    android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED),
+                    android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED)));
+            ViewGroup.LayoutParams lp = tv.getLayoutParams();
+            lp.width = dp(48); lp.height = dp(48);
+        }
+        dlg[0] = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Emoji").setView(grid).setNegativeButton("Close", null).show();
     }
 
     private void saveEditorPreviewToGallery() {
@@ -4211,6 +4442,7 @@ public class NewStatusActivity extends AppCompatActivity {
         else if (!text.isEmpty()) setEditorTextOverlay(text);
         refreshStepPreview();
         updateEditorRailForMedia();
+        refreshEditThumb();
         if (wizardStep == 0) showWizardStep(1);
     }
     private void showVideoPreview(Uri uri) {
@@ -4265,6 +4497,7 @@ public class NewStatusActivity extends AppCompatActivity {
         refreshStepPreview();
         updateEditorRailForMedia();
         startVideoPreview(uri);
+        refreshEditThumb();
         if (wizardStep == 0) showWizardStep(1);
     }
     private void discardMedia() {
@@ -4680,6 +4913,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.type             = type;
         item.text             = txt.isEmpty() ? null : txt;
         item.caption          = caption.isEmpty() ? null : caption;
+        if (editorLocationName != null && !editorLocationName.isEmpty()) item.locationName = editorLocationName; // v732
         item.mediaUrl         = mediaUrl;
         item.thumbnailUrl     = thumbUrl;
         if ("image".equals(type) || "video".equals(type)) item.thumbHash = pendingThumbHash;
@@ -4890,6 +5124,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.type           = type;
         item.text           = null;
         item.caption        = (caption == null || caption.isEmpty()) ? null : caption;
+        if (editorLocationName != null && !editorLocationName.isEmpty()) item.locationName = editorLocationName; // v732
         item.mediaUrl       = mediaUrl;
         item.thumbnailUrl   = thumbUrl;
         if ("image".equals(type) || "video".equals(type)) item.thumbHash = pendingThumbHash;
