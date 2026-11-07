@@ -931,6 +931,21 @@ package com.callx.app.feed;
       }
 
       // v27: holder for the horizontal status-card carousel
+      /** Public entry to the Status-tab card Glide request (same format rule: HW bitmap on API 26+, RGB_565 on low-RAM / old devices),
+       *  so other screens (Seen-by sheet carousel) decode story thumbnails exactly like the Status cards. */
+      public static com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> cardRequest(
+              Context ctx, String url, int wPx, int hPx) {
+          return StatusCardAdapter.cardReq(ctx, url, wPx, hPx);
+      }
+
+      /** Story thumbnail request at the EXACT Status-card URL + px (same cache key as the Status tab cards and StatusCardPrewarm),
+       *  so a thumbnail already decoded / prewarmed there is a memory or disk hit here — no second CDN fetch or decode. */
+      public static com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> cardRequestShared(Context ctx, String thumb) {
+          final Context app = ctx.getApplicationContext();
+          final int[] px = StatusCardAdapter.cardSize(ctx);
+          return StatusCardAdapter.cardReq(ctx, StatusCardAdapter.cardThumbUrl(app, thumb), px[0], px[1]);
+      }
+
       static class CarouselVH extends RecyclerView.ViewHolder {
           RecyclerView rvCarousel;
           StatusCardAdapter cardAdapter;

@@ -818,6 +818,7 @@ public class StatusSeenByBottomSheet {
         final ImageView img;
         final TextView txt, count;
         float radiusPx;
+        String boundKey;   // thumb@size currently shown in img
 
         CardVH(final Env env) {
             super(new FrameLayout(env.ctx));
@@ -906,21 +907,18 @@ public class StatusSeenByBottomSheet {
             // Same thumb rule + exact-size CDN crop as the Status tab cards (one pipeline).
             String thumb = StatusListAdapter.cardThumb(s);
             if (thumb != null) {
-                String url = thumb;
-                try {
-                    String u = com.callx.app.utils.AvatarUrlBuilder.buildCard(ctx, thumb, CARD_SEL_W_DP, CARD_SEL_H_DP);
-                    if (u != null && !u.isEmpty()) url = u;
-                } catch (Exception ignored) {}
                 inner.setBackgroundColor(0xFF1C1C1C);
                 txt.setVisibility(View.GONE);
                 img.setVisibility(View.VISIBLE);
-                com.bumptech.glide.Glide.with(ctx).load(url)
-                        .apply(new com.bumptech.glide.request.RequestOptions()
-                                .override(dp(ctx, CARD_SEL_W_DP) * 2, dp(ctx, CARD_SEL_H_DP) * 2)
-                                .centerCrop()
-                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE))
-                        .into(img);
+                // Same image already showing in this holder (selection frame / count change rebinds) -> no URL work, no Glide request.
+                final String key = thumb;   // one size for every card now, so the thumb alone identifies the image
+                if (!key.equals(boundKey)) {
+                    boundKey = key;
+                    // Identical to the Status tab card request (URL, px, format): shares its Glide cache + StatusCardPrewarm.
+                    StatusListAdapter.cardRequestShared(ctx, thumb).into(img);
+                }
             } else {
+                boundKey = null;
                 com.bumptech.glide.Glide.with(ctx).clear(img);
                 img.setImageDrawable(null);
                 img.setVisibility(View.GONE);
@@ -942,6 +940,7 @@ public class StatusSeenByBottomSheet {
         }
 
         void release() {
+            boundKey = null;
             try { com.bumptech.glide.Glide.with(env.ctx).clear(img); } catch (Exception ignored) {}
         }
     }
