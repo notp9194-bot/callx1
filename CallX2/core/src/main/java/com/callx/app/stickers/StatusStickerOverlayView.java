@@ -1186,7 +1186,7 @@ public class StatusStickerOverlayView extends LinearLayout {
         for (android.animation.ObjectAnimator a : eqAnimators) a.cancel();
         eqAnimators.clear();
         eqBars.clear();
-        stopShake();
+        stopEffect();
         removeAllViews();
         musicTicker = null; musicStateLabel = null; musicArtistView = null;
         musicChevronView = null; musicNoteGlyph = null; musicRow = null;
@@ -1210,7 +1210,9 @@ public class StatusStickerOverlayView extends LinearLayout {
         musicAutoPlay = jsonBool(json, "autoPlay", true);
         musicLoop = jsonBool(json, "loop", true);
         musicShowArtist = jsonBool(json, "showArtist", defaultShowArtist(style));
-        musicShake = jsonBool(json, "shake", false);
+        String fx = jsonStr(json, "effect", "");
+        if (fx.isEmpty() && jsonBool(json, "shake", false)) fx = MUSIC_FX_SHAKE;   // legacy flag
+        musicEffect = isValidEffect(fx) ? fx : MUSIC_FX_NONE;
 
         final boolean chip = style == MUSIC_STYLE_ALBUM_PILL, big = style == MUSIC_STYLE_BIG_COVER;
         final boolean mini = style == MUSIC_STYLE_COMPACT_BAR || style == MUSIC_STYLE_GRADIENT_BAR;
@@ -1420,7 +1422,7 @@ public class StatusStickerOverlayView extends LinearLayout {
         if (prevState != MUSIC_STATE_OK) setMusicState(prevState);
         if (!musicPlaying) { for (View b : eqBars) b.setScaleY(0.4f); if (musicTicker != null) musicTicker.pause(); }
         else if (isAttachedToWindow()) startEqualiser();
-        updateShake();
+        updateEffect();
     }
 
     // ── Music sticker options (driven live by MusicStickerOptionsSheet; all persisted in the sticker JSON) ──
@@ -1433,10 +1435,12 @@ public class StatusStickerOverlayView extends LinearLayout {
     private String musicBgMode = MUSIC_BG_SOLID;
     private int musicOpacity = 100;          // background opacity %, 0..100
     private int musicRadiusDp = -1;          // -1 = the style's own radius
-    private boolean musicAutoPlay = true, musicLoop = true, musicShowArtist = true, musicShake = false;
+    private boolean musicAutoPlay = true, musicLoop = true, musicShowArtist = true;
+    private String musicEffect = MUSIC_FX_NONE;
     private LinearLayout musicRow;
     private TextView musicNoteGlyph;
-    private android.animation.ObjectAnimator shakeAnim;
+    private final java.util.List<android.animation.Animator> fxAnims = new java.util.ArrayList<>();
+    private boolean fxGlowActive;
 
     /** Legacy look: only the classic card and the big cover showed the artist line. */
     private static boolean defaultShowArtist(int style) {
@@ -1534,26 +1538,118 @@ public class StatusStickerOverlayView extends LinearLayout {
         putMusicOpt("showArtist", on);
         rebuildMusic();
     }
-    public boolean isMusicShake() { return musicShake; }
-    public void setMusicShake(boolean on) {
-        if (!isMusicSticker()) return;
-        musicShake = on;
-        putMusicOpt("shake", on);
-        updateShake();
+    // ── Looping "premium" effects, played on the card's content row (never on the sticker itself, so they
+    //    can't fight the user's drag / pinch / rotate). Saved as "effect" in the sticker JSON → viewers play it too.
+    public static final String MUSIC_FX_NONE = "none", MUSIC_FX_SHAKE = "shake", MUSIC_FX_PULSE = "pulse",
+            MUSIC_FX_HEARTBEAT = "heartbeat", MUSIC_FX_FLOAT = "float", MUSIC_FX_BOUNCE = "bounce",
+            MUSIC_FX_SWING = "swing", MUSIC_FX_WIGGLE = "wiggle", MUSIC_FX_GLOW = "glow", MUSIC_FX_FADE = "fade";
+    public static final String[] MUSIC_EFFECTS = {
+        MUSIC_FX_NONE, MUSIC_FX_SHAKE, MUSIC_FX_PULSE, MUSIC_FX_HEARTBEAT, MUSIC_FX_FLOAT,
+        MUSIC_FX_BOUNCE, MUSIC_FX_SWING, MUSIC_FX_WIGGLE, MUSIC_FX_GLOW, MUSIC_FX_FADE
+    };
+
+    private static boolean isValidEffect(String fx) {
+        for (String e : MUSIC_EFFECTS) if (e.equals(fx)) return true;
+        return false;
     }
 
-    private void updateShake() {
-        stopShake();
-        if (!musicShake || musicRow == null || !isAttachedToWindow()) return;
-        shakeAnim = android.animation.ObjectAnimator.ofFloat(musicRow, View.ROTATION, -3f, 3f);
-        shakeAnim.setDuration(110);
-        shakeAnim.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-        shakeAnim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-        shakeAnim.start();
+    public String getMusicEffect() { return musicEffect; }
+    public void setMusicEffect(String fx) {
+        if (!isMusicSticker() || !isValidEffect(fx)) return;
+        musicEffect = fx;
+        putMusicOpt("effect", fx);
+        putMusicOpt("shake", null);
+        updateEffect();
     }
-    private void stopShake() {
-        if (shakeAnim != null) { shakeAnim.cancel(); shakeAnim = null; }
-        if (musicRow != null) musicRow.setRotation(0f);
+    public boolean isMusicShake() { return MUSIC_FX_SHAKE.equals(musicEffect); }
+    public void setMusicShake(boolean on) { setMusicEffect(on ? MUSIC_FX_SHAKE : MUSIC_FX_NONE); }
+
+    private static android.animation.ObjectAnimator loopAnim(android.animation.ObjectAnimator a, long ms, boolean reverse) {
+        a.setDuration(ms);
+        a.setRepeatMode(reverse ? android.animation.ValueAnimator.REVERSE : android.animation.ValueAnimator.RESTART);
+        a.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        return a;
+    }
+
+    private void updateEffect() {
+        stopEffect();
+        if (MUSIC_FX_NONE.equals(musicEffect) || musicRow == null || !isAttachedToWindow()) return;
+        final View r = musicRow;
+        final float d = dp(getContext());
+        switch (musicEffect) {
+            case MUSIC_FX_SHAKE:
+                fxAnims.add(loopAnim(android.animation.ObjectAnimator.ofFloat(r, View.ROTATION, -3f, 3f), 110, true));
+                break;
+            case MUSIC_FX_PULSE:
+                fxAnims.add(loopAnim(android.animation.ObjectAnimator.ofPropertyValuesHolder(r,
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.08f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.08f)), 650, true));
+                break;
+            case MUSIC_FX_HEARTBEAT: {
+                android.animation.Keyframe[] kx = {
+                    android.animation.Keyframe.ofFloat(0f, 1f), android.animation.Keyframe.ofFloat(0.15f, 1.12f),
+                    android.animation.Keyframe.ofFloat(0.30f, 1f), android.animation.Keyframe.ofFloat(0.45f, 1.1f),
+                    android.animation.Keyframe.ofFloat(1f, 1f)};
+                android.animation.Keyframe[] ky = {
+                    android.animation.Keyframe.ofFloat(0f, 1f), android.animation.Keyframe.ofFloat(0.15f, 1.12f),
+                    android.animation.Keyframe.ofFloat(0.30f, 1f), android.animation.Keyframe.ofFloat(0.45f, 1.1f),
+                    android.animation.Keyframe.ofFloat(1f, 1f)};
+                fxAnims.add(loopAnim(android.animation.ObjectAnimator.ofPropertyValuesHolder(r,
+                        android.animation.PropertyValuesHolder.ofKeyframe(View.SCALE_X, kx),
+                        android.animation.PropertyValuesHolder.ofKeyframe(View.SCALE_Y, ky)), 1100, false));
+                break;
+            }
+            case MUSIC_FX_FLOAT:
+                fxAnims.add(loopAnim(android.animation.ObjectAnimator.ofFloat(r, View.TRANSLATION_Y, 0f, -5f * d), 1300, true));
+                break;
+            case MUSIC_FX_BOUNCE: {
+                android.animation.ObjectAnimator a = android.animation.ObjectAnimator.ofFloat(r, View.TRANSLATION_Y, 0f, -8f * d);
+                a.setInterpolator(new DecelerateInterpolator());
+                fxAnims.add(loopAnim(a, 380, true));
+                break;
+            }
+            case MUSIC_FX_SWING:
+                r.post(() -> { r.setPivotX(r.getWidth() / 2f); r.setPivotY(0f); });   // hangs from its top edge
+                fxAnims.add(loopAnim(android.animation.ObjectAnimator.ofFloat(r, View.ROTATION, -5f, 5f), 1300, true));
+                break;
+            case MUSIC_FX_WIGGLE:
+                fxAnims.add(loopAnim(android.animation.ObjectAnimator.ofFloat(r, View.TRANSLATION_X, -3f * d, 3f * d), 90, true));
+                break;
+            case MUSIC_FX_FADE:
+                fxAnims.add(loopAnim(android.animation.ObjectAnimator.ofFloat(r, View.ALPHA, 1f, 0.55f), 800, true));
+                break;
+            case MUSIC_FX_GLOW: {
+                int glow = 0xFF9B5CFF;
+                if (musicBgHex != null) { try { glow = Color.parseColor(musicBgHex) | 0xFF000000; } catch (Exception ignored) {} }
+                final int gc = glow;
+                android.animation.ValueAnimator va = android.animation.ValueAnimator.ofFloat(0f, 1f);
+                va.setDuration(900);
+                va.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+                va.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+                va.addUpdateListener(an -> {
+                    if (musicBgDrawable == null) return;
+                    float f = (Float) an.getAnimatedValue();
+                    int col = Color.argb(Math.round(255 * (0.35f + 0.65f * f)), Color.red(gc), Color.green(gc), Color.blue(gc));
+                    musicBgDrawable.setStroke(Math.round(d * (1.5f + 2.5f * f)), col);
+                });
+                fxGlowActive = true;
+                fxAnims.add(va);
+                break;
+            }
+            default: break;
+        }
+        for (android.animation.Animator a : fxAnims) a.start();
+    }
+
+    private void stopEffect() {
+        for (android.animation.Animator a : fxAnims) a.cancel();
+        fxAnims.clear();
+        if (musicRow != null) {
+            musicRow.setRotation(0f); musicRow.setScaleX(1f); musicRow.setScaleY(1f);
+            musicRow.setTranslationX(0f); musicRow.setTranslationY(0f); musicRow.setAlpha(1f);
+            if (musicRow.getWidth() > 0) { musicRow.setPivotX(musicRow.getWidth() / 2f); musicRow.setPivotY(musicRow.getHeight() / 2f); }
+        }
+        if (fxGlowActive) { fxGlowActive = false; applyMusicBg(); }   // restore the normal border
     }
 
     // ── Music sticker background colour ────────────────────────────────────
@@ -1723,7 +1819,7 @@ public class StatusStickerOverlayView extends LinearLayout {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         startEqualiser();
-        updateShake();
+        updateEffect();
     }
 
     // ─── Countdown sticker ─────────────────────────────────────────────────
@@ -1933,7 +2029,7 @@ public class StatusStickerOverlayView extends LinearLayout {
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         for (android.animation.ObjectAnimator a : eqAnimators) a.cancel();
-        stopShake();
+        stopEffect();
         if (countdownTimer != null) {
             countdownTimer.cancel();
             countdownTimer = null;

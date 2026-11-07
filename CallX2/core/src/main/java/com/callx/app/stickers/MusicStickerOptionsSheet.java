@@ -32,7 +32,7 @@ import java.util.List;
  *                      minimal icon, animated wave, big cover)
  *  2. Customize      — colour (swatches + the app's shared rainbow sheet), background
  *                      (Solid / Blur / Gradient / None), size, opacity, corner radius, rotate
- *     Toggles        — Auto Play, Loop, Show Artist, Shake Effect
+ *  3. Effects        — looping Shake / Pulse / Heartbeat / Float / Bounce / Swing / Wiggle / Glow / Fade
  */
 public final class MusicStickerOptionsSheet {
 
@@ -238,29 +238,49 @@ public final class MusicStickerOptionsSheet {
         }, refreshers, changed), halfLp(ctx, false));
         root.addView(sliderRow2);
 
-        // Toggles
-        LinearLayout toggles = new LinearLayout(ctx);
-        toggles.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams tgp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tgp.topMargin = dp(ctx, 18);
-        toggles.addView(toggle(ctx, "\u25B6", "Auto Play", new ToggleBinding() {
-            @Override public boolean get() { return st.isMusicAutoPlay(); }
-            @Override public void set(boolean on) { st.setMusicAutoPlay(on); }
-        }, refreshers, changed));
-        toggles.addView(toggle(ctx, "\uD83D\uDD01", "Loop", new ToggleBinding() {
-            @Override public boolean get() { return st.isMusicLoop(); }
-            @Override public void set(boolean on) { st.setMusicLoop(on); }
-        }, refreshers, changed));
-        toggles.addView(toggle(ctx, "\uD83D\uDC64", "Show Artist", new ToggleBinding() {
-            @Override public boolean get() { return st.isMusicShowArtist(); }
-            @Override public void set(boolean on) { st.setMusicShowArtist(on); }
-        }, refreshers, changed));
-        toggles.addView(toggle(ctx, "\uD83D\uDCF3", "Shake Effect", new ToggleBinding() {
-            @Override public boolean get() { return st.isMusicShake(); }
-            @Override public void set(boolean on) { st.setMusicShake(on); }
-        }, refreshers, changed));
-        root.addView(toggles, tgp);
+        // 3. Effects — one looping effect at a time (tap again on "None" to clear)
+        root.addView(sectionLabel(ctx, "3. Effects"));
+        final String[] fxIds = StatusStickerOverlayView.MUSIC_EFFECTS;
+        final String[] fxGlyph = {"\u2298", "\uD83D\uDCF3", "\u25CE", "\uD83D\uDC97", "\u2601\uFE0F",
+                "\uD83C\uDFC0", "\uD83C\uDF90", "\u3030\uFE0F", "\u2728", "\uD83C\uDF17"};
+        final String[] fxName = {"None", "Shake", "Pulse", "Heartbeat", "Float", "Bounce", "Swing", "Wiggle", "Glow", "Fade"};
+        final List<LinearLayout> fxBoxes = new ArrayList<>();
+        for (int rowStart = 0; rowStart < fxIds.length; rowStart += 5) {
+            LinearLayout fr = new LinearLayout(ctx);
+            fr.setOrientation(LinearLayout.HORIZONTAL);
+            for (int i = rowStart; i < Math.min(fxIds.length, rowStart + 5); i++) {
+                final String id = fxIds[i];
+                LinearLayout box = new LinearLayout(ctx);
+                box.setOrientation(LinearLayout.VERTICAL);
+                box.setGravity(Gravity.CENTER);
+                box.setPadding(dp(ctx, 2), dp(ctx, 10), dp(ctx, 2), dp(ctx, 10));
+                box.setTag(id);
+                TextView g = text(ctx, fxGlyph[i], 20, C_TEXT, false);
+                g.setGravity(Gravity.CENTER);
+                TextView l = text(ctx, fxName[i], 11, C_TEXT, false);
+                l.setGravity(Gravity.CENTER);
+                l.setPadding(0, dp(ctx, 4), 0, 0);
+                box.addView(g);
+                box.addView(l);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                lp.setMargins(dp(ctx, 3), dp(ctx, 3), dp(ctx, 3), dp(ctx, 3));
+                fr.addView(box, lp);
+                fxBoxes.add(box);
+                box.setOnClickListener(v -> { st.setMusicEffect(id); refreshAll.run(); changed.run(); });
+            }
+            root.addView(fr);
+        }
+        refreshers.add(() -> {
+            for (LinearLayout box : fxBoxes) {
+                boolean on = box.getTag().equals(st.getMusicEffect());
+                GradientDrawable bg = new GradientDrawable();
+                bg.setCornerRadius(dp(ctx, 16));
+                bg.setColor(on ? 0x449B5CFF : C_CARD);
+                bg.setStroke(dp(ctx, on ? 2 : 1), on ? C_ACCENT : C_LINE);
+                box.setBackground(bg);
+                box.setAlpha(on ? 1f : 0.85f);
+            }
+        });
 
         refreshAll.run();
 
@@ -286,7 +306,6 @@ public final class MusicStickerOptionsSheet {
     // ── slider / toggle plumbing ─────────────────────────────────────────
 
     private interface SliderBinding { int get(); void set(int v); String fmt(int v); }
-    private interface ToggleBinding { boolean get(); void set(boolean on); }
 
     private static View sliderBlock(Context ctx, String label, final int min, final int max,
                                     final SliderBinding b, List<Runnable> refreshers, final Runnable changed) {
@@ -328,42 +347,6 @@ public final class MusicStickerOptionsSheet {
         });
         return col;
     }
-
-    private static View toggle(Context ctx, String glyph, String label, final ToggleBinding b,
-                               List<Runnable> refreshers, final Runnable changed) {
-        final LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        box.setPadding(dp(ctx, 4), dp(ctx, 10), dp(ctx, 4), dp(ctx, 10));
-        TextView g = text(ctx, glyph, 20, C_TEXT, false);
-        g.setGravity(Gravity.CENTER);
-        final TextView l = text(ctx, label, 11, C_TEXT, false);
-        l.setGravity(Gravity.CENTER);
-        l.setPadding(0, dp(ctx, 4), 0, 0);
-        box.addView(g);
-        box.addView(l);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        lp.setMargins(dp(ctx, 3), 0, dp(ctx, 3), 0);
-        box.setLayoutParams(lp);
-        box.setOnClickListener(v -> {
-            b.set(!b.get());
-            for (Runnable r : refreshersOf(refreshers)) r.run();
-            changed.run();
-        });
-        refreshers.add(() -> {
-            boolean on = b.get();
-            GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(dp(ctx, 16));
-            bg.setColor(on ? 0x449B5CFF : C_CARD);
-            bg.setStroke(dp(ctx, on ? 2 : 1), on ? C_ACCENT : C_LINE);
-            box.setBackground(bg);
-            l.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
-            box.setAlpha(on ? 1f : 0.85f);
-        });
-        return box;
-    }
-
-    private static List<Runnable> refreshersOf(List<Runnable> r) { return new ArrayList<>(r); }
 
     // ── small view helpers ───────────────────────────────────────────────
 
