@@ -288,6 +288,23 @@ package com.callx.app.feed;
       public void setSearchEmptyQuery(String q) { searchEmptyQuery = (q == null || q.isEmpty()) ? null : q; }
       private String searchEmptyQuery;
       public void beginInitialLoad() { statusLoaded = false; rebuildFlatList(items); }
+
+      // v731: carousel scroll position survives a recreated fragment (see StatusTabState)
+      private int pendingScrollPos = -1, pendingScrollOff;
+      private java.lang.ref.WeakReference<CarouselVH> carouselRef;
+      public void setPendingCarouselScroll(int pos, int off) { pendingScrollPos = pos; pendingScrollOff = off; }
+      /** {first visible card position, its offset from the start edge}, or null when the carousel is not on screen. */
+      public int[] captureCarouselScroll() {
+          CarouselVH h = carouselRef != null ? carouselRef.get() : null;
+          if (h == null || h.rvCarousel == null || !(h.rvCarousel.getLayoutManager() instanceof LinearLayoutManager)) return null;
+          LinearLayoutManager lm = (LinearLayoutManager) h.rvCarousel.getLayoutManager();
+          int p = lm.findFirstVisibleItemPosition();
+          if (p < 0) return null;
+          View v = lm.findViewByPosition(p);
+          boolean rtl = h.rvCarousel.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+          int off = (v != null && !rtl) ? lm.getDecoratedLeft(v) - h.rvCarousel.getPaddingLeft() : 0;
+          return new int[]{p, off};
+      }
       private Runnable onHiddenCardClick; // v236
       private final SimpleDateFormat timeFmt =
               new SimpleDateFormat("HH:mm", Locale.getDefault());
@@ -694,6 +711,7 @@ package com.callx.app.feed;
 
       // ── v27: Status carousel (horizontal, WhatsApp-style cards) ────────────
       private void bindCarousel(CarouselVH h, List<CardItem> cards, String emptyQuery) {
+          carouselRef = new java.lang.ref.WeakReference<>(h);
           h.bindEmpty(emptyQuery);
           if (cards == null) cards = new ArrayList<>();
           if (h.cardAdapter == null) {
@@ -740,6 +758,12 @@ package com.callx.app.feed;
               catch (IllegalStateException ignored) { /* a fling listener is already attached */ }
           }
           h.cardAdapter.submit(cards, h.itemView.getContext()); // diff off main thread; prefetch runs after apply
+          if (pendingScrollPos >= 0 && !cards.isEmpty()
+                  && h.rvCarousel.getLayoutManager() instanceof LinearLayoutManager) {   // first non-empty bind of a restored tab: same position as before
+              ((LinearLayoutManager) h.rvCarousel.getLayoutManager())
+                      .scrollToPositionWithOffset(Math.min(pendingScrollPos, cards.size() - 1), pendingScrollOff);
+              pendingScrollPos = -1;
+          }
           if (!statusLoaded) {
               // First data not here yet: skeleton cards, with a 4s safety net (offline / empty).
               h.showSkeleton();

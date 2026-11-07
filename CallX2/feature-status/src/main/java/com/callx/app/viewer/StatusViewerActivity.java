@@ -5274,6 +5274,10 @@ import com.callx.app.utils.AlertDialogStyler;
       // ── Seen-by bar avatars (latest 4 viewers) ─────────────────────────────
       private static final android.util.LruCache<String, String> VIEWER_PHOTOS = new android.util.LruCache<>(120);
       private String seenAvatarKey = "";
+      private static final float SEEN_AVATAR_DP = 36f - 2f * (1.5f + 2f);   // = 29dp
+      /** 29dp -> TINY (32dp), the same bucket as the reel-comment / sheet avatars, so the cached bitmaps are shared. */
+      private static final com.callx.app.utils.AvatarSizeTier SEEN_AVATAR_TIER =
+              com.callx.app.utils.AvatarSizeTier.forViewSizeDp(Math.round(SEEN_AVATAR_DP));
       private int dpi(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
       /** Upward swipe (fast or slow, vertical-dominant) on the bar = open the viewers sheet; a plain tap falls through to onClick. */
@@ -5315,8 +5319,17 @@ import com.callx.app.utils.AlertDialogStyler;
           final String key = s.id + "|" + uids;
           if (key.equals(seenAvatarKey) && box.getChildCount() == uids.size()) return; // nothing changed
           seenAvatarKey = key;
+          for (int c = 0; c < box.getChildCount(); c++) {   // stop in-flight loads of the avatars being replaced
+              View cell0 = box.getChildAt(c);
+              if (cell0 instanceof android.widget.FrameLayout && ((android.widget.FrameLayout) cell0).getChildCount() > 1
+                      && ((android.widget.FrameLayout) cell0).getChildAt(1) instanceof android.widget.ImageView)
+                  com.callx.app.cache.StatusAvatarBinder.cancelCore(this,
+                          (android.widget.ImageView) ((android.widget.FrameLayout) cell0).getChildAt(1));
+          }
           box.removeAllViews();
-          final int ringSz = dpi(36), avSz = dpi(32);   // reel-comment avatar spec
+          // v730: ring cell 36dp, ring stroke 1.5dp (StoryRingApplier), 2dp transparent gap between ring and avatar
+          // -> avatar = 36 - 2 * (1.5 + 2) = 29dp.
+          final int ringSz = dpi(36), avSz = Math.round(SEEN_AVATAR_DP * getResources().getDisplayMetrics().density);
           for (int i = 0; i < uids.size(); i++) {
               final String uid = uids.get(i);
               android.widget.FrameLayout cell = new android.widget.FrameLayout(this);
@@ -5380,6 +5393,12 @@ import com.callx.app.utils.AlertDialogStyler;
           });
       }
 
+      /** v730: bar avatars go through core's avatar pipeline (AvatarBinderCore + status L2/L3, versioned CDN URL, analytics). */
+      private void bindSeenAvatar(de.hdodenhof.circleimageview.CircleImageView av, String uid, String photo) {
+          com.callx.app.cache.StatusAvatarBinder.bindCore(this, av, photo,
+                  com.callx.app.interactions.StatusSheetAvatar.versionOf(this, uid), R.drawable.ic_person, SEEN_AVATAR_TIER);
+      }
+
       /** Cache order: this bar's cache -> the sheet's profile cache -> Room seed -> one Firebase read. */
       private void loadViewerPhoto(final de.hdodenhof.circleimageview.CircleImageView av, final String uid) {
           String photo = VIEWER_PHOTOS.get(uid);
@@ -5388,8 +5407,7 @@ import com.callx.app.utils.AlertDialogStyler;
               if (shared != null) { photo = shared; VIEWER_PHOTOS.put(uid, shared); }
           }
           if (photo != null) {   // "" = known to have no photo -> placeholder, no re-fetch
-              com.callx.app.interactions.StatusSheetAvatar.load(this, av, photo, R.drawable.ic_person,
-                      com.callx.app.interactions.StatusSheetAvatar.ROW_TIER);
+              bindSeenAvatar(av, uid, photo);
               return;
           }
           av.setImageResource(R.drawable.ic_person);
@@ -5402,8 +5420,7 @@ import com.callx.app.utils.AlertDialogStyler;
               VIEWER_PHOTOS.put(uid, ph);
               com.callx.app.interactions.StatusSeenByBottomSheet.putProfile(uid, name, ph); // sheet opens with this profile warm
               if (isFinishing() || isDestroyed() || !uid.equals(av.getTag())) return; // bar was rebuilt meanwhile
-              com.callx.app.interactions.StatusSheetAvatar.load(this, av, ph, R.drawable.ic_person,
-                      com.callx.app.interactions.StatusSheetAvatar.ROW_TIER);
+              bindSeenAvatar(av, uid, ph);
           });
       }
 

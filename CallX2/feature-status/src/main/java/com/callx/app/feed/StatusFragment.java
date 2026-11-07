@@ -96,6 +96,9 @@ public class StatusFragment extends BaseFragment {
     private ValueEventListener seenListener;
     private ValueEventListener highlightsListener;
     private final java.util.Set<String> blockedUids = new java.util.HashSet<>();
+    private boolean restoredFromState;      // v731: collections were filled from StatusTabState in onCreateView
+    private long    lastBuildSig;           // v731: signature of what the adapter was last given (skip identical rebuilds)
+    private boolean hasBuilt;
 
     private com.callx.app.cache.StatusMediaPreloader mediaPreloader;
     private long lastPreloadSig = 0L;                                        // see rebuildStatusAdapterNow()
@@ -200,6 +203,9 @@ public class StatusFragment extends BaseFragment {
         com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         rv.setItemAnimator(null);
 
+        // v731: a recreated fragment (ViewPager2 destroys it 2+ tabs away) starts from the last known tray, not from nothing
+        restoredFromState = StatusTabState.restore(myUid(), statusMap, myStatuses, seenMap, blockedUids);
+
         // ── Status adapter ───────────────────────────────────────────────
         statusAdapter = new StatusListAdapter(
             myUid(), myStatuses,
@@ -241,6 +247,10 @@ public class StatusFragment extends BaseFragment {
         statusAdapter.setOnHiddenCardClickListener(this::openHiddenUpdates); // v236
         // Skeleton cards until the first status data lands (skipped when we already hold data).
         if (statusMap.isEmpty() && myStatuses.isEmpty()) statusAdapter.beginInitialLoad();
+        else {
+            int[] sc = StatusTabState.scroll();
+            if (sc != null) statusAdapter.setPendingCarouselScroll(sc[0], sc[1]);   // same carousel position as when the tab was left
+        }
         // v50 FIX: Highlights strip removed from the Status tab. Highlights are
         // already surfaced on the profile screen (UserReelsActivity), so showing
         // them again here was redundant. We simply stop wiring the click listener
@@ -344,6 +354,7 @@ public class StatusFragment extends BaseFragment {
         channelViewModel.refresh();
 
         // Status: legacy listeners (will move to StatusViewModel in next sprint)
+        if (restoredFromState) { restoredFromState = false; rebuildStatusAdapterNow(); }   // v731: first frame = last known cards
         seedFromStatusCache();
         loadFromRoom();
         loadStatuses();
@@ -362,6 +373,8 @@ public class StatusFragment extends BaseFragment {
     }
 
     @Override public void onStop() {
+        if (statusAdapter != null && isAuthenticated())
+            StatusTabState.save(myUid(), statusMap, myStatuses, seenMap, blockedUids, statusAdapter.captureCarouselScroll());
         removeListeners();
         statusExpirySweepHandler.removeCallbacks(statusExpirySweepRunnable);
         rebuildHandler.removeCallbacks(rebuildRunnable);
@@ -438,6 +451,10 @@ public class StatusFragment extends BaseFragment {
         if (!isAuthenticated() || getContext() == null) return;
         com.callx.app.cache.StatusCacheManager scm =
             com.callx.app.cache.StatusCacheManager.getInstance(getContext());
+        // v731: seen state from the shared cache too (was: only from the Firebase statusSeen listener, so the first paint
+        // treated every contact as unseen and then re-sorted the carousel when the listener answered).
+        for (Map.Entry<String, Set<String>> se : scm.getSeenMap().entrySet())
+            if (se.getKey() != null && se.getValue() != null && !seenMap.containsKey(se.getKey())) seenMap.put(se.getKey(), new HashSet<>(se.getValue()));
         Map<String, List<StatusItem>> cached = scm.getAllStatuses();
         if (cached.isEmpty()) return;
         for (Map.Entry<String, List<StatusItem>> e : cached.entrySet()) {
@@ -745,7 +762,7 @@ public class StatusFragment extends BaseFragment {
 
     // Perf: Firebase/Room/seen/sweep callbacks arrive in bursts and each used to run the full
     // map loop + sort + diff on the main thread. Coalesce them into one rebuild per ~80ms.
-    private static final long REBUILD_DEBOUNCE_MS = 80L;
+    private static final long REBUILD_DEBOUNCE_MS = 150L;   // v731: 80 -> 150 ms, fewer intermediate rebuilds while per-contact snapshots land
     private final android.os.Handler rebuildHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable rebuildRunnable = this::rebuildStatusAdapterNow;
 
@@ -784,7 +801,14 @@ public class StatusFragment extends BaseFragment {
             }
             Set<String> seenIds = seenMap.getOrDefault(uid, Collections.emptySet());
             int unseenCount = 0;
-            for (StatusItem item : items2) if (!seenIds.contains(item.id)) unseenCount++;
+            // v731: same rule as StatusCacheManager.hasUnseen (ring) — an item covered by the local "seen at" mark is seen, so the
+            // card is already in the right section before Firebase confirms (no later jump from unseen to seen).
+            final long locallySeenAt = com.callx.app.utils.StorySeenState.getSeenAt(getContext(), uid);
+            for (StatusItem item : items2) {
+                if (seenIds.contains(item.id)) continue;
+                if (locallySeenAt > 0 && item.timestamp != null && item.timestamp <= locallySeenAt) continue;
+                unseenCount++;
+            }
             String latestReaction = null;
             if (latest.reactions != null && !latest.reactions.isEmpty())
                 latestReaction = latest.reactions.values().iterator().next();
@@ -824,10 +848,26 @@ public class StatusFragment extends BaseFragment {
         for (StatusListAdapter.Entry en : unseen) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
         for (StatusListAdapter.Entry en : seen)   { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
         // Search matched nothing anywhere (carousel, Muted section, Hidden): show a "no results" line.
-        statusAdapter.setSearchEmptyQuery(!searchQuery.isEmpty() && unseen.isEmpty() && seen.isEmpty()
-                && muted.isEmpty() && hidden.isEmpty() ? searchQuery : null);
-        statusAdapter.update(unseen, seen, muted, hidden.size());
         nextLabelChangeMs = computeNextLabelChangeMs(System.currentTimeMillis());
+        // v731: identical content (typical for the burst of per-contact / seen / profile callbacks right after a restore) -> do not touch
+        // the adapter at all. nextLabelChangeMs changes exactly when a "5m ago" style label does, so labels still refresh.
+        final String emptyQ = !searchQuery.isEmpty() && unseen.isEmpty() && seen.isEmpty()
+                && muted.isEmpty() && hidden.isEmpty() ? searchQuery : null;
+        long bsig = 7;
+        bsig = bsig * 31 + buildSig(unseen); bsig = bsig * 31 + buildSig(seen);
+        bsig = bsig * 31 + buildSig(muted);  bsig = bsig * 31 + buildSig(hidden);
+        bsig = bsig * 31 + java.util.Objects.hashCode(emptyQ);
+        bsig = bsig * 31 + nextLabelChangeMs;
+        bsig = bsig * 31 + myStatuses.size();
+        if (!myStatuses.isEmpty()) {
+            StatusItem ml = myStatuses.get(myStatuses.size() - 1);
+            bsig = bsig * 31 + java.util.Objects.hash(ml.id, ml.timestamp, ml.ownerPhoto, ml.thumbnailUrl, ml.mediaUrl);
+        }
+        if (!hasBuilt || bsig != lastBuildSig) {
+            hasBuilt = true; lastBuildSig = bsig;
+            statusAdapter.setSearchEmptyQuery(emptyQ);
+            statusAdapter.update(unseen, seen, muted, hidden.size());
+        }
         if (mediaPreloader != null) {
             // Perf: skip the preload loop on time-only rebuilds (the once-a-minute label refresh) —
             // only re-run when the unseen contacts / their latest status actually changed, or the preloader is new.
@@ -849,6 +889,17 @@ public class StatusFragment extends BaseFragment {
                 }
             }
         }
+    }
+
+    private static long buildSig(List<StatusListAdapter.Entry> l) {
+        long h = 11 + l.size();
+        for (StatusListAdapter.Entry e : l) {
+            StatusItem li = e.latestItem;
+            h = h * 31 + java.util.Objects.hash(e.ownerUid, e.ownerName, e.ownerPhoto, e.latestTimestamp, e.totalCount, e.unseenCount,
+                    e.isMuted, e.latestReaction, e.isCloseFriend, e.avatarVersion,
+                    li != null ? li.id : null, li != null ? li.thumbnailUrl : null, li != null ? li.mediaUrl : null);
+        }
+        return h;
     }
 
     /** Earliest wall-clock time a card's time label changes: minute labels tick each minute (<1h), then each hour. Mirrors CardItem.timeKey. */

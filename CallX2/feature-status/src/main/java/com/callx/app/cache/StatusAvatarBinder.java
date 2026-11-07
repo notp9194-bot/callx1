@@ -210,6 +210,26 @@ public final class StatusAvatarBinder {
             .into(iv);
     }
 
+    // ── v730: shared-core path for the viewer screen's "Seen by" bar avatars ──────────────────────
+    // Goes through core's AvatarBinderCore (L2 memory -> Glide RESOURCE decode HIGH priority -> L2 + L3 write-through,
+    // AvatarCacheAnalytics + dashboard stats) with the status module's own L2/L3 (StatusAvatarL2Cache), exactly like
+    // GroupAvatarBinder / CommunityAvatarBinder. The tier is the caller's (the bar avatar is 29dp -> TINY).
+    private static final AvatarBinderCore.CacheProvider CORE_CACHE = new AvatarBinderCore.CacheProvider() {
+        @Override public AvatarL2MemoryCache l2(Context ctx) { return StatusAvatarL2Cache.get(ctx); }
+        @Override public AvatarL3DiskCache l3(Context ctx) { return StatusAvatarL2Cache.l3(ctx); }
+    };
+
+    /** Tier-aware bind through {@link AvatarBinderCore}. Pair with {@link #cancelCore}. */
+    public static void bindCore(Context ctx, ImageView iv, String photo, long avatarVersion,
+                                int placeholderRes, AvatarSizeTier tier) {
+        AvatarBinderCore.bind(ctx, iv, photo, avatarVersion, CORE_CACHE,
+                new AvatarBinderCore.BindOptions(tier, DecodeFormat.PREFER_RGB_565, true, true, true, placeholderRes));
+    }
+
+    public static void cancelCore(Context ctx, ImageView iv) {
+        AvatarBinderCore.cancel(ctx, iv);
+    }
+
     /**
      * FIX (isVisible gate): call this from onBindViewHolder instead of
      * bind() directly. RecyclerView's GapWorker can bind a row a little
