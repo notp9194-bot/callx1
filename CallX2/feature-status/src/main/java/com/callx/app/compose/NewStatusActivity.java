@@ -2421,6 +2421,18 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     /** Rebuilds the music sticker JSON (keeping its position/size) and swaps it in. mix = {musicVol, origVol, fadeIn, fadeOut, pitch} or null. */
+    /** Music sticker "Options": the full Music Sticker Options sheet (style, colour, background, size, opacity,
+     *  corner radius, rotate, auto-play, loop, show artist, shake). Acts live on the selected sticker. */
+    private void openMusicOptionsSheet() {
+        final com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (s == null || s.getParent() != stickerOverlayFrame || s.isLocked()) return;
+        com.callx.app.stickers.MusicStickerOptionsSheet.show(this, s, () -> {
+            // size / rotate / style may have moved or resized the card → keep the bar in sync with it
+            if (stickerScaleSeek != null) stickerScaleSeek.setProgress(scaleToSeek(s.getStickerScale()));
+            s.post(() -> positionStickerBar(s));
+        });
+    }
+
     /** Music sticker "Change style": classic → compact chip → big cover → mini bars. Swaps in place (same position/size). */
     private void cycleMusicStyle(com.callx.app.stickers.StatusStickerOverlayView st) {
         if (st == null || st.getParent() != stickerOverlayFrame || st.isLocked()) return;
@@ -2602,7 +2614,8 @@ public class NewStatusActivity extends AppCompatActivity {
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build());
             mp.setDataSource(playUrl);
-            mp.setLooping(true);
+            mp.setLooping(sticker.isMusicLoop());
+            previewClip.setLoop(sticker.isMusicLoop());
             applyPreviewVolume();
             mp.setOnPreparedListener(p -> {
                 if (musicPreview != p) return; // stale (sticker replaced/removed meanwhile)
@@ -2962,7 +2975,7 @@ public class NewStatusActivity extends AppCompatActivity {
         stickerBtnMix    = stickerBarIcon(R.drawable.ic_sbar_mix,    R.string.sticker_bar_mix_music,
                 v -> { if (selectedSticker != null) startMusicReedit(selectedSticker, false); });
         stickerBtnStyle = stickerBarIcon(R.drawable.ic_sbar_style, R.string.sticker_bar_music_style,
-                v -> { if (selectedSticker != null) cycleMusicStyle(selectedSticker); });
+                v -> openMusicOptionsSheet());
         stickerBtnSwap  = stickerBarIcon(R.drawable.ic_sbar_swap,  R.string.sticker_bar_change_song,
                 v -> changeMusicSong());
         stickerBtnEditText = stickerBarIcon(R.drawable.ic_sbar_text, R.string.sticker_bar_edit_text,

@@ -605,8 +605,8 @@ public class StatusStickerOverlayView extends LinearLayout {
     private final java.util.List<View> eqBars = new java.util.ArrayList<>();
     private final java.util.List<android.animation.ObjectAnimator> eqAnimators = new java.util.ArrayList<>();
     private String musicSoundId, musicSong, musicArtist, musicCoverUrl, musicSoundUrl;
-    /** Look of the music sticker: 0 classic card, 1 compact chip, 2 big cover card, 3 mini bars pill. */
-    public static final int MUSIC_STYLE_COUNT = 4;
+    /** Look of the music sticker: 0 card, 1 album-cover pill, 2 big cover, 3 compact bar, 4 floating icon, 5 gradient bar, 6 minimal icon, 7 animated wave. */
+    public static final int MUSIC_STYLE_COUNT = 8;
     private int musicStyle = 0;
     public int getMusicStyle() { return musicStyle; }
     /** Playback state badge next to the bars. */
@@ -619,6 +619,13 @@ public class StatusStickerOverlayView extends LinearLayout {
     // their legacy behaviour (video ducked to 0.25, music at default volume). Old posts have none.
     private float musicOrigVol = -1f, musicMixVol = -1f, musicPitch = 0f;
     private int musicFadeInMs = 0, musicFadeOutMs = 0;
+
+    // ── Music sticker custom background colour ("bgColor" in the sticker JSON, #RRGGBB or #AARRGGBB) ──
+    // null = automatic look (black card tinted from the cover art). Picked via the shared rainbow sheet.
+    private String musicBgHex = null;
+    private int musicAutoBgColor = 0xEE000000;   // black / cover-tint fallback used when no custom colour is set
+    private android.graphics.drawable.GradientDrawable musicBgDrawable;
+    private TextView musicArtistView, musicChevronView;
 
     // ── Quiz interactivity state (mirrors the question sticker's full flow) ──
     private String quizQuestion;
@@ -1162,34 +1169,74 @@ public class StatusStickerOverlayView extends LinearLayout {
     // ─── Music sticker ─────────────────────────────────────────────────────
 
     private static StatusStickerOverlayView buildMusic(Context ctx, String json) {
-        int dp = dp(ctx);
         StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
+        v.populateMusic(ctx, json);
+        return v;
+    }
+
+    /**
+     * (Re)builds the whole music card from {@code json}. Used for the first build and again (live) whenever
+     * the options sheet changes something that alters the card's structure (style / show-artist).
+     */
+    private void populateMusic(Context ctx, String json) {
+        final StatusStickerOverlayView v = this;
+        final int dp = dp(ctx);
+
+        // ── reset anything a previous build left behind ──
+        for (android.animation.ObjectAnimator a : eqAnimators) a.cancel();
+        eqAnimators.clear();
+        eqBars.clear();
+        stopShake();
+        removeAllViews();
+        musicTicker = null; musicStateLabel = null; musicArtistView = null;
+        musicChevronView = null; musicNoteGlyph = null; musicRow = null;
+        final int prevState = musicState;
+        musicState = MUSIC_STATE_OK;
+
+        // ── options (all optional in the JSON; absent = legacy look/behaviour) ──
         int style = 0;
         try { style = Math.max(0, Math.min(MUSIC_STYLE_COUNT - 1, (int) Float.parseFloat(jsonNum(json, "style", "0")))); } catch (Exception ignored) {}
-        v.musicStyle = style;
-        final boolean chip = style == 1, big = style == 2, mini = style == 3;
-        final int pad = (chip || mini) ? dp * 8 : dp * 12;
-        v.setPadding(pad, pad, pad, pad);
+        musicStyle = style;
+        musicBgHex = null;
+        String bgHex = jsonStr(json, "bgColor", "");
+        if (!bgHex.isEmpty()) {
+            try { Color.parseColor(bgHex); musicBgHex = bgHex; } catch (Exception ignored) {}
+        }
+        String mode = jsonStr(json, "bgMode", style == MUSIC_STYLE_GRADIENT_BAR ? MUSIC_BG_GRADIENT : MUSIC_BG_SOLID);
+        musicBgMode = (MUSIC_BG_SOLID.equals(mode) || MUSIC_BG_BLUR.equals(mode)
+                || MUSIC_BG_GRADIENT.equals(mode) || MUSIC_BG_NONE.equals(mode)) ? mode : MUSIC_BG_SOLID;
+        try { musicOpacity = Math.max(0, Math.min(100, Math.round(Float.parseFloat(jsonNum(json, "opacity", "100"))))); } catch (Exception e) { musicOpacity = 100; }
+        try { musicRadiusDp = Math.round(Float.parseFloat(jsonNum(json, "radius", "-1"))); } catch (Exception e) { musicRadiusDp = -1; }
+        musicAutoPlay = jsonBool(json, "autoPlay", true);
+        musicLoop = jsonBool(json, "loop", true);
+        musicShowArtist = jsonBool(json, "showArtist", defaultShowArtist(style));
+        musicShake = jsonBool(json, "shake", false);
+
+        final boolean chip = style == MUSIC_STYLE_ALBUM_PILL, big = style == MUSIC_STYLE_BIG_COVER;
+        final boolean mini = style == MUSIC_STYLE_COMPACT_BAR || style == MUSIC_STYLE_GRADIENT_BAR;
+        final boolean floating = style == MUSIC_STYLE_FLOATING_ICON, minimal = style == MUSIC_STYLE_MINIMAL_ICON;
+        final boolean wave = style == MUSIC_STYLE_ANIMATED_WAVE;
+        final boolean iconOnly = floating || minimal;           // no text, no bars
+        final boolean small = chip || mini || wave;
+        final int pad = iconOnly ? dp * 6 : (small ? dp * 8 : dp * 12);
+        setPadding(pad, pad, pad, pad);
 
         final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius((chip || mini) ? dp * 28 : (big ? dp * 22 : dp * 18));
-        bg.setColor(0xEE000000);
-        bg.setStroke(Math.max(1, dp), 0x44FFFFFF);
-        v.setBackground(bg);
+        setBackground(bg);
+        musicBgDrawable = bg;
 
-        // Row: album art + text (style 2 stacks them: big cover on top)
+        // Row: album art + text (big cover stacks them: cover on top)
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(big ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        row.setGravity(big ? android.view.Gravity.CENTER_HORIZONTAL
-                           : android.view.Gravity.CENTER_VERTICAL);
-        final int artDp = chip ? 32 : (big ? 120 : 48);
+        row.setGravity(big ? android.view.Gravity.CENTER_HORIZONTAL : android.view.Gravity.CENTER_VERTICAL);
+        musicRow = row;
+        final int artDp = floating ? 44 : (chip ? 36 : (big ? 120 : 48));
+        final boolean showArt = !(mini || minimal || wave);       // cover shown?
 
-        // Album art placeholder
+        String artUrl = jsonStr(json, "albumArt", "");
         ImageView ivArt = new ImageView(ctx);
         ivArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        String artUrl = jsonStr(json, "albumArt", "");
         if (!artUrl.isEmpty()) {
-            // Shared avatar pipeline (tiered CDN URL + L2/L3 cache + RGB_565, no circle crop).
             com.callx.app.cache.MiscAvatarBinder.bind(ctx, ivArt, artUrl, 0L,
                     com.callx.app.utils.AvatarSizeTier.forViewSizeDp(artDp),
                     com.callx.app.core.R.drawable.bg_music_cover_placeholder, false);
@@ -1207,7 +1254,8 @@ public class StatusStickerOverlayView extends LinearLayout {
                             if (n == 0) return;
                             float k = 0.38f; // mix toward black → rich but readable
                             int tr = (int) (r / n * k), tg = (int) (g / n * k), tb = (int) (b / n * k);
-                            bg.setColor(Color.argb(0xEE, tr, tg, tb));
+                            v.musicAutoBgColor = Color.argb(0xEE, tr, tg, tb);
+                            v.applyMusicBg(); // custom colour / other modes simply ignore the auto tint
                         }
                         @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable d) {}
                     });
@@ -1218,15 +1266,15 @@ public class StatusStickerOverlayView extends LinearLayout {
             artBg.setCornerRadius(dp * 8);
             ivArt.setBackground(artBg);
         }
-        // Round the cover (image or placeholder) — clip so Glide-loaded art gets corners too.
         final float artRadius = dp * 8;
+        final boolean artOval = floating;
         ivArt.setClipToOutline(true);
         ivArt.setOutlineProvider(new android.view.ViewOutlineProvider() {
             @Override public void getOutline(android.view.View view, android.graphics.Outline outline) {
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), artRadius);
+                if (artOval) outline.setOval(0, 0, view.getWidth(), view.getHeight());
+                else outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), artRadius);
             }
         });
-        // Music note overlay
         TextView tvNote = new TextView(ctx);
         tvNote.setText("🎵");
         tvNote.setTextSize(22);
@@ -1234,131 +1282,392 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         FrameLayout artFrame = new FrameLayout(ctx);
         LinearLayout.LayoutParams artLp = new LinearLayout.LayoutParams(dp * artDp, dp * artDp);
-        if (big) artLp.bottomMargin = dp * 10; else artLp.rightMargin = dp * (chip ? 8 : 12);
+        if (big) artLp.bottomMargin = dp * 10; else if (!iconOnly) artLp.rightMargin = dp * (chip ? 8 : 12);
         ivArt.setLayoutParams(new FrameLayout.LayoutParams(dp * artDp, dp * artDp));
         artFrame.addView(ivArt);
-        // Emoji only on the placeholder — never on top of real album art.
-        if (artUrl.isEmpty()) artFrame.addView(tvNote);
+        if (artUrl.isEmpty()) artFrame.addView(tvNote);   // emoji only on the placeholder — never on top of real art
         ivArt.setContentDescription(ctx.getString(com.callx.app.core.R.string.music_sticker_album_art));
-        if (!mini) row.addView(artFrame, artLp); // style 3: bars + name only, no cover
 
         // Song + artist text
-        LinearLayout textCol = new LinearLayout(ctx);
-        textCol.setOrientation(LinearLayout.VERTICAL);
-        if (big) textCol.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-
         String song   = jsonStr(json, "song",   ctx.getString(com.callx.app.core.R.string.music_sticker_unknown_song));
         String artist = jsonStr(json, "artist", "");
         String soundId  = jsonStr(json, "soundId", "");
         String soundUrl = jsonStr(json, "soundUrl", "");
-        v.musicSong = song;
-        v.musicArtist = artist;
-        v.musicCoverUrl = artUrl;
-        v.musicSoundId = soundId;
-        v.musicSoundUrl = soundUrl;
-        // Optional clip range (bare JSON numbers → jsonNum, not jsonStr).
-        try { v.musicStartMs = (int) Float.parseFloat(jsonNum(json, "startMs", "0")); } catch (Exception ignored) {}
-        try { v.musicEndMs   = (int) Float.parseFloat(jsonNum(json, "endMs",   "0")); } catch (Exception ignored) {}
-        // Optional Mix Audio fields — absent in old stickers, in which case the defaults stay.
-        try { v.musicOrigVol   = clamp01(Float.parseFloat(jsonNum(json, "origVol",  "-1"))); } catch (Exception ignored) {}
-        try { v.musicMixVol    = clamp01(Float.parseFloat(jsonNum(json, "musicVol", "-1"))); } catch (Exception ignored) {}
-        try { v.musicFadeInMs  = Math.max(0, (int) Float.parseFloat(jsonNum(json, "fadeInMs",  "0"))); } catch (Exception ignored) {}
-        try { v.musicFadeOutMs = Math.max(0, (int) Float.parseFloat(jsonNum(json, "fadeOutMs", "0"))); } catch (Exception ignored) {}
-        try { v.musicPitch     = Math.max(-6f, Math.min(6f, Float.parseFloat(jsonNum(json, "pitch", "0")))); } catch (Exception ignored) {}
+        musicSong = song; musicArtist = artist; musicCoverUrl = artUrl; musicSoundId = soundId; musicSoundUrl = soundUrl;
+        try { musicStartMs = (int) Float.parseFloat(jsonNum(json, "startMs", "0")); } catch (Exception ignored) {}
+        try { musicEndMs   = (int) Float.parseFloat(jsonNum(json, "endMs",   "0")); } catch (Exception ignored) {}
+        musicOrigVol = -1f; musicMixVol = -1f; musicPitch = 0f; musicFadeInMs = 0; musicFadeOutMs = 0;
+        try { musicOrigVol   = clamp01(Float.parseFloat(jsonNum(json, "origVol",  "-1"))); } catch (Exception ignored) {}
+        try { musicMixVol    = clamp01(Float.parseFloat(jsonNum(json, "musicVol", "-1"))); } catch (Exception ignored) {}
+        try { musicFadeInMs  = Math.max(0, (int) Float.parseFloat(jsonNum(json, "fadeInMs",  "0"))); } catch (Exception ignored) {}
+        try { musicFadeOutMs = Math.max(0, (int) Float.parseFloat(jsonNum(json, "fadeOutMs", "0"))); } catch (Exception ignored) {}
+        try { musicPitch     = Math.max(-6f, Math.min(6f, Float.parseFloat(jsonNum(json, "pitch", "0")))); } catch (Exception ignored) {}
 
-        // Looping ticker (same MusicTickerView as the reel/status name rows) so long
-        // song names scroll instead of getting cut with "…". Fixed width — it is a
-        // custom View that fills the width it is given. Short names stay static.
-        // Text width, clamped to 130dp — short names no longer leave an empty gap.
-        final float spPx = ctx.getResources().getDisplayMetrics().scaledDensity;
-        android.graphics.Paint mp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        mp.setTypeface(Typeface.DEFAULT_BOLD);
-        mp.setTextSize(14 * spPx);
-        float w = mp.measureText(song);
-        if (!artist.isEmpty()) {
-            mp.setTypeface(Typeface.DEFAULT);
-            mp.setTextSize(12 * spPx);
-            w = Math.max(w, mp.measureText(artist));
-        }
-        final int textW = Math.max(dp * 40, Math.min(dp * 130, (int) Math.ceil(w) + dp * 2));
-        com.callx.app.views.MusicTickerView tvSong = new com.callx.app.views.MusicTickerView(ctx);
-        v.musicTicker = tvSong;
-        tvSong.setTextColor(Color.WHITE);
-        tvSong.setTextBold(true);
-        tvSong.setTextSizePx(14 * ctx.getResources().getDisplayMetrics().scaledDensity);
-        tvSong.setText(song);
-        textCol.addView(tvSong, new LinearLayout.LayoutParams(textW,
-            LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        if (!artist.isEmpty() && !chip && !mini) {
-            TextView tvArtist = new TextView(ctx);
-            tvArtist.setText(artist);
-            tvArtist.setTextColor(0xFFCCCCCC);
-            tvArtist.setTextSize(12);
-            tvArtist.setMaxLines(1);
-            tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            textCol.addView(tvArtist, new LinearLayout.LayoutParams(textW,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        if (showArt) row.addView(artFrame, artLp);
+        if (minimal || wave) {                       // glyph instead of cover
+            TextView glyph = new TextView(ctx);
+            glyph.setText(minimal ? "\u266B" : "\u266B");
+            glyph.setTextSize(minimal ? 24 : 18);
+            glyph.setTypeface(Typeface.DEFAULT_BOLD);
+            glyph.setGravity(android.view.Gravity.CENTER);
+            musicNoteGlyph = glyph;
+            LinearLayout.LayoutParams gl = minimal
+                    ? new LinearLayout.LayoutParams(dp * 40, dp * 40)
+                    : new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (wave) gl.rightMargin = dp * 8;
+            row.addView(glyph, gl);
         }
 
-        // Mini equaliser bars (3 rects animated via alpha)
-        LinearLayout bars = new LinearLayout(ctx);
-        bars.setOrientation(LinearLayout.HORIZONTAL);
-        bars.setGravity(android.view.Gravity.BOTTOM);
-        int[] heights = {dp * 8, dp * 14, dp * 10, dp * 16, dp * 8};
-        for (int i = 0; i < 5; i++) {
-            View bar = new View(ctx);
-            android.graphics.drawable.GradientDrawable bd = new android.graphics.drawable.GradientDrawable();
-            bd.setColor(0xFFFF3B5C);
-            bd.setCornerRadius(dp * 2);
-            bar.setBackground(bd);
-            LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp * 3, heights[i]);
-            barLp.rightMargin = dp * 2;
-            bars.addView(bar, barLp);
-            bar.setPivotY(heights[i]); // grow/shrink from the bottom edge
-            v.eqBars.add(bar);
-            v.eqAnimators.add(makeBarAnimator(bar, 200 + i * 100L));
-        }
-        LinearLayout.LayoutParams barsLp = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        barsLp.topMargin = dp * 4;
-        // Bars + a small state badge ("Loading…" / "Muted" / "Tap to retry") that only shows when needed.
-        LinearLayout barsRow = new LinearLayout(ctx);
-        barsRow.setOrientation(LinearLayout.HORIZONTAL);
-        barsRow.setGravity(android.view.Gravity.BOTTOM);
-        barsRow.addView(bars);
-        TextView stateLabel = new TextView(ctx);
-        stateLabel.setTextSize(11);
-        stateLabel.setTextColor(0xFFDDDDDD);
-        stateLabel.setVisibility(View.GONE);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        slp.leftMargin = dp * 6;
-        barsRow.addView(stateLabel, slp);
-        v.musicStateLabel = stateLabel;
-        textCol.addView(barsRow, barsLp);
+        if (!iconOnly) {
+            LinearLayout textCol = new LinearLayout(ctx);
+            textCol.setOrientation(LinearLayout.VERTICAL);
+            if (big) textCol.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
 
-        row.addView(textCol, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            final float spPx = ctx.getResources().getDisplayMetrics().scaledDensity;
+            android.graphics.Paint mp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            mp.setTypeface(Typeface.DEFAULT_BOLD);
+            mp.setTextSize(14 * spPx);
+            float w = mp.measureText(song);
+            final boolean artistShown = musicShowArtist && !artist.isEmpty();
+            if (artistShown) {
+                mp.setTypeface(Typeface.DEFAULT);
+                mp.setTextSize(12 * spPx);
+                w = Math.max(w, mp.measureText(artist));
+            }
+            final int textW = Math.max(dp * 40, Math.min(dp * 130, (int) Math.ceil(w) + dp * 2));
+            com.callx.app.views.MusicTickerView tvSong = new com.callx.app.views.MusicTickerView(ctx);
+            musicTicker = tvSong;
+            tvSong.setTextColor(Color.WHITE);
+            tvSong.setTextBold(true);
+            tvSong.setTextSizePx(14 * spPx);
+            tvSong.setText(song);
+            textCol.addView(tvSong, new LinearLayout.LayoutParams(textW, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // Chevron hint — only shown when this sticker is linked to a real Reels
-        // track, so viewers know tapping it opens that track's sound detail sheet.
-        if (!soundId.isEmpty()) {
-            TextView tvChevron = new TextView(ctx);
-            tvChevron.setText("\u203A"); // ›
-            tvChevron.setTextColor(0xFFCCCCCC);
-            tvChevron.setTextSize(20);
-            tvChevron.setGravity(android.view.Gravity.CENTER);
-            tvChevron.setContentDescription(ctx.getString(com.callx.app.core.R.string.music_sticker_open_sound));
-            LinearLayout.LayoutParams chevLp = new LinearLayout.LayoutParams(
+            if (artistShown) {
+                TextView tvArtist = new TextView(ctx);
+                tvArtist.setText(artist);
+                tvArtist.setTextColor(0xFFCCCCCC);
+                tvArtist.setTextSize(12);
+                tvArtist.setMaxLines(1);
+                tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                musicArtistView = tvArtist;
+                textCol.addView(tvArtist, new LinearLayout.LayoutParams(textW, LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
+
+            // Equaliser bars (animated via scaleY). Wave style: more, wider bars.
+            final int nBars = wave ? 9 : 5;
+            final int[] pattern = {8, 14, 10, 16, 8, 12, 16, 10, 8};
+            LinearLayout bars = new LinearLayout(ctx);
+            bars.setOrientation(LinearLayout.HORIZONTAL);
+            bars.setGravity(android.view.Gravity.BOTTOM);
+            for (int i = 0; i < nBars; i++) {
+                int bh = dp * (wave ? pattern[i] + 2 : pattern[i]);
+                View bar = new View(ctx);
+                android.graphics.drawable.GradientDrawable bd = new android.graphics.drawable.GradientDrawable();
+                bd.setColor(0xFFFF3B5C);
+                bd.setCornerRadius(dp * 2);
+                bar.setBackground(bd);
+                LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp * (wave ? 4 : 3), bh);
+                barLp.rightMargin = dp * 2;
+                bars.addView(bar, barLp);
+                bar.setPivotY(bh); // grow/shrink from the bottom edge
+                eqBars.add(bar);
+                eqAnimators.add(makeBarAnimator(bar, 200 + i * 100L));
+            }
+            LinearLayout.LayoutParams barsLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            chevLp.leftMargin = dp * 4;
-            row.addView(tvChevron, chevLp);
+            barsLp.topMargin = dp * 4;
+            // Bars + a small state badge ("Loading…" / "Muted" / "Tap to retry") that only shows when needed.
+            LinearLayout barsRow = new LinearLayout(ctx);
+            barsRow.setOrientation(LinearLayout.HORIZONTAL);
+            barsRow.setGravity(android.view.Gravity.BOTTOM);
+            barsRow.addView(bars);
+            TextView stateLabel = new TextView(ctx);
+            stateLabel.setTextSize(11);
+            stateLabel.setTextColor(0xFFDDDDDD);
+            stateLabel.setVisibility(View.GONE);
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            slp.leftMargin = dp * 6;
+            barsRow.addView(stateLabel, slp);
+            musicStateLabel = stateLabel;
+            textCol.addView(barsRow, barsLp);
+
+            row.addView(textCol, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            // Chevron hint — only when linked to a real Reels track (tap opens its sound detail sheet).
+            if (!soundId.isEmpty()) {
+                TextView tvChevron = new TextView(ctx);
+                tvChevron.setText("\u203A"); // ›
+                tvChevron.setTextColor(0xFFCCCCCC);
+                tvChevron.setTextSize(20);
+                tvChevron.setGravity(android.view.Gravity.CENTER);
+                tvChevron.setContentDescription(ctx.getString(com.callx.app.core.R.string.music_sticker_open_sound));
+                LinearLayout.LayoutParams chevLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                chevLp.leftMargin = dp * 4;
+                musicChevronView = tvChevron;
+                row.addView(tvChevron, chevLp);
+            }
         }
 
-        v.setContentDescription(song + (artist.isEmpty() ? "" : ", " + artist));
-        v.addView(row);
-        return v;
+        setContentDescription(song + (artist.isEmpty() ? "" : ", " + artist));
+        addView(row);
+        applyMusicBg();
+
+        // keep the live playback badge / equaliser pose across a rebuild
+        if (prevState != MUSIC_STATE_OK) setMusicState(prevState);
+        if (!musicPlaying) { for (View b : eqBars) b.setScaleY(0.4f); if (musicTicker != null) musicTicker.pause(); }
+        else if (isAttachedToWindow()) startEqualiser();
+        updateShake();
+    }
+
+    // ── Music sticker options (driven live by MusicStickerOptionsSheet; all persisted in the sticker JSON) ──
+    public static final int MUSIC_STYLE_CARD = 0, MUSIC_STYLE_ALBUM_PILL = 1, MUSIC_STYLE_BIG_COVER = 2,
+            MUSIC_STYLE_COMPACT_BAR = 3, MUSIC_STYLE_FLOATING_ICON = 4, MUSIC_STYLE_GRADIENT_BAR = 5,
+            MUSIC_STYLE_MINIMAL_ICON = 6, MUSIC_STYLE_ANIMATED_WAVE = 7;
+    public static final String MUSIC_BG_SOLID = "solid", MUSIC_BG_BLUR = "blur",
+            MUSIC_BG_GRADIENT = "gradient", MUSIC_BG_NONE = "none";
+
+    private String musicBgMode = MUSIC_BG_SOLID;
+    private int musicOpacity = 100;          // background opacity %, 0..100
+    private int musicRadiusDp = -1;          // -1 = the style's own radius
+    private boolean musicAutoPlay = true, musicLoop = true, musicShowArtist = true, musicShake = false;
+    private LinearLayout musicRow;
+    private TextView musicNoteGlyph;
+    private android.animation.ObjectAnimator shakeAnim;
+
+    /** Legacy look: only the classic card and the big cover showed the artist line. */
+    private static boolean defaultShowArtist(int style) {
+        return style == MUSIC_STYLE_CARD || style == MUSIC_STYLE_BIG_COVER;
+    }
+
+    private boolean isMusicSticker() { return "music".equals(stickerType); }
+
+    private void putMusicOpt(String key, Object value) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(stickerJson != null ? stickerJson : "{}");
+            if (value == null) o.remove(key); else o.put(key, value);
+            stickerJson = o.toString();
+        } catch (Exception ignored) {}
+    }
+
+    private static boolean jsonBool(String json, String key, boolean def) {
+        try {
+            Object x = new org.json.JSONObject(json).opt(key);
+            if (x instanceof Boolean) return (Boolean) x;
+            if (x instanceof Number) return ((Number) x).intValue() != 0;
+            if (x instanceof String) return Boolean.parseBoolean((String) x);
+        } catch (Exception ignored) {}
+        return def;
+    }
+
+    /** Rebuilds the card from the current JSON, keeping its centre where it was. */
+    private void rebuildMusic() {
+        final boolean laid = getWidth() > 0;
+        final float cx = getX() + getWidth() / 2f, cy = getY() + getHeight() / 2f;
+        populateMusic(getContext(), stickerJson);
+        if (laid) {
+            addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                    if (getWidth() <= 0) return;
+                    removeOnLayoutChangeListener(this);
+                    setX(cx - getWidth() / 2f);
+                    setY(cy - getHeight() / 2f);
+                }
+            });
+        }
+        requestLayout();
+    }
+
+    public void setMusicStyle(int style) {
+        if (!isMusicSticker()) return;
+        style = Math.max(0, Math.min(MUSIC_STYLE_COUNT - 1, style));
+        if (style == musicStyle) return;
+        putMusicOpt("style", style);
+        // a style carries its own default look unless the user already chose a mode explicitly
+        rebuildMusic();
+    }
+    public String getMusicBgMode() { return musicBgMode; }
+    public void setMusicBgMode(String mode) {
+        if (!isMusicSticker() || mode == null) return;
+        putMusicOpt("bgMode", mode);
+        musicBgMode = mode;
+        applyMusicBg();
+    }
+    public int getMusicOpacity() { return musicOpacity; }
+    public void setMusicOpacity(int pct) {
+        if (!isMusicSticker()) return;
+        musicOpacity = Math.max(0, Math.min(100, pct));
+        putMusicOpt("opacity", musicOpacity);
+        applyMusicBg();
+    }
+    /** Corner radius in dp (the style's own radius, clamped to 0..40, when none was chosen). */
+    public int getMusicRadiusDp() {
+        return musicRadiusDp >= 0 ? Math.min(40, musicRadiusDp) : Math.min(40, defaultRadiusDp(musicStyle));
+    }
+    public void setMusicRadiusDp(int radiusDp) {
+        if (!isMusicSticker()) return;
+        musicRadiusDp = Math.max(0, Math.min(40, radiusDp));
+        putMusicOpt("radius", musicRadiusDp);
+        applyMusicBg();
+    }
+    private static int defaultRadiusDp(int style) {
+        switch (style) {
+            case MUSIC_STYLE_ALBUM_PILL: case MUSIC_STYLE_COMPACT_BAR: case MUSIC_STYLE_GRADIENT_BAR:
+            case MUSIC_STYLE_ANIMATED_WAVE: return 28;
+            case MUSIC_STYLE_BIG_COVER: return 22;
+            case MUSIC_STYLE_FLOATING_ICON: case MUSIC_STYLE_MINIMAL_ICON: return 100; // full circle
+            default: return 18;
+        }
+    }
+    /** Autoplay (viewer starts the audio by itself) — default on. Off: the viewer taps the card to play. */
+    public boolean isMusicAutoPlay() { return musicAutoPlay; }
+    public void setMusicAutoPlay(boolean on) { if (isMusicSticker()) { musicAutoPlay = on; putMusicOpt("autoPlay", on); } }
+    /** Loop the clip (default on). Off: it plays once and stops. */
+    public boolean isMusicLoop() { return musicLoop; }
+    public void setMusicLoop(boolean on) { if (isMusicSticker()) { musicLoop = on; putMusicOpt("loop", on); } }
+    public boolean isMusicShowArtist() { return musicShowArtist; }
+    public void setMusicShowArtist(boolean on) {
+        if (!isMusicSticker() || on == musicShowArtist) return;
+        putMusicOpt("showArtist", on);
+        rebuildMusic();
+    }
+    public boolean isMusicShake() { return musicShake; }
+    public void setMusicShake(boolean on) {
+        if (!isMusicSticker()) return;
+        musicShake = on;
+        putMusicOpt("shake", on);
+        updateShake();
+    }
+
+    private void updateShake() {
+        stopShake();
+        if (!musicShake || musicRow == null || !isAttachedToWindow()) return;
+        shakeAnim = android.animation.ObjectAnimator.ofFloat(musicRow, View.ROTATION, -3f, 3f);
+        shakeAnim.setDuration(110);
+        shakeAnim.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+        shakeAnim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        shakeAnim.start();
+    }
+    private void stopShake() {
+        if (shakeAnim != null) { shakeAnim.cancel(); shakeAnim = null; }
+        if (musicRow != null) musicRow.setRotation(0f);
+    }
+
+    // ── Music sticker background colour ────────────────────────────────────
+
+    /** Custom background colour as "#RRGGBB"/"#AARRGGBB", or null when the sticker uses its automatic look. */
+    @androidx.annotation.Nullable
+    public String getMusicBgColor() { return isMusicSticker() ? musicBgHex : null; }
+
+    /**
+     * Sets (or, with null/empty, clears) the music sticker's colour. Updates the card live and persists it in
+     * the sticker JSON ("bgColor"), so drafts, posts, reel stickers and every viewer carry it. Picking a
+     * colour while the background is "None" switches it back to Solid so the colour is actually visible.
+     */
+    public void setMusicBgColor(@androidx.annotation.Nullable String hex) {
+        if (!isMusicSticker()) return;
+        if (hex != null && !hex.isEmpty()) {
+            try { Color.parseColor(hex); } catch (Exception e) { return; }
+            musicBgHex = hex;
+            if (MUSIC_BG_NONE.equals(musicBgMode)) { musicBgMode = MUSIC_BG_SOLID; putMusicOpt("bgMode", musicBgMode); }
+        } else {
+            musicBgHex = null;
+        }
+        putMusicOpt("bgColor", musicBgHex);
+        applyMusicBg();
+    }
+
+    /**
+     * Opens the app's shared rainbow colour sheet ({@link com.callx.app.utils.RainbowStripColorPickerBottomSheet}).
+     * "Use default" (shown once a custom colour exists) restores the automatic look.
+     */
+    public void showMusicBgColorPicker(Context ctx, @androidx.annotation.Nullable Runnable onChanged) {
+        if (!isMusicSticker()) return;
+        String start = musicBgHex != null ? musicBgHex
+                : String.format("#%06X", 0xFFFFFF & musicAutoBgColor);
+        com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
+                ctx, "Sticker color", start, musicBgHex != null,
+                hex -> {
+                    setMusicBgColor(hex);
+                    if (onChanged != null) onChanged.run();
+                });
+    }
+
+    private static int scaleAlpha(int color, int pct) {
+        return Color.argb(Math.round(Color.alpha(color) * pct / 100f), Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    /** Paints the card for the current mode / colour / opacity / radius and keeps text + bars readable on it. */
+    private void applyMusicBg() {
+        if (musicBgDrawable == null) return;
+        final int d = Math.max(1, dp(getContext()));
+        final boolean custom = musicBgHex != null;
+        int custom0 = 0;
+        if (custom) { try { custom0 = Color.parseColor(musicBgHex); } catch (Exception ignored) {} }
+
+        int c1, c2 = 0, stroke;
+        boolean gradient = false;
+        switch (musicBgMode) {
+            case MUSIC_BG_GRADIENT: {
+                c1 = custom ? custom0 : 0xFF8E2DE2;
+                float[] hsv = new float[3];
+                Color.colorToHSV(c1, hsv);
+                hsv[0] = (hsv[0] + 40f) % 360f;
+                hsv[2] = Math.min(1f, hsv[2] + 0.1f);
+                c2 = custom ? Color.HSVToColor(Color.alpha(c1), hsv) : 0xFFFF3B8C;
+                gradient = true;
+                stroke = 0x33FFFFFF;
+                break;
+            }
+            case MUSIC_BG_BLUR:      // frosted glass: translucent tint + light edge
+                c1 = custom ? scaleAlpha(custom0 | 0xFF000000, 35) : 0x66000000;
+                stroke = 0x66FFFFFF;
+                break;
+            case MUSIC_BG_NONE:      // text + bars float directly on the media
+                c1 = 0; stroke = 0;
+                break;
+            default:                 // solid
+                c1 = custom ? custom0 : musicAutoBgColor;
+                stroke = 0x44FFFFFF;
+        }
+        boolean hasFill = !MUSIC_BG_NONE.equals(musicBgMode);
+        if (hasFill) {
+            if (musicOpacity < 100) { c1 = scaleAlpha(c1, musicOpacity); if (gradient) c2 = scaleAlpha(c2, musicOpacity); }
+            if (gradient) {
+                musicBgDrawable.setColors(new int[]{c1, c2});
+                musicBgDrawable.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT);
+            } else {
+                musicBgDrawable.setColor(c1);
+            }
+        } else {
+            musicBgDrawable.setColor(Color.TRANSPARENT);
+        }
+        float radiusPx = (musicRadiusDp >= 0 ? musicRadiusDp : defaultRadiusDp(musicStyle)) * d;
+        musicBgDrawable.setCornerRadius(radiusPx);
+
+        // readable text: dark on light, mostly-opaque fills; white everywhere else
+        double lum = 0.299 * Color.red(c1) + 0.587 * Color.green(c1) + 0.114 * Color.blue(c1);
+        if (gradient) lum = (lum + 0.299 * Color.red(c2) + 0.587 * Color.green(c2) + 0.114 * Color.blue(c2)) / 2.0;
+        final boolean light = hasFill && !MUSIC_BG_BLUR.equals(musicBgMode) && Color.alpha(c1) >= 0xA0 && lum > 160;
+        final int main = light ? 0xFF111111 : Color.WHITE;
+        final int second = light ? 0xFF444444 : 0xFFCCCCCC;
+        musicBgDrawable.setStroke(hasFill ? d : 0, light ? 0x33000000 : stroke);
+        if (musicTicker != null) musicTicker.setTextColor(main);
+        if (musicArtistView != null) musicArtistView.setTextColor(second);
+        if (musicChevronView != null) musicChevronView.setTextColor(second);
+        if (musicNoteGlyph != null) musicNoteGlyph.setTextColor(main);
+        if (musicStateLabel != null) musicStateLabel.setTextColor(light ? 0xFF333333 : 0xFFDDDDDD);
+        final boolean tinted = custom || !MUSIC_BG_SOLID.equals(musicBgMode);
+        for (View b : eqBars) {
+            android.graphics.drawable.Drawable bd = b.getBackground();
+            if (bd instanceof android.graphics.drawable.GradientDrawable) {
+                ((android.graphics.drawable.GradientDrawable) bd).setColor(tinted ? main : 0xFFFF3B5C);
+            }
+        }
+        invalidate();
     }
 
     private static android.animation.ObjectAnimator makeBarAnimator(View bar, long duration) {
@@ -1414,6 +1723,7 @@ public class StatusStickerOverlayView extends LinearLayout {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         startEqualiser();
+        updateShake();
     }
 
     // ─── Countdown sticker ─────────────────────────────────────────────────
@@ -1623,6 +1933,7 @@ public class StatusStickerOverlayView extends LinearLayout {
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         for (android.animation.ObjectAnimator a : eqAnimators) a.cancel();
+        stopShake();
         if (countdownTimer != null) {
             countdownTimer.cancel();
             countdownTimer = null;

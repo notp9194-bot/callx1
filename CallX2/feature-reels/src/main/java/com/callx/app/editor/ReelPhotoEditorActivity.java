@@ -1077,8 +1077,9 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             rebuildStickerJson();
         });
         sv.attachDragToParent(flStickerLayer);
+        sv.setOnStickerTappedListener(s -> com.callx.app.stickers.MusicStickerOptionsSheet.show(this, s, this::rebuildStickerJson));
         rebuildStickerJson();
-        Toast.makeText(this, "🎵 Music sticker attached! Drag to reposition.", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "🎵 Music sticker attached! Drag to reposition. Tap it for options.", Toast.LENGTH_SHORT).show();
     }
 
     /** Opens the full sticker sheet — same Music/Poll/Quiz/Countdown flow as Status. */
@@ -1102,8 +1103,12 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                 rebuildStickerJson();
             });
             sv.attachDragToParent(flStickerLayer);
+            if ("music".equals(result.type)) {
+                sv.setOnStickerTappedListener(s -> com.callx.app.stickers.MusicStickerOptionsSheet.show(this, s, this::rebuildStickerJson));
+            }
             rebuildStickerJson();
-            Toast.makeText(this, getStickerLabel(result.type) + " added! Drag to reposition.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getStickerLabel(result.type) + " added! Drag to reposition."
+                + ("music".equals(result.type) ? " Tap it for options." : ""), Toast.LENGTH_SHORT).show();
         });
     }
 

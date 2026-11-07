@@ -60,6 +60,10 @@ public final class StatusMusicClip {
     private float pitchSemitones = 0f; // -6..+6
     private Runnable volumeListener;   // fired on every watcher tick while a fade is configured
     private boolean clipActive = false;
+    private boolean loop = true;       // sticker option "Loop": false → play the clip once, then stop
+
+    /** Sticker "Loop" option. Call BEFORE {@link #apply}. Default true (legacy behaviour). */
+    public void setLoop(boolean loop) { this.loop = loop; }
 
     /**
      * Sets the poster's Mix Audio values. Call BEFORE {@link #apply}. Pass (-1, 0, 0, 0) /
@@ -138,7 +142,8 @@ public final class StatusMusicClip {
 
         player.setLooping(false); // we loop the clip ourselves
         player.setOnCompletionListener(p -> {
-            // Natural end reached (watcher missed it) → back to the clip start, not 0:00.
+            // Natural end reached (watcher missed it) → back to the clip start, not 0:00 (unless Loop is off).
+            if (!loop) return;
             try { seek(p, startMs); p.start(); } catch (Exception ignored) {}
         });
         try { seek(player, s); } catch (Exception ignored) {}
@@ -150,7 +155,10 @@ public final class StatusMusicClip {
                 MediaPlayer m = mp;
                 if (m == null) return;
                 try {
-                    if (m.isPlaying() && m.getCurrentPosition() >= endMs) seek(m, startMs);
+                    if (m.isPlaying() && m.getCurrentPosition() >= endMs) {
+                        if (loop) seek(m, startMs);
+                        else { m.pause(); seek(m, startMs); }   // Loop off: play once, then rest at the clip start
+                    }
                 } catch (Exception ignored) {}
                 if (hasFade()) notifyVolume();
                 handler.postDelayed(this, tick);

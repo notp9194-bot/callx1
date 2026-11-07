@@ -3085,6 +3085,7 @@ import com.callx.app.utils.AlertDialogStyler;
           videoMixVol = -1f;       // …and without the previous status's Mix Audio volume
           cancelMusicHold();    // a hold from the previous status must never start this one's progress
           cancelImageHold();
+          pendingMusicStart = null; // an un-started (Auto Play off) song of the previous status is void
           releaseMusicPlayer(); // stop the previous status's music sticker (+ give audio focus back)
           hideStatusSongTicker(); // reset the below-name audio ticker; renderStickers() re-shows it if this status has one
       }
@@ -3152,6 +3153,8 @@ import com.callx.app.utils.AlertDialogStyler;
       private final StatusMusicClip musicClip = new StatusMusicClip();
       { musicClip.setVolumeListener(() -> applyMusicVolume()); } // fade-in/out ramp
       private int stickerMusicStartMs = 0;   // current status's sticker clip range (0 = unset)
+      private boolean stickerMusicLoop = true;   // music sticker option "Loop" (off → clip plays once)
+      private Runnable pendingMusicStart;        // music sticker option "Auto Play" off → starts on the first tap
       private int stickerMusicEndMs   = 0;
       private StatusAudioFocusHelper musicFocus;      // lazily created
       private boolean musicPrepared   = false;        // MediaPlayer reached prepared state
@@ -3241,6 +3244,13 @@ import com.callx.app.utils.AlertDialogStyler;
 
       /** Tap on a music sticker: retry if it failed; open the sound page if linked; else "Original audio" sheet. */
       private void onMusicStickerTapped(final StatusStickerOverlayView sticker) {
+          if (pendingMusicStart != null) {   // Auto Play was off → this first tap plays the song
+              Runnable start = pendingMusicStart;
+              pendingMusicStart = null;
+              start.run();
+              settleStickerReaction(sticker);
+              return;
+          }
           if (musicFailed) { retryMusicSticker(sticker); settleStickerReaction(sticker); return; }
           if (sticker.isMusicLinkedToReelSound()) { openMusicStickerSoundSheet(sticker); return; }
           // Not linked to a Reels sound (e.g. "Original audio"): show who made it, with a way to their profile.
@@ -3357,7 +3367,7 @@ import com.callx.app.utils.AlertDialogStyler;
               if (local != null) mp.setDataSource(local.getAbsolutePath()); else mp.setDataSource(playUrl);
               // Loop so the clip keeps playing even if it's shorter than however
               // long the viewer ends up spending on this status.
-              mp.setLooping(true);
+              mp.setLooping(stickerMusicLoop);
               applyMusicVolume();
               mp.setOnPreparedListener(p -> {
                   // Stale callback (viewer already swiped to another status)? ignore.
@@ -3678,6 +3688,8 @@ import com.callx.app.utils.AlertDialogStyler;
                       final int musicIdx = idx;
                       stickerMusicStartMs = sticker.getMusicStartMs(); // (5) clip range for this status
                       stickerMusicEndMs   = sticker.getMusicEndMs();
+                      stickerMusicLoop    = sticker.isMusicLoop();   // sticker option "Loop"
+                      musicClip.setLoop(stickerMusicLoop);
                       // Mix Audio: music volume / fades / pitch for the clip, original-video volume for the video.
                       // No mix on the sticker → neutral values, so old statuses behave exactly as before.
                       if (sticker.hasMusicMix()) {
@@ -3692,7 +3704,15 @@ import com.callx.app.utils.AlertDialogStyler;
                               + " directSoundUrl=" + (soundUrl == null || soundUrl.isEmpty() ? "empty" : "present"));
                       boolean hasDirect = soundUrl != null && !soundUrl.isEmpty();
                       boolean hasId     = musicSoundId != null && !musicSoundId.isEmpty();
-                      if (hasDirect || hasId) {
+                      if ((hasDirect || hasId) && !sticker.isMusicAutoPlay()) {
+                          // sticker option "Auto Play" off: stay silent until the viewer taps the music card
+                          pendingMusicStart = () -> {
+                              videoUnderMusic = true;
+                              applyVideoVolume();
+                              if (hasDirect) startMusicStickerAudio(soundUrl, musicSoundId, musicIdx);
+                              else resolveSoundIdAndPlay(musicSoundId, musicIdx);
+                          };
+                      } else if (hasDirect || hasId) {
                           videoUnderMusic = true;   // (2) duck the video's own audio (no-op for photo/text)
                           applyVideoVolume();
                           prefetchNextStatusMusic(); // next story's clip downloads while this one plays

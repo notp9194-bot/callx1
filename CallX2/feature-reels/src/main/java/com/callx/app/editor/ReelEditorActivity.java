@@ -986,11 +986,16 @@ public class ReelEditorActivity extends AppCompatActivity {
             });
             sv.attachDragToParent(fl);
             rebuildFullStickerJson(fl);
+            if ("music".equals(result.type)) {
+                // Tap the music card → shared rainbow colour sheet → background colour (saved in the sticker JSON).
+                sv.setOnStickerTappedListener(s -> com.callx.app.stickers.MusicStickerOptionsSheet.show(this, s, () -> rebuildFullStickerJson(fl)));
+            }
 
             if (btnToolStickers != null) btnToolStickers.setColorFilter(
                 android.graphics.Color.argb(200, 255, 215, 0)); // gold tint = active
             updateBadge("sticker", getFullStickerLabel(result.type));
-            Toast.makeText(this, getFullStickerLabel(result.type) + " added! Drag to reposition.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getFullStickerLabel(result.type) + " added! Drag to reposition."
+                + ("music".equals(result.type) ? " Tap it for options." : ""), Toast.LENGTH_SHORT).show();
         });
     }
 

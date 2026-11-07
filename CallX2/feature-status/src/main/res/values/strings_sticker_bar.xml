@@ -30,6 +30,6 @@
     <string name="sticker_toast_music_update_failed">Music update nahi ho paya</string>
     <string name="sticker_toast_music_preview_failed">Music preview play nahi ho paya</string>
     <string name="sticker_toast_music_preview_failed_detail">Music preview play nahi ho paya (%1$d/%2$d)</string>
-    <string name="sticker_bar_music_style">Change style</string>
+    <string name="sticker_bar_music_style">Music sticker options</string>
     <string name="sticker_bar_change_song">Change song</string>
 </resources>
