@@ -2129,6 +2129,29 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     /** Rebuilds the music sticker JSON (keeping its position/size) and swaps it in. mix = {musicVol, origVol, fadeIn, fadeOut, pitch} or null. */
+    /** Music sticker "Change style": classic → compact chip → big cover → mini bars. Swaps in place (same position/size). */
+    private void cycleMusicStyle(com.callx.app.stickers.StatusStickerOverlayView st) {
+        if (st == null || st.getParent() != stickerOverlayFrame || st.isLocked()) return;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(st.toJsonWithScale());
+            int next = (st.getMusicStyle() + 1) % com.callx.app.stickers.StatusStickerOverlayView.MUSIC_STYLE_COUNT;
+            o.put("style", next);
+            musicReeditInPlace = true;
+            undoSuppress = true;
+            try { addStickerOverlay(o.toString()); } finally { musicReeditInPlace = false; undoSuppress = false; }
+        } catch (Exception e) {
+            toast(R.string.sticker_toast_music_update_failed);
+        }
+    }
+
+    /** Music sticker "Change song": drops the current music sticker and opens the sticker picker (music first). */
+    private void changeMusicSong() {
+        com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
+        if (s == null || s.getParent() != stickerOverlayFrame || s.isLocked()) return;
+        deleteSelectedSticker();                       // undo step: Undo brings the old song back
+        stickerSizeBar.postDelayed(this::openStickerPicker, 260); // after the shrink animation
+    }
+
     private void applyMusicReedit(@Nullable float[] mix) {
         com.callx.app.stickers.StatusStickerOverlayView st = reeditSticker;
         reeditSticker = null;
@@ -2512,7 +2535,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private final java.util.ArrayList<StickerUndoEntry> stickerUndo = new java.util.ArrayList<>();
     private final java.util.ArrayList<StickerUndoEntry> stickerRedo = new java.util.ArrayList<>();
     private ImageView stickerBtnUndo, stickerBtnRedo, stickerBtnDup, stickerBtnLock, stickerBtnDelete,
-            stickerBtnAdjust, stickerBtnMix, stickerBtnEditText;
+            stickerBtnAdjust, stickerBtnMix, stickerBtnEditText, stickerBtnStyle, stickerBtnSwap, stickerBtnFront, stickerBtnBack;
     private SeekBar stickerScaleSeek;
     private float[] stickerSeekBefore;
     private boolean stickerCanvasActive, stickerCanvasSwallow;
@@ -2636,14 +2659,18 @@ public class NewStatusActivity extends AppCompatActivity {
         stickerBtnUndo   = stickerBarIcon(R.drawable.ic_sbar_undo,   R.string.sticker_bar_undo,   v -> undoStickerTransform());
         stickerBtnRedo   = stickerBarIcon(R.drawable.ic_sbar_redo,   R.string.sticker_bar_redo,   v -> redoStickerTransform());
         stickerBtnDup    = stickerBarIcon(R.drawable.ic_sbar_copy,   R.string.sticker_bar_copy,   v -> duplicateSelectedSticker());
-        ImageView front  = stickerBarIcon(R.drawable.ic_sbar_front,  R.string.sticker_bar_front,  v -> stickerToFront());
-        ImageView back   = stickerBarIcon(R.drawable.ic_sbar_back,   R.string.sticker_bar_back,   v -> stickerToBack());
+        ImageView front = stickerBtnFront = stickerBarIcon(R.drawable.ic_sbar_front,  R.string.sticker_bar_front,  v -> stickerToFront());
+        ImageView back = stickerBtnBack = stickerBarIcon(R.drawable.ic_sbar_back,   R.string.sticker_bar_back,   v -> stickerToBack());
         stickerBtnLock   = stickerBarIcon(R.drawable.ic_sbar_unlock, R.string.sticker_bar_lock,   v -> toggleStickerLock());
         stickerBtnDelete = stickerBarIcon(R.drawable.ic_sbar_delete, R.string.sticker_bar_delete, v -> deleteSelectedSticker());
         stickerBtnAdjust = stickerBarIcon(R.drawable.ic_sbar_cut,    R.string.sticker_bar_adjust_music,
                 v -> { if (selectedSticker != null) startMusicReedit(selectedSticker, true); });
         stickerBtnMix    = stickerBarIcon(R.drawable.ic_sbar_mix,    R.string.sticker_bar_mix_music,
                 v -> { if (selectedSticker != null) startMusicReedit(selectedSticker, false); });
+        stickerBtnStyle = stickerBarIcon(R.drawable.ic_sbar_style, R.string.sticker_bar_music_style,
+                v -> { if (selectedSticker != null) cycleMusicStyle(selectedSticker); });
+        stickerBtnSwap  = stickerBarIcon(R.drawable.ic_sbar_swap,  R.string.sticker_bar_change_song,
+                v -> changeMusicSong());
         stickerBtnEditText = stickerBarIcon(R.drawable.ic_sbar_text, R.string.sticker_bar_edit_text,
                 v -> showEditorTextDialog(false));
         r2.addView(stickerBtnUndo);
@@ -2654,6 +2681,8 @@ public class NewStatusActivity extends AppCompatActivity {
         r2.addView(stickerBtnLock);
         r2.addView(stickerBtnAdjust);
         r2.addView(stickerBtnMix);
+        r2.addView(stickerBtnStyle);
+        r2.addView(stickerBtnSwap);
         r2.addView(stickerBtnEditText);
         r2.addView(stickerBtnDelete);
         stickerSizeBar.addView(r2, new LinearLayout.LayoutParams(
@@ -2671,6 +2700,11 @@ public class NewStatusActivity extends AppCompatActivity {
         boolean text = StatusStickerOverlayView.TYPE_TEXT.equals(sticker.getStickerType());
         stickerBtnAdjust.setVisibility(music ? View.VISIBLE : View.GONE);
         stickerBtnMix.setVisibility(music ? View.VISIBLE : View.GONE);
+        stickerBtnStyle.setVisibility(music ? View.VISIBLE : View.GONE);
+        stickerBtnSwap.setVisibility(music ? View.VISIBLE : View.GONE);
+        // one music sticker per status → layer order is moot; frees width for the 2 new music actions
+        stickerBtnFront.setVisibility(music ? View.GONE : View.VISIBLE);
+        stickerBtnBack.setVisibility(music ? View.GONE : View.VISIBLE);
         stickerBtnEditText.setVisibility(text ? View.VISIBLE : View.GONE);
         stickerBtnDup.setVisibility(music || text ? View.GONE : View.VISIBLE); // one music sticker / one text layer per status
         boolean locked = sticker.isLocked();

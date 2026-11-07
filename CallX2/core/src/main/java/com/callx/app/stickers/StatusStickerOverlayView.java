@@ -605,6 +605,14 @@ public class StatusStickerOverlayView extends LinearLayout {
     private final java.util.List<View> eqBars = new java.util.ArrayList<>();
     private final java.util.List<android.animation.ObjectAnimator> eqAnimators = new java.util.ArrayList<>();
     private String musicSoundId, musicSong, musicArtist, musicCoverUrl, musicSoundUrl;
+    /** Look of the music sticker: 0 classic card, 1 compact chip, 2 big cover card, 3 mini bars pill. */
+    public static final int MUSIC_STYLE_COUNT = 4;
+    private int musicStyle = 0;
+    public int getMusicStyle() { return musicStyle; }
+    /** Playback state badge next to the bars. */
+    public static final int MUSIC_STATE_OK = 0, MUSIC_STATE_LOADING = 1, MUSIC_STATE_MUTED = 2, MUSIC_STATE_FAILED = 3;
+    private TextView musicStateLabel;
+    private int musicState = MUSIC_STATE_OK;
     // Optional clip range inside the song (ms) — from the editor's music trim. 0 = not set.
     private int musicStartMs = 0, musicEndMs = 0;
     // Optional Mix Audio settings (Reels' mixer, reused for Status). -1 = never set → viewers keep
@@ -1156,18 +1164,25 @@ public class StatusStickerOverlayView extends LinearLayout {
     private static StatusStickerOverlayView buildMusic(Context ctx, String json) {
         int dp = dp(ctx);
         StatusStickerOverlayView v = new StatusStickerOverlayView(ctx);
-        v.setPadding(dp * 12, dp * 12, dp * 12, dp * 12);
+        int style = 0;
+        try { style = Math.max(0, Math.min(MUSIC_STYLE_COUNT - 1, (int) Float.parseFloat(jsonNum(json, "style", "0")))); } catch (Exception ignored) {}
+        v.musicStyle = style;
+        final boolean chip = style == 1, big = style == 2, mini = style == 3;
+        final int pad = (chip || mini) ? dp * 8 : dp * 12;
+        v.setPadding(pad, pad, pad, pad);
 
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(dp * 18);
+        final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius((chip || mini) ? dp * 28 : (big ? dp * 22 : dp * 18));
         bg.setColor(0xEE000000);
         bg.setStroke(Math.max(1, dp), 0x44FFFFFF);
         v.setBackground(bg);
 
-        // Row: album art + text
+        // Row: album art + text (style 2 stacks them: big cover on top)
         LinearLayout row = new LinearLayout(ctx);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setOrientation(big ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        row.setGravity(big ? android.view.Gravity.CENTER_HORIZONTAL
+                           : android.view.Gravity.CENTER_VERTICAL);
+        final int artDp = chip ? 32 : (big ? 120 : 48);
 
         // Album art placeholder
         ImageView ivArt = new ImageView(ctx);
@@ -1176,8 +1191,27 @@ public class StatusStickerOverlayView extends LinearLayout {
         if (!artUrl.isEmpty()) {
             // Shared avatar pipeline (tiered CDN URL + L2/L3 cache + RGB_565, no circle crop).
             com.callx.app.cache.MiscAvatarBinder.bind(ctx, ivArt, artUrl, 0L,
-                    com.callx.app.utils.AvatarSizeTier.forViewSizeDp(48),
+                    com.callx.app.utils.AvatarSizeTier.forViewSizeDp(artDp),
                     com.callx.app.core.R.drawable.bg_music_cover_placeholder, false);
+            // Tint the card from the cover's average colour (dark, so text stays readable) — like Reels.
+            try {
+                com.bumptech.glide.Glide.with(ctx).asBitmap().load(artUrl).override(16, 16)
+                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                        @Override public void onResourceReady(@androidx.annotation.NonNull android.graphics.Bitmap bmp,
+                                @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
+                            long r = 0, g = 0, b = 0; int n = 0;
+                            for (int y = 0; y < bmp.getHeight(); y++) for (int x = 0; x < bmp.getWidth(); x++) {
+                                int c = bmp.getPixel(x, y);
+                                r += Color.red(c); g += Color.green(c); b += Color.blue(c); n++;
+                            }
+                            if (n == 0) return;
+                            float k = 0.38f; // mix toward black → rich but readable
+                            int tr = (int) (r / n * k), tg = (int) (g / n * k), tb = (int) (b / n * k);
+                            bg.setColor(Color.argb(0xEE, tr, tg, tb));
+                        }
+                        @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable d) {}
+                    });
+            } catch (Exception ignored) {}
         } else {
             android.graphics.drawable.GradientDrawable artBg = new android.graphics.drawable.GradientDrawable();
             artBg.setColor(0xFF222222);
@@ -1199,18 +1233,19 @@ public class StatusStickerOverlayView extends LinearLayout {
         tvNote.setGravity(android.view.Gravity.CENTER);
 
         FrameLayout artFrame = new FrameLayout(ctx);
-        FrameLayout.LayoutParams artLp = new FrameLayout.LayoutParams(dp * 48, dp * 48);
-        artLp.rightMargin = dp * 12;
-        ivArt.setLayoutParams(new FrameLayout.LayoutParams(dp * 48, dp * 48));
+        LinearLayout.LayoutParams artLp = new LinearLayout.LayoutParams(dp * artDp, dp * artDp);
+        if (big) artLp.bottomMargin = dp * 10; else artLp.rightMargin = dp * (chip ? 8 : 12);
+        ivArt.setLayoutParams(new FrameLayout.LayoutParams(dp * artDp, dp * artDp));
         artFrame.addView(ivArt);
         // Emoji only on the placeholder — never on top of real album art.
         if (artUrl.isEmpty()) artFrame.addView(tvNote);
         ivArt.setContentDescription(ctx.getString(com.callx.app.core.R.string.music_sticker_album_art));
-        row.addView(artFrame, artLp);
+        if (!mini) row.addView(artFrame, artLp); // style 3: bars + name only, no cover
 
         // Song + artist text
         LinearLayout textCol = new LinearLayout(ctx);
         textCol.setOrientation(LinearLayout.VERTICAL);
+        if (big) textCol.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
 
         String song   = jsonStr(json, "song",   ctx.getString(com.callx.app.core.R.string.music_sticker_unknown_song));
         String artist = jsonStr(json, "artist", "");
@@ -1255,7 +1290,7 @@ public class StatusStickerOverlayView extends LinearLayout {
         textCol.addView(tvSong, new LinearLayout.LayoutParams(textW,
             LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        if (!artist.isEmpty()) {
+        if (!artist.isEmpty() && !chip && !mini) {
             TextView tvArtist = new TextView(ctx);
             tvArtist.setText(artist);
             tvArtist.setTextColor(0xFFCCCCCC);
@@ -1287,7 +1322,21 @@ public class StatusStickerOverlayView extends LinearLayout {
         LinearLayout.LayoutParams barsLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         barsLp.topMargin = dp * 4;
-        textCol.addView(bars, barsLp);
+        // Bars + a small state badge ("Loading…" / "Muted" / "Tap to retry") that only shows when needed.
+        LinearLayout barsRow = new LinearLayout(ctx);
+        barsRow.setOrientation(LinearLayout.HORIZONTAL);
+        barsRow.setGravity(android.view.Gravity.BOTTOM);
+        barsRow.addView(bars);
+        TextView stateLabel = new TextView(ctx);
+        stateLabel.setTextSize(11);
+        stateLabel.setTextColor(0xFFDDDDDD);
+        stateLabel.setVisibility(View.GONE);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        slp.leftMargin = dp * 6;
+        barsRow.addView(stateLabel, slp);
+        v.musicStateLabel = stateLabel;
+        textCol.addView(barsRow, barsLp);
 
         row.addView(textCol, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -1329,6 +1378,19 @@ public class StatusStickerOverlayView extends LinearLayout {
         for (android.animation.ObjectAnimator a : eqAnimators) a.cancel();
         for (View b : eqBars) b.setScaleY(0.4f); // idle (paused/muted) pose
     }
+
+    /** Shows/hides the small state badge: loading, muted or failed (tap to retry). OK hides it. */
+    public void setMusicState(int state) {
+        if (musicStateLabel == null || musicState == state) return;
+        musicState = state;
+        switch (state) {
+            case MUSIC_STATE_LOADING: musicStateLabel.setText("Loading\u2026"); musicStateLabel.setVisibility(View.VISIBLE); break;
+            case MUSIC_STATE_MUTED:   musicStateLabel.setText("\uD83D\uDD07 Muted"); musicStateLabel.setVisibility(View.VISIBLE); break;
+            case MUSIC_STATE_FAILED:  musicStateLabel.setText("\u26A0 Tap to retry"); musicStateLabel.setVisibility(View.VISIBLE); break;
+            default:                  musicStateLabel.setVisibility(View.GONE);
+        }
+    }
+    public int getMusicState() { return musicState; }
 
     /**
      * Playback state of this music sticker's audio. true = bars dance + ticker

@@ -3082,6 +3082,9 @@ import com.callx.app.utils.AlertDialogStyler;
           if (binding.llStatusSongRow == null || binding.tvStatusSongName == null) return;
           String song = sticker.getMusicSong();
           if (song == null || song.isEmpty()) return;
+          // The sticker card already shows song + artist, so repeating it under the name is noise —
+          // except on a repost card, where the sticker is shrunk with the card and hard to read.
+          if (!reshareCardActive) return;
           String artist = sticker.getMusicArtist();
           String display = (artist != null && !artist.isEmpty() && !song.contains(artist))
                   ? song + " · " + artist : song;
@@ -3162,6 +3165,73 @@ import com.callx.app.utils.AlertDialogStyler;
           boolean playing = false;
           try { playing = musicPlayer != null && musicPlayer.isPlaying() && !isMuted; } catch (Exception ignored) {}
           musicStickerView.setMusicPlaying(playing);
+          int st = StatusStickerOverlayView.MUSIC_STATE_OK;
+          if (musicFailed && musicPlayer == null) st = StatusStickerOverlayView.MUSIC_STATE_FAILED;
+          else if (isMuted) st = StatusStickerOverlayView.MUSIC_STATE_MUTED;
+          else if (musicPlayer != null && !musicPrepared) st = StatusStickerOverlayView.MUSIC_STATE_LOADING;
+          musicStickerView.setMusicState(st);
+      }
+
+      /** Warms the NEXT status's music (soundId -> url lookup + local file) so it starts with no buffering. */
+      private void prefetchNextStatusMusic() {
+          try {
+              final int ni = idx + 1;
+              if (ni >= items.size()) return;
+              StatusItem nx = items.get(ni);
+              if (nx == null || nx.stickersJson == null || nx.stickersJson.isEmpty()) return;
+              org.json.JSONArray arr = new org.json.JSONArray(nx.stickersJson);
+              for (int i = 0; i < arr.length(); i++) {
+                  org.json.JSONObject o = arr.optJSONObject(i);
+                  if (o == null || !"music".equals(o.optString("type"))) continue;
+                  String u = o.optString("soundUrl", "").replace("\\/", "/");
+                  String id = o.optString("soundId", "");
+                  if (!u.isEmpty()) { StoryMusicPrefetcher.prefetch(this, u); return; }
+                  if (id.isEmpty()) return;
+                  String cachedUrl = SOUND_URL_CACHE.get(id);
+                  if (cachedUrl != null) { StoryMusicPrefetcher.prefetch(this, cachedUrl); return; }
+                  final String fid = id;
+                  FirebaseUtils.db().getReference("sounds").child(fid).get().addOnSuccessListener(sn -> {
+                      String r = null;
+                      for (String k : new String[]{"previewAudioUrl", "audioUrl", "audio_url", "url"}) {
+                          String v = sn.child(k).getValue(String.class);
+                          if (v != null && !v.isEmpty()) { r = v; break; }
+                      }
+                      if (r != null) { SOUND_URL_CACHE.put(fid, r); StoryMusicPrefetcher.prefetch(this, r); }
+                  });
+                  return;
+              }
+          } catch (Exception ignored) {}
+      }
+
+      /** Tap on the sticker while it says "Tap to retry": try the clip again (soundId lookup as fallback). */
+      private void retryMusicSticker(StatusStickerOverlayView sticker) {
+          musicFailed = false;
+          final int musicIdx = idx;
+          String url = sticker.getMusicSoundUrl(), id = sticker.getMusicSoundId();
+          boolean hasDirect = url != null && !url.isEmpty(), hasId = id != null && !id.isEmpty();
+          if (!hasDirect && !hasId) { musicFailed = true; syncMusicStickerPlaying(); return; }
+          beginMusicHold(idx < items.size() ? items.get(idx) : null);
+          if (hasDirect) startMusicStickerAudio(url, id, musicIdx); else resolveSoundIdAndPlay(id, musicIdx);
+      }
+
+      /** Tap on a music sticker: retry if it failed; open the sound page if linked; else "Original audio" sheet. */
+      private void onMusicStickerTapped(final StatusStickerOverlayView sticker) {
+          if (musicFailed) { retryMusicSticker(sticker); settleStickerReaction(sticker); return; }
+          if (sticker.isMusicLinkedToReelSound()) { openMusicStickerSoundSheet(sticker); return; }
+          // Not linked to a Reels sound (e.g. "Original audio"): show who made it, with a way to their profile.
+          final StatusItem cur = idx < items.size() ? items.get(idx) : null;
+          final String song = sticker.getMusicSong() != null ? sticker.getMusicSong() : "Original audio";
+          final String artist = sticker.getMusicArtist() != null ? sticker.getMusicArtist() : "";
+          final String who = !artist.isEmpty() ? artist : (cur != null && cur.ownerName != null ? cur.ownerName : "");
+          final String uidToOpen = cur != null ? cur.ownerUid : null;
+          android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this)
+                  .setTitle(song)
+                  .setMessage(who.isEmpty() ? "Original audio" : "Original audio \u00B7 " + who)
+                  .setNegativeButton("Close", null)
+                  .setOnDismissListener(d -> settleStickerReaction(sticker));
+          if (uidToOpen != null && !uidToOpen.isEmpty())
+              b.setPositiveButton("View profile", (d, w) -> openProfileByUid(uidToOpen, who));
+          b.show();
       }
 
       /** Single place that decides the status VIDEO volume (mute + sticker-music ducking). */
@@ -3237,7 +3307,9 @@ import com.callx.app.utils.AlertDialogStyler;
        * @param fallbackSoundId if non-empty and this URL fails, retry once by soundId lookup
        * @param requestedIdx    status index this audio belongs to (stale callbacks are dropped)
        */
+      private boolean musicFailed = false; // last attempt for the current status ended in failure (sticker shows "Tap to retry")
       private void startMusicStickerAudio(String url, final String fallbackSoundId, final int requestedIdx) {
+          musicFailed = false;
           dbgLog( "startMusicStickerAudio url=" + url + " isMuted=" + isMuted + " paused=" + paused);
           // Defensive: a JSON-escaped URL ("https:\\/\\/host\\/a.mp3") is never playable.
           // Root fix is in StatusStickerOverlayView.jsonStr(); this guards any other path.
@@ -3255,7 +3327,9 @@ import com.callx.app.utils.AlertDialogStyler;
                       .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                       .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                       .build());
-              mp.setDataSource(playUrl);
+              // Prefetched while the previous status played? → local file, starts instantly.
+              java.io.File local = StoryMusicPrefetcher.cached(this, playUrl);
+              if (local != null) mp.setDataSource(local.getAbsolutePath()); else mp.setDataSource(playUrl);
               // Loop so the clip keeps playing even if it's shorter than however
               // long the viewer ends up spending on this status.
               mp.setLooping(true);
@@ -3280,6 +3354,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   return true;
               });
               mp.prepareAsync();
+              syncMusicStickerPlaying(); // sticker badge → "Loading…" until prepared
           } catch (Exception e) {
               // Bad/unreachable preview URL — never crash the viewer.
               CrashReporter.reportSilently(this, "StatusViewer.startMusicStickerAudio", e);
@@ -3306,6 +3381,8 @@ import com.callx.app.utils.AlertDialogStyler;
       }
 
       private void showMusicFailedToast(int what, int extra) {
+          musicFailed = true;
+          syncMusicStickerPlaying();
           // No song is coming → the video must not stay ducked for nothing.
           videoUnderMusic = false;
           videoMixVol = -1f;
@@ -3564,6 +3641,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       // hideAllContent() on every status change) keeps it
                       // hidden otherwise.
                       musicStickerView = sticker;
+                      musicFailed = false; // new status → clean slate
                       sticker.setMusicPlaying(false); // rests until the audio actually plays
                       showStatusSongTicker(sticker);
                       // Autoplay the sticker's preview clip the instant the status
@@ -3592,6 +3670,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       if (hasDirect || hasId) {
                           videoUnderMusic = true;   // (2) duck the video's own audio (no-op for photo/text)
                           applyVideoVolume();
+                          prefetchNextStatusMusic(); // next story's clip downloads while this one plays
                           beginMusicHold(item); // (4) bar waits (max 3s) so audio + progress start together
                           if (hasDirect) {
                               // (3) if this direct URL fails we retry once via the soundId
@@ -3603,8 +3682,11 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                   }
 
-                  if ("music".equals(sticker.getStickerType()) && sticker.isMusicLinkedToReelSound()) {
-                      armStickerZoomGate(sticker, () -> openMusicStickerSoundSheet(sticker));
+                  if ("music".equals(sticker.getStickerType())) {
+                      // Always tappable now: retry (failed) / sound page (linked) / "Original audio" sheet.
+                      armStickerZoomGate(sticker, () -> onMusicStickerTapped(sticker));
+                      // On a repost card the sticker shrinks with the card → bump it back up so it stays readable.
+                      if (reshareCardActive) sticker.applyScale(Math.max(sticker.getStickerScale(), 1.25f));
                   }
 
                   if ("countdown".equals(sticker.getStickerType())
