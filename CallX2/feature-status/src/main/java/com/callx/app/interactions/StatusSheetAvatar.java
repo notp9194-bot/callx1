@@ -21,8 +21,9 @@ public final class StatusSheetAvatar {
     public static final AvatarSizeTier TIER = AvatarSizeTier.TINY; // 32dp
     public static final int SIZE_DP = 32;
 
-    /** v30: the Seen-by rows show a 54dp avatar -> MEDIUM (64dp) tier, so it is not upscaled from the 32dp one. */
-    public static final AvatarSizeTier ROW_TIER = AvatarSizeTier.MEDIUM;
+    /** Seen-by rows + the viewer's bottom bar use the reel-comment avatar spec: 32dp avatar / 36dp ring -> TINY (32dp),
+     *  same URL + RequestOptions as ReelCommentAvatarBinder -> one shared Glide cache entry. */
+    public static final AvatarSizeTier ROW_TIER = AvatarSizeTier.TINY;
 
     public static RequestOptions options(Context ctx) { return options(ctx, TIER); }
 

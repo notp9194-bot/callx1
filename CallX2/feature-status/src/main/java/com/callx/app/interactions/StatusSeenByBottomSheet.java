@@ -238,6 +238,37 @@ public class StatusSeenByBottomSheet {
         }
     }
 
+    /** Called once when the sheet closes, with every viewer the owner blocked in it (net of Undo). */
+    public interface OnClosed { void onClosed(Set<String> removedUids); }
+
+    /**
+     * THE viewer set both the sheet and the viewer's bottom bar count: seenBy + reactors + repliers (with text),
+     * minus blocked. One definition -> the bar's "Seen by N" always equals the sheet's title.
+     */
+    public static Set<String> viewerUids(StatusItem item, Set<String> removed) {
+        HashSet<String> u = new HashSet<>();
+        if (item == null) return u;
+        if (item.seenBy != null) u.addAll(item.seenBy.keySet());
+        if (item.reactions != null) for (Map.Entry<String, String> e : item.reactions.entrySet())
+            if (e.getKey() != null && e.getValue() != null) u.add(e.getKey());
+        if (item.replies != null) for (StatusItem.ReplyPreview rp : item.replies.values())
+            if (rp != null && rp.uid != null && rp.text != null && !rp.text.isEmpty()) u.add(rp.uid);
+        u.remove(null);
+        if (removed != null) u.removeAll(removed);
+        return u;
+    }
+
+    /** Shared profile cache (the sheet's rows use it too): cached photo of a viewer, or null. */
+    public static String peekPhoto(String uid) {
+        Profile p = uid != null ? PROFILES.get(uid) : null;
+        return p != null && p.photo != null && !p.photo.isEmpty() ? p.photo : null;
+    }
+
+    /** Lets the viewer's bar pre-warm the sheet: a profile it already fetched is not read again when the sheet opens. */
+    public static void putProfile(String uid, String name, String photo) {
+        if (uid != null) PROFILES.put(uid, new Profile(name != null ? name : uid, photo, System.currentTimeMillis()));
+    }
+
     /** Legacy overload — no dismiss callback (used when caller doesn't need resume). */
     public static void show(Context ctx, StatusItem item) {
         show(ctx, item, null, null);
@@ -259,15 +290,25 @@ public class StatusSeenByBottomSheet {
             if (e.getKey() != null && e.getValue() != null) env.reactions.put(e.getKey(), e.getValue());
         if (item.replies != null) for (Map.Entry<String, StatusItem.ReplyPreview> e : item.replies.entrySet())
             if (e.getKey() != null && e.getValue() != null) env.replies.put(e.getKey(), e.getValue());
-        env.liveViews = env.seenAt.size();
+        env.liveViews = viewerUids(item, env.removed).size();   // same rule as compute() / the viewer's bar
     }
 
     /**
      * @param all every story of the owner (carousel on top); the entry matching {@code item} is selected.
      *            null / empty = carousel shows only {@code item}.
      */
-    public static void show(Context ctx, StatusItem item, List<StatusItem> all, Runnable onDismiss) {
+    public static void show(Context ctx, StatusItem item, List<StatusItem> all, final Runnable onDismiss) {
+        show(ctx, item, all, null, onDismiss == null ? null : r -> onDismiss.run());
+    }
+
+    /**
+     * @param initialRemoved viewers already blocked from this sheet earlier (so a re-open matches the viewer's bar); may be null.
+     * @param onClosed       receives the final blocked set when the sheet closes; may be null.
+     */
+    public static void show(Context ctx, StatusItem item, List<StatusItem> all,
+                            Set<String> initialRemoved, final OnClosed onClosed) {
         final Env env = new Env(ctx);
+        if (initialRemoved != null) env.removed.addAll(initialRemoved);
         env.style = resolveStyle(ctx);
         env.myUid = FirebaseUtils.getCurrentUid();
         int at = -1;
@@ -318,7 +359,7 @@ public class StatusSeenByBottomSheet {
         });
         titleRow.addView(back, new LinearLayout.LayoutParams(dp(ctx, 44), dp(ctx, 44)));
         env.tvTitle = new TextView(ctx);
-        env.tvTitle.setText(ctx.getString(R.string.seenby_title, env.seenAt.size()));
+        env.tvTitle.setText(ctx.getString(R.string.seenby_title, env.liveViews));
         env.tvTitle.setTextSize(18);
         env.tvTitle.setTextColor(env.style.primary);
         env.tvTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -410,7 +451,7 @@ public class StatusSeenByBottomSheet {
             env.main.removeCallbacksAndMessages(null);
             detachLive(env);
             detachCardCounts(env);
-            if (onDismiss != null) onDismiss.run();
+            if (onClosed != null) onClosed.onClosed(new HashSet<>(env.removed));
         });
         sheet.setOnShowListener(d -> {
             View sh = sheet.findViewById(com.google.android.material.R.id.design_bottom_sheet);
@@ -522,7 +563,7 @@ public class StatusSeenByBottomSheet {
 
         env.tvViewers = new TextView(ctx);
         env.tvViewers.setText(ctx.getResources().getQuantityString(R.plurals.seenby_viewers,
-                env.seenAt.size(), env.seenAt.size()));
+                env.liveViews, env.liveViews));
         env.tvViewers.setTextSize(18);
         env.tvViewers.setTextColor(env.style.primary);
         env.tvViewers.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -659,9 +700,9 @@ public class StatusSeenByBottomSheet {
         env.cardAdapter.notifyItemChanged(pos);
         paintSegments(env);
         env.carousel.smoothScrollToPosition(pos);
-        env.tvTitle.setText(env.ctx.getString(R.string.seenby_title, env.seenAt.size()));
+        env.tvTitle.setText(env.ctx.getString(R.string.seenby_title, env.liveViews));
         env.tvViewers.setText(env.ctx.getResources().getQuantityString(R.plurals.seenby_viewers,
-                env.seenAt.size(), env.seenAt.size()));
+                env.liveViews, env.liveViews));
         paintSortPill(env);
         refreshNow(env);
         attachLive(env);
@@ -1482,7 +1523,7 @@ public class StatusSeenByBottomSheet {
 
     /** One viewer row. Views built ONCE per holder. */
     private static final class RowVH extends RecyclerView.ViewHolder {
-        static final int RING_DP = 62, AVATAR_DP = 54;
+        static final int RING_DP = 36, AVATAR_DP = 32;   // same as the reel comment rows (32dp avatar / 36dp ring)
         final Env env;
         final CircleImageView avatar;
         final ImageView ring, btnMsg, btnMore;

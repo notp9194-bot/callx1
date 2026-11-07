@@ -92,4 +92,6 @@
         <item quantity="one">%1$d view</item>
         <item quantity="other">%1$d views</item>
     </plurals>
+    <string name="seenby_viewers_pill">Viewers</string>
+    <string name="seenby_cd_open">%1$s. Double tap to see who viewed</string>
 </resources>

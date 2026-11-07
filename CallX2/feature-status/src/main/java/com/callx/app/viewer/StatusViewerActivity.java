@@ -1154,13 +1154,31 @@ import com.callx.app.utils.AlertDialogStyler;
                   if (isFinishing() || isDestroyed() || items.isEmpty()) return;
                   final long now = com.callx.app.utils.ServerClock.now();
                   Set<String> alive = new HashSet<>();
+                  final boolean own = isOwnStatus() && !isHighlightMode;
+                  boolean seenChanged = false;
+                  final HashMap<String, StatusItem> fresh = own ? new HashMap<>() : null;
                   for (DataSnapshot c : snap.getChildren()) {
                       try {
                           StatusItem si = c.getValue(StatusItem.class);
-                          if (si != null && !isDead(si, now) && si.id != null) alive.add(si.id);
+                          if (si != null && !isDead(si, now) && si.id != null) {
+                              alive.add(si.id);
+                              if (own) fresh.put(si.id, si);
+                          }
                       } catch (Exception ignored) {}
                   }
                   StatusItem cur = idx < items.size() ? items.get(idx) : null;
+                  // Live viewers / reactions / replies for the bottom bar: refresh the local items from the same snapshot.
+                  if (own) {
+                      for (StatusItem it : items) {
+                          StatusItem si = it.id != null ? fresh.get(it.id) : null;
+                          if (si == null) continue;
+                          if (it == cur && (!java.util.Objects.equals(it.seenBy, si.seenBy)
+                                  || !java.util.Objects.equals(it.reactions, si.reactions)
+                                  || (it.replies == null ? 0 : it.replies.size()) != (si.replies == null ? 0 : si.replies.size()))) seenChanged = true;
+                          it.seenBy = si.seenBy; it.reactions = si.reactions; it.replies = si.replies;
+                      }
+                      if (seenChanged && cur != null) updateSeenByInfo(cur);
+                  }
                   boolean changed = false;
                   for (int i = items.size() - 1; i >= 0; i--) {
                       StatusItem it = items.get(i);
@@ -4643,9 +4661,32 @@ import com.callx.app.utils.AlertDialogStyler;
       // ensureQuickReactionOverlay() (no eager setup in onCreate any more).
       private boolean isOwnStatus() { return myUid != null && myUid.equals(ownerUid); }
 
+      private boolean seenBySheetOpen;
+      /** Viewers the owner blocked from the sheet (kept for the whole viewer session) — the bar excludes them like the sheet does. */
+      private final Set<String> sheetRemoved = new HashSet<>();
+      /** Owner only: pauses the story and opens the viewers sheet for the current status; story resumes on dismiss. */
+      private void openSeenBySheet() {
+          if (seenBySheetOpen || isFinishing() || isDestroyed() || !isOwnStatus()) return;
+          final StatusItem cur = idx < items.size() ? items.get(idx) : null;
+          if (cur == null) return;
+          seenBySheetOpen = true;
+          pauseProgress();
+          StatusSeenByBottomSheet.show(this, cur, new ArrayList<>(items), sheetRemoved, removed -> {
+              seenBySheetOpen = false;
+              sheetRemoved.clear();
+              sheetRemoved.addAll(removed);
+              resumeProgress();
+              if (!isFinishing() && !isDestroyed() && idx < items.size()) updateSeenByInfo(items.get(idx)); // block / undo done in the sheet
+          });
+      }
+
       /** Swipe up = Instagram: big emoji grid over the story AND the reply keyboard. */
       private void openQuickReactionOverlay() {
-          if (isOwnStatus()) return; // owner can't react to own status
+          if (isOwnStatus()) { // own story: swipe up = "Seen by" viewers sheet (Instagram / WhatsApp)
+              // posted: the touch handler's ACTION_UP still runs after a fling and would resume the story right under the sheet
+              handler.post(this::openSeenBySheet);
+              return;
+          }
           showQuickReactionUi();
           if (binding.etReply != null) {
               binding.etReply.requestFocus();
@@ -5211,19 +5252,162 @@ import com.callx.app.utils.AlertDialogStyler;
           });
       }
       // ── Seen-by info ──────────────────────────────────────────────────────
+      // ── Seen-by bar avatars (latest 4 viewers) ─────────────────────────────
+      private static final android.util.LruCache<String, String> VIEWER_PHOTOS = new android.util.LruCache<>(120);
+      private String seenAvatarKey = "";
+      private int dpi(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+
+      /** Upward swipe (fast or slow, vertical-dominant) on the bar = open the viewers sheet; a plain tap falls through to onClick. */
+      private View.OnTouchListener seenBySwipeUpListener;
+      private View.OnTouchListener seenBySwipeUp() {
+          if (seenBySwipeUpListener != null) return seenBySwipeUpListener;
+          final float minUp = dpi(40);
+          final float[] down = new float[2];
+          seenBySwipeUpListener = (v, e) -> {
+              switch (e.getActionMasked()) {
+                  case MotionEvent.ACTION_DOWN: down[0] = e.getRawX(); down[1] = e.getRawY(); return false;
+                  case MotionEvent.ACTION_UP: {
+                      float dy = e.getRawY() - down[1], dx = e.getRawX() - down[0];
+                      if (dy < -minUp && Math.abs(dy) > Math.abs(dx) * 1.2f) {
+                          v.cancelLongPress();
+                          handler.post(this::openSeenBySheet);   // posted, same as the story swipe: no resume race
+                          return true;                           // consumed: no click
+                      }
+                      return false;
+                  }
+                  default: return false;
+              }
+          };
+          return seenBySwipeUpListener;
+      }
+
+      private void bindSeenByAvatars(StatusItem s, Set<String> viewers) {
+          final LinearLayout box = binding.llSeenAvatars;
+          final ArrayList<String> sorted = new ArrayList<>(viewers);
+          sorted.remove(myUid);
+          final Map<String, Long> at = s.seenBy;
+          Collections.sort(sorted, (a, b) -> {
+              Long ta = at != null ? at.get(a) : null, tb = at != null ? at.get(b) : null;
+              int c = Long.compare(tb != null ? tb : 0L, ta != null ? ta : 0L); // most recent viewer first
+              return c != 0 ? c : a.compareTo(b);
+          });
+          final ArrayList<String> uids = new ArrayList<>(sorted.subList(0, Math.min(4, sorted.size())));
+          box.setVisibility(uids.isEmpty() ? View.GONE : View.VISIBLE);
+          final String key = s.id + "|" + uids;
+          if (key.equals(seenAvatarKey) && box.getChildCount() == uids.size()) return; // nothing changed
+          seenAvatarKey = key;
+          box.removeAllViews();
+          final int ringSz = dpi(36), avSz = dpi(32);   // reel-comment avatar spec
+          for (int i = 0; i < uids.size(); i++) {
+              final String uid = uids.get(i);
+              android.widget.FrameLayout cell = new android.widget.FrameLayout(this);
+              android.widget.ImageView ring = new android.widget.ImageView(this);
+              cell.addView(ring, new android.widget.FrameLayout.LayoutParams(ringSz, ringSz));
+              final de.hdodenhof.circleimageview.CircleImageView av = new de.hdodenhof.circleimageview.CircleImageView(this);
+              av.setTag(uid);
+              android.widget.FrameLayout.LayoutParams alp = new android.widget.FrameLayout.LayoutParams(avSz, avSz);
+              alp.gravity = android.view.Gravity.CENTER;
+              cell.addView(av, alp);
+              LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(ringSz, ringSz);
+              if (i > 0) clp.setMarginStart(-dpi(2));
+              box.addView(cell, clp);
+              com.callx.app.utils.StoryRingApplier.apply(this, ring, uid);
+              loadViewerPhoto(av, uid);
+          }
+      }
+
+      private static final java.util.concurrent.ExecutorService SEEN_BG = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+          Thread t = new Thread(r, "status-viewer-seenbar"); t.setPriority(Thread.NORM_PRIORITY - 1); return t; });
+      private boolean roomSeedStarted, roomSeeded, blocksLoaded;
+
+      /** Chat partners' photos come from the local Room cache (no network) — most viewers are contacts. */
+      private void seedViewerPhotosFromRoom() {
+          if (roomSeedStarted) return;
+          roomSeedStarted = true;
+          final android.content.Context app = getApplicationContext();
+          SEEN_BG.execute(() -> {
+              final HashMap<String, String> seeds = new HashMap<>();
+              try {
+                  List<com.callx.app.db.entity.ChatEntity> chats =
+                          com.callx.app.db.AppDatabase.getInstance(app).chatDao().getAllChatsSync();
+                  if (chats != null) for (com.callx.app.db.entity.ChatEntity c : chats) {
+                      if (c == null || c.partnerUid == null || c.partnerUid.isEmpty()) continue;
+                      String ph = c.partnerPhoto != null && !c.partnerPhoto.isEmpty() ? c.partnerPhoto : c.partnerThumb;
+                      if (ph != null && !ph.isEmpty()) seeds.put(c.partnerUid, ph);
+                  }
+              } catch (Exception ignored) {}
+              handler.post(() -> {
+                  for (Map.Entry<String, String> e : seeds.entrySet()) {
+                      String have = VIEWER_PHOTOS.get(e.getKey());
+                      if (have == null || have.isEmpty()) VIEWER_PHOTOS.put(e.getKey(), e.getValue());
+                  }
+                  roomSeeded = true;
+                  if (isFinishing() || isDestroyed() || idx >= items.size()) return;
+                  seenAvatarKey = "";                    // rebuild the bar now that photos can be resolved
+                  updateSeenByInfo(items.get(idx));
+              });
+          });
+      }
+
+      /** Viewers blocked earlier (persisted) must not show in the bar or the sheet either. One read per viewer session. */
+      private void loadBlockedOnce() {
+          if (blocksLoaded || myUid == null) return;
+          blocksLoaded = true;
+          FirebaseUtils.getBlocksRef(myUid).get().addOnSuccessListener(snap -> {
+              boolean added = false;
+              for (DataSnapshot c : snap.getChildren())
+                  if (c.getKey() != null && sheetRemoved.add(c.getKey())) added = true;
+              if (added && !isFinishing() && !isDestroyed() && idx < items.size()) updateSeenByInfo(items.get(idx));
+          });
+      }
+
+      /** Cache order: this bar's cache -> the sheet's profile cache -> Room seed -> one Firebase read. */
+      private void loadViewerPhoto(final de.hdodenhof.circleimageview.CircleImageView av, final String uid) {
+          String photo = VIEWER_PHOTOS.get(uid);
+          if (photo == null || photo.isEmpty()) {
+              String shared = com.callx.app.interactions.StatusSeenByBottomSheet.peekPhoto(uid);
+              if (shared != null) { photo = shared; VIEWER_PHOTOS.put(uid, shared); }
+          }
+          if (photo != null) {   // "" = known to have no photo -> placeholder, no re-fetch
+              com.callx.app.interactions.StatusSheetAvatar.load(this, av, photo, R.drawable.ic_person,
+                      com.callx.app.interactions.StatusSheetAvatar.ROW_TIER);
+              return;
+          }
+          av.setImageResource(R.drawable.ic_person);
+          if (!roomSeeded) return;   // the Room seed finishes first and rebuilds the bar; only then fetch what is still missing
+          FirebaseUtils.db().getReference("users").child(uid).get().addOnSuccessListener(snap -> {
+              String name = snap.child("name").getValue(String.class);
+              String ph = snap.child("photoUrl").getValue(String.class);
+              if (ph == null || ph.isEmpty()) ph = snap.child("thumbUrl").getValue(String.class);
+              if (ph == null) ph = "";
+              VIEWER_PHOTOS.put(uid, ph);
+              com.callx.app.interactions.StatusSeenByBottomSheet.putProfile(uid, name, ph); // sheet opens with this profile warm
+              if (isFinishing() || isDestroyed() || !uid.equals(av.getTag())) return; // bar was rebuilt meanwhile
+              com.callx.app.interactions.StatusSheetAvatar.load(this, av, ph, R.drawable.ic_person,
+                      com.callx.app.interactions.StatusSheetAvatar.ROW_TIER);
+          });
+      }
+
       private static final String LIKE_EMOJI = "\u2764\uFE0F"; // ❤️
       private void updateSeenByInfo(StatusItem s) {
           if (myUid != null && myUid.equals(ownerUid)) {
-              int count = s.getViewCount();
-              binding.tvSeenBy.setVisibility(View.VISIBLE);
-              String reactionSummary = buildReactionSummary(s);
-              binding.tvSeenBy.setText("\uD83D\uDC41 " + count + (reactionSummary.isEmpty() ? "" : "  " + reactionSummary));
-              binding.tvSeenBy.setOnClickListener(v -> {
-                  pauseProgress();
-                  StatusSeenByBottomSheet.show(this, s, new ArrayList<>(items), this::resumeProgress);
-              });
+              seedViewerPhotosFromRoom();
+              loadBlockedOnce();
+              final Set<String> viewers = StatusSeenByBottomSheet.viewerUids(s, sheetRemoved);
+              binding.llSeenBy.setVisibility(View.VISIBLE);
+              // 0 viewers: no empty avatar slot, just "No viewers yet" (the pill stays)
+              final String label = viewers.isEmpty() ? getString(R.string.seenby_empty_none_title)
+                      : getString(R.string.seenby_title, viewers.size());
+              binding.tvSeenBy.setText(label);
+              binding.llSeenBy.setContentDescription(getString(R.string.seenby_cd_open, viewers.isEmpty() ? label
+                      : getResources().getQuantityString(R.plurals.seenby_viewers, viewers.size(), viewers.size())));
+              binding.llSeenBy.setOnClickListener(v -> openSeenBySheet());
+              binding.llViewersPill.setOnClickListener(v -> openSeenBySheet());
+              binding.llSeenBy.setOnTouchListener(seenBySwipeUp());   // swipe up ON the bar opens the sheet too
+              binding.llViewersPill.setOnTouchListener(seenBySwipeUp());
+              bindSeenByAvatars(s, viewers);
           } else {
-              binding.tvSeenBy.setVisibility(View.GONE);
+              binding.llSeenBy.setVisibility(View.GONE);
               // v508: hidden btn_react proxy removed; the heart (btn_like_heart) carries the state.
           }
           updateLikeHeartIcon(s);
@@ -5595,15 +5779,6 @@ import com.callx.app.utils.AlertDialogStyler;
           boolean liked = s != null && LIKE_EMOJI.equals(s.getReaction(myUid));
           binding.btnLikeHeart.setImageResource(liked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
           binding.btnLikeHeart.setContentDescription(getString(liked ? R.string.viewer_cd_remove_like : R.string.viewer_cd_like));
-      }
-      private String buildReactionSummary(StatusItem s) {
-          if (s.reactions == null || s.reactions.isEmpty()) return "";
-          Map<String, Integer> counts = new LinkedHashMap<>();
-          for (String e : s.reactions.values()) counts.merge(e, 1, Integer::sum);
-          StringBuilder sb = new StringBuilder();
-          for (Map.Entry<String, Integer> e : counts.entrySet())
-              sb.append(e.getKey()).append(e.getValue() > 1 ? "\u00D7" + e.getValue() : "").append(" ");
-          return sb.toString().trim();
       }
       // ── Header helpers ────────────────────────────────────────────────────
       private void updateHeaderTimestamp(StatusItem s) {
