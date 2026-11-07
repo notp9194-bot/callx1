@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status viewers ("Seen by") sheet — previously hardcoded in StatusSeenByBottomSheet -->
+    <string name="seenby_title">Seen by %1$d</string>
+
+    <!-- Stats strip -->
+
+    <!-- Search -->
+    <string name="seenby_search_hint">Search viewers</string>
+    <string name="seenby_search_clear">Clear search</string>
+
+    <!-- Filter / sort chips -->
+    <string name="seenby_filter_all">All</string>
+    <string name="seenby_filter_followers">Followers</string>
+    <string name="seenby_filter_not_followers">Not a follower</string>
+    <string name="seenby_filter_reactions">Reactions</string>
+    <string name="seenby_filter_replies">Replies</string>
+    <string name="seenby_filter_close">Close friends</string>
+    <string name="seenby_chip_count">%1$s %2$d</string>
+
+    <!-- Row badges -->
+    <string name="seenby_badge_close">★ Close friend</string>
+    <string name="seenby_badge_hidden">Hidden</string>
+    <string name="seenby_name_loading">…</string>
+    <string name="seenby_someone">this person</string>
+
+    <!-- Relative time -->
+    <string name="seenby_time_just_now">just now</string>
+    <string name="seenby_time_min">%1$d min ago</string>
+    <string name="seenby_time_hour">%1$dh ago</string>
+    <string name="seenby_time_today">today, %1$s</string>
+    <string name="seenby_time_yesterday">yesterday, %1$s</string>
+    <string name="seenby_time_date">%1$s, %2$s</string>
+
+    <!-- Reply snippet -->
+    <string name="seenby_reply_more">%1$s  · +%2$d more</string>
+
+    <!-- Row actions / accessibility -->
+    <string name="seenby_cd_message">Message</string>
+    <string name="seenby_cd_more">More options</string>
+    <string name="seenby_menu_message">Message</string>
+    <string name="seenby_menu_view_profile">View profile</string>
+    <string name="seenby_menu_cf_add">Add to close friends</string>
+    <string name="seenby_menu_cf_remove">Remove from close friends</string>
+    <string name="seenby_menu_hide">Hide my stories from %1$s</string>
+    <string name="seenby_menu_unhide">Unhide my stories from %1$s</string>
+    <string name="seenby_menu_block">Block %1$s</string>
+
+    <!-- Dialogs -->
+    <string name="seenby_cancel">Cancel</string>
+    <string name="seenby_hide_title">Hide your stories from %1$s?</string>
+    <string name="seenby_hide_msg">They won’t see your future stories. They won’t be told.</string>
+    <string name="seenby_hide_confirm">Hide</string>
+    <string name="seenby_block_title">Block %1$s?</string>
+    <string name="seenby_block_msg">They won’t be able to message or call you, and won’t see your stories.</string>
+    <string name="seenby_block_confirm">Block</string>
+
+    <!-- Snackbars / toasts -->
+    <string name="seenby_undo">Undo</string>
+    <string name="seenby_hidden_done">Hidden from future stories</string>
+    <string name="seenby_unhidden_done">%1$s can see your future stories again</string>
+    <string name="seenby_blocked">%1$s blocked</string>
+    <string name="seenby_unblocked">%1$s unblocked</string>
+    <string name="seenby_err_privacy">Couldn’t update privacy</string>
+    <string name="seenby_err_block">Couldn’t block. Try again.</string>
+    <string name="seenby_err_unblock">Couldn’t undo. Try again.</string>
+    <string name="seenby_err_chat">Couldn’t open chat</string>
+    <string name="seenby_err_profile">Couldn’t open profile</string>
+
+    <!-- Empty states -->
+    <string name="seenby_empty_none_title">No viewers yet</string>
+    <string name="seenby_empty_none_sub">When people watch your story, they’ll show up here.</string>
+    <string name="seenby_empty_match_title">No viewers match</string>
+    <string name="seenby_empty_match_sub">Try a different search or filter.</string>
+    <string name="seenby_empty_clear">Clear filters</string>
+
+    <!-- v30: Instagram-style viewers screen -->
+    <plurals name="seenby_viewers">
+        <item quantity="one">%1$d viewer</item>
+        <item quantity="other">%1$d viewers</item>
+    </plurals>
+    <string name="seenby_viewers_of">%1$d of %2$d viewers</string>
+    <string name="seenby_sort_by">Sort by</string>
+    <string name="seenby_sort_hdr_order">Order</string>
+    <string name="seenby_sort_hdr_show">Show</string>
+    <string name="seenby_sort_hdr_reaction">Reaction</string>
+    <string name="seenby_sort_opt_recent">Most recent</string>
+    <string name="seenby_sort_opt_relevance">Relevance</string>
+    <string name="seenby_cd_back">Back</string>
+    <string name="seenby_cd_story">Story %1$d, %2$s</string>
+    <plurals name="seenby_views_cd">
+        <item quantity="one">%1$d view</item>
+        <item quantity="other">%1$d views</item>
+    </plurals>
+</resources>

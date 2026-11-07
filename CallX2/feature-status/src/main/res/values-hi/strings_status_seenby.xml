@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="seenby_title">%1$d ने देखा</string>
+
+
+    <string name="seenby_search_hint">देखने वालों में खोजें</string>
+    <string name="seenby_search_clear">खोज साफ़ करें</string>
+
+    <string name="seenby_filter_all">सभी</string>
+    <string name="seenby_filter_followers">फ़ॉलोअर्स</string>
+    <string name="seenby_filter_not_followers">फ़ॉलोअर नहीं</string>
+    <string name="seenby_filter_reactions">रिएक्शन</string>
+    <string name="seenby_filter_replies">रिप्लाई</string>
+    <string name="seenby_filter_close">क्लोज़ फ्रेंड्स</string>
+    <string name="seenby_chip_count">%1$s %2$d</string>
+
+    <string name="seenby_badge_close">★ क्लोज़ फ्रेंड</string>
+    <string name="seenby_badge_hidden">छिपाया गया</string>
+    <string name="seenby_name_loading">…</string>
+    <string name="seenby_someone">इस व्यक्ति</string>
+
+    <string name="seenby_time_just_now">अभी-अभी</string>
+    <string name="seenby_time_min">%1$d मिनट पहले</string>
+    <string name="seenby_time_hour">%1$d घंटे पहले</string>
+    <string name="seenby_time_today">आज, %1$s</string>
+    <string name="seenby_time_yesterday">कल, %1$s</string>
+    <string name="seenby_time_date">%1$s, %2$s</string>
+
+    <string name="seenby_reply_more">%1$s  · +%2$d और</string>
+
+    <string name="seenby_cd_message">मैसेज</string>
+    <string name="seenby_cd_more">और विकल्प</string>
+    <string name="seenby_menu_message">मैसेज करें</string>
+    <string name="seenby_menu_view_profile">प्रोफ़ाइल देखें</string>
+    <string name="seenby_menu_cf_add">क्लोज़ फ्रेंड्स में जोड़ें</string>
+    <string name="seenby_menu_cf_remove">क्लोज़ फ्रेंड्स से हटाएँ</string>
+    <string name="seenby_menu_hide">%1$s से मेरी स्टोरी छिपाएँ</string>
+    <string name="seenby_menu_unhide">%1$s के लिए मेरी स्टोरी फिर दिखाएँ</string>
+    <string name="seenby_menu_block">%1$s को ब्लॉक करें</string>
+
+    <string name="seenby_cancel">रद्द करें</string>
+    <string name="seenby_hide_title">%1$s से अपनी स्टोरी छिपाएँ?</string>
+    <string name="seenby_hide_msg">उन्हें आपकी आगे की स्टोरी नहीं दिखेंगी। उन्हें बताया नहीं जाएगा।</string>
+    <string name="seenby_hide_confirm">छिपाएँ</string>
+    <string name="seenby_block_title">%1$s को ब्लॉक करें?</string>
+    <string name="seenby_block_msg">वे आपको मैसेज या कॉल नहीं कर पाएँगे और आपकी स्टोरी नहीं देख पाएँगे।</string>
+    <string name="seenby_block_confirm">ब्लॉक करें</string>
+
+    <string name="seenby_undo">वापस लें</string>
+    <string name="seenby_hidden_done">आगे की स्टोरी से छिपा दिया गया</string>
+    <string name="seenby_unhidden_done">%1$s अब आपकी आगे की स्टोरी देख सकते हैं</string>
+    <string name="seenby_blocked">%1$s ब्लॉक हो गया</string>
+    <string name="seenby_unblocked">%1$s अनब्लॉक हो गया</string>
+    <string name="seenby_err_privacy">प्राइवेसी अपडेट नहीं हो सकी</string>
+    <string name="seenby_err_block">ब्लॉक नहीं हो सका। फिर कोशिश करें।</string>
+    <string name="seenby_err_unblock">वापस नहीं लिया जा सका। फिर कोशिश करें।</string>
+    <string name="seenby_err_chat">चैट नहीं खुल सकी</string>
+    <string name="seenby_err_profile">प्रोफ़ाइल नहीं खुल सकी</string>
+
+    <string name="seenby_empty_none_title">अभी कोई नहीं देखा</string>
+    <string name="seenby_empty_none_sub">जब लोग आपकी स्टोरी देखेंगे, वे यहाँ दिखेंगे।</string>
+    <string name="seenby_empty_match_title">कोई मेल नहीं खाता</string>
+    <string name="seenby_empty_match_sub">कोई दूसरी खोज या फ़िल्टर आज़माएँ।</string>
+    <string name="seenby_empty_clear">फ़िल्टर हटाएँ</string>
+
+    <!-- v30: Instagram-style viewers screen -->
+    <plurals name="seenby_viewers">
+        <item quantity="one">%1$d दर्शक</item>
+        <item quantity="other">%1$d दर्शक</item>
+    </plurals>
+    <string name="seenby_viewers_of">%2$d में से %1$d दर्शक</string>
+    <string name="seenby_sort_by">क्रमबद्ध करें</string>
+    <string name="seenby_sort_hdr_order">क्रम</string>
+    <string name="seenby_sort_hdr_show">दिखाएँ</string>
+    <string name="seenby_sort_hdr_reaction">रिएक्शन</string>
+    <string name="seenby_sort_opt_recent">सबसे नए</string>
+    <string name="seenby_sort_opt_relevance">प्रासंगिक</string>
+    <string name="seenby_cd_back">वापस</string>
+    <string name="seenby_cd_story">स्टोरी %1$d, %2$s</string>
+    <plurals name="seenby_views_cd">
+        <item quantity="one">%1$d व्यू</item>
+        <item quantity="other">%1$d व्यू</item>
+    </plurals>
+</resources>

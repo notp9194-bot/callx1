@@ -4992,7 +4992,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   if (w == 0) {
                       // FIX: "Who viewed this" — open SeenByBottomSheet directly from menu
                       if (current != null) {
-                          StatusSeenByBottomSheet.show(this, current, this::resumeProgress);
+                          StatusSeenByBottomSheet.show(this, current, new ArrayList<>(items), this::resumeProgress);
                       } else resumeProgress();
                   } else if (w == 1 && current != null && current.id != null) {
                       String previewUrl = current.thumbnailUrl != null ? current.thumbnailUrl : current.mediaUrl;
@@ -5043,7 +5043,7 @@ import com.callx.app.utils.AlertDialogStyler;
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
-                      if (current != null) StatusSeenByBottomSheet.show(this, current, this::resumeProgress);
+                      if (current != null) StatusSeenByBottomSheet.show(this, current, new ArrayList<>(items), this::resumeProgress);
                       else resumeProgress();
                   } else if (w == 1 && current != null && current.id != null) {
                       StatusHighlightManager.removeFromHighlight(ownerUid, highlightAlbumId, current.id);
@@ -5220,7 +5220,7 @@ import com.callx.app.utils.AlertDialogStyler;
               binding.tvSeenBy.setText("\uD83D\uDC41 " + count + (reactionSummary.isEmpty() ? "" : "  " + reactionSummary));
               binding.tvSeenBy.setOnClickListener(v -> {
                   pauseProgress();
-                  StatusSeenByBottomSheet.show(this, s, this::resumeProgress);
+                  StatusSeenByBottomSheet.show(this, s, new ArrayList<>(items), this::resumeProgress);
               });
           } else {
               binding.tvSeenBy.setVisibility(View.GONE);
