@@ -819,7 +819,7 @@ package com.callx.app.feed;
               // behind the static default ring image. That's why a custom color never
               // showed up for anyone viewing the status: setImageDrawable() is what
               // actually replaces the visible ring.
-              ring.setImageDrawable(HighlightRingDrawable.withStrokeDp(parsedColor, item.ringMode, 2.5f, density));
+              ring.setImageDrawable(HighlightRingDrawable.withStrokeDp(parsedColor, item.ringMode, 1.5f, density));
               ring.setAlpha(isMuted ? 0.4f : 1f);
           } catch (IllegalArgumentException ignored) {
               // Invalid/unparseable hex — silently keep the default ring.
@@ -944,6 +944,16 @@ package com.callx.app.feed;
           final Context app = ctx.getApplicationContext();
           final int[] px = StatusCardAdapter.cardSize(ctx);
           return StatusCardAdapter.cardReq(ctx, StatusCardAdapter.cardThumbUrl(app, thumb), px[0], px[1]);
+      }
+
+      /** v716: warm a story thumbnail at the exact Status-card request (same URL/px/format => same Glide cache key). Main thread. */
+      public static void preloadCardShared(Context ctx, String thumb) {
+          if (ctx == null || thumb == null || thumb.isEmpty()) return;
+          try {
+              final Context app = ctx.getApplicationContext();
+              final int[] px = StatusCardAdapter.cardSize(app);
+              StatusCardAdapter.cardReq(app, StatusCardAdapter.cardThumbUrl(app, thumb), px[0], px[1]).preload(px[0], px[1]);
+          } catch (Exception ignored) {}
       }
 
       static class CarouselVH extends RecyclerView.ViewHolder {
@@ -1134,10 +1144,10 @@ package com.callx.app.feed;
                   try { customColor = android.graphics.Color.parseColor(a.ringColor); }
                   catch (Exception e) { customColor = android.graphics.Color.parseColor("#DD2A7B"); }
                   h.ivRing.setBackground(com.callx.app.utils.HighlightRingDrawable
-                          .withStrokeDp(customColor, a.ringMode, 2.5f, density));
+                          .withStrokeDp(customColor, a.ringMode, 1.5f, density));
               } else {
                   h.ivRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
-                          .withStrokeDp(2.5f, density));
+                          .withStrokeDp(1.5f, density));
               }
           }
           @Override public int getItemCount() { return albums.size(); }
@@ -1191,13 +1201,20 @@ package com.callx.app.feed;
            * v557: media thumb -> exact-size card crop on the CDN (see AvatarUrlBuilder#buildCard).
            * Non-Cloudinary / unrecognised URLs come back unchanged.
            */
+          /** v716: memo of thumb -> card CDN URL (buildCard is regex-heavy; sheet binds, prewarm and preloads all ask repeatedly). */
+          private static final android.util.LruCache<String, String> THUMB_URL_MEMO = new android.util.LruCache<>(96);
           static String cardThumbUrl(Context ctx, String thumb) {
               if (thumb == null || thumb.isEmpty()) return thumb;
               final int[] px = cardSize(ctx);
+              final String memoKey = thumb + "@" + px[0] + "x" + px[1];
+              final String hit = THUMB_URL_MEMO.get(memoKey);
+              if (hit != null) return hit;
               try {
                   final String u = com.callx.app.utils.AvatarUrlBuilder.buildCard(ctx, thumb,
                           dpOf(ctx, px[0]), dpOf(ctx, px[1]));
-                  return (u == null || u.isEmpty()) ? thumb : u;
+                  final String out = (u == null || u.isEmpty()) ? thumb : u;
+                  THUMB_URL_MEMO.put(memoKey, out);
+                  return out;
               } catch (Exception e) { return thumb; }
           }
 

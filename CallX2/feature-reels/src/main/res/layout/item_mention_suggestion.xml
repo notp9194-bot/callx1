@@ -25,8 +25,8 @@
             android:contentDescription="@null"/>
         <ImageView
             android:id="@+id/iv_mention_avatar"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="19dp"
+            android:layout_height="19dp"
             android:layout_gravity="center"
             android:scaleType="centerCrop"
             android:background="@drawable/bg_comment_avatar_circle"

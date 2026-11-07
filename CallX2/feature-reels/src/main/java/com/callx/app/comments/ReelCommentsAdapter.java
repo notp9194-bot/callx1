@@ -341,7 +341,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                     // from the new story viewer.
                     if (hasUnseenStory) {
                         h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
-                                .withStrokeDp(2f, ctx.getResources().getDisplayMetrics().density));
+                                .withStrokeDp(1.5f, ctx.getResources().getDisplayMetrics().density));
                         h.ivStoryRing.setImageDrawable(null);
                         h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
                     } else if (hasAnyStatus) {

@@ -334,7 +334,17 @@ public class StatusSeenByBottomSheet {
         final LinearLayout root = new LinearLayout(ctx);
         env.root = root;
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(env.style.bg);
+        // v718: rounded top corners. A square setBackgroundColor on root used to cover the sheet's rounded corners -> now root is
+        // rounded too and clips its children (rv/header) to the same outline.
+        final float cornerPx = dp(ctx, SHEET_CORNER_DP);
+        {
+            GradientDrawable rbg = new GradientDrawable();
+            rbg.setColor(env.style.bg);
+            rbg.setCornerRadii(new float[]{cornerPx, cornerPx, cornerPx, cornerPx, 0, 0, 0, 0});
+            root.setBackground(rbg);
+            root.setClipToOutline(true);
+            root.setOutlineProvider(topRoundOutline(cornerPx));
+        }
         root.setPadding(0, dp(ctx, 8), 0, 0);
         root.setFocusableInTouchMode(true); // lets us take focus away from the search box
         // status bar / gesture bar insets (sheet is full height)
@@ -460,10 +470,12 @@ public class StatusSeenByBottomSheet {
                 ViewGroup.LayoutParams lp = sh.getLayoutParams();
                 if (lp != null) { lp.height = ViewGroup.LayoutParams.MATCH_PARENT; sh.setLayoutParams(lp); }
                 GradientDrawable g = new GradientDrawable();
-                float r = dp(ctx, 20);
+                float r = cornerPx;
                 g.setColor(env.style.bg);
                 g.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
                 sh.setBackground(g);
+                sh.setClipToOutline(true);
+                sh.setOutlineProvider(topRoundOutline(r));
                 BottomSheetBehavior<View> b = BottomSheetBehavior.from(sh);
                 b.setSkipCollapsed(true);
                 b.setState(BottomSheetBehavior.STATE_EXPANDED);
@@ -631,6 +643,17 @@ public class StatusSeenByBottomSheet {
         if (env.emojiFilter != null) env.sortLabel.setText(env.emojiFilter);
         else if (env.filter != F_ALL) env.sortLabel.setText(FILTER_LABELS[env.filter]);
         else env.sortLabel.setText(R.string.seenby_sort_by);
+    }
+
+    private static final int SHEET_CORNER_DP = 24;
+
+    /** Outline with only the TOP corners rounded (the rect is extended below the view so the bottom corners stay square). */
+    private static ViewOutlineProvider topRoundOutline(final float r) {
+        return new ViewOutlineProvider() {
+            @Override public void getOutline(View v, Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight() + (int) r, r);
+            }
+        };
     }
 
     private static final int CARD_AREA_DP = 148, CARD_W_DP = 76, CARD_H_DP = 128, CARD_SEL_W_DP = 92, CARD_SEL_H_DP = 140;
@@ -803,10 +826,22 @@ public class StatusSeenByBottomSheet {
         CardAdapter(Env env) { this.env = env; }
         @NonNull @Override public CardVH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) { return new CardVH(env); }
         @Override public int getItemCount() { return env.stories.size(); }
-        @Override public void onBindViewHolder(@NonNull CardVH h, int position) { h.bind(position); }
+        @Override public void onBindViewHolder(@NonNull CardVH h, int position) { h.bind(position); preloadAround(position); }
         @Override public void onBindViewHolder(@NonNull CardVH h, int position, @NonNull List<Object> payloads) {
             if (!payloads.isEmpty() && payloads.contains(PAYLOAD_COUNT)) h.bindCount(position);
-            else h.bind(position);
+            else { h.bind(position); preloadAround(position); }
+        }
+        /** v716: warm the thumbs just outside the visible cards (and the selected story's neighbours) once each, so a card scrolled in
+         *  or tapped is already a Glide memory hit. Same request as the Status tab cards, so StatusCardPrewarm hits are reused. */
+        private final java.util.HashSet<String> preloaded = new java.util.HashSet<>();
+        private void preloadAround(int pos) {
+            final int n = env.stories.size();
+            for (int k = -3; k <= 3; k++) {
+                final int i = pos + k;
+                if (k == 0 || i < 0 || i >= n) continue;
+                final String t = StatusListAdapter.cardThumb(env.stories.get(i));
+                if (t != null && preloaded.add(t)) StatusListAdapter.preloadCardShared(env.ctx, t);
+            }
         }
         @Override public void onViewRecycled(@NonNull CardVH h) { h.release(); }
     }
@@ -819,6 +854,16 @@ public class StatusSeenByBottomSheet {
         final TextView txt, count;
         float radiusPx;
         String boundKey;   // thumb@size currently shown in img
+        boolean imgReady;  // real image decoded into img (blur placeholder must never overwrite it)
+        final android.graphics.drawable.ColorDrawable ph = new android.graphics.drawable.ColorDrawable(0xFF1C1C1C);
+        final com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> imgListener =
+                new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+            @Override public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
+                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> t, boolean first) { return false; }
+            @Override public boolean onResourceReady(android.graphics.drawable.Drawable r, Object model,
+                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> t,
+                    com.bumptech.glide.load.DataSource ds, boolean first) { imgReady = true; return false; }
+        };
 
         CardVH(final Env env) {
             super(new FrameLayout(env.ctx));
@@ -914,11 +959,23 @@ public class StatusSeenByBottomSheet {
                 final String key = thumb;   // one size for every card now, so the thumb alone identifies the image
                 if (!key.equals(boundKey)) {
                     boundKey = key;
+                    imgReady = false;
                     // Identical to the Status tab card request (URL, px, format): shares its Glide cache + StatusCardPrewarm.
-                    StatusListAdapter.cardRequestShared(ctx, thumb).into(img);
+                    StatusListAdapter.cardRequestShared(ctx, thumb)
+                            .placeholder(ph)
+                            .listener(imgListener)
+                            .into(img);
+                    // v716: ThumbHash blur-up until the real image lands (a memory-cache hit is already applied synchronously above).
+                    if (s.thumbHash != null && !imgReady) {
+                        final String hashKey = key;
+                        com.callx.app.utils.ThumbHashPlaceholder.getAsync(s.thumbHash, 24, 38, bmp -> {
+                            if (bmp == null || imgReady || !hashKey.equals(boundKey)) return;
+                            img.setImageDrawable(new android.graphics.drawable.BitmapDrawable(img.getResources(), bmp));
+                        });
+                    }
                 }
             } else {
-                boundKey = null;
+                boundKey = null; imgReady = false;
                 com.bumptech.glide.Glide.with(ctx).clear(img);
                 img.setImageDrawable(null);
                 img.setVisibility(View.GONE);
@@ -940,7 +997,7 @@ public class StatusSeenByBottomSheet {
         }
 
         void release() {
-            boundKey = null;
+            boundKey = null; imgReady = false;
             try { com.bumptech.glide.Glide.with(env.ctx).clear(img); } catch (Exception ignored) {}
         }
     }
@@ -1522,13 +1579,14 @@ public class StatusSeenByBottomSheet {
 
     /** One viewer row. Views built ONCE per holder. */
     private static final class RowVH extends RecyclerView.ViewHolder {
-        static final int RING_DP = 36, AVATAR_DP = 32;   // same as the reel comment rows (32dp avatar / 36dp ring)
+        static final int RING_DP = 36, AVATAR_DP = 29;   // v720: avatar = ring - 7dp (1.5dp ring stroke + 2dp gap each side)
         final Env env;
         final CircleImageView avatar;
         final ImageView ring, btnMsg, btnMore;
         final TextView tvName, tvMeta, tvReply, tvReact;
         final Drawable replyIcon;
         Row row;
+        String boundAvatarKey;   // photo#version currently shown in avatar (null = needs a load)
 
         RowVH(Env env) {
             super(new LinearLayout(env.ctx));
@@ -1638,7 +1696,13 @@ public class StatusSeenByBottomSheet {
             }
             if (r.reaction == null) tvReact.setVisibility(View.GONE);
             else { tvReact.setVisibility(View.VISIBLE); tvReact.setText(r.reaction); }
-            StatusSheetAvatar.load(env.ctx, avatar, r.photo, R.drawable.ic_person, StatusSheetAvatar.ROW_TIER);
+            // v717: same photo + same avatar version already in this holder (reaction/reply/name rebind) -> no URL work, no Glide request.
+            final long av = StatusSheetAvatar.versionOf(env.ctx, r.uid);
+            final String avKey = (r.photo == null || r.photo.isEmpty()) ? null : r.photo + "#" + av;
+            if (avKey == null || !avKey.equals(boundAvatarKey)) {
+                boundAvatarKey = avKey;
+                StatusSheetAvatar.load(env.ctx, avatar, r.photo, R.drawable.ic_person, StatusSheetAvatar.ROW_TIER, av);
+            }
             // Gradient = unseen story, gray = all seen, hidden = none; tap opens the story viewer.
             com.callx.app.utils.StoryRingApplier.applyWithClick(env.ctx, ring, r.uid, r.name);
             requestProfile(env, r.uid);      // lazy: only rows that are really bound fetch their profile
@@ -1671,6 +1735,7 @@ public class StatusSeenByBottomSheet {
         }
 
         void release() {
+            boundAvatarKey = null;
             try { com.bumptech.glide.Glide.with(env.ctx).clear(avatar); } catch (Exception ignored) {}
             ring.setOnClickListener(null);
             if (row != null) {

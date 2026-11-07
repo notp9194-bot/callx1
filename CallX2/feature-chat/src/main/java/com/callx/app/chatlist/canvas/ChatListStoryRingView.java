@@ -38,8 +38,8 @@ public class ChatListStoryRingView extends View {
     public static final int STATE_UNSEEN = 1;
     public static final int STATE_SEEN   = 2;
 
-    private static final float STROKE_DP = 3f;
-    private static final float INSET_DP  = 2f;
+    private static final float STROKE_DP = 1.5f;
+    private static final float INSET_DP  = 0.5f; // v721: stroke 3->1.5dp, inset 2->0.5dp keeps the same outer ring size / 2dp avatar gap
 
     private final Paint ringPaint   = new Paint(Paint.ANTI_ALIAS_FLAG); // SEEN flat stroke
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG); // UNSEEN blit

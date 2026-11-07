@@ -2,12 +2,12 @@
 <!--
     Gray ring for highlights the current viewer has already opened —
     Instagram-style seen state (see StatusHighlightManager.markHighlightSeen /
-    HighlightsRowAdapter.bindAlbum). Stroke width matches the 4dp used by
+    HighlightsRowAdapter.bindAlbum). Stroke width matches the 1.5dp used by
     StoryRingGradientDrawable / HighlightRingDrawable so the ring doesn't
     visibly change thickness when it flips from gradient to gray.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <stroke android:width="4dp" android:color="#CCCCCC"/>
+    <stroke android:width="1.5dp" android:color="#CCCCCC"/>
     <solid android:color="@android:color/transparent"/>
 </shape>

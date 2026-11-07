@@ -54,8 +54,8 @@
 
                     <ImageView
                         android:id="@+id/iv_remix_avatar"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
+                        android:layout_width="29dp"
+                        android:layout_height="29dp"
                         android:layout_gravity="center"
                         android:scaleType="centerCrop"
                         android:background="@drawable/bg_action_btn_circle"

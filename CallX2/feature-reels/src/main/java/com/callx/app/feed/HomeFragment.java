@@ -3636,7 +3636,7 @@ public class HomeFragment extends Fragment
         // (see StoryRingGradientDrawable's v43 FIX note).
         if (ivGradientRing != null) {
             ivGradientRing.setImageDrawable(
-                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.5f,
                             getResources().getDisplayMetrics().density));
         }
 
@@ -6208,7 +6208,7 @@ public class HomeFragment extends Fragment
             if (entry.hasUnseen) {
                 if (holder.ivGradientRing != null) {
                     holder.ivGradientRing.setImageDrawable(
-                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.5f,
                                     getResources().getDisplayMetrics().density));
                     holder.ivGradientRing.setVisibility(View.VISIBLE);
                 }
@@ -7261,7 +7261,7 @@ public class HomeFragment extends Fragment
                 if (state == 2) {
                     ivPostStoryRing.setImageDrawable(null);
                     ivPostStoryRing.setBackground(
-                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.8f,
+                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.5f,
                                     getResources().getDisplayMetrics().density));
                     ivPostStoryRing.setVisibility(View.VISIBLE);
                 } else if (state == 1) {

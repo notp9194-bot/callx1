@@ -60,13 +60,40 @@ public final class StatusSheetAvatar {
     }
 
     public static void load(Context ctx, ImageView iv, String photo, int placeholderRes, AvatarSizeTier tier) {
+        load(ctx, iv, photo, placeholderRes, tier, 0L);
+    }
+
+    /** v717: memo photo|tier|px|version -> CDN URL (buildResponsive is string/regex heavy and runs on every row bind). */
+    private static final android.util.LruCache<String, String> URL_MEMO = new android.util.LruCache<>(256);
+
+    public static String url(Context ctx, String photo, AvatarSizeTier tier, long avatarVersion) {
+        final String key = photo + "|" + tier.ordinal() + "|" + AvatarUrlBuilder.tierPx(ctx, tier) + "|" + avatarVersion;
+        String u = URL_MEMO.get(key);
+        if (u != null) return u;
+        u = avatarVersion > 0
+                ? AvatarUrlBuilder.buildResponsive(ctx, photo, tier, avatarVersion)
+                : AvatarUrlBuilder.buildResponsive(ctx, photo, tier);
+        if (u == null || u.isEmpty()) u = photo;
+        URL_MEMO.put(key, u);
+        return u;
+    }
+
+    /** Cached avatar version of a user (0 = unknown). Same source the Status tab cards use. */
+    public static long versionOf(Context ctx, String uid) {
+        if (uid == null) return 0L;
+        try { return com.callx.app.cache.AvatarVersionSyncManager.getInstance(ctx.getApplicationContext()).getCachedVersion(uid); }
+        catch (Exception e) { return 0L; }
+    }
+
+    /** Versioned load: a changed profile photo (new version) gets a new URL -> new cache key, never the stale cached image. */
+    public static void load(Context ctx, ImageView iv, String photo, int placeholderRes, AvatarSizeTier tier, long avatarVersion) {
         if (photo == null || photo.isEmpty()) {
             Glide.with(ctx).clear(iv);
             iv.setImageResource(placeholderRes);
             return;
         }
         Glide.with(ctx)
-                .load(AvatarUrlBuilder.buildResponsive(ctx, photo, tier))
+                .load(url(ctx, photo, tier, avatarVersion))
                 .apply(options(ctx, tier))
                 .placeholder(placeholderRes)
                 .into(iv);

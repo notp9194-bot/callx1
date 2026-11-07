@@ -24,8 +24,8 @@
             android:contentDescription="@null"/>
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_avatar"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="43dp"
+            android:layout_height="43dp"
             android:layout_gravity="center"
             android:src="@drawable/ic_person"/>
     </FrameLayout>

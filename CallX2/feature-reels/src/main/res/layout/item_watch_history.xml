@@ -99,8 +99,8 @@
 
                 <ImageView
                     android:id="@+id/iv_history_avatar"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
+                    android:layout_width="25dp"
+                    android:layout_height="25dp"
                     android:layout_gravity="center"
                     android:scaleType="centerCrop"
                     android:background="@drawable/bg_circle_action"

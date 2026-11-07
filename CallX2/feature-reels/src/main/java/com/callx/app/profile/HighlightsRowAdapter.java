@@ -395,12 +395,12 @@ public class HighlightsRowAdapter
                 int customColor = safeColor(album.ringColor, "#DD2A7B");
                 h.ringBg.setBackground(
                         com.callx.app.utils.HighlightRingDrawable.withStrokeDp(
-                                customColor, album.ringMode, 4f, density));
+                                customColor, album.ringMode, 1.5f, density));
             } else if (album.seenByViewer) {
                 h.ringBg.setBackground(ctx.getDrawable(R.drawable.bg_highlight_ring_seen));
             } else {
                 h.ringBg.setBackground(
-                        com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(4f, density));
+                        com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.5f, density));
             }
         } catch (Exception e) {
             h.ringBg.setBackgroundColor(Color.parseColor("#DD2A7B"));

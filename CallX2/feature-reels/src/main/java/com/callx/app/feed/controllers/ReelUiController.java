@@ -685,7 +685,7 @@ public class ReelUiController {
                     // resize in fragment_reel_player.xml (43.2dp ring,
                     // 36dp avatar, 1.8dp transparent gap between them —
                     // see that layout's comment for the full math).
-                    ringDrawable = com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.8f,
+                    ringDrawable = com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.5f,
                             fragmentView.getResources().getDisplayMetrics().density);
                     ivOwnerStoryRing.setTag(R.id.tag_story_ring_drawable, ringDrawable);
                 }

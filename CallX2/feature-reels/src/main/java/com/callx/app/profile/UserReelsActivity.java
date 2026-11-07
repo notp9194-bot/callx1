@@ -2146,7 +2146,7 @@ public class UserReelsActivity extends AppCompatActivity
                 .getInstance(this).hasUnseen(targetUid);
         if (unseen) {
             viewStoryRing.setBackground(
-                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.5f,
                             getResources().getDisplayMetrics().density));
         } else {
             viewStoryRing.setBackground(

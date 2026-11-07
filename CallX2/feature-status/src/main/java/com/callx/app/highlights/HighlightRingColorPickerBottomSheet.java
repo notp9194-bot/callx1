@@ -115,7 +115,7 @@ public class HighlightRingColorPickerBottomSheet {
         refreshPreview[0] = () -> previewRing.setBackground(
                 HighlightRingDrawable.withStrokeDp(selectedColor[0],
                         selectedDominant[0] ? HighlightRingDrawable.MODE_DOMINANT : HighlightRingDrawable.MODE_SOLID,
-                        4f, ctx.getResources().getDisplayMetrics().density));
+                        1.5f, ctx.getResources().getDisplayMetrics().density));
         refreshPreview[0].run();
 
         // ── Mode toggle ─────────────────────────────────────────────────

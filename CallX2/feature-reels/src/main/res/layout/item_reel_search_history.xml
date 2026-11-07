@@ -35,16 +35,16 @@
              pipeline reused from FollowConnectionsActivity's item_follow_user.xml. -->
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_avatar"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
+            android:layout_width="43dp"
+            android:layout_height="43dp"
             android:layout_gravity="center"
             android:src="@drawable/ic_person"/>
 
         <!-- TEXT row: muted circle backdrop -->
         <View
             android:id="@+id/iv_history_bg"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
+            android:layout_width="43dp"
+            android:layout_height="43dp"
             android:layout_gravity="center"
             android:background="@drawable/bg_search_history_icon_circle"
             android:visibility="gone"/>
