@@ -94,4 +94,30 @@
     </plurals>
     <string name="seenby_viewers_pill">Viewers</string>
     <string name="seenby_cd_open">%1$s. Double tap to see who viewed</string>
+    <plurals name="seenby_new_viewers">
+        <item quantity="one">↑ %1$d new viewer</item>
+        <item quantity="other">↑ %1$d new viewers</item>
+    </plurals>
+
+    <!-- v34: retry bar, search limit, chip counts, row accessibility -->
+    <string name="seenby_err_load_more">Couldn’t load more viewers · Tap to retry</string>
+    <string name="seenby_err_load_title">Couldn’t load viewers</string>
+    <string name="seenby_err_load_sub">Check your connection and try again.</string>
+    <string name="seenby_retry">Retry</string>
+    <string name="seenby_search_limit">Results are from the %1$d most recent viewers (of %2$d)</string>
+    <string name="seenby_chip_count_partial">%1$s %2$d+</string>
+    <string name="seenby_chip_count_loading">%1$s …</string>
+    <string name="seenby_cd_close_friend">Close friend</string>
+    <string name="seenby_cd_reacted">Reacted with %1$s</string>
+    <string name="seenby_cd_replied">Replied: %1$s</string>
+    <string name="seenby_cd_message_to">Message %1$s</string>
+    <string name="seenby_cd_more_for">More options for %1$s</string>
+    <string name="seenby_cd_story_of">View %1$s’s story</string>
+
+    <!-- v37: story swipe polish -->
+    <string name="seenby_story_counter">%1$d/%2$d</string>
+    <string name="seenby_cd_story_position">Story %1$d of %2$d</string>
+    <string name="seenby_action_next_story">Next story</string>
+    <string name="seenby_action_prev_story">Previous story</string>
+    <string name="seenby_swipe_hint">Swipe to switch stories</string>
 </resources>

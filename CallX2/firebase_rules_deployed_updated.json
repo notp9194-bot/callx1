@@ -2,12 +2,10 @@
   "rules": {
     ".read": "auth != null",
     ".write": "auth != null",
-
     "e2e_prekeys": {
       ".read": false,
       ".write": false
     },
-
     "e2e_rekey_requests": {
       "$targetUid": {
         ".read": "auth != null && auth.uid === $targetUid",
@@ -17,7 +15,6 @@
         }
       }
     },
-
     "groupSenderKeyRequests": {
       "$targetUid": {
         ".read": "auth != null && auth.uid === $targetUid",
@@ -29,37 +26,34 @@
         }
       }
     },
-
     "reelSeenDedup": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-
     "broadcast_lists": {
       "$ownerUid": {
-        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".read": "auth != null && auth.uid === $ownerUid",
         ".write": "auth != null && auth.uid === $ownerUid"
       }
     },
-
     "broadcast_messages": {
       "$ownerUid": {
-        ".read":  "auth != null && auth.uid === $ownerUid",
+        ".read": "auth != null && auth.uid === $ownerUid",
         ".write": "auth != null && auth.uid === $ownerUid"
       }
     },
-
     "deliveryPending": {
       "$msgId": {
         ".validate": "!newData.exists() || (newData.hasChildren(['chatId','toUid','ts']) && newData.child('chatId').val().contains(auth.uid))"
       }
     },
-
     "verification_requests": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
-      ".indexOn": ["status"],
+      ".indexOn": [
+        "status"
+      ],
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
         ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
@@ -68,14 +62,12 @@
         }
       }
     },
-
     "admins": {
       ".read": "auth != null",
       "$uid": {
         ".write": false
       }
     },
-
     "users": {
       "$uid": {
         "isVerified": {
@@ -95,7 +87,6 @@
         ".write": false
       }
     },
-
     "crash_reports": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$reportId": {
@@ -135,17 +126,19 @@
       ".read": false,
       ".write": false
     },
-
     "status": {
       "_comment": "Story comments (Instagram-style bottom-left overlay) were never reaching viewers: the blanket rule below used to let ONLY the status owner write anything under status/{ownerUid}, so when a viewer commented on someone else's story, the write to status/{ownerUid}/{statusId}/replies/{pushId} was silently rejected and never saved. seenBy/reactions/replies now each have their own override so a viewer can write their own row while the owner keeps full access to their own subtree via the ancestor rule.",
-      ".read":  "auth != null",
+      ".read": "auth != null",
       "$uid": {
         ".write": "auth != null && auth.uid === $uid",
         "$statusId": {
           "seenBy": {
             "$viewerUid": {
               ".write": "auth != null && auth.uid === $viewerUid"
-            }
+            },
+            ".indexOn": [
+              ".value"
+            ]
           },
           "reactions": {
             "$viewerUid": {
@@ -153,24 +146,30 @@
             }
           },
           "replies": {
-            ".indexOn": ["timestamp"],
+            ".indexOn": [
+              "timestamp"
+            ],
             "$replyId": {
               ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid)",
               ".validate": "newData.hasChildren(['uid','name','text','timestamp']) && newData.child('uid').val() === auth.uid"
             }
+          },
+          "viewCount": {
+            ".write": "auth != null && newData.isNumber() && newData.val() === (data.exists() ? data.val() : 0) + 1 && !data.parent().child('seenBy').child(auth.uid).exists() && newData.parent().child('seenBy').child(auth.uid).exists()",
+            ".validate": "newData.isNumber() && newData.val() >= 0"
           }
         }
       }
     },
     "statusSeen": {
       "$uid": {
-        ".read":  "auth != null && auth.uid === $uid",
+        ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
     "statusHighlights": {
       "$uid": {
-        ".read":  "auth != null",
+        ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
     }

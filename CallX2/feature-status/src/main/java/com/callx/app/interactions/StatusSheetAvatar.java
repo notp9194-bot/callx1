@@ -25,6 +25,9 @@ public final class StatusSheetAvatar {
      *  same URL + RequestOptions as ReelCommentAvatarBinder -> one shared Glide cache entry. */
     public static final AvatarSizeTier ROW_TIER = AvatarSizeTier.TINY;
 
+    /** v35: the Seen-by sheet rows use a 44dp avatar (52dp ring) -> SMALL (48dp). The viewer's bottom bar keeps ROW_TIER (small avatars). */
+    public static final AvatarSizeTier SHEET_ROW_TIER = AvatarSizeTier.SMALL;
+
     public static RequestOptions options(Context ctx) { return options(ctx, TIER); }
 
     public static RequestOptions options(Context ctx, AvatarSizeTier tier) {

@@ -1,0 +1,28 @@
+{
+  "rules": {
+    "status": {
+      "$uid": {
+        "$statusId": {
+          "seenBy": {
+            ".indexOn": [
+              ".value"
+            ],
+            "$viewerUid": {
+              ".write": "auth != null && auth.uid == $viewerUid && root.child('blocks').child($uid).child(auth.uid).val() != true"
+            }
+          },
+          "viewCount": {
+            ".write": "auth != null && newData.isNumber() && newData.val() === (data.exists() ? data.val() : 0) + 1 && !data.parent().child('seenBy').child(auth.uid).exists() && newData.parent().child('seenBy').child(auth.uid).exists()",
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "viewDurations": {
+            "$viewerUid": {
+              ".write": "auth != null && auth.uid == $viewerUid",
+              ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 86400000)"
+            }
+          }
+        }
+      }
+    }
+  }
+}

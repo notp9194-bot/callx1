@@ -252,7 +252,7 @@
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_avatar"
-                        android:layout_width="88dp" android:layout_height="88dp"
+                        android:layout_width="95dp" android:layout_height="95dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_person"
                         android:clickable="true" android:focusable="true"

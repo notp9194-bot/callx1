@@ -252,7 +252,7 @@ public class HighlightsRowAdapter
     private LinearLayout buildItemView(Context ctx) {
         int dp4  = dp(ctx, 4);
         int dp70 = dp(ctx, 70);
-        int dp62 = dp(ctx, 62);
+        int dp62 = dp(ctx, 63); // v722: ring 70 - 2*(1.5 stroke + 2 gap)
 
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -279,7 +279,7 @@ public class HighlightsRowAdapter
 
         // White gap separator (66dp oval)
         View ringGap = new View(ctx);
-        int dp66 = dp(ctx, 66);
+        int dp66 = dp(ctx, 67); // ring inner edge (70 - 2*1.5)
         FrameLayout.LayoutParams gapLp = new FrameLayout.LayoutParams(dp66, dp66);
         gapLp.gravity = Gravity.CENTER;
         ringGap.setLayoutParams(gapLp);

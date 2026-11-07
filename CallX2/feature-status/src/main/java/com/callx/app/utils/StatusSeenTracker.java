@@ -21,9 +21,7 @@ public final class StatusSeenTracker {
         // Optimistic local mark — every ring drawn app-wide (reels, chat,
         // comments, profile) picks this up on next bind, no Firebase wait.
         if (ctx != null) StorySeenState.markSeen(ctx, ownerUid, System.currentTimeMillis());
-        FirebaseUtils.getStatusRef()
-            .child(ownerUid).child(statusId).child("seenBy").child(myUid)
-            .setValue(ServerValue.TIMESTAMP);
+        FirebaseUtils.markStatusSeenCounted(ownerUid, statusId, myUid);   // seenBy + first-view viewCount, atomic
         FirebaseUtils.db().getReference("statusSeen")
             .child(myUid).child(ownerUid).child(statusId)
             .setValue(ServerValue.TIMESTAMP);
@@ -40,13 +38,9 @@ public final class StatusSeenTracker {
         String myUid = safeUid();
         if (myUid == null || myUid.equals(ownerUid)) return;
         if (ctx != null) StorySeenState.markSeen(ctx, ownerUid, System.currentTimeMillis());
-        Map<String, Object> updates = new HashMap<>();
-        for (String id : statusIds) {
-            if (id != null) {
-                updates.put(ownerUid + "/" + id + "/seenBy/" + myUid, ServerValue.TIMESTAMP);
-            }
+        for (String id : statusIds) {   // one atomic write per story, so one already-seen story never blocks another's count
+            if (id != null) FirebaseUtils.markStatusSeenCounted(ownerUid, id, myUid);
         }
-        if (!updates.isEmpty()) FirebaseUtils.getStatusRef().updateChildren(updates);
         String safeOwnerName = ownerName != null ? ownerName : "";
         String safeThumb     = statusThumbUrl != null ? statusThumbUrl : "";
         writeStatusSeenToChat(myUid, ownerUid, safeOwnerName, safeThumb);

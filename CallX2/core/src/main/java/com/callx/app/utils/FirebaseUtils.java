@@ -460,6 +460,30 @@ public class FirebaseUtils {
         return db().getReference("status").child(ownerUid);
     }
 
+    /** (owner/status) pairs whose first view was already counted by this process. */
+    private static final java.util.Set<String> STATUS_COUNTED =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+
+    /**
+     * Records a status view: seenBy/{me} = server time, and — only the first time — viewCount + 1 in the SAME atomic write.
+     * The rules accept the increment only when seenBy/{me} did not exist before, so a viewer can never be counted twice.
+     * If that combined write is rejected (already seen on another device / rules not deployed yet) it falls back to the plain
+     * seenBy write, so marking a status as seen never breaks because of the counter.
+     */
+    public static void markStatusSeenCounted(final String ownerUid, final String statusId, final String viewerUid) {
+        if (ownerUid == null || statusId == null || viewerUid == null) return;
+        final DatabaseReference seen = getStatusSeenByRef(ownerUid, statusId).child(viewerUid);
+        if (!STATUS_COUNTED.add(ownerUid + "/" + statusId)) {   // already attempted in this session -> just refresh the time
+            seen.setValue(com.google.firebase.database.ServerValue.TIMESTAMP);
+            return;
+        }
+        java.util.Map<String, Object> up = new java.util.HashMap<>();
+        up.put(ownerUid + "/" + statusId + "/seenBy/" + viewerUid, com.google.firebase.database.ServerValue.TIMESTAMP);
+        up.put(ownerUid + "/" + statusId + "/viewCount", com.google.firebase.database.ServerValue.increment(1));
+        getStatusRef().updateChildren(up).addOnFailureListener(e ->
+                seen.setValue(com.google.firebase.database.ServerValue.TIMESTAMP));
+    }
+
     public static DatabaseReference getStatusSeenByRef(String ownerUid, String statusId) {
         return db().getReference("status").child(ownerUid).child(statusId).child("seenBy");
     }

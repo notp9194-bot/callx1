@@ -1157,12 +1157,13 @@ import com.callx.app.utils.AlertDialogStyler;
                   final boolean own = isOwnStatus() && !isHighlightMode;
                   boolean seenChanged = false;
                   final HashMap<String, StatusItem> fresh = own ? new HashMap<>() : null;
+                  final HashMap<String, Integer> counters = own ? new HashMap<>() : null;   // v34: viewCount per story
                   for (DataSnapshot c : snap.getChildren()) {
                       try {
                           StatusItem si = c.getValue(StatusItem.class);
                           if (si != null && !isDead(si, now) && si.id != null) {
                               alive.add(si.id);
-                              if (own) fresh.put(si.id, si);
+                              if (own) { fresh.put(si.id, si); counters.put(si.id, readViewCount(c)); }
                           }
                       } catch (Exception ignored) {}
                   }
@@ -1176,6 +1177,12 @@ import com.callx.app.utils.AlertDialogStyler;
                                   || !java.util.Objects.equals(it.reactions, si.reactions)
                                   || (it.replies == null ? 0 : it.replies.size()) != (si.replies == null ? 0 : si.replies.size()))) seenChanged = true;
                           it.seenBy = si.seenBy; it.reactions = si.reactions; it.replies = si.replies;
+                      }
+                      if (own) {   // v34 (#8): the server counter drives the bar total exactly like the sheet's title
+                          for (java.util.Map.Entry<String, Integer> ce : counters.entrySet()) {
+                              Integer old = seenCounters.put(ce.getKey(), ce.getValue());
+                              if (cur != null && ce.getKey().equals(cur.id) && !java.util.Objects.equals(old, ce.getValue())) seenChanged = true;
+                          }
                       }
                       if (seenChanged && cur != null) updateSeenByInfo(cur);
                   }
@@ -4664,6 +4671,18 @@ import com.callx.app.utils.AlertDialogStyler;
       private boolean seenBySheetOpen;
       /** Viewers the owner blocked from the sheet (kept for the whole viewer session) — the bar excludes them like the sheet does. */
       private final Set<String> sheetRemoved = new HashSet<>();
+      /** statusId -> server viewCount (0 = unknown). Same node the sheet listens to, so bar and sheet share one total. */
+      private final HashMap<String, Integer> seenCounters = new HashMap<>();
+      private int counterOf(StatusItem s) {
+          Integer c = s != null && s.id != null ? seenCounters.get(s.id) : null;
+          return c != null ? c : 0;
+      }
+      private static int readViewCount(DataSnapshot c) {
+          try {
+              Long v = c.child("viewCount").getValue(Long.class);
+              return v == null ? 0 : (int) Math.min(Math.max(v, 0L), Integer.MAX_VALUE);
+          } catch (Exception e) { return 0; }
+      }
       /** Owner only: pauses the story and opens the viewers sheet for the current status; story resumes on dismiss. */
       private void openSeenBySheet() {
           if (seenBySheetOpen || isFinishing() || isDestroyed() || !isOwnStatus()) return;
@@ -5394,13 +5413,14 @@ import com.callx.app.utils.AlertDialogStyler;
               seedViewerPhotosFromRoom();
               loadBlockedOnce();
               final Set<String> viewers = StatusSeenByBottomSheet.viewerUids(s, sheetRemoved);
+              final int total = StatusSeenByBottomSheet.totalViewers(s, sheetRemoved, counterOf(s));   // v34: same rule as the sheet title
               binding.llSeenBy.setVisibility(View.VISIBLE);
               // 0 viewers: no empty avatar slot, just "No viewers yet" (the pill stays)
-              final String label = viewers.isEmpty() ? getString(R.string.seenby_empty_none_title)
-                      : getString(R.string.seenby_title, viewers.size());
+              final String label = total == 0 ? getString(R.string.seenby_empty_none_title)
+                      : getString(R.string.seenby_title, total);
               binding.tvSeenBy.setText(label);
-              binding.llSeenBy.setContentDescription(getString(R.string.seenby_cd_open, viewers.isEmpty() ? label
-                      : getResources().getQuantityString(R.plurals.seenby_viewers, viewers.size(), viewers.size())));
+              binding.llSeenBy.setContentDescription(getString(R.string.seenby_cd_open, total == 0 ? label
+                      : getResources().getQuantityString(R.plurals.seenby_viewers, total, total)));
               binding.llSeenBy.setOnClickListener(v -> openSeenBySheet());
               binding.llViewersPill.setOnClickListener(v -> openSeenBySheet());
               binding.llSeenBy.setOnTouchListener(seenBySwipeUp());   // swipe up ON the bar opens the sheet too

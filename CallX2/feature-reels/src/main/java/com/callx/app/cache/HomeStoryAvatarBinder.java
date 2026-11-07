@@ -91,8 +91,8 @@ public final class HomeStoryAvatarBinder {
 
     private HomeStoryAvatarBinder() {}
 
-    /** item_home_story.xml's iv_story_avatar is a fixed 78dp circle; rounds up to shared LARGE(96) tier. */
-    public static final AvatarSizeTier TIER = AvatarSizeTier.forViewSizeDp(78);
+    /** item_home_story.xml's iv_story_avatar is a fixed 81dp circle; rounds up to shared LARGE(96) tier. */
+    public static final AvatarSizeTier TIER = AvatarSizeTier.forViewSizeDp(81);
     /** Tiny blur-up tier chained via .thumbnail() — same tier every other binder's blur-up frame uses. */
     private static final AvatarSizeTier THUMBNAIL_TIER = AvatarSizeTier.TINY;
 

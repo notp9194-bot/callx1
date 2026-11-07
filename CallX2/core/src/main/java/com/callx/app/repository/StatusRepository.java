@@ -228,8 +228,7 @@ public class StatusRepository {
         FirebaseUtils.getStatusSeenRef(viewerUid)
             .child(ownerUid).child(statusId).setValue(true);
         // seenBy on the status itself
-        FirebaseUtils.getStatusSeenByRef(ownerUid, statusId)
-            .child(viewerUid).setValue(System.currentTimeMillis());
+        FirebaseUtils.markStatusSeenCounted(ownerUid, statusId, viewerUid);   // server time (rules require <= now) + counter
     }
 
     public void addReaction(String reactorUid, String ownerUid, String statusId, String emoji) {
