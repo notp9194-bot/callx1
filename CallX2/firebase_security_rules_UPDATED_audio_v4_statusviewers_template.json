@@ -1282,7 +1282,6 @@
       }
     },
     "statusTemplateUses": {
-      "_comment": "v742: statusTemplateUses/{templateOwnerUid}/{statusId}/{userUid} = server timestamp, written once by the user who made a status from that template (drives 'N used'). Only a live template (has templateJson, not deleted) can be used, never by its owner, never by someone the owner blocked, and a row can't be rewritten. The owner may wipe the whole counter (status deleted).",
       "$ownerUid": {
         "$statusId": {
           ".read": "auth != null",
