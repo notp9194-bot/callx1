@@ -73,7 +73,10 @@ public class StatusScheduledActivity extends AppCompatActivity {
         private final List<StatusEntity> list = new ArrayList<>();
 
         void setItems(List<StatusEntity> items) {
-            list.clear(); list.addAll(items); notifyDataSetChanged();
+            final List<StatusEntity> before = new ArrayList<>(list);
+            list.clear(); list.addAll(items);
+            com.callx.app.utils.AdapterDiff.dispatch(this, before, list, e -> e.id,
+                    e -> e.id + "|" + e.type + "|" + e.text + "|" + e.mediaUrl + "|" + e.scheduledAt);
         }
 
         @NonNull @Override

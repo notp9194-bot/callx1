@@ -911,6 +911,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   StatusSeenTracker.recordViewDuration(ownerUid, cur.id,
                           System.currentTimeMillis() - viewStartTime);
           }
+          StatusSeenTracker.flushViewDurations(); // last item's duration is queued above -> send the whole batch now
           super.onDestroy();
       }
       // ── Load ──────────────────────────────────────────────────────────────

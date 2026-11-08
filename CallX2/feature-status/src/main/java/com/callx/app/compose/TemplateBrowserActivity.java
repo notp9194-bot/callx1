@@ -284,6 +284,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
 
     private void rebuild() {
         if (isFinishing() || isDestroyed()) return;
+        final List<Row> shownBefore = new ArrayList<>(shown);
         shown.clear();
         final Iterable<Row> src = tab == TAB_DISCOVER ? discover.values() : saved.values();
         for (Row r : src) {
@@ -299,7 +300,9 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         } else {
             Collections.sort(shown, (a, b) -> Long.compare(b.savedTs, a.savedTs)); // last saved first
         }
-        adapter.notifyDataSetChanged();
+        com.callx.app.utils.AdapterDiff.dispatch(adapter, shownBefore, shown,
+                r -> r.originUid + "/" + r.originId,
+                r -> r.uses + "|" + r.blocked + "|" + r.savedTs + "|" + r.ts + "|" + r.originName + "|" + r.tplJson);
         empty.setText(tab == TAB_DISCOVER
                 ? "Abhi koi template nahi.\nJab koi apni status ko template banayega, yahan dikhega."
                 : "Abhi koi template save nahi.\nKisi card par \u2661 dabao, yahan aa jayega.");

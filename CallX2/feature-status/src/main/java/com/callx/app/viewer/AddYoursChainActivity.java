@@ -657,7 +657,7 @@ public class AddYoursChainActivity extends AppCompatActivity {
             if (!e.thumb.isEmpty()) {
                 h.text.setVisibility(View.GONE);
                 h.tile.setBackgroundColor(color(R.color.add_yours_tile_bg));
-                Glide.with(h.img).load(e.thumb).centerCrop().into(h.img);
+                Glide.with(h.img).load(e.thumb).centerCrop().override(360, 640).into(h.img); // 3-col 9:16 tile: never decode full-size
             } else { // text status (or no thumbnail): coloured tile with the first words
                 Glide.with(h.img).clear(h.img);
                 h.img.setImageDrawable(null);

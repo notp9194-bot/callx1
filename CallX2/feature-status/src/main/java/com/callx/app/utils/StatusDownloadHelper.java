@@ -64,7 +64,7 @@ public final class StatusDownloadHelper {
             toast(ctx, "Storage permission required"); return;
         }
         toast(ctx, "Downloading…");
-        Executors.newSingleThreadExecutor().execute(() -> {
+        com.callx.app.utils.StatusBg.IO.execute(() -> {
             try {
                 URL url = new URL(urlStr);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();

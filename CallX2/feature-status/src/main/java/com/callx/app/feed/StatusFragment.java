@@ -85,6 +85,9 @@ public class StatusFragment extends BaseFragment {
     private final Map<String, ValueEventListener> statusListeners = new HashMap<>();
     private final Set<String> pendingFirst = new HashSet<>();        // watched uids whose first snapshot hasn't landed yet
     private final Set<String> firstValueDelivered = new HashSet<>(); // uids whose live (Firebase) snapshot has landed
+    // v757: the server-built feed (StatusFeedHub) says which contacts have a live status; only those get a status/{uid} listener.
+    private final Set<String> statusContactUids = new HashSet<>();
+    private StatusFeedHub.Listener statusFeedListener;
     private volatile int statusListenerGen = 0;                               // invalidates in-flight background parses on detach
     // v554: one shared worker for snapshot parse + Room I/O (was: new thread per call, never shut down).
     private static final java.util.concurrent.ExecutorService STATUS_IO =
@@ -101,6 +104,28 @@ public class StatusFragment extends BaseFragment {
     private boolean hasBuilt;
 
     private com.callx.app.cache.StatusMediaPreloader mediaPreloader;
+    // App-wide preloader: its dedupe maps + per-session full-video quota must survive tab open/close,
+    // otherwise every open re-queues the same media from scratch.
+    private static volatile com.callx.app.cache.StatusMediaPreloader sPreloader;
+    private static com.callx.app.cache.StatusMediaPreloader sharedPreloader(android.content.Context c) {
+        com.callx.app.cache.StatusMediaPreloader p = sPreloader;
+        if (p == null) {
+            synchronized (StatusFragment.class) {
+                p = sPreloader;
+                if (p == null) { p = new com.callx.app.cache.StatusMediaPreloader(c.getApplicationContext()); sPreloader = p; }
+            }
+        }
+        return p;
+    }
+    // Housekeeping (expired-video sweep + worker schedule) is process-wide, not per tab open.
+    private static long sLastHousekeepMs = 0L;
+    private static final long HOUSEKEEP_EVERY_MS = 10 * 60_000L;
+    // Re-open policy: listeners stay attached for a grace period after onStop, and a reload is skipped while data is fresh.
+    private static final long DETACH_GRACE_MS = 30_000L;
+    private static final long FRESH_MS = 45_000L;
+    private long lastLoadAtMs = 0L;
+    private long lastChannelRefreshMs = 0L;
+    private final Runnable detachRunnable = () -> { if (isAuthenticated()) removeListeners(); };
     private long lastPreloadSig = 0L;                                        // see rebuildStatusAdapterNow()
     private com.callx.app.cache.StatusMediaPreloader preloadedBy;           // preloader instance the last sig was run on
     private EditText etSearch;
@@ -110,6 +135,14 @@ public class StatusFragment extends BaseFragment {
     // ── Lifecycle ─────────────────────────────────────────────────────────
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
+                             @Nullable ViewGroup parent,
+                             @Nullable Bundle savedInstanceState) {
+        com.callx.app.utils.StatusPerf.begin("StatusTab#create");
+        try { return onCreateViewImpl(inflater, parent, savedInstanceState); }
+        finally { com.callx.app.utils.StatusPerf.end(); }
+    }
+
+    private View onCreateViewImpl(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup parent,
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_status, parent, false);
@@ -349,21 +382,42 @@ public class StatusFragment extends BaseFragment {
 
     @Override public void onStart() {
         super.onStart();
+        com.callx.app.utils.StatusPerf.begin("StatusTab#start");
+        try { onStartImpl(); } finally { com.callx.app.utils.StatusPerf.end(); }
+    }
+
+    private void onStartImpl() {
+        final long nowMs = android.os.SystemClock.elapsedRealtime();
+        statusExpirySweepHandler.removeCallbacks(detachRunnable);   // coming back inside the grace period keeps the live listeners
         if (mediaPreloader == null && getContext() != null)
-            mediaPreloader = new com.callx.app.cache.StatusMediaPreloader(requireContext());
-        if (getContext() != null) {
+            mediaPreloader = sharedPreloader(requireContext());
+        if (getContext() != null && nowMs - sLastHousekeepMs > HOUSEKEEP_EVERY_MS) {
+            sLastHousekeepMs = nowMs;
             com.callx.app.cache.StatusMediaManifest.sweepAsync(requireContext());          // expired status videos leave the player cache
             com.callx.app.services.StatusMediaPrefetchWorker.schedule(requireContext());   // hourly Wi-Fi background pre-download
         }
 
-        // Channels: trigger Firebase → Room sync via ViewModel
-        channelViewModel.refresh();
+        // Channels: trigger Firebase → Room sync via ViewModel (throttled, not on every tab open)
+        if (nowMs - lastChannelRefreshMs > FRESH_MS) {
+            lastChannelRefreshMs = nowMs;
+            channelViewModel.refresh();
+        }
 
         // Status: legacy listeners (will move to StatusViewModel in next sprint)
         if (restoredFromState) { restoredFromState = false; rebuildStatusAdapterNow(); }   // v731: first frame = last known cards
-        seedFromStatusCache();
-        loadFromRoom();
-        loadStatuses();
+        final boolean listenersLive = !statusListeners.isEmpty() && seenListener != null;
+        if (listenersLive) {
+            // Realtime listeners never stopped (grace period) -> maps are current. Just refresh time labels.
+            rebuildStatusAdapter();
+        } else {
+            // Only seed from cache/Room when there is nothing in memory yet.
+            if (statusMap.isEmpty() && myStatuses.isEmpty()) {
+                seedFromStatusCache();
+                loadFromRoom();
+            }
+            lastLoadAtMs = nowMs;
+            loadStatuses();
+        }
         // v50 FIX: loadHighlights() intentionally not called — Highlights strip
         // removed from Status tab (see note in onCreateView above).
 
@@ -381,14 +435,23 @@ public class StatusFragment extends BaseFragment {
     @Override public void onStop() {
         if (statusAdapter != null && isAuthenticated())
             StatusTabState.save(myUid(), statusMap, myStatuses, seenMap, blockedUids, statusAdapter.captureCarouselScroll());
-        removeListeners();
+        // Keep realtime listeners for a short grace period (quick tab switches reuse them); onDestroy detaches for good.
+        statusExpirySweepHandler.removeCallbacks(detachRunnable);
+        statusExpirySweepHandler.postDelayed(detachRunnable, DETACH_GRACE_MS);
         statusExpirySweepHandler.removeCallbacks(statusExpirySweepRunnable);
         rebuildHandler.removeCallbacks(rebuildRunnable);
         if (getContext() != null)
             com.callx.app.cache.StatusCacheManager
                 .getInstance(getContext()).removeObserver(statusCacheObserver);
-        if (mediaPreloader != null) { mediaPreloader.shutdown(); mediaPreloader = null; }
+        // mediaPreloader is the app-wide singleton: never shut down here (would reset its dedupe state every tab close).
         super.onStop();
+    }
+
+    @Override public void onDestroy() {
+        statusExpirySweepHandler.removeCallbacks(detachRunnable);
+        if (isAuthenticated()) removeListeners();
+        mediaPreloader = null;
+        super.onDestroy();
     }
 
     // ── Channel adapter callbacks ─────────────────────────────────────────
@@ -527,11 +590,11 @@ public class StatusFragment extends BaseFragment {
         FirebaseUtils.getContactsRef(myUid()).addListenerForSingleValueEvent(
             new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    Set<String> watched = new HashSet<>();
-                    watched.add(myUid());
+                    statusContactUids.clear();
                     for (DataSnapshot c : snap.getChildren())
-                        if (c.getKey() != null) watched.add(c.getKey());
-                    attachStatusListener(watched);
+                        if (c.getKey() != null) statusContactUids.add(c.getKey());
+                    ensureFeedListener();
+                    applyWatchedSet();
                     attachSeenListener();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -562,22 +625,86 @@ public class StatusFragment extends BaseFragment {
             if (!uid.equals(me) && blockedUids.contains(uid)) continue;
             pendingFirst.add(uid);
         }
-        for (String uid : new ArrayList<>(pendingFirst)) {
-            ValueEventListener l = new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    STATUS_IO.execute(() -> {
-                        if (gen != statusListenerGen) return;
-                        final List<StatusItem> items2 = parseUserStatuses(snap);
-                        rebuildHandler.post(() -> applyUserStatuses(gen, uid, items2));
-                    });
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    rebuildHandler.post(() -> applyUserStatuses(gen, uid, Collections.emptyList()));
-                }
-            };
-            statusListeners.put(uid, l);
-            FirebaseUtils.getStatusRef().child(uid).addValueEventListener(l);
+        for (String uid : new ArrayList<>(pendingFirst)) attachOneStatusListener(gen, uid);
+    }
+
+    /** One status/{uid} listener: parse on STATUS_IO, apply the per-uid result on the main thread. */
+    private void attachOneStatusListener(final int gen, final String uid) {
+        ValueEventListener l = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                STATUS_IO.execute(() -> {
+                    if (gen != statusListenerGen) return;
+                    final List<StatusItem> items2 = parseUserStatuses(snap);
+                    rebuildHandler.post(() -> applyUserStatuses(gen, uid, items2));
+                });
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                rebuildHandler.post(() -> applyUserStatuses(gen, uid, Collections.emptyList()));
+            }
+        };
+        statusListeners.put(uid, l);
+        FirebaseUtils.getStatusRef().child(uid).addValueEventListener(l);
+    }
+
+    private void ensureFeedListener() {
+        if (statusFeedListener != null) return;
+        statusFeedListener = (feedState, feedOwners) -> {
+            if (getContext() == null) return;
+            applyWatchedSet();
+        };
+        StatusFeedHub.attach(myUid(), statusFeedListener);
+    }
+
+    /**
+     * v757: me + (feed owners | all contacts when the feed is unavailable). While the feed is still
+     * PENDING only my own listener is added (no pruning), so cached cards never flicker out.
+     */
+    private void applyWatchedSet() {
+        final String me = myUid();
+        if (me == null || getContext() == null) return;
+        final StatusFeedHub.State st = StatusFeedHub.state();
+        final Set<String> watched = new HashSet<>();
+        watched.add(me);
+        if (st == StatusFeedHub.State.READY) {
+            for (String u : StatusFeedHub.owners().keySet())
+                if (statusContactUids.contains(u)) watched.add(u);
+        } else if (st == StatusFeedHub.State.UNAVAILABLE) {
+            watched.addAll(statusContactUids);
         }
+        if (statusListeners.isEmpty() && st != StatusFeedHub.State.PENDING) {
+            attachStatusListener(watched); // first resolved attach = the original full path
+            return;
+        }
+        syncWatchedIncremental(watched, st != StatusFeedHub.State.PENDING);
+    }
+
+    /** Adds listeners for newly watched uids and (when prune) drops the ones that left the set. */
+    private void syncWatchedIncremental(Set<String> watched, boolean prune) {
+        final int gen = statusListenerGen;
+        final String me = myUid();
+        boolean changed = false;
+        if (prune) {
+            for (Iterator<Map.Entry<String, ValueEventListener>> it = statusListeners.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<String, ValueEventListener> e = it.next();
+                if (watched.contains(e.getKey())) continue;
+                FirebaseUtils.getStatusRef().child(e.getKey()).removeEventListener(e.getValue());
+                it.remove();
+                pendingFirst.remove(e.getKey());
+                firstValueDelivered.remove(e.getKey());
+                changed = true;
+            }
+            for (Iterator<String> it = statusMap.keySet().iterator(); it.hasNext(); ) {
+                String u = it.next();
+                if (!watched.contains(u) || blockedUids.contains(u)) { it.remove(); changed = true; }
+            }
+        }
+        for (String uid : watched) {
+            if (uid == null || uid.isEmpty() || statusListeners.containsKey(uid)) continue;
+            if (!uid.equals(me) && blockedUids.contains(uid)) continue;
+            pendingFirst.add(uid);
+            attachOneStatusListener(gen, uid);
+        }
+        if (changed) rebuildStatusAdapter();
     }
 
     /** Background thread: DataSnapshot -> filtered, time-sorted items of one user. */
@@ -624,6 +751,10 @@ public class StatusFragment extends BaseFragment {
     }
 
     private void attachSeenListener() {
+        if (seenListener != null) {   // pull-to-refresh re-runs this: never leave the previous listener attached
+            FirebaseUtils.db().getReference("statusSeen").child(myUid()).removeEventListener(seenListener);
+            seenListener = null;
+        }
         seenListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 seenMap.clear();
@@ -704,6 +835,10 @@ public class StatusFragment extends BaseFragment {
     }
 
     private void removeListeners() {
+        if (statusFeedListener != null) {
+            StatusFeedHub.detach(statusFeedListener);
+            statusFeedListener = null;
+        }
         detachStatusListeners();
         if (seenListener != null) {
             FirebaseUtils.db().getReference("statusSeen").child(myUid())
@@ -780,6 +915,11 @@ public class StatusFragment extends BaseFragment {
 
     /** Immediate rebuild — first paint (cache/Room seed), search typing and direct user actions (hide/mute/close-friend). */
     private void rebuildStatusAdapterNow() {
+        com.callx.app.utils.StatusPerf.begin("StatusTab#rebuild");
+        try { rebuildStatusAdapterNowImpl(); } finally { com.callx.app.utils.StatusPerf.end(); }
+    }
+
+    private void rebuildStatusAdapterNowImpl() {
         rebuildHandler.removeCallbacks(rebuildRunnable);
         if (getContext() == null) return;
         Set<String> mutedSet  = StatusMuteManager.getMutedSet(getContext());

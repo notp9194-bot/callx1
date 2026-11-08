@@ -76,12 +76,14 @@ public class StatusArchiveActivity extends AppCompatActivity {
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     progress.setVisibility(View.GONE);
+                    final java.util.List<StatusItem> before = new ArrayList<>(items);
                     items.clear();
                     for (DataSnapshot c : snap.getChildren()) {
                         StatusItem item = c.getValue(StatusItem.class);
                         if (item != null) items.add(0, item); // newest first
                     }
-                    adapter.notifyDataSetChanged();
+                    com.callx.app.utils.AdapterDiff.dispatch(adapter, before, items,
+                            it -> it.id, it -> it.id + "|" + it.mediaUrl + "|" + it.thumbnailUrl + "|" + it.timestamp);
                     tvEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {

@@ -2662,3 +2662,44 @@ HPLcom/callx/app/conversation/MessagePagingAdapter;->raisePoolMax(Landroidx/recy
 HSPLcom/callx/app/conversation/BubbleBitmapPipeline;->decodeBlocking(Ljava/io/File;II)Landroid/graphics/Bitmap;
 HSPLcom/callx/app/conversation/BubbleBitmapPipeline;->decodeBlockingImpl(Ljava/io/File;II)Landroid/graphics/Bitmap;
 Lcom/callx/app/conversation/canvas/SpinnerClock;
+
+# ══════════════════════════════════════════════════════════════════════
+#  v756 — Status open / compose / post hot path (hand-maintained)
+#  Tab open: StatusFragment lifecycle + shared preloader + tab-state cache.
+#  Compose/post: NewStatusActivity render + BG pool + layer building.
+# ══════════════════════════════════════════════════════════════════════
+HSPLcom/callx/app/feed/StatusFragment;->*(**)**
+HSPLcom/callx/app/feed/StatusFragment$*;->*(**)**
+HSPLcom/callx/app/feed/StatusTabState;->*(**)**
+HSPLcom/callx/app/feed/StatusListAdapter;->*(**)**
+HSPLcom/callx/app/cache/StatusMediaPreloader;->*(**)**
+HSPLcom/callx/app/cache/StatusCacheController;->*(**)**
+HSPLcom/callx/app/cache/StatusMediaManifest;->*(**)**
+HSPLcom/callx/app/cache/StatusCacheManager;->*(**)**
+HSPLcom/callx/app/utils/StatusBg;->*(**)**
+HSPLcom/callx/app/utils/StatusPerf;->*(**)**
+HSPLcom/callx/app/utils/StatusSeenTracker;->*(**)**
+HSPLcom/callx/app/compose/NewStatusActivity;->onCreate(**)V
+HSPLcom/callx/app/compose/NewStatusActivity;->renderStoryCanvas(**)Landroid/graphics/Bitmap;
+HSPLcom/callx/app/compose/NewStatusActivity;->hideForSnapshot(**)V
+HSPLcom/callx/app/compose/NewStatusActivity;->prepareAndUploadEditedPhoto(**)V
+HSPLcom/callx/app/compose/NewStatusActivity;->attachPhotoLayer(**)V
+HSPLcom/callx/app/compose/NewStatusActivity;->roundedLayerBitmap(**)Landroid/graphics/Bitmap;
+HSPLcom/callx/app/compose/NewStatusActivity;->uploadAndSave(**)V
+HSPLcom/callx/app/compose/NewStatusActivity;->compressAndUploadImage(**)V
+HSPLcom/callx/app/compose/StatusThumbHashHelper;->*(**)**
+HSPLcom/callx/app/compose/StatusLayoutComposer;->*(**)**
+HSPLcom/callx/app/compose/TemplateActions;->*(**)**
+HSPLcom/callx/app/compose/TemplateBoxStyle;->*(**)**
+Lcom/callx/app/feed/StatusFragment;
+Lcom/callx/app/feed/StatusTabState;
+Lcom/callx/app/utils/StatusBg;
+Lcom/callx/app/utils/StatusPerf;
+Lcom/callx/app/compose/NewStatusActivity;
+Lcom/callx/app/compose/TemplateActions;
+HSPLcom/callx/app/utils/StatusFeedHub;->*(**)**
+HSPLcom/callx/app/utils/StatusFeedHub$Entry;-><init>()V
+Lcom/callx/app/utils/StatusFeedHub;
+Lcom/callx/app/utils/StatusFeedHub$Entry;
+Lcom/callx/app/utils/StatusFeedHub$State;
+Lcom/callx/app/utils/StatusFeedHub$Listener;

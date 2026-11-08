@@ -99,7 +99,7 @@ public class TemplateUsesActivity extends AppCompatActivity {
                         Collections.sort(rows, (x, y) -> Long.compare(y.ts, x.ts));
                         title.setText(rows.isEmpty() ? "Template use" : rows.size() + " logon ne use kiya");
                         empty.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
-                        adapter.notifyDataSetChanged();
+                        adapter.notifyItemRangeInserted(0, rows.size());   // rows was empty before this one-shot fill
                         for (int i = 0; i < rows.size(); i++) resolve(i);
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) { empty.setVisibility(View.VISIBLE); }

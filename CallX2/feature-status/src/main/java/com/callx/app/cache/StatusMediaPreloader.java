@@ -65,7 +65,12 @@ public class StatusMediaPreloader {
     private final ConcurrentHashMap<String, Future<?>> mActiveTasks = new ConcurrentHashMap<>();
     public StatusMediaPreloader(Context context) {
         mContext   = context.getApplicationContext();
-        mExecutor  = Executors.newFixedThreadPool(2); // 2 background threads — enough
+        final java.util.concurrent.ThreadPoolExecutor ex = new java.util.concurrent.ThreadPoolExecutor(
+                2, 2, 30L, java.util.concurrent.TimeUnit.SECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>(),
+                r -> { Thread t = new Thread(r, "status-preload"); t.setDaemon(true); return t; });
+        ex.allowCoreThreadTimeOut(true); // app-wide singleton now (StatusFragment) -> idle threads must not linger
+        mExecutor  = ex;
         mImageOptions = new RequestOptions()
             .diskCacheStrategy(DiskCacheStrategy.ALL)
             .centerCrop();

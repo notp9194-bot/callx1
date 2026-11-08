@@ -59,9 +59,23 @@ public final class StatusSeenTracker {
         if (ownerUid == null || statusId == null || durationMs < 200) return;
         String myUid = safeUid();
         if (myUid == null || myUid.equals(ownerUid)) return;
-        FirebaseUtils.getStatusRef()
-            .child(ownerUid).child(statusId).child("viewDurations").child(myUid)
-            .setValue(durationMs);
+        // Batched: a viewer swiping through 10 stories used to fire 10 separate writes. Collect and flush
+        // as ONE multi-path updateChildren after a short quiet period (or when the viewer closes).
+        PENDING_DURATIONS.put(ownerUid + "/" + statusId + "/viewDurations/" + myUid, durationMs);
+        FLUSH_HANDLER.removeCallbacks(FLUSH_RUNNABLE);
+        FLUSH_HANDLER.postDelayed(FLUSH_RUNNABLE, 3000L);
+    }
+    private static final java.util.concurrent.ConcurrentHashMap<String, Object> PENDING_DURATIONS =
+        new java.util.concurrent.ConcurrentHashMap<>();
+    private static final android.os.Handler FLUSH_HANDLER = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final Runnable FLUSH_RUNNABLE = StatusSeenTracker::flushViewDurations;
+    /** Writes all queued view durations in a single request. Safe to call any time (also from onDestroy). */
+    public static void flushViewDurations() {
+        FLUSH_HANDLER.removeCallbacks(FLUSH_RUNNABLE);
+        if (PENDING_DURATIONS.isEmpty()) return;
+        final java.util.HashMap<String, Object> batch = new java.util.HashMap<>(PENDING_DURATIONS);
+        PENDING_DURATIONS.keySet().removeAll(batch.keySet());
+        try { FirebaseUtils.getStatusRef().updateChildren(batch); } catch (Exception ignored) {}
     }
     // ── Reactions ─────────────────────────────────────────────────────────
     /**

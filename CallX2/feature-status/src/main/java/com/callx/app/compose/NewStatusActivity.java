@@ -294,14 +294,14 @@ public class NewStatusActivity extends AppCompatActivity {
      *  Age-based (>24h) so an in-progress draft's files are untouched; runs off the main thread. */
     private void purgeStaleEditTemps() {
         final java.io.File cache = getCacheDir();
-        new Thread(() -> {
+        com.callx.app.utils.StatusBg.IO.execute(() -> {
             final long cutoff = System.currentTimeMillis() - 24L * 3_600_000L;
             for (String dir : new String[]{"media_crop", "media_edit_out"}) {
                 java.io.File[] fs = new java.io.File(cache, dir).listFiles();
                 if (fs == null) continue;
                 for (java.io.File f : fs) { try { if (f.isFile() && f.lastModified() < cutoff) f.delete(); } catch (Exception ignored) {} }
             }
-        }, "status-temp-purge").start();
+        });
     }
 
     @Override
@@ -425,7 +425,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
                     setPosting(true);
                     setHint("Creating layout…");
-                    new Thread(() -> {
+                    com.callx.app.utils.StatusBg.IO.execute(() -> {
                         try {
                             java.io.File composed = StatusLayoutComposer.compose(
                                     this, uris, layoutStyle, scales, panXs, panYs);
@@ -441,7 +441,7 @@ public class NewStatusActivity extends AppCompatActivity {
                                 toast("Failed to build layout: " + e.getMessage());
                             });
                         }
-                    }).start();
+                    });
                 });
         // v237: MediaEditActivity result for the single flattened layout
         // collage — see openLayoutEditor(). Always exactly one URI in/out,
@@ -937,7 +937,17 @@ public class NewStatusActivity extends AppCompatActivity {
                             @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> t) {
                         if (isFinishing() || isDestroyed() || stickerOverlayFrame == null
                                 || pickedImage == null || pickedVideo != null) return;
-                        attachPhotoLayer(uri, bmp);
+                        // rounded copy is a full ARGB bitmap -> build it off the main thread
+                        com.callx.app.utils.StatusBg.IO.execute(() -> {
+                            final Bitmap rounded;
+                            try { rounded = roundedLayerBitmap(bmp); }
+                            catch (Throwable e) { return; }
+                            runOnUiThread(() -> {
+                                if (isFinishing() || isDestroyed() || stickerOverlayFrame == null
+                                        || pickedImage == null || pickedVideo != null) return;
+                                attachPhotoLayer(uri, bmp, rounded);
+                            });
+                        });
                     }
                     @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable p) { }
                     @Override public void onLoadFailed(@androidx.annotation.Nullable android.graphics.drawable.Drawable e) {
@@ -946,7 +956,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 });
     }
 
-    private void attachPhotoLayer(final Uri uri, Bitmap bmp) {
+    private void attachPhotoLayer(final Uri uri, Bitmap bmp, Bitmap roundedBmp) {
         final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
         if (fw <= 0 || fh <= 0 || bmp.getWidth() <= 0 || bmp.getHeight() <= 0) return;
         // ~60% of the canvas width (≤ 50% of its height) — the person then pinches / drags it into place
@@ -955,7 +965,7 @@ public class NewStatusActivity extends AppCompatActivity {
         final int h = Math.max(dp(48), Math.round(bmp.getHeight() * k));
 
         final ImageView iv = new ImageView(this);
-        iv.setImageBitmap(roundedLayerBitmap(bmp));
+        iv.setImageBitmap(roundedBmp);
         iv.setScaleType(ImageView.ScaleType.FIT_XY);
         iv.setAdjustViewBounds(true);
         iv.setContentDescription("Added photo");
@@ -2234,7 +2244,7 @@ public class NewStatusActivity extends AppCompatActivity {
             toast("Preview is still loading — try again in a moment");
             return;
         }
-        new Thread(() -> {
+        com.callx.app.utils.StatusBg.IO.execute(() -> {
             Uri savedUri = null;
             try {
                 String name = "CallX_Status_" + System.currentTimeMillis() + ".jpg";
@@ -2273,7 +2283,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 if (result != null) toast("Saved to Pictures/CallX/Statuses");
                 else toast("Could not save story preview");
             });
-        }, "status-gallery-save").start();
+        });
     }
 
     /**
@@ -2282,6 +2292,12 @@ public class NewStatusActivity extends AppCompatActivity {
      * status uploads (they are stored as JSON and rendered by the viewer).
      */
     private Bitmap renderStoryCanvas(boolean includeStickers) {
+        com.callx.app.utils.StatusPerf.begin("StatusCompose#renderCanvas");
+        try { return renderStoryCanvasImpl(includeStickers); }
+        finally { com.callx.app.utils.StatusPerf.end(); }
+    }
+
+    private Bitmap renderStoryCanvasImpl(boolean includeStickers) {
         if (stickerOverlayFrame == null || stickerOverlayFrame.getWidth() <= 0
                 || stickerOverlayFrame.getHeight() <= 0
                 || binding.ivPreview.getDrawable() == null
@@ -5797,6 +5813,13 @@ public class NewStatusActivity extends AppCompatActivity {
      */
     private void prepareAndUploadEditedPhoto(Uri source, String caption, String txt,
                                              String uid, String name, String photo, int attempt) {
+        com.callx.app.utils.StatusPerf.begin("StatusCompose#prepareUpload");
+        try { prepareAndUploadEditedPhotoImpl(source, caption, txt, uid, name, photo, attempt); }
+        finally { com.callx.app.utils.StatusPerf.end(); }
+    }
+
+    private void prepareAndUploadEditedPhotoImpl(Uri source, String caption, String txt,
+                                             String uid, String name, String photo, int attempt) {
         pendingTextOverlayJson = null;
         if (!editorPhotoMode || stickerOverlayFrame == null) {
             compressAndUploadImage(source, caption, txt, uid, name, photo);
@@ -5817,6 +5840,14 @@ public class NewStatusActivity extends AppCompatActivity {
             return;
         }
 
+        setHint("Preparing story image…");
+        if (attempt >= 0 && attempt < 1000) { // one-frame deferral so the hint/progress paints before the View.draw snapshot
+            stickerOverlayFrame.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                prepareAndUploadEditedPhoto(source, caption, txt, uid, name, photo, 1000 + attempt);
+            });
+            return;
+        }
         final Bitmap composed;
         pendingTextOverlayJson = snapshotTextOverlayJson(); // non-null -> renderStoryCanvas leaves the text out of the pixels
         try {
@@ -5828,7 +5859,7 @@ public class NewStatusActivity extends AppCompatActivity {
             return;
         }
         setHint("Preparing story image…");
-        new Thread(() -> {
+        com.callx.app.utils.StatusBg.IO.execute(() -> {
             // FAST PATH: encode the baked canvas straight to the final upload WebP (+ thumb) — no
             // intermediate JPEG file, no decode, no second lossy generation. Falls back to the
             // original JPEG -> ImageCompressor route below if anything throws.
@@ -5883,7 +5914,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     setPosting(false);
                 }
             });
-        }, "status-story-compose").start();
+        });
     }
     // Photo size from ImageCompressor → stored on the status (mediaWidth/mediaHeight) so
     // viewers can reserve the right aspect box. Consumed (reset) by saveStatus/saveBatchStatus.

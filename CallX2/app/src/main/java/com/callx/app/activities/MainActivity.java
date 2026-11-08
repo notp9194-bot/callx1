@@ -166,6 +166,10 @@ public class MainActivity extends AppCompatActivity
     private final java.util.Map<DatabaseReference, ChildEventListener>
             storyStatusListeners = new java.util.HashMap<>();
     private boolean storyListenersLoading;
+    // v757: ONE statusFeed/{me} listener (StatusFeedHub) replaces the per-contact status listeners;
+    // the per-contact ones remain only as a fallback when the server feed is unavailable.
+    private com.callx.app.utils.StatusFeedHub.Listener statusFeedListener;
+    private DataSnapshot lastContactsSnapForStatus;
 
     // Header/chrome views are resolved once from ViewBinding. These methods are
     // hit on tab changes and lifecycle callbacks, so walking the root view tree
@@ -809,6 +813,7 @@ public class MainActivity extends AppCompatActivity
         CallForegroundService.removeStateListener(callStateListener);
         detachBadgeListeners();
         GlobalVoicePlaybackManager.getInstance().removeListener(voiceMiniPlayerListener);
+        com.callx.app.utils.StatusFeedHub.stopOwnStatusWatch(); // v757 (kept alive across onStop so posts made in NewStatusActivity sync)
         // Clean up any active docked reel player to release the ExoPlayer surface
         if (dockedPlayer != null) {
             dockedPlayer.dismiss(false);
@@ -1063,15 +1068,29 @@ public class MainActivity extends AppCompatActivity
                 setBadge(R.id.nav_chats, (int) total);
                 notifChatUnread = threads;
                 updateNotifBadge();
-                syncStatusBadgeListeners(uid, snap); // v554: per-contact status listeners follow the contact list
-                if (!storyListenersLoading && storyStatusListeners.isEmpty()) {
-                    storyListenersLoading = true;
-                    loadContactUidsForStoryNotif(uid, snap);
-                }
+                lastContactsSnapForStatus = snap;
+                syncStatusBadgeListeners(uid, snap); // v757: follows the server feed (fallback: contact list)
+                maybeStartLegacyStoryNotif(uid, snap);
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
         FirebaseUtils.getContactsRef(uid).addValueEventListener(unreadChatsListener);
+
+        // v757: server-built status feed. Re-runs the badge/notification wiring whenever the feed changes.
+        statusFeedListener = (feedState, feedOwners) -> {
+            if (!badgeListenersAttached || !uid.equals(badgeListenersUid)) return;
+            DataSnapshot cs = lastContactsSnapForStatus;
+            if (cs != null) {
+                syncStatusBadgeListeners(uid, cs);
+                maybeStartLegacyStoryNotif(uid, cs);
+            }
+            if (feedState == com.callx.app.utils.StatusFeedHub.State.READY) {
+                notifyFreshFeedStatuses(feedOwners);
+            }
+        };
+        com.callx.app.utils.StatusFeedHub.attach(uid, statusFeedListener);
+        // Notices every post/delete/privacy change of MY statuses and asks the server to refresh my contacts' feeds.
+        com.callx.app.utils.StatusFeedHub.startOwnStatusWatch(getApplicationContext(), uid);
 
         // 2. Missed calls → nav_calls badge
         missedCallsListener = new ValueEventListener() {
@@ -1184,6 +1203,12 @@ public class MainActivity extends AppCompatActivity
             String k = c.getKey();
             if (k != null && !k.isEmpty() && !k.equals(myUid)) want.add(k);
         }
+        // v757: only contacts that currently have a live, visible status need a listener.
+        com.callx.app.utils.StatusFeedHub.State feedState = com.callx.app.utils.StatusFeedHub.state();
+        if (feedState == com.callx.app.utils.StatusFeedHub.State.PENDING) return; // hub callback re-runs this
+        if (feedState == com.callx.app.utils.StatusFeedHub.State.READY) {
+            want.retainAll(com.callx.app.utils.StatusFeedHub.owners().keySet());
+        }
         boolean changed = false;
         for (java.util.Iterator<java.util.Map.Entry<String, ValueEventListener>> it =
                  statusBadgeListeners.entrySet().iterator(); it.hasNext(); ) {
@@ -1278,6 +1303,11 @@ public class MainActivity extends AppCompatActivity
             FirebaseUtils.getStatusRef().child(e.getKey()).removeEventListener(e.getValue());
         statusBadgeListeners.clear();
         statusBadgeSnaps.clear();
+        if (statusFeedListener != null) {
+            com.callx.app.utils.StatusFeedHub.detach(statusFeedListener);
+            statusFeedListener = null;
+        }
+        lastContactsSnapForStatus = null;
         String uid = badgeListenersUid;
         if (uid != null) {
             if (unreadChatsListener != null) {
@@ -1755,6 +1785,55 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
+    /** v757: per-contact story-notification listeners are only the fallback when the server feed is unavailable. */
+    private void maybeStartLegacyStoryNotif(String uid, DataSnapshot contactsSnap) {
+        com.callx.app.utils.StatusFeedHub.State st = com.callx.app.utils.StatusFeedHub.state();
+        if (st == com.callx.app.utils.StatusFeedHub.State.READY) {
+            if (!storyStatusListeners.isEmpty()) {
+                for (java.util.Map.Entry<DatabaseReference, ChildEventListener> entry
+                        : storyStatusListeners.entrySet()) {
+                    entry.getKey().removeEventListener(entry.getValue());
+                }
+                storyStatusListeners.clear();
+            }
+            storyListenersLoading = false;
+            return;
+        }
+        if (st != com.callx.app.utils.StatusFeedHub.State.UNAVAILABLE) return; // PENDING: wait for the hub
+        if (!storyListenersLoading && storyStatusListeners.isEmpty()) {
+            storyListenersLoading = true;
+            loadContactUidsForStoryNotif(uid, contactsSnap);
+        }
+    }
+
+    /** v757: same in-app story notification as the legacy listeners, driven by the feed (no per-contact listeners). */
+    private void notifyFreshFeedStatuses(java.util.Map<String, com.callx.app.utils.StatusFeedHub.Entry> feedOwners) {
+        final long nowMs = System.currentTimeMillis();
+        for (final com.callx.app.utils.StatusFeedHub.Entry e : feedOwners.values()) {
+            if (e.id == null || e.ts <= 0 || nowMs - e.ts > 60_000L) continue; // only fresh (< 60 s) statuses
+            if (!notifiedStatusIds.add(e.id)) continue;
+            FirebaseUtils.getUserRef(e.ownerUid).addListenerForSingleValueEvent(
+                new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot userSnap) {
+                        if (!badgeListenersAttached) return;
+                        String cName  = userSnap.child("name").getValue(String.class);
+                        String cThumb = userSnap.child("thumbUrl").getValue(String.class);
+                        String cPhotoFull = userSnap.child("photoUrl").getValue(String.class);
+                        String cPhoto = (cThumb != null && !cThumb.isEmpty()) ? cThumb : cPhotoFull;
+                        StoryNotificationWorker.enqueue(
+                                MainActivity.this,
+                                e.ownerUid,
+                                cName,
+                                cPhoto,
+                                e.type  != null ? e.type  : "text",
+                                e.text  != null ? e.text  : "",
+                                e.media != null ? e.media : "");
+                    }
+                    @Override public void onCancelled(DatabaseError err) {}
+                });
+        }
+    }
+
     /**
      * Loads the current user's contact UIDs, then attaches a ChildEventListener on
      * statuses/{contactUid} for each contact. When a new child is added (new status
@@ -1816,6 +1895,8 @@ public class MainActivity extends AppCompatActivity
                                         };
 
                                     if (!badgeListenersAttached) return;
+                                    if (com.callx.app.utils.StatusFeedHub.state()
+                                            == com.callx.app.utils.StatusFeedHub.State.READY) return; // v757: feed took over meanwhile
                                     storyStatusListeners.put(statusRef, statusListener);
                                     statusRef.addChildEventListener(statusListener);
                                 }

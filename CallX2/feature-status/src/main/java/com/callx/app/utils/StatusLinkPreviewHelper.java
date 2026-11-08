@@ -36,7 +36,7 @@ public final class StatusLinkPreviewHelper {
     public static boolean containsUrl(String text) { return extractUrl(text) != null; }
     /** Fetch OG metadata asynchronously. */
     public static void fetch(String urlStr, Callback cb) {
-        Executors.newSingleThreadExecutor().execute(() -> {
+        com.callx.app.utils.StatusBg.IO.execute(() -> {
             try {
                 URL url = new URL(urlStr);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();

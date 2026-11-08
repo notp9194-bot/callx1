@@ -182,14 +182,14 @@ public final class StatusNotificationHelper {
                   .setAutoCancel(true)
                   .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
                   .setContentIntent(pi);
-          new Thread(() -> {
+          BG.execute(() -> {
               try {
                   android.graphics.Bitmap bm = downloadBitmap(ctx, reactorPhoto);
                   if (bm != null) b.setLargeIcon(circle(bm));
               } catch (Exception ignored) {}
               NotificationManager nm3 = ctx.getSystemService(NotificationManager.class);
               if (nm3 != null) nm3.notify(("react_" + reactorUid).hashCode(), b.build());
-          }).start();
+          });
       }
       // ─────────────────────────────────────────────────────────────────────
       // STATUS EXPIRY REMINDER (fires 2h before status expires)
