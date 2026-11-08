@@ -58,6 +58,7 @@
         android:background="@drawable/rounded_input_bg">
 
         <FrameLayout
+            android:id="@+id/tu_thumb_wrap"
             android:layout_width="72dp"
             android:layout_height="108dp">
             <ImageView
@@ -131,14 +132,14 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/ic_pill_people"
-                    android:tint="@color/text_muted"/>
+                    android:tint="@color/tpl_text_secondary"/>
                 <TextView
                     android:id="@+id/tu_used_count"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
-                    android:textColor="@color/text_muted"
+                    android:textColor="@color/tpl_text_secondary"
                     android:textSize="12sp"
                     android:singleLine="true"
                     android:ellipsize="end"/>
@@ -198,7 +199,7 @@
             android:id="@+id/tu_people_total"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_muted"
+            android:textColor="@color/tpl_text_secondary"
             android:textSize="14sp"
             android:textStyle="bold"/>
     </LinearLayout>
@@ -226,7 +227,7 @@
             android:gravity="center"
             android:padding="24dp"
             android:text="@string/tpl_uses_empty"
-            android:textColor="@color/text_muted"
+            android:textColor="@color/tpl_text_secondary"
             android:visibility="gone"/>
         <ProgressBar
             android:id="@+id/tu_footer_progress"

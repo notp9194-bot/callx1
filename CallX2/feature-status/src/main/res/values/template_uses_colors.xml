@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v761: secondary text for the Used This Template screen. The global text_muted is #555555 in night mode
+         (≈2.7:1 on black) — too dim for real content like @username / time / counts. -->
+    <color name="tpl_text_secondary">#64748B</color>
+</resources>

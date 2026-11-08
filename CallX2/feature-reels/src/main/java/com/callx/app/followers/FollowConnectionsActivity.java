@@ -4,6 +4,8 @@ import com.callx.app.utils.AlertDialogStyler;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.*;
@@ -96,13 +98,42 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     private final List<UserItem>[] filteredItems = new List[TAB_COUNT];
     private final UserListAdapter[] adapters     = new UserListAdapter[TAB_COUNT];
     private final RecyclerView[]    rvs          = new RecyclerView[TAB_COUNT];
-    private final ProgressBar[]     progresses   = new ProgressBar[TAB_COUNT];
+    private final View[]            skeletons    = new View[TAB_COUNT];
+    private final View[]            retries      = new View[TAB_COUNT];
+    private final android.animation.ObjectAnimator[] skelAnims = new android.animation.ObjectAnimator[TAB_COUNT];
     private final LinearLayout[]    empties      = new LinearLayout[TAB_COUNT];
 
     private final int[] counts = {0, 0, 0, 0};   // follower / following / mutual / suggested count
 
     private final Set<String> myFollowing = new HashSet<>();
     private boolean myFollowingLoaded = false;
+
+    // ── v760: paging + lazy profiles (main thread only) ───────────────────
+    // allItems[tab] holds one row per uid (placeholder until its profile is known). The uid list is ONE read;
+    // users/{uid} is read only for rows that are really bound (max MAX_INFLIGHT at once) and cached on disk.
+    private static final int PAGE = 40, LOAD_AHEAD = 12, MAX_INFLIGHT = 6, PENDING_CAP = 60, SEARCH_FETCH_CAP = 300;
+    private static final long FAIL_BACKOFF_MS = 15_000L;
+
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final int[]     shown        = {PAGE, PAGE, PAGE, PAGE};   // rows currently shown per tab (no search active)
+    private final boolean[] tabLoaded    = new boolean[TAB_COUNT];
+    private final boolean[] tabFailed    = new boolean[TAB_COUNT];
+    private final boolean[] searchFetched = new boolean[TAB_COUNT];
+    private final int[]     loadGen      = new int[TAB_COUNT];         // bumps on every (re)load so late callbacks are ignored
+    @SuppressWarnings("unchecked")
+    private final Map<String, Integer>[] indexOf = new Map[TAB_COUNT]; // uid -> position in allItems[tab]
+    private final Set<String> inFlight = new HashSet<>(), queued = new HashSet<>();
+    private final ArrayDeque<String> pending = new ArrayDeque<>();
+    private final Map<String, Long> failedAt = new HashMap<>();
+    private boolean refreshQueued, profilesDirty, saveQueued;
+    private int dirtyTabs;
+    private String crossHintShownFor;
+
+    private final Runnable refreshRunnable = new Runnable() {
+        @Override public void run() { refreshQueued = false; if (!dead()) refreshNow(); }
+    };
+
+    private boolean dead() { return isFinishing() || isDestroyed(); }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -156,7 +187,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         for (int i = 0; i < TAB_COUNT; i++) {
             allItems[i]      = new ArrayList<>();
             filteredItems[i] = new ArrayList<>();
+            indexOf[i]       = new HashMap<>();
         }
+        // v760: queue the disk-cache + Room-seed load BEFORE any row is built (same single bg thread builds the rows).
+        FollowProfileCache.warmUp(getApplicationContext());
 
         // Setup ViewPager2
         viewPager.setAdapter(new PageAdapter());
@@ -176,6 +210,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
                 @Override public void afterTextChanged(Editable s) {}
                 @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
+                    if (s.length() == 0) { Arrays.fill(searchFetched, false); crossHintShownFor = null; }
                     filterTab(viewPager.getCurrentItem(), s.toString().trim());
                     if (btnSearchClear != null) {
                         btnSearchClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
@@ -213,6 +248,14 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             loadFollowing();
             loadSuggested();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        main.removeCallbacksAndMessages(null);
+        for (android.animation.ObjectAnimator a : skelAnims) if (a != null) a.cancel();
+        if (profilesDirty) FollowProfileCache.saveAsync(getApplicationContext());
+        super.onDestroy();
     }
 
     /** Starts a tab's loader at most once (used only in orderedListMode; mutual loads eagerly). */
@@ -299,26 +342,86 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 lastTimeMs = now;
 
                 FollowAvatarBinder.prefetch(FollowConnectionsActivity.this, followAvatarSource(tabIdx), lastVisible + 1, velocity);
+                maybeLoadMore(tabIdx, lastVisible);
             }
         });
 
-        // ProgressBar
-        ProgressBar pb = new ProgressBar(ctx);
-        FrameLayout.LayoutParams pbLp = new FrameLayout.LayoutParams(
+        // v760: skeleton rows instead of a spinner (same pulse as the Template screen)
+        View skeleton = buildSkeleton(ctx);
+        skeleton.setVisibility(View.GONE);
+        container.addView(skeleton);
+        skeletons[tabIdx] = skeleton;
+
+        // v760: first-load error state with tap-to-retry
+        TextView retry = new TextView(ctx);
+        retry.setText(R.string.follow_conn_failed);
+        retry.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f);
+        retry.setGravity(android.view.Gravity.CENTER);
+        retry.setPadding(dp(24), dp(24), dp(24), dp(24));
+        retry.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        FrameLayout.LayoutParams retryLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pbLp.gravity = android.view.Gravity.CENTER;
-        container.addView(pb, pbLp);
-        pb.setIndeterminate(true);
-        try { pb.setIndeterminateTintList(
-            android.content.res.ColorStateList.valueOf(getResources().getColor(R.color.brand_primary, null)));
-        } catch (Exception ignored) {}
-        progresses[tabIdx] = pb;
+        retryLp.gravity = android.view.Gravity.CENTER;
+        retry.setOnClickListener(v -> retryTab(tabIdx));
+        retry.setVisibility(View.GONE);
+        container.addView(retry, retryLp);
+        retries[tabIdx] = retry;
 
         // Empty state
         LinearLayout emptyLayout = buildEmptyView(ctx, tabIdx);
         emptyLayout.setVisibility(View.GONE);
         container.addView(emptyLayout);
         empties[tabIdx] = emptyLayout;
+
+        // State-driven: a load that finished before this page was built still shows the right view.
+        showProgress(tabIdx, !tabLoaded[tabIdx] && !tabFailed[tabIdx]);
+        showRetry(tabIdx, tabFailed[tabIdx]);
+        showEmpty(tabIdx, tabLoaded[tabIdx] && allItems[tabIdx].isEmpty());
+    }
+
+    /** Pulsing placeholder rows (avatar circle + two text bars + button) in the divider colour (visible in light and dark). */
+    private View buildSkeleton(Context ctx) {
+        LinearLayout col = new LinearLayout(ctx);
+        col.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout.LayoutParams colLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        colLp.gravity = android.view.Gravity.TOP;
+        col.setLayoutParams(colLp);
+        final int c = getResources().getColor(com.callx.app.core.R.color.divider, null);
+        for (int i = 0; i < 9; i++) {
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), dp(10), dp(16), dp(10));
+            row.addView(skelShape(ctx, 45, 45, true, c));
+
+            LinearLayout texts = new LinearLayout(ctx);
+            texts.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            tLp.setMarginStart(dp(12));
+            tLp.setMarginEnd(dp(8));
+            texts.addView(skelShape(ctx, 120, 12, false, c));
+            View bar2 = skelShape(ctx, 80, 10, false, c);
+            ((LinearLayout.LayoutParams) bar2.getLayoutParams()).topMargin = dp(8);
+            texts.addView(bar2);
+            row.addView(texts, tLp);
+
+            row.addView(skelShape(ctx, 72, 28, false, c));
+            col.addView(row);
+        }
+        return col;
+    }
+
+    private View skelShape(Context ctx, int wDp, int hDp, boolean oval, int color) {
+        View v = new View(ctx);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(oval ? android.graphics.drawable.GradientDrawable.OVAL
+                         : android.graphics.drawable.GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(dp(oval ? 0 : 6));
+        bg.setColor(color);
+        v.setBackground(bg);
+        v.setLayoutParams(new LinearLayout.LayoutParams(dp(wDp), dp(hDp)));
+        return v;
     }
 
     private LinearLayout buildEmptyView(Context ctx, int tabIdx) {
@@ -395,100 +498,294 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             });
     }
 
-    /** Load reelFollowers/{targetUid} */
-    private void loadFollowers() {
-        showProgress(TAB_FOLLOWERS, true);
-        FirebaseUtils.getReelFollowersRef(targetUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    allItems[TAB_FOLLOWERS].clear();
-                    long total = snap.getChildrenCount();
-                    counts[TAB_FOLLOWERS] = (int) total;
-                    updateTabLabel(TAB_FOLLOWERS);
-                    if (total == 0) { showProgress(TAB_FOLLOWERS, false); showEmpty(TAB_FOLLOWERS, true); return; }
-                    final long[] done = {0};
-                    for (DataSnapshot child : snap.getChildren()) {
-                        String uid = child.getKey(); if (uid == null) { done[0]++; checkDone(TAB_FOLLOWERS, done, total); continue; }
-                        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot us) {
-                                UserItem item = parseUser(uid, us);
-                                synchronized (allItems[TAB_FOLLOWERS]) { allItems[TAB_FOLLOWERS].add(item); }
-                                done[0]++;
-                                checkDone(TAB_FOLLOWERS, done, total);
-                            }
-                            @Override public void onCancelled(@NonNull DatabaseError e) { done[0]++; checkDone(TAB_FOLLOWERS, done, total); }
-                        });
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) { showProgress(TAB_FOLLOWERS, false); }
-            });
-    }
+    /** Load reelFollowers/{targetUid} — ONE read of the uid list; profiles are fetched lazily for visible rows. */
+    private void loadFollowers() { loadKeyedTab(TAB_FOLLOWERS, FirebaseUtils.getReelFollowersRef(targetUid)); }
 
     /** Load reelFollows/{targetUid} */
-    private void loadFollowing() {
-        showProgress(TAB_FOLLOWING, true);
-        FirebaseUtils.getReelFollowsRef(targetUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    allItems[TAB_FOLLOWING].clear();
-                    long total = snap.getChildrenCount();
-                    counts[TAB_FOLLOWING] = (int) total;
-                    updateTabLabel(TAB_FOLLOWING);
-                    if (total == 0) { showProgress(TAB_FOLLOWING, false); showEmpty(TAB_FOLLOWING, true); return; }
-                    final long[] done = {0};
-                    for (DataSnapshot child : snap.getChildren()) {
-                        String uid = child.getKey(); if (uid == null) { done[0]++; checkDone(TAB_FOLLOWING, done, total); continue; }
-                        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot us) {
-                                UserItem item = parseUser(uid, us);
-                                synchronized (allItems[TAB_FOLLOWING]) { allItems[TAB_FOLLOWING].add(item); }
-                                done[0]++;
-                                checkDone(TAB_FOLLOWING, done, total);
-                            }
-                            @Override public void onCancelled(@NonNull DatabaseError e) { done[0]++; checkDone(TAB_FOLLOWING, done, total); }
-                        });
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) { showProgress(TAB_FOLLOWING, false); }
-            });
+    private void loadFollowing() { loadKeyedTab(TAB_FOLLOWING, FirebaseUtils.getReelFollowsRef(targetUid)); }
+
+    private void loadKeyedTab(final int tab, DatabaseReference ref) {
+        beginLoad(tab);
+        final int g = loadGen[tab];
+        ref.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (dead() || g != loadGen[tab]) return;
+                FollowProfileCache.BG.execute(() -> {
+                    final ArrayList<String> uids = new ArrayList<>((int) snap.getChildrenCount());
+                    for (DataSnapshot c : snap.getChildren()) if (c.getKey() != null) uids.add(c.getKey());
+                    publishUids(tab, g, uids);
+                });
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                if (dead() || g != loadGen[tab]) return;
+                markFailed(tab);
+            }
+        });
     }
 
     /** Load mutual — from pre-passed UIDs or compute on the fly */
     private void loadMutual() {
-        showProgress(TAB_MUTUAL, true);
+        beginLoad(TAB_MUTUAL);
+        final int g = loadGen[TAB_MUTUAL];
         if (!mutualUidsArg.isEmpty()) {
             if (orderedListMode) fetchUsersOrdered(mutualUidsArg);
-            else                 fetchUsersForMutual(mutualUidsArg);
+            else                 publishUids(TAB_MUTUAL, g, new ArrayList<>(mutualUidsArg));
             return;
         }
         // Compute mutual: intersection of my followers & target's followers
         String myUid = safeMyUid();
-        if (myUid == null || isSelf) { showProgress(TAB_MUTUAL, false); showEmpty(TAB_MUTUAL, true); return; }
+        if (myUid == null || isSelf) { markLoadedEmpty(TAB_MUTUAL); return; }
         FirebaseUtils.getReelFollowersRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot mySnap) {
+                    if (dead() || g != loadGen[TAB_MUTUAL]) return;
                     Set<String> mine = new HashSet<>();
                     for (DataSnapshot s : mySnap.getChildren()) if (s.getKey() != null) mine.add(s.getKey());
                     FirebaseUtils.getReelFollowersRef(targetUid)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
                             @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
+                                if (dead() || g != loadGen[TAB_MUTUAL]) return;
                                 ArrayList<String> mutuals = new ArrayList<>();
                                 for (DataSnapshot s : tSnap.getChildren())
                                     if (s.getKey() != null && mine.contains(s.getKey())) mutuals.add(s.getKey());
-                                if (mutuals.isEmpty()) { showProgress(TAB_MUTUAL, false); showEmpty(TAB_MUTUAL, true); return; }
-                                fetchUsersForMutual(mutuals);
+                                if (mutuals.isEmpty()) { markLoadedEmpty(TAB_MUTUAL); return; }
+                                publishUids(TAB_MUTUAL, g, mutuals);
                             }
-                            @Override public void onCancelled(@NonNull DatabaseError e) { showProgress(TAB_MUTUAL, false); }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {
+                                if (!dead() && g == loadGen[TAB_MUTUAL]) markFailed(TAB_MUTUAL);
+                            }
                         });
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) { showProgress(TAB_MUTUAL, false); }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (!dead() && g == loadGen[TAB_MUTUAL]) markFailed(TAB_MUTUAL);
+                }
             });
+    }
+
+    // ── v760: tab state + row building ────────────────────────────────────
+
+    private void beginLoad(int tab) {
+        loadGen[tab]++;
+        tabFailed[tab] = false;
+        showRetry(tab, false);
+        if (!tabLoaded[tab]) showProgress(tab, true);   // a reload over an existing list keeps the list visible
+    }
+
+    private void markFailed(int tab) {
+        if (tabLoaded[tab] && !allItems[tab].isEmpty()) return;   // keep what is already on screen
+        tabFailed[tab] = true;
+        tabLoaded[tab] = false;
+        showProgress(tab, false);
+        showEmpty(tab, false);
+        showRetry(tab, true);
+    }
+
+    private void markLoadedEmpty(int tab) {
+        allItems[tab].clear();
+        indexOf[tab].clear();
+        tabLoaded[tab] = true;
+        tabFailed[tab] = false;
+        counts[tab] = 0;
+        updateTabLabel(tab);
+        showProgress(tab, false);
+        showRetry(tab, false);
+        showEmpty(tab, true);
+    }
+
+    private void retryTab(int tab) {
+        tabLoaded[tab] = false;
+        tabFailed[tab] = false;
+        switch (tab) {
+            case TAB_FOLLOWERS: loadFollowers(); break;
+            case TAB_FOLLOWING: loadFollowing(); break;
+            case TAB_MUTUAL:    loadMutual();    break;
+            case TAB_SUGGESTED: loadSuggested(); break;
+        }
+    }
+
+    /**
+     * Builds one row per uid on the bg thread (cached / seeded profile when known, placeholder otherwise) and hands
+     * the finished list to the UI thread. Runs on the same thread as FollowProfileCache.warmUp, so it always
+     * runs after the disk cache + Room seeds are in.
+     */
+    private void publishUids(final int tab, final int g, final List<String> uids) {
+        FollowProfileCache.BG.execute(() -> {
+            final ArrayList<UserItem> items = new ArrayList<>(uids.size());
+            for (String uid : uids) {
+                final FollowProfileCache.Prof p = FollowProfileCache.get(uid);
+                items.add(p != null ? toItem(uid, p) : UserItem.placeholder(uid));
+            }
+            main.post(() -> { if (!dead() && g == loadGen[tab]) startTab(tab, items); });
+        });
+    }
+
+    private void startTab(int tab, List<UserItem> items) {
+        allItems[tab].clear();
+        allItems[tab].addAll(items);
+        rebuildIndex(tab);
+        counts[tab] = items.size();
+        updateTabLabel(tab);
+        shown[tab] = PAGE;
+        tabLoaded[tab] = true;
+        tabFailed[tab] = false;
+        showProgress(tab, false);
+        showRetry(tab, false);
+        filterTab(tab, currentQuery());
+        showEmpty(tab, items.isEmpty());
+    }
+
+    private void rebuildIndex(int tab) {
+        final Map<String, Integer> m = indexOf[tab];
+        m.clear();
+        final List<UserItem> l = allItems[tab];
+        for (int i = 0; i < l.size(); i++) m.put(l.get(i).uid, i);
+    }
+
+    private void removeByUid(int tab, String uid) {
+        final List<UserItem> l = allItems[tab];
+        for (int i = 0; i < l.size(); i++) {
+            if (uid != null && uid.equals(l.get(i).uid)) { l.remove(i); break; }
+        }
+        rebuildIndex(tab);
+    }
+
+    private String currentQuery() {
+        return etSearch != null ? etSearch.getText().toString().trim() : "";
+    }
+
+    private static UserItem toItem(String uid, FollowProfileCache.Prof p) {
+        return new UserItem(uid,
+                p.name != null && !p.name.isEmpty() ? p.name : uid,
+                p.username != null ? p.username : "",
+                p.photo != null ? p.photo : "",
+                p.bio != null ? p.bio : "",
+                p.avatarVersion, true);
+    }
+
+    // ── v760: paging + lazy profile fetch (only rows that are really bound) ──
+
+    /** Grows the visible window by one page when the list is scrolled near its end (no search active). */
+    private void maybeLoadMore(int tab, int lastVisible) {
+        if (shown[tab] >= allItems[tab].size()) return;
+        if (orderedListMode && tab == TAB_MUTUAL) return;   // ordered mode has its own windowed loader
+        if (lastVisible < filteredItems[tab].size() - LOAD_AHEAD) return;
+        if (!currentQuery().isEmpty()) return;
+        shown[tab] += PAGE;
+        filterTab(tab, "");
+    }
+
+    private boolean needsFetch(String uid) {
+        if (inFlight.contains(uid)) return false;
+        final Long f = failedAt.get(uid);
+        if (f != null && android.os.SystemClock.elapsedRealtime() - f < FAIL_BACKOFF_MS) return false;
+        final FollowProfileCache.Prof p = FollowProfileCache.get(uid);
+        return p == null || !p.fresh();
+    }
+
+    /** Called when a row is bound (i.e. visible). Latest-bound rows are fetched first. */
+    private void requestProfile(String uid) {
+        if (uid == null || dead()) return;
+        if (needsFetch(uid) && queued.add(uid)) {
+            pending.addLast(uid);
+            // Fast fling: rows that scrolled far past are dropped instead of paying a read each (not while searching).
+            if (pending.size() > PENDING_CAP && currentQuery().isEmpty()) {
+                final String old = pending.pollFirst();
+                if (old != null) queued.remove(old);
+            }
+        }
+        pumpProfiles();
+    }
+
+    private void pumpProfiles() {
+        while (!dead() && inFlight.size() < MAX_INFLIGHT && !pending.isEmpty()) {
+            final String uid = pending.pollLast();
+            queued.remove(uid);
+            if (!needsFetch(uid)) continue;
+            inFlight.add(uid);
+            fetchProfile(uid);
+        }
+    }
+
+    private void fetchProfile(final String uid) {
+        FirebaseUtils.getUserRef(uid).get()
+            .addOnSuccessListener(snap -> FollowProfileCache.BG.execute(() -> {
+                FollowProfileCache.Prof parsed = null;
+                try {
+                    parsed = FollowProfileCache.parse(snap, uid);
+                    FollowProfileCache.put(uid, parsed);
+                } catch (Exception ignored) { /* malformed node -> treated as a failed read */ }
+                final FollowProfileCache.Prof p = parsed;
+                main.post(() -> { if (p != null) onProfileDone(uid, p); else onProfileFailed(uid); });
+            }))
+            .addOnFailureListener(e -> main.post(() -> onProfileFailed(uid)));
+    }
+
+    private void onProfileFailed(String uid) {
+        if (dead()) return;
+        inFlight.remove(uid);
+        failedAt.put(uid, android.os.SystemClock.elapsedRealtime());   // retried when the row is bound again, after a short back-off
+        pumpProfiles();
+    }
+
+    private void onProfileDone(String uid, FollowProfileCache.Prof p) {
+        if (dead()) return;
+        inFlight.remove(uid);
+        failedAt.remove(uid);
+        final UserItem fresh = toItem(uid, p);
+        for (int t = 0; t < TAB_COUNT; t++) {
+            final Integer idx = indexOf[t].get(uid);
+            final List<UserItem> l = allItems[t];
+            if (idx != null && idx < l.size() && uid.equals(l.get(idx).uid)) {
+                l.set(idx, fresh);
+                dirtyTabs |= (1 << t);
+            }
+        }
+        scheduleRefresh();
+        profilesDirty = true;
+        if (!saveQueued) {
+            saveQueued = true;
+            main.postDelayed(() -> {
+                saveQueued = false; profilesDirty = false;
+                FollowProfileCache.saveAsync(getApplicationContext());
+            }, 4000L);
+        }
+        pumpProfiles();
+    }
+
+    /** Coalesces a burst of arriving profiles into one list refresh. */
+    private void scheduleRefresh() {
+        if (refreshQueued || dead()) return;
+        refreshQueued = true;
+        main.postDelayed(refreshRunnable, 80);
+    }
+
+    private void refreshNow() {
+        final int d = dirtyTabs;
+        dirtyTabs = 0;
+        final String q = currentQuery();
+        for (int t = 0; t < TAB_COUNT; t++) {
+            if ((d & (1 << t)) != 0 && tabLoaded[t]) filterTab(t, q);
+        }
+    }
+
+    /** Search needs profiles: fetch (at most SEARCH_FETCH_CAP) still-unknown ones of this tab, once per search session. */
+    private void fetchUnresolvedForSearch(int tab) {
+        if (searchFetched[tab]) return;
+        searchFetched[tab] = true;
+        int n = 0;
+        for (UserItem u : allItems[tab]) {
+            if (u.loaded) continue;
+            if (n++ >= SEARCH_FETCH_CAP) break;
+            if (needsFetch(u.uid) && queued.add(u.uid)) pending.addLast(u.uid);
+        }
+        pumpProfiles();
     }
 
     // ── Ordered, windowed loader (orderedListMode) ────────────────────────
     // First window is small so the first rows paint after ONE round-trip;
     // later windows are bigger and chained, which also bounds how many
     // users/{uid} reads are in flight at once for a very popular sound.
+    // v760: profiles that are fresh in the shared cache are taken from it (no read); fetched ones are cached.
     private static final int ORDERED_FIRST_WINDOW = 24;
     private static final int ORDERED_NEXT_WINDOW  = 60;
 
@@ -497,74 +794,54 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         allItems[TAB_MUTUAL].clear();
         counts[TAB_MUTUAL] = n;
         updateTabLabel(TAB_MUTUAL);
-        if (n == 0) { showProgress(TAB_MUTUAL, false); showEmpty(TAB_MUTUAL, true); return; }
+        if (n == 0) { markLoadedEmpty(TAB_MUTUAL); return; }
         loadOrderedWindow(uids, new UserItem[n], 0);
     }
 
     private void loadOrderedWindow(List<String> uids, UserItem[] slots, int start) {
-        if (isFinishing() || isDestroyed()) return;
+        if (dead()) return;
         final int end = Math.min(start + (start == 0 ? ORDERED_FIRST_WINDOW : ORDERED_NEXT_WINDOW), uids.size());
-        final int[] remaining = {end - start};
+        final ArrayList<Integer> need = new ArrayList<>();
         for (int i = start; i < end; i++) {
-            final int idx = i;
-            final String uid = uids.get(i);
+            final FollowProfileCache.Prof p = FollowProfileCache.get(uids.get(i));
+            if (p != null && p.fresh()) slots[i] = toItem(uids.get(i), p);
+            else need.add(i);
+        }
+        if (need.isEmpty()) { finishOrderedWindow(uids, slots, end); return; }
+        final int[] remaining = {need.size()};
+        for (final int idx : need) {
+            final String uid = uids.get(idx);
             FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot us) {
+                    if (dead()) return;
                     slots[idx] = parseUser(uid, us);
                     windowItemDone();
                 }
-                @Override public void onCancelled(@NonNull DatabaseError e) { windowItemDone(); }
+                @Override public void onCancelled(@NonNull DatabaseError e) { if (!dead()) windowItemDone(); }
                 private void windowItemDone() {
                     if (--remaining[0] > 0) return;
-                    publishOrdered(slots, end);                       // paint everything resolved so far, in rank order
-                    if (end < uids.size()) loadOrderedWindow(uids, slots, end);
+                    finishOrderedWindow(uids, slots, end);
                 }
             });
         }
+    }
+
+    private void finishOrderedWindow(List<String> uids, UserItem[] slots, int end) {
+        publishOrdered(slots, end);                       // paint everything resolved so far, in rank order
+        if (end < uids.size()) loadOrderedWindow(uids, slots, end);
     }
 
     private void publishOrdered(UserItem[] slots, int upTo) {
-        if (isFinishing() || isDestroyed()) return;
+        if (dead()) return;
         List<UserItem> list = allItems[TAB_MUTUAL];
         list.clear();
         for (int i = 0; i < upTo; i++) if (slots[i] != null) list.add(slots[i]);
+        rebuildIndex(TAB_MUTUAL);
+        tabLoaded[TAB_MUTUAL] = true;
+        tabFailed[TAB_MUTUAL] = false;
         showProgress(TAB_MUTUAL, false);
-        String q = etSearch != null ? etSearch.getText().toString().trim() : "";
-        filterTab(TAB_MUTUAL, q);
-    }
-
-    private void fetchUsersForMutual(List<String> uids) {
-        allItems[TAB_MUTUAL].clear();
-        counts[TAB_MUTUAL] = uids.size();
-        updateTabLabel(TAB_MUTUAL);
-        final long total = uids.size();
-        final long[] done = {0};
-        for (String uid : uids) {
-            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot us) {
-                    synchronized (allItems[TAB_MUTUAL]) { allItems[TAB_MUTUAL].add(parseUser(uid, us)); }
-                    done[0]++; checkDone(TAB_MUTUAL, done, total);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) { done[0]++; checkDone(TAB_MUTUAL, done, total); }
-            });
-        }
-    }
-
-    private void checkDone(int tab, long[] done, long total) {
-        if (done[0] < total) return;
-        runOnUiThread(() -> {
-            // Sort by name
-            synchronized (allItems[tab]) {
-                allItems[tab].sort((a, b) -> {
-                    String na = a.name != null ? a.name : "";
-                    String nb = b.name != null ? b.name : "";
-                    return na.compareToIgnoreCase(nb);
-                });
-            }
-            showProgress(tab, false);
-            String q = etSearch != null ? etSearch.getText().toString().trim() : "";
-            filterTab(tab, q);
-        });
+        showRetry(TAB_MUTUAL, false);
+        filterTab(TAB_MUTUAL, currentQuery());
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -573,8 +850,12 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
     private void filterTab(int tab, String query) {
         filteredItems[tab].clear();
+        final List<UserItem> all = allItems[tab];
         if (query.isEmpty()) {
-            filteredItems[tab].addAll(allItems[tab]);
+            // v760: paged — only the first `shown` rows (grows by PAGE near the end of the list). Ordered mode paints
+            // everything its own windowed loader has resolved so far.
+            final int limit = (orderedListMode && tab == TAB_MUTUAL) ? all.size() : Math.min(shown[tab], all.size());
+            filteredItems[tab].addAll(all.subList(0, limit));
         } else {
             String lq = query.toLowerCase(Locale.getDefault());
             // FIX (Instagram-level search): match username as well as name —
@@ -582,9 +863,12 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             // username-prefix matches ranked first, then name-prefix, then
             // any-position contains matches. Bio kept as a lowest-priority
             // fallback (pre-existing behavior on this screen).
+            // v760: search covers every row whose profile is known; unknown ones are fetched in the background
+            // (see fetchUnresolvedForSearch) and appear as they arrive.
             java.util.List<UserItem> scored = new ArrayList<>();
             java.util.Map<UserItem, Integer> rank = new java.util.HashMap<>();
-            for (UserItem u : allItems[tab]) {
+            for (UserItem u : all) {
+                if (!u.loaded) continue;
                 String username = u.username != null ? u.username.toLowerCase(Locale.getDefault()) : "";
                 String name = u.name != null ? u.name.toLowerCase(Locale.getDefault()) : "";
                 String bio  = u.bio  != null ? u.bio.toLowerCase(Locale.getDefault())  : "";
@@ -600,6 +884,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             }
             scored.sort((a, b) -> rank.get(a) - rank.get(b));
             filteredItems[tab].addAll(scored);
+            fetchUnresolvedForSearch(tab);
         }
 
         // PERF: submitList() runs AsyncListDiffer's old-list/new-list diff on
@@ -612,8 +897,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         boolean empty = filteredItems[tab].isEmpty();
         showEmpty(tab, empty && allItems[tab].isEmpty() && query.isEmpty());
 
-        // Cross-tab search hint — works from ANY tab (Followers / Following / Mutual)
-        if (empty && !query.isEmpty()) {
+        // Cross-tab search hint — works from ANY tab (Followers / Following / Mutual); only for the tab being looked at.
+        if (empty && !query.isEmpty() && viewPager != null && tab == viewPager.getCurrentItem()) {
             checkCrossTabs(tab, query);
         }
     }
@@ -627,6 +912,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
      * the user was searching in.
      */
     private void checkCrossTabs(int currentTab, String query) {
+        if (query.equalsIgnoreCase(crossHintShownFor)) return;   // profiles streaming in must not re-open the hint for the same search
         String lq = query.toLowerCase(Locale.getDefault());
         UserItem found = null;
         int foundTab = -1;
@@ -635,6 +921,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         for (int t = 0; t < TAB_COUNT; t++) {
             if (t == currentTab) continue;
             for (UserItem u : allItems[t]) {
+                if (!u.loaded) continue;
                 String name = u.name != null ? u.name.toLowerCase(Locale.getDefault()) : "";
                 String username = u.username != null ? u.username.toLowerCase(Locale.getDefault()) : "";
                 if (name.contains(lq) || username.contains(lq)) { found = u; foundTab = t; break outer; }
@@ -649,6 +936,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         viewPager.postDelayed(() -> {
             String current = etSearch != null ? etSearch.getText().toString().trim() : "";
             if (!current.equalsIgnoreCase(query) || isFinishing() || isDestroyed()) return;
+            if (!filteredItems[currentTab].isEmpty()) return;   // the search found something meanwhile (profiles arrived)
+            crossHintShownFor = query;
             showCrossTabDialog(target, foundIdx);
         }, 600);
     }
@@ -847,6 +1136,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                         && Objects.equals(a.username, b.username)
                         && Objects.equals(a.photo, b.photo)
                         && Objects.equals(a.bio, b.bio)
+                        && a.loaded == b.loaded
                         && a.avatarVersion == b.avatarVersion;
                 }
             });
@@ -937,20 +1227,31 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             // shown as a secondary line underneath, but ONLY when it differs
             // from the username — same as Instagram's followers/following
             // list (a plain second line, not the bio).
-            String primary = (u.username != null && !u.username.isEmpty()) ? u.username
-                    : (u.name != null ? u.name : u.uid);
-            h.tvName.setText(primary);
-            boolean nameDiffersFromUsername = u.name != null && !u.name.isEmpty()
-                    && !u.name.equalsIgnoreCase(primary);
-            if (nameDiffersFromUsername) {
-                h.tvBio.setText(u.name);
-                h.tvBio.setVisibility(View.VISIBLE);
-            } else {
+            if (!u.loaded) {
+                // v760: profile not fetched yet — dimmed "Loading…" until the lazy fetch below lands.
+                h.tvName.setText(R.string.follow_row_loading);
+                h.tvName.setAlpha(0.45f);
                 h.tvBio.setVisibility(View.GONE);
+            } else {
+                h.tvName.setAlpha(1f);
+                String primary = (u.username != null && !u.username.isEmpty()) ? u.username
+                        : (u.name != null ? u.name : u.uid);
+                h.tvName.setText(primary);
+                boolean nameDiffersFromUsername = u.name != null && !u.name.isEmpty()
+                        && !u.name.equalsIgnoreCase(primary);
+                if (nameDiffersFromUsername) {
+                    h.tvBio.setText(u.name);
+                    h.tvBio.setVisibility(View.VISIBLE);
+                } else {
+                    h.tvBio.setVisibility(View.GONE);
+                }
             }
 
             // Action button per tab
             bindActionButton(h, u, pos);
+
+            // v760: lazy profile — only rows that are really bound fetch users/{uid} (no-op when the cached copy is fresh).
+            requestProfile(u.uid);
         }
 
         /**
@@ -1168,15 +1469,15 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                     android.widget.Toast.makeText(this, "Couldn't unfollow. Try again.", android.widget.Toast.LENGTH_SHORT).show();
                     loadFollowing();
                 });
-                allItems[TAB_FOLLOWING].remove(u);
-                filteredItems[TAB_FOLLOWING].remove(u);
+                // v760: remove by uid (the row object may have been replaced when its profile arrived).
+                removeByUid(TAB_FOLLOWING, u.uid);
                 counts[TAB_FOLLOWING] = Math.max(0, counts[TAB_FOLLOWING] - 1);
                 updateTabLabel(TAB_FOLLOWING);
-                // PERF: submitList lets AsyncListDiffer compute a minimal
+                // PERF: submitList (inside filterTab) lets AsyncListDiffer compute a minimal
                 // diff (one row removed) instead of notifyDataSetChanged()
                 // rebuilding every remaining visible row.
-                if (adapters[TAB_FOLLOWING] != null) adapters[TAB_FOLLOWING].submitList(filteredItems[TAB_FOLLOWING]);
-                showEmpty(TAB_FOLLOWING, filteredItems[TAB_FOLLOWING].isEmpty());
+                filterTab(TAB_FOLLOWING, currentQuery());
+                showEmpty(TAB_FOLLOWING, allItems[TAB_FOLLOWING].isEmpty());
             },
             null, null,
             "Cancel");
@@ -1186,11 +1487,30 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     // UI helpers
     // ══════════════════════════════════════════════════════════════════════
 
+    /** Shows / hides the tab's pulsing skeleton rows. */
     private void showProgress(int tab, boolean show) {
         runOnUiThread(() -> {
-            if (progresses[tab] != null)
-                progresses[tab].setVisibility(show ? View.VISIBLE : View.GONE);
+            final View sk = skeletons[tab];
+            if (sk == null) return;
+            if (show) {
+                if (skelAnims[tab] != null) return;
+                sk.setVisibility(View.VISIBLE);
+                final android.animation.ObjectAnimator a = android.animation.ObjectAnimator.ofFloat(sk, "alpha", 1f, 0.45f);
+                a.setDuration(750);
+                a.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+                a.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+                a.start();
+                skelAnims[tab] = a;
+            } else {
+                if (skelAnims[tab] != null) { skelAnims[tab].cancel(); skelAnims[tab] = null; }
+                sk.setAlpha(1f);
+                sk.setVisibility(View.GONE);
+            }
         });
+    }
+
+    private void showRetry(int tab, boolean show) {
+        if (retries[tab] != null) retries[tab].setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     private void showEmpty(int tab, boolean show) {
@@ -1222,24 +1542,11 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     // Firebase helpers
     // ══════════════════════════════════════════════════════════════════════
 
+    /** Parses users/{uid} into a row AND stores it in the shared profile cache (see FollowProfileCache.parse for the field choice). */
     private UserItem parseUser(String uid, DataSnapshot snap) {
-        String name  = snap.child("name").getValue(String.class);
-        // FIX (Instagram-level search): "username" is the same field search,
-        // mentions and tagging already read across the app (ProfileActivity,
-        // ReelTagPeopleActivity, ReelSearchHistoryActivity, HomeFragment) —
-        // wire it here too so Followers/Following/Mutual search can match it.
-        String username = snap.child("username").getValue(String.class);
-        String thumb = snap.child("thumbUrl").getValue(String.class);
-        String photo = snap.child("photoUrl").getValue(String.class);
-        String bio   = snap.child("bio").getValue(String.class);
-        // FIX (deep avatar pipeline): denormalized for FollowAvatarBinder.url()'s
-        // responsive/version-tagged URL — same field every other avatar-bearing
-        // screen (chat list, profile, search, status) already reads.
-        Long avatarVer = snap.child("avatarVersion").getValue(Long.class);
-        String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-        return new UserItem(uid, name != null ? name : uid, username != null ? username : "",
-                p != null ? p : "", bio != null ? bio : "",
-                avatarVer != null ? avatarVer : 0L);
+        final FollowProfileCache.Prof p = FollowProfileCache.parse(snap, uid);
+        FollowProfileCache.put(uid, p);
+        return toItem(uid, p);
     }
 
     private String safeMyUid() {
@@ -1263,10 +1570,13 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     static class UserItem {
         String uid, name, username, photo, bio;
         long avatarVersion; // FIX: denormalized for FollowAvatarBinder.url()'s responsive/version-tagged URL
-        UserItem(String uid, String name, String username, String photo, String bio, long avatarVersion) {
+        /** v760: false = placeholder row (uid only) until the lazy users/{uid} fetch lands. */
+        final boolean loaded;
+        UserItem(String uid, String name, String username, String photo, String bio, long avatarVersion, boolean loaded) {
             this.uid = uid; this.name = name; this.username = username; this.photo = photo; this.bio = bio;
-            this.avatarVersion = avatarVersion;
+            this.avatarVersion = avatarVersion; this.loaded = loaded;
         }
+        static UserItem placeholder(String uid) { return new UserItem(uid, null, "", "", "", 0L, false); }
     }
 
     private int dp(int v) {
@@ -1292,18 +1602,16 @@ public class FollowConnectionsActivity extends AppCompatActivity {
      */
     private void loadSuggested() {
         String myUid = safeMyUid();
-        if (myUid == null || isSelf) {
-            showProgress(TAB_SUGGESTED, false);
-            showEmpty(TAB_SUGGESTED, true);
-            return;
-        }
-        showProgress(TAB_SUGGESTED, true);
+        if (myUid == null || isSelf) { markLoadedEmpty(TAB_SUGGESTED); return; }
+        beginLoad(TAB_SUGGESTED);
+        final int g = loadGen[TAB_SUGGESTED];
 
         // First load MY following list to know whom to exclude
         FirebaseUtils.getReelFollowsRef(myUid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(@NonNull DataSnapshot mySnap) {
+                    if (dead() || g != loadGen[TAB_SUGGESTED]) return;
                     final Set<String> iFollow = new HashSet<>();
                     iFollow.add(myUid); // exclude self
                     for (DataSnapshot s : mySnap.getChildren())
@@ -1314,55 +1622,25 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                         .addListenerForSingleValueEvent(new ValueEventListener() {
                             @Override
                             public void onDataChange(@NonNull DataSnapshot tSnap) {
+                                if (dead() || g != loadGen[TAB_SUGGESTED]) return;
                                 List<String> candidates = new ArrayList<>();
                                 for (DataSnapshot child : tSnap.getChildren()) {
                                     String uid = child.getKey();
                                     if (uid != null && !iFollow.contains(uid))
                                         candidates.add(uid);
                                 }
-
-                                if (candidates.isEmpty()) {
-                                    showProgress(TAB_SUGGESTED, false);
-                                    showEmpty(TAB_SUGGESTED, true);
-                                    counts[TAB_SUGGESTED] = 0;
-                                    updateTabLabel(TAB_SUGGESTED);
-                                    return;
-                                }
-
-                                allItems[TAB_SUGGESTED].clear();
-                                counts[TAB_SUGGESTED] = candidates.size();
-                                updateTabLabel(TAB_SUGGESTED);
-
-                                final long total = candidates.size();
-                                final long[] done = {0};
-                                for (String uid : candidates) {
-                                    FirebaseUtils.getUserRef(uid)
-                                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                                            @Override
-                                            public void onDataChange(@NonNull DataSnapshot us) {
-                                                synchronized (allItems[TAB_SUGGESTED]) {
-                                                    allItems[TAB_SUGGESTED].add(parseUser(uid, us));
-                                                }
-                                                done[0]++;
-                                                checkDone(TAB_SUGGESTED, done, total);
-                                            }
-                                            @Override
-                                            public void onCancelled(@NonNull DatabaseError e) {
-                                                done[0]++;
-                                                checkDone(TAB_SUGGESTED, done, total);
-                                            }
-                                        });
-                                }
+                                if (candidates.isEmpty()) { markLoadedEmpty(TAB_SUGGESTED); return; }
+                                publishUids(TAB_SUGGESTED, g, candidates);
                             }
                             @Override
                             public void onCancelled(@NonNull DatabaseError e) {
-                                showProgress(TAB_SUGGESTED, false);
+                                if (!dead() && g == loadGen[TAB_SUGGESTED]) markFailed(TAB_SUGGESTED);
                             }
                         });
                 }
                 @Override
                 public void onCancelled(@NonNull DatabaseError e) {
-                    showProgress(TAB_SUGGESTED, false);
+                    if (!dead() && g == loadGen[TAB_SUGGESTED]) markFailed(TAB_SUGGESTED);
                 }
             });
     }

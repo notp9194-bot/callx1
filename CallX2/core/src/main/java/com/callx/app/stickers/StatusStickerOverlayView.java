@@ -682,6 +682,7 @@ public class StatusStickerOverlayView extends LinearLayout {
 
     // ── Mention sticker data (links to a tagged user's profile) ─────────────
     private String mentionUsername;
+    private String mentionPrefix = "";   // v763: "Template by" on the template credit sticker, "" on a plain mention
 
     // ── Hashtag sticker data (links to the topic's feed) ────────────────────
     private String hashtagTag;
@@ -933,6 +934,9 @@ public class StatusStickerOverlayView extends LinearLayout {
 
     /** The tagged username (no leading @), or null for non-mention stickers. */
     public String getMentionUsername() { return "mention".equals(stickerType) ? mentionUsername : null; }
+
+    /** v763: true for the auto "Template by @owner" credit sticker of a template reuse. */
+    public boolean isTemplateCreditMention() { return "mention".equals(stickerType) && mentionPrefix != null && mentionPrefix.startsWith("Template by"); }
 
     /** The tagged topic (no leading #), or null for non-hashtag stickers. */
     public String getHashtagTag() { return "hashtag".equals(stickerType) ? hashtagTag : null; }
@@ -2521,6 +2525,7 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         String username = jsonStr(json, "username", "");
         v.mentionUsername = username;
+        v.mentionPrefix = jsonStr(json, "prefix", "");
 
         TextView tvAt = new TextView(ctx);
         // v749: optional "prefix" (e.g. "Template by") shown before @username — the credit sticker of a template reuse

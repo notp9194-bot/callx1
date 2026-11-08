@@ -200,6 +200,8 @@ public class NewStatusActivity extends AppCompatActivity {
     private StatusStickerOverlayView lastAddedSticker;
     private boolean templateAnchorFrameListener;
     private boolean templateTextRestored, templateTextHintShown; // v745: poster's text came along → tell the viewer it is editable
+    private String tplRestoredText = null;        // v763: poster's editable text exactly as restored (to spot "posted untouched")
+    private boolean tplTextPostConfirmed;         // v763: viewer confirmed posting the poster's text as is
     private boolean makeTemplate;                 // poster toggled "Make template" on this status
     // v750: box shapes / frames, locked or placeholder text, per-slot style on the viewer side
     private final java.util.HashMap<StatusStickerOverlayView, TemplateBoxStyle> layerStyle = new java.util.HashMap<>(); // poster: style of each added photo layer
@@ -2042,6 +2044,7 @@ public class NewStatusActivity extends AppCompatActivity {
             if (s == selectedSticker) hideStickerSizeBar();
             if (stickerOverlayFrame != null) stickerOverlayFrame.removeView(s);
             editorTextSticker = null;
+            if (record) clearTemplateTextPending();   // v763: user cleared/deleted it (not an editor reset)
             if (!record) purgeUndoFor(s);
         }
         editorTextOverlay = null;
@@ -3204,7 +3207,7 @@ public class NewStatusActivity extends AppCompatActivity {
             stopMusicPreview();
             applyEditorVideoVolume(); // back to muted
         }
-        if (removed == editorTextSticker) { editorTextSticker = null; editorTextOverlay = null; }
+        if (removed == editorTextSticker) { editorTextSticker = null; editorTextOverlay = null; clearTemplateTextPending(); } // v763
         refreshStickerUndoButtons();
         refreshMediaLayerStrip();   // v732: a deleted photo layer leaves the strip
     }
@@ -5170,6 +5173,9 @@ public class NewStatusActivity extends AppCompatActivity {
                     final org.json.JSONObject o = arr.getJSONObject(i);
                     final String type = o.optString("type", "");
                     if ("addyours".equals(type)) continue;
+                    // v763: a poster that was itself made from a template carries its own "Template by" credit — don't
+                    // restore it; addTemplateCreditSticker() adds exactly one fresh credit for this use (no stacking).
+                    if ("mention".equals(type) && o.optString("prefix", "").startsWith("Template by")) continue;
                     if (com.callx.app.utils.StatusTextOverlayRenderer.isOverlayText(o)) { restoreTemplateText(o); continue; }
                     o.remove("locked");
                     final double cxr = o.optDouble("cxRatio", -1), cyr = o.optDouble("cyRatio", -1);
@@ -5241,6 +5247,7 @@ public class NewStatusActivity extends AppCompatActivity {
         final StatusStickerOverlayView ts = editorTextSticker;
         if (ts == null) return;
         templateTextRestored = true;
+        if (tplTextMode == 0) tplRestoredText = o.optString("text", "");   // v763
         final float textAlpha = tplTextMode == 2 ? 0.55f : 1f;   // v750: placeholder text looks "empty" until replaced
         if (tplTextMode == 1) {          // locked by the poster: no move / edit / delete
             ts.setLocked(true);
@@ -5692,6 +5699,33 @@ public class NewStatusActivity extends AppCompatActivity {
                 getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID), getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID));
     }
 
+    /** v763: placeholder text was deleted (not replaced) → nothing left to write, so the Post gate must not stay locked. */
+    private void clearTemplateTextPending() {
+        if (!templateMode || !tplTextPending) return;
+        tplTextPending = false;
+        refreshTemplateGate();
+    }
+
+    /**
+     * v763: poster's EDITABLE text is still exactly as restored → ask once before posting it unchanged
+     * (the hint toast only fired after the first photo and was easy to miss).
+     */
+    private boolean confirmPosterTextBeforePost() {
+        if (!templateMode || tplTextMode != 0 || !templateTextRestored || tplTextPostConfirmed
+                || tplRestoredText == null || tplRestoredText.trim().isEmpty()
+                || editorTextOverlay == null || editorTextSticker == null) return false;
+        if (!editorTextOverlay.getText().toString().equals(tplRestoredText)) return false;   // viewer already changed it
+        String shown = tplRestoredText.trim();
+        if (shown.length() > 60) shown = shown.substring(0, 57) + "...";
+        AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Owner ka text hai")
+                .setMessage("\"" + shown + "\"\n\nYe text template owner ka hai. Aise hi post karna hai ya badalna hai?")
+                .setPositiveButton("Aise hi post", (d, w) -> { tplTextPostConfirmed = true; post(); })
+                .setNegativeButton("Text badlo", null)
+                .create());
+        return true;
+    }
+
     /** v740: Post button shows how many boxes are still empty (and looks disabled) on the Post step. */
     private void refreshTemplateGate() {
         if (!templateMode || binding == null || binding.btnStepNext == null) return;
@@ -5762,6 +5796,7 @@ public class NewStatusActivity extends AppCompatActivity {
             final int open = countOpenTemplateSlots();
             if (open > 0) { toast("Pehle sabhi photo boxes bharo (" + open + " baaki)"); return; }
             if (tplTextPending) { toast("Pehle apna text likho — placeholder badlo"); return; } // v750
+            if (confirmPosterTextBeforePost()) return;   // v763
         }
         String txt     = binding.etText.getText().toString().trim();
         String caption = binding.etCaption != null ? binding.etCaption.getText().toString().trim() : "";

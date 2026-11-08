@@ -55,7 +55,7 @@
             android:id="@+id/tu_username"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_muted"
+            android:textColor="@color/tpl_text_secondary"
             android:textSize="13sp"
             android:singleLine="true"
             android:ellipsize="end"/>
@@ -63,7 +63,7 @@
             android:id="@+id/tu_time"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_muted"
+            android:textColor="@color/tpl_text_secondary"
             android:textSize="12sp"/>
     </LinearLayout>
 

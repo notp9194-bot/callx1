@@ -300,7 +300,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   if (eq <= 0) continue;
                   try { m.put(part.substring(0, eq), Integer.parseInt(part.substring(eq + 1))); } catch (Exception ignored) {}
               }
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("loadEmojiUsage", ignored); }
           return m;
       }
       /** Counts every emoji the viewer reacts with (grid or full picker) so the grid can adapt. */
@@ -318,7 +318,7 @@ import com.callx.app.utils.AlertDialogStyler;
               StringBuilder sb = new StringBuilder();
               for (java.util.Map.Entry<String, Integer> e : m.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue()).append(';');
               getSharedPreferences(PREFS_QR, MODE_PRIVATE).edit().putString("usage", sb.toString()).apply();
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("recordEmojiUse", ignored); }
       }
       /** 6 grid emoji: the viewer's most-used (used 2+ times) first, filled up with the defaults. */
       private String[] quickEmojiOrder() {
@@ -327,7 +327,7 @@ import com.callx.app.utils.AlertDialogStyler;
               java.util.List<java.util.Map.Entry<String, Integer>> es = new java.util.ArrayList<>(loadEmojiUsage().entrySet());
               java.util.Collections.sort(es, (a, b) -> b.getValue() - a.getValue());
               for (java.util.Map.Entry<String, Integer> e : es) if (e.getValue() >= 2 && res.size() < QUICK_EMOJIS.length) res.add(e.getKey());
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("quickEmojiOrder", ignored); }
           for (String d : QUICK_EMOJIS) if (res.size() < QUICK_EMOJIS.length && !res.contains(d)) res.add(d);
           return res.toArray(new String[0]);
       }
@@ -480,7 +480,7 @@ import com.callx.app.utils.AlertDialogStyler;
           final String[] labels = new String[names.size()];
           for (int i = 0; i < labels.length; i++) labels[i] = "@" + names.get(i);
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
-              .setTitle("Mentioned (" + labels.length + ")")
+              .setTitle(getString(R.string.viewer_mentioned_title, labels.length))
               .setItems(labels, (d, w) -> {
                   String uid = s.mentionNames.get(names.get(w));
                   if (uid != null && !uid.isEmpty()) openProfileByUid(uid, names.get(w)); else resumeProgress();
@@ -510,7 +510,7 @@ import com.callx.app.utils.AlertDialogStyler;
               bg.setColor(0x99000000); bg.setCornerRadius(dpToPx(20));
               chip.setBackground(bg);
               final TextView add = new TextView(this);
-              add.setText("Mentioned you \u00B7 Add to your story");
+              add.setText(R.string.viewer_mentioned_add_story);
               add.setTextColor(0xFFFFFFFF); add.setTextSize(13);
               add.setTypeface(add.getTypeface(), android.graphics.Typeface.BOLD);
               add.setPadding(0, 0, dpToPx(8), 0);
@@ -721,9 +721,9 @@ import com.callx.app.utils.AlertDialogStyler;
           setupDownloadButton();
           setupForwardButton();
           setupRepostButton();
-          binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
+          binding.tvOwner.setText(ownerName != null ? ownerName : getString(R.string.viewer_owner_default_status));
           if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid))
-              binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
+              binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : getString(R.string.viewer_owner_default_status)));
           com.callx.app.utils.VerifiedBadgeUtils.bindForUid(
               (android.widget.ImageView) findViewById(R.id.iv_owner_verified), ownerUid);
           spinView = new StorySpinViewController(this);
@@ -748,11 +748,11 @@ import com.callx.app.utils.AlertDialogStyler;
           if (!DECODERS_WARMED.compareAndSet(false, true)) return;
           Thread t = new Thread(() -> {
               try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); }
-              catch (Throwable ignored) {}
+              catch (Throwable ignored) { logIgnored("warmDecoderInfoAsync", ignored); }
               for (String mime : new String[]{"video/avc", "video/hevc", "audio/mp4a-latm"}) {
                   try {
                       androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(mime, false, false);
-                  } catch (Throwable ignored) {}
+                  } catch (Throwable ignored) { logIgnored("warmDecoderInfoAsync", ignored); }
               }
           }, "status-decoder-warm");
           t.setDaemon(true);
@@ -973,7 +973,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           || (it.timestamp != null && com.callx.app.utils.StorySeenState.isSeenLocally(this, ownerUid, it.timestamp));
                   if (!isSeen) return i;
               }
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("firstUnseenIndex", ignored); }
           return 0;
       }
       private void load(String uid) {
@@ -1101,7 +1101,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   if (isFinishing() || isDestroyed() || !key.equals(origStateKey)) return; // user moved on
                   paintOriginalState(gone, tv, row, base);
               });
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("onCancelled", ignored); }
       }
       private void paintOriginalState(boolean gone, TextView tv, View row, String base) {
           row.setAlpha(gone ? 0.55f : 1f);
@@ -1166,7 +1166,7 @@ import com.callx.app.utils.AlertDialogStyler;
                               alive.add(si.id);
                               if (own) { fresh.put(si.id, si); counters.put(si.id, readViewCount(c)); }
                           }
-                      } catch (Exception ignored) {}
+                      } catch (Exception ignored) { logIgnored("onDataChange", ignored); }
                   }
                   StatusItem cur = idx < items.size() ? items.get(idx) : null;
                   // Live viewers / reactions / replies for the bottom bar: refresh the local items from the same snapshot.
@@ -1601,7 +1601,7 @@ import com.callx.app.utils.AlertDialogStyler;
           try {
               for (StatusItem c : com.callx.app.cache.StatusCacheManager.getInstance(this).getStatuses(origOwnerUid))
                   if (origStatusId.equals(c.id)) { cached = c; break; }
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("openOriginalStory", ignored); }
           final StatusItem[] orig = { cached };
           final boolean[] statusLoaded = { cached != null }, blockLoaded = { false }, blocked = { false }, failed = { false };
           final Runnable decide = () -> {
@@ -1677,7 +1677,7 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           if (s.textColor != null) {
               try { textTv.setTextColor(Color.parseColor(s.textColor)); }
-              catch (Exception ignored) {}
+              catch (Exception ignored) { logIgnored("showTextStatus", ignored); }
           }
           applyFontStyle(textTv, s.fontStyle);
           if (s.textSize > 0) textTv.setTextSize(s.textSize);
@@ -1703,7 +1703,7 @@ import com.callx.app.utils.AlertDialogStyler;
           final FrameLayout textLayer = textLayer();
           textLayer.setVisibility(View.VISIBLE);
           textLayer.setBackgroundResource(R.drawable.gradient_brand);
-          textStatusTv.setText("This content is no longer available");
+          textStatusTv.setText(R.string.viewer_content_unavailable);
           textStatusTv.setTextColor(Color.WHITE);
           startProgress(5_000L);
       }
@@ -1763,7 +1763,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
               if (cm != null && cm.getRestrictBackgroundStatus()
                       == android.net.ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED) return false;
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("canPrefetchVideo", ignored); }
           return true;
       }
       private void prefetchNextVideo(String url, boolean standby) {
@@ -1772,7 +1772,7 @@ import com.callx.app.utils.AlertDialogStyler;
           try {
               if (videoPreloader == null) videoPreloader = new com.callx.app.cache.StatusMediaPreloader(this);
               videoPreloader.preloadVideoUrl(url);
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("prefetchNextVideo", ignored); }
           if (standby) prepareStandby(url); // standby ExoPlayer pre-buffers it too → video→video swap instead of a cold start
       }
 
@@ -1808,7 +1808,7 @@ import com.callx.app.utils.AlertDialogStyler;
               List<StatusItem> l = com.callx.app.cache.StatusCacheManager.getInstance(this)
                       .getStatuses(queueOwnerUids.get(pos));
               if (!l.isEmpty()) prefetchItem(l.get(0), true);
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("warmQueueEntry", ignored); }
       }
       private void prefetchItem(StatusItem n) { prefetchItem(n, false); }
       /** adjacent=true (other owner's first status): HIGH priority, and never touches the standby
@@ -1844,7 +1844,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                       .priority(adjacent ? com.bumptech.glide.Priority.HIGH : com.bumptech.glide.Priority.NORMAL)
                       .apply(imgFgOptions()).preload();
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("prefetchItem", ignored); }
       }
 
       // ── Load-failure UI: one silent auto-retry, then a tap-to-retry card ──
@@ -2073,7 +2073,7 @@ import com.callx.app.utils.AlertDialogStyler;
           try {
               if (standbyPlayer.getPlaybackState() == Player.STATE_READY && standbyPlayer.getPlayerError() == null)
                   return standbyPlayer;
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("takeReadyStandby", ignored); }
           return null;
       }
       private void releaseStandby() {
@@ -2146,7 +2146,7 @@ import com.callx.app.utils.AlertDialogStyler;
               Glide.with(this).load(n.thumbnailUrl)
                       .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                       .apply(posterOptions()).preload();
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("preloadVideoPoster", ignored); }
       }
 
       // ── Video stall handling: bar follows the PLAYER, not the wall clock ──
@@ -2348,7 +2348,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   final long d = player.getDuration();
                   if (d > 0) return (int) ((d + 500L) / 1000L);
               }
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("reelDurationSec", ignored); }
           return 0;
       }
       /** m:ss ("" while unknown). */
@@ -2394,7 +2394,7 @@ import com.callx.app.utils.AlertDialogStyler;
               rr.child(field).get().addOnCompleteListener(t -> {
                   String v = "";
                   try { if (t.isSuccessful() && t.getResult() != null) v = nzs(t.getResult().getValue(String.class)); }
-                  catch (Exception ignored) {}
+                  catch (Exception ignored) { logIgnored("fetchReelStr", ignored); }
                   cb.on(v);
               });
           } catch (Exception e) { cb.on(""); }
@@ -2428,7 +2428,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           there = true;
                           if (uid.isEmpty()) uid = nzs(t.getResult().getValue(String.class));
                       }
-                  } catch (Exception ignored) {}
+                  } catch (Exception ignored) { logIgnored("fetchReelStr", ignored); }
                   final String fUid = uid;
                   if (there) { reelExistsCache.put(rid, true); fetchReelRest(rr, rid, s, fUid, name0, user0, av0); return; }
                   // No uid field: does the reel exist at all? (first child only → tiny read)
@@ -2449,7 +2449,7 @@ import com.callx.app.utils.AlertDialogStyler;
               FirebaseUtils.getUserRef(uid).child("username").get().addOnCompleteListener(t2 -> {
                   String un = "";
                   try { if (t2.isSuccessful() && t2.getResult() != null) un = nzs(t2.getResult().getValue(String.class)); }
-                  catch (Exception ignored) {}
+                  catch (Exception ignored) { logIgnored("fetchReelStr", ignored); }
                   finishReelOwner(rid, s, uid, n, un, a);
               });
           }));
@@ -2732,7 +2732,7 @@ import com.callx.app.utils.AlertDialogStyler;
                               try {
                                   final Long v = t.isSuccessful() && t.getResult() != null ? t.getResult().getValue(Long.class) : null;
                                   if (v != null && v > 0) reelDurationCache.put(rid, (int) (v < 1000L ? v : (v + 500L) / 1000L)); // ms (or already sec)
-                              } catch (Exception ignored) {}
+                              } catch (Exception ignored) { /* per-frame outline callback: stay silent (no log spam) */ }
                               if (isFinishing() || isDestroyed()) return;
                               handler.removeCallbacks(reshareTimeTick);
                               reelDurPolls = 0;
@@ -3231,7 +3231,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   });
                   return;
               }
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("prefetchNextStatusMusic", ignored); }
       }
 
       /** Tap on the sticker while it says "Tap to retry": try the clip again (soundId lookup as fallback). */
@@ -3258,17 +3258,17 @@ import com.callx.app.utils.AlertDialogStyler;
           if (sticker.isMusicLinkedToReelSound()) { openMusicStickerSoundSheet(sticker); return; }
           // Not linked to a Reels sound (e.g. "Original audio"): show who made it, with a way to their profile.
           final StatusItem cur = idx < items.size() ? items.get(idx) : null;
-          final String song = sticker.getMusicSong() != null ? sticker.getMusicSong() : "Original audio";
+          final String song = sticker.getMusicSong() != null ? sticker.getMusicSong() : getString(R.string.viewer_original_audio);
           final String artist = sticker.getMusicArtist() != null ? sticker.getMusicArtist() : "";
           final String who = !artist.isEmpty() ? artist : (cur != null && cur.ownerName != null ? cur.ownerName : "");
           final String uidToOpen = cur != null ? cur.ownerUid : null;
           android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this)
                   .setTitle(song)
-                  .setMessage(who.isEmpty() ? "Original audio" : "Original audio \u00B7 " + who)
-                  .setNegativeButton("Close", null)
+                  .setMessage(who.isEmpty() ? getString(R.string.viewer_original_audio) : getString(R.string.viewer_original_audio_by, who))
+                  .setNegativeButton(R.string.viewer_close, null)
                   .setOnDismissListener(d -> settleStickerReaction(sticker));
           if (uidToOpen != null && !uidToOpen.isEmpty())
-              b.setPositiveButton("View profile", (d, w) -> openProfileByUid(uidToOpen, who));
+              b.setPositiveButton(R.string.viewer_view_profile, (d, w) -> openProfileByUid(uidToOpen, who));
           b.show();
       }
 
@@ -3308,7 +3308,7 @@ import com.callx.app.utils.AlertDialogStyler;
               if (!acquireMusicFocus()) return; // e.g. a call is active — stay silent
               musicClip.reapplyPitch(); // Mix Audio pitch (no-op when 0)
               musicPlayer.start();
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("resumeMusicPlayback", ignored); }
           syncMusicStickerPlaying();
       }
 
@@ -3845,7 +3845,12 @@ import com.callx.app.utils.AlertDialogStyler;
                       }
                   }
                   if ("mention".equals(sticker.getStickerType())) {
-                      armStickerZoomGate(sticker, () -> openMentionStickerProfile(sticker));
+                      // v763: the "Template by @owner" credit also lets the viewer open the original template
+                      final StatusItem credited = item;
+                      armStickerZoomGate(sticker, () -> {
+                          if (sticker.isTemplateCreditMention() && hasTemplateOrigin(credited)) showTemplateCreditChooser(sticker, credited);
+                          else openMentionStickerProfile(sticker);
+                      });
                   }
 
                   if ("hashtag".equals(sticker.getStickerType())) {
@@ -4085,6 +4090,46 @@ import com.callx.app.utils.AlertDialogStyler;
           });
       }
 
+      /** v763: a swallowed exception is no longer invisible — one tagged Log.w line, no crash report spam. */
+      private static void logIgnored(String where, Throwable t) {
+          Log.w(DBG, "ignored in " + where, t);
+      }
+
+      private static boolean hasTemplateOrigin(StatusItem it) {
+          return it != null && it.templateFromUid != null && !it.templateFromUid.isEmpty()
+                  && it.templateFromId != null && !it.templateFromId.isEmpty();
+      }
+
+      /** v763: tap on the template credit sticker → "Use this template" or the owner's profile. */
+      private void showTemplateCreditChooser(final StatusStickerOverlayView sticker, final StatusItem item) {
+          final String handle = sticker.getMentionUsername() != null ? sticker.getMentionUsername() : "";
+          final String[] labels = { getString(R.string.viewer_template_credit_use),
+                  getString(R.string.viewer_template_credit_profile, handle) };
+          AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+                  .setTitle(getString(R.string.viewer_template_credit_title, handle))
+                  .setItems(labels, (d, w) -> {
+                      if (w == 0) { settleStickerReaction(sticker); openOriginalTemplate(item); }
+                      else openMentionStickerProfile(sticker);   // settles the sticker itself
+                  })
+                  .setOnCancelListener(d -> settleStickerReaction(sticker))
+                  .create());
+      }
+
+      /** v763: true when the status already carries the auto "Template by @owner" mention sticker (see NewStatusActivity). */
+      private static boolean hasTemplateCreditSticker(String stickersJson) {
+          if (stickersJson == null || stickersJson.isEmpty()) return false;
+          try {
+              final JSONArray arr = new JSONArray(stickersJson);
+              for (int i = 0; i < arr.length(); i++) {
+                  final JSONObject o = arr.optJSONObject(i);
+                  if (o == null) continue;
+                  if ("mention".equals(o.optString("type", ""))
+                          && o.optString("prefix", "").startsWith("Template by")) return true;
+              }
+          } catch (Exception ignored) { logIgnored("hasTemplateCreditSticker", ignored); }
+          return false;
+      }
+
       // v738/v740/v742: template chip. On a template status: "Use this template · N used" (owner: label + count).
       // On a status made FROM a template: "Template by @name" → opens the original template.
       // v742: a REPOST of a template carries templateJson + the original's id, so it shows "Use this template" too and the
@@ -4098,6 +4143,10 @@ import com.callx.app.utils.AlertDialogStyler;
               final boolean isTemplate = hasTpl;                       // can be used (own template OR carried by a repost)
               final boolean fromTemplate = !hasTpl && hasFrom;         // "Template by @name"
               if (!isTemplate && !fromTemplate) return;
+              // v763: the editor already drops a "Template by @owner" credit sticker on a status made from a template —
+              // showing this chip as well drew the same credit twice. Chip stays only as a fallback (old statuses with
+              // no sticker, or the author removed the sticker), so the credit is never lost and never doubled.
+              if (fromTemplate && hasTemplateCreditSticker(item.stickersJson)) return;
               final boolean carried = hasTpl && hasFrom;               // repost of a template: origin lives elsewhere
               final String originUid  = carried ? item.templateFromUid : ownerUid;
               final String originId   = carried ? item.templateFromId  : item.id;
@@ -4109,34 +4158,44 @@ import com.callx.app.utils.AlertDialogStyler;
               final FrameLayout ov = stickerOverlay();
               final boolean inCard = reshareCardActive;               // reposts sit in the card box → chip hugs its bottom
 
+              // v763: sizes / colour come from viewer_template_chip_dimens.xml (were hardcoded dp / sp / hex)
+              final android.content.res.Resources res = getResources();
+              final int padH = res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_pad_h);
+              final int padV = res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_pad_v);
               final android.widget.LinearLayout box = new android.widget.LinearLayout(this);
               box.setOrientation(android.widget.LinearLayout.HORIZONTAL);
               box.setGravity(Gravity.CENTER_VERTICAL);
-              box.setPadding(dpToPx(10), dpToPx(7), dpToPx(18), dpToPx(7));
+              box.setPadding(padH, padV, res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_pad_end_plain), padV);
               final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-              bg.setColor(0xE6000000 | 0x6A3DE8);
-              bg.setCornerRadius(dpToPx(26));
+              bg.setColor(androidx.core.content.ContextCompat.getColor(this, R.color.viewer_tpl_chip_bg));
+              bg.setCornerRadius(res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_radius));
               box.setBackground(bg);
-              box.setElevation(dpToPx(6));
+              box.setElevation(res.getDimension(R.dimen.viewer_tpl_chip_elevation));
+              // v763: the chip used to appear at a default height and then jump when the caption-relative spot was
+              // measured. Keep it invisible until that spot is applied (see the ov.post block below).
+              if (!inCard) box.setAlpha(0f);
 
               final com.callx.app.compose.TemplatePreviewDrawable pv = hasTpl
                       ? com.callx.app.compose.TemplatePreviewDrawable.fromJson(item.templateJson) : null;
               if (pv != null) {
                   final android.widget.ImageView iv = new android.widget.ImageView(this);
-                  pv.setBounds(0, 0, dpToPx(24), dpToPx(42));
+                  final int pvW = res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_preview_w);
+                  final int pvH = res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_preview_h);
+                  pv.setBounds(0, 0, pvW, pvH);
                   iv.setImageDrawable(pv);
-                  final android.widget.LinearLayout.LayoutParams ilp = new android.widget.LinearLayout.LayoutParams(dpToPx(24), dpToPx(42));
-                  ilp.setMarginEnd(dpToPx(10));
+                  final android.widget.LinearLayout.LayoutParams ilp = new android.widget.LinearLayout.LayoutParams(pvW, pvH);
+                  ilp.setMarginEnd(res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_preview_gap));
                   box.addView(iv, ilp);
               }
 
               final android.widget.TextView chip = new android.widget.TextView(this);
               final String baseLabel = isTemplate
-                      ? (mine ? "\u2728  Your template" : "\u2728  Use this template")
-                      : "\u2728  Template by @" + (item.templateFromName != null && !item.templateFromName.isEmpty() ? item.templateFromName : "user");
+                      ? getString(mine ? R.string.viewer_tpl_your : R.string.viewer_tpl_use)
+                      : getString(R.string.viewer_tpl_by, (item.templateFromName != null && !item.templateFromName.isEmpty()
+                              ? item.templateFromName : getString(R.string.viewer_tpl_user_fallback)));
               chip.setText(baseLabel);
               chip.setTextColor(0xFFFFFFFF);
-              chip.setTextSize(15f);
+              chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, res.getDimension(R.dimen.viewer_tpl_chip_text));
               chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
               chip.setGravity(Gravity.CENTER_VERTICAL);
               box.addView(chip, new android.widget.LinearLayout.LayoutParams(
@@ -4153,11 +4212,12 @@ import com.callx.app.utils.AlertDialogStyler;
                   final android.widget.TextView more = new android.widget.TextView(this);
                   more.setText("\u22EF");
                   more.setTextColor(0xFFFFFFFF);
-                  more.setTextSize(20f);
+                  more.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, res.getDimension(R.dimen.viewer_tpl_chip_more_text));
                   more.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
                   more.setGravity(Gravity.CENTER);
-                  more.setPadding(dpToPx(12), 0, dpToPx(2), 0);
-                  more.setContentDescription("Template options");
+                  more.setPadding(res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_more_pad_start), 0,
+                          res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_more_pad_end), 0);
+                  more.setContentDescription(getString(R.string.viewer_cd_template_options));
                   more.setOnClickListener(v -> {
                       if (mine) ownerSheet.run();
                       else com.callx.app.compose.TemplateActions.showViewerSheet(StatusViewerActivity.this, item,
@@ -4165,12 +4225,12 @@ import com.callx.app.utils.AlertDialogStyler;
                   });
                   box.addView(more, new android.widget.LinearLayout.LayoutParams(
                           android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.MATCH_PARENT));
-                  box.setPadding(dpToPx(10), dpToPx(7), dpToPx(10), dpToPx(7));
+                  box.setPadding(padH, padV, padH, padV);
               }
               final FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                       FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                       Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-              lp.bottomMargin = inCard ? dpToPx(14) : dpToPx(96);
+              lp.bottomMargin = res.getDimensionPixelSize(inCard ? R.dimen.viewer_tpl_chip_margin_in_card : R.dimen.viewer_tpl_chip_margin_default);
               ov.addView(box, lp);
               // sit just above the caption / song row / name block instead of a fixed offset
               if (!inCard) ov.post(() -> {
@@ -4179,11 +4239,15 @@ import com.callx.app.utils.AlertDialogStyler;
                       while (blk != null && blk.getParent() != binding.flStoryCard && blk.getParent() instanceof View) blk = (View) blk.getParent();
                       final int cardH = binding.flStoryCard.getHeight();
                       if (blk != null && blk.getParent() == binding.flStoryCard && blk.getHeight() > 0 && cardH > 0) {
-                          final int m = cardH - blk.getTop() + dpToPx(10);
-                          lp.bottomMargin = Math.max(dpToPx(72), Math.min(m, cardH / 2));
+                          final int m = cardH - blk.getTop() + res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_gap_above_caption);
+                          lp.bottomMargin = Math.max(res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_margin_min), Math.min(m, cardH / 2));
                           box.setLayoutParams(lp);
                       }
-                  } catch (Exception ignored) { }
+                  } catch (Exception e) {
+                      Log.w(DBG, "templateChip position", e);
+                  } finally {
+                      box.animate().alpha(1f).setDuration(120L).start();   // v763: reveal once placed (or on any failure)
+                  }
               });
               if (isTemplate) {
                   FirebaseUtils.db().getReference("statusTemplateUses").child(originUid).child(originId)
@@ -4191,7 +4255,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       @Override public void onDataChange(DataSnapshot snap) {
                           final long n = snap.getChildrenCount();
                           usesN[0] = n;
-                          if (n > 0 && box.getParent() != null) chip.setText(baseLabel + "  \u2022  " + n + " used");
+                          if (n > 0 && box.getParent() != null) chip.setText(getString(R.string.viewer_tpl_with_uses, baseLabel, (int) n));
                       }
                       @Override public void onCancelled(DatabaseError e) { }
                   });
@@ -4209,13 +4273,13 @@ import com.callx.app.utils.AlertDialogStyler;
               @Override public void onDataChange(DataSnapshot snap) {
                   final StatusItem o = snap.getValue(StatusItem.class);
                   if (o == null || o.templateJson == null || o.templateJson.isEmpty()) {
-                      Toast.makeText(StatusViewerActivity.this, "Template ab available nahi hai", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(StatusViewerActivity.this, getString(R.string.viewer_toast_template_unavailable), Toast.LENGTH_SHORT).show();
                       return;
                   }
                   launchTemplateComposer(o, fu, fi, fn);
               }
               @Override public void onCancelled(DatabaseError e) {
-                  Toast.makeText(StatusViewerActivity.this, "Template load nahi hua", Toast.LENGTH_SHORT).show();
+                  Toast.makeText(StatusViewerActivity.this, getString(R.string.viewer_toast_template_load_failed), Toast.LENGTH_SHORT).show();
               }
           });
       }
@@ -4598,7 +4662,7 @@ import com.callx.app.utils.AlertDialogStyler;
               try {
                   cacheReady = !com.callx.app.cache.StatusCacheManager.getInstance(this)
                           .getStatuses(queueOwnerUids.get(pos)).isEmpty();
-              } catch (Exception ignored) {}
+              } catch (Exception ignored) { logIgnored("switchQueueEntry", ignored); }
           }
           if (!cacheReady) hideAllContent();
           playUserSwitchTransition(pos > queuePos);
@@ -4606,16 +4670,16 @@ import com.callx.app.utils.AlertDialogStyler;
           if (isHighlightMode) {
               highlightAlbumId = queueAlbumIds.get(pos);
               ownerName = pos < queueAlbumNames.size() ? queueAlbumNames.get(pos) : highlightAlbumId;
-              binding.tvOwner.setText(ownerName != null ? ownerName : "Highlight");
+              binding.tvOwner.setText(ownerName != null ? ownerName : getString(R.string.viewer_owner_default_highlight));
               loadHighlightAlbum(ownerUid);
           } else {
               ownerUid  = queueOwnerUids.get(pos);
               ownerName = pos < queueOwnerNames.size() ? queueOwnerNames.get(pos) : ownerUid;
               ownerPhotoHint = pos < queueOwnerPhotos.size() ? queueOwnerPhotos.get(pos) : null;
               bindOwnerAvatar(null);
-              binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
+              binding.tvOwner.setText(ownerName != null ? ownerName : getString(R.string.viewer_owner_default_status));
               if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid))
-                  binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
+                  binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : getString(R.string.viewer_owner_default_status)));
               load(ownerUid);
           }
       }
@@ -5046,7 +5110,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   v.getLocationInWindow(a); burst.getLocationInWindow(b);
                   bx = a[0] - b[0] + v.getWidth() / 2f; by = a[1] - b[1] + v.getHeight() / 2f;
               }
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) { logIgnored("onQuickEmojiTapped", ignored); }
           sendQuickReaction(tag.toString(), bx, by);  // Firebase + chat bubble + floating burst from the tapped cell
           handler.postDelayed(this::closeQuickReactionOverlay, 140);
       }
@@ -5074,7 +5138,7 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           }, () -> {
               if (isFinishing() || isDestroyed()) return;
-              Toast.makeText(this, "Couldn\u2019t send reaction. Check your connection and try again.",
+              Toast.makeText(this, getString(R.string.viewer_toast_reaction_failed),
                       Toast.LENGTH_SHORT).show();
           });
           if (isNew && binding.reactionBurstOverlay != null) {
@@ -5277,9 +5341,11 @@ import com.callx.app.utils.AlertDialogStyler;
       private void showOwnerMoreMenu() {
           if (isHighlightMode) { showHighlightOwnerMoreMenu(); return; }
           StatusItem current = idx < items.size() ? items.get(idx) : null;
-          String stabLabel = StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on";
+          String stabLabel = getString(StoryStabilizerPrefs.isEnabled(this) ? R.string.viewer_menu_stabilizer_off : R.string.viewer_menu_stabilizer_on);
           final int mc = current != null && current.mentionNames != null ? current.mentionNames.size() : 0;
-          String[] opts = {"Who viewed this", "Delete this status", "Archive status", "Add to Highlights", "Analytics", stabLabel, mc > 0 ? "Mentions (" + mc + ")" : "Mentions", "Cancel"};
+          String[] opts = {getString(R.string.viewer_menu_who_viewed), getString(R.string.viewer_menu_delete_status), getString(R.string.viewer_menu_archive),
+                  getString(R.string.viewer_menu_add_highlights), getString(R.string.viewer_menu_analytics), stabLabel,
+                  mc > 0 ? getString(R.string.viewer_menu_mentions_count, mc) : getString(R.string.viewer_menu_mentions), getString(android.R.string.cancel)};
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
@@ -5330,9 +5396,10 @@ import com.callx.app.utils.AlertDialogStyler;
        *  "Highlight editing & settings" system. */
       private void showHighlightOwnerMoreMenu() {
           StatusItem current = idx < items.size() ? items.get(idx) : null;
-          String[] opts = {"Who viewed this", "Remove from Highlight", "Rename Highlight",
-                  "Set as Cover", "Delete Entire Highlight",
-                  StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on", "Cancel"};
+          String[] opts = {getString(R.string.viewer_menu_who_viewed), getString(R.string.viewer_menu_remove_highlight), getString(R.string.viewer_menu_rename_highlight),
+                  getString(R.string.viewer_menu_set_cover), getString(R.string.viewer_menu_delete_highlight),
+                  getString(StoryStabilizerPrefs.isEnabled(this) ? R.string.viewer_menu_stabilizer_off : R.string.viewer_menu_stabilizer_on),
+                  getString(android.R.string.cancel)};
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(opts, (d, w) -> {
                   if (w == 0) {
@@ -5369,9 +5436,9 @@ import com.callx.app.utils.AlertDialogStyler;
           input.setText(ownerName);
           input.setSelection(input.getText() != null ? input.getText().length() : 0);
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
-              .setTitle("Rename Highlight")
+              .setTitle(R.string.viewer_menu_rename_highlight)
               .setView(input)
-              .setPositiveButton("Save", (d, w) -> {
+              .setPositiveButton(R.string.viewer_save, (d, w) -> {
                   String newName = input.getText() != null ? input.getText().toString().trim() : "";
                   if (!newName.isEmpty()) {
                       StatusHighlightManager.renameAlbum(ownerUid, highlightAlbumId, newName);
@@ -5381,20 +5448,20 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
                   resumeProgress();
               })
-              .setNegativeButton("Cancel", (d, w) -> resumeProgress())
+              .setNegativeButton(android.R.string.cancel, (d, w) -> resumeProgress())
               .setOnCancelListener(d -> resumeProgress())
               .create());
       }
       private void confirmDeleteHighlightAlbum() {
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
-              .setTitle("Delete this Highlight?")
-              .setMessage("All statuses in \"" + ownerName + "\" will be removed from Highlights. The original stories (if still active) won't be affected.")
-              .setPositiveButton("Delete", (d, w) -> {
+              .setTitle(R.string.viewer_delete_highlight_title)
+              .setMessage(getString(R.string.viewer_delete_highlight_msg, ownerName))
+              .setPositiveButton(R.string.viewer_delete, (d, w) -> {
                   StatusHighlightManager.deleteAlbum(ownerUid, highlightAlbumId);
                   Toast.makeText(this, R.string.viewer_toast_highlight_deleted, Toast.LENGTH_SHORT).show();
                   finish();
               })
-              .setNegativeButton("Cancel", (d, w) -> resumeProgress())
+              .setNegativeButton(android.R.string.cancel, (d, w) -> resumeProgress())
               .setOnCancelListener(d -> resumeProgress())
               .create());
       }
@@ -5449,27 +5516,27 @@ import com.callx.app.utils.AlertDialogStyler;
           // are reused as-is.
           final java.util.List<String> labels = new java.util.ArrayList<>();
           final java.util.List<Runnable> actions = new java.util.ArrayList<>();
-          labels.add(StatusMuteManager.isMuted(this, ownerUid) ? "Unmute " + ownerName : "Mute " + ownerName);
+          labels.add(getString(StatusMuteManager.isMuted(this, ownerUid) ? R.string.viewer_menu_unmute : R.string.viewer_menu_mute, ownerName));
           actions.add(() -> {
               StatusMuteManager.toggle(this, ownerUid);
               Toast.makeText(this, StatusMuteManager.isMuted(this, ownerUid)
                       ? getString(R.string.viewer_toast_muted, ownerName) : getString(R.string.viewer_toast_unmuted, ownerName), Toast.LENGTH_SHORT).show();
               finish();
           });
-          labels.add("Download");  actions.add(() -> { runAct(actDownload); resumeProgress(); });
-          labels.add("Forward");   actions.add(() -> runAct(actForward)); // sheet resumes progress itself
+          labels.add(getString(R.string.viewer_menu_download));  actions.add(() -> { runAct(actDownload); resumeProgress(); });
+          labels.add(getString(R.string.viewer_menu_forward));   actions.add(() -> runAct(actForward)); // sheet resumes progress itself
           if (cur != null && cur.allowSharing) {
-              labels.add("Repost to my status"); actions.add(() -> runAct(actRepost));
+              labels.add(getString(R.string.viewer_menu_repost)); actions.add(() -> runAct(actRepost));
           }
-          labels.add(StoryStabilizerPrefs.isEnabled(this) ? "Turn stabilizer off" : "Turn stabilizer on");
+          labels.add(getString(StoryStabilizerPrefs.isEnabled(this) ? R.string.viewer_menu_stabilizer_off : R.string.viewer_menu_stabilizer_on));
           actions.add(() -> { runAct(actStabilizer); resumeProgress(); });
           if (cur != null && cur.mentionNames != null && !cur.mentionNames.isEmpty()) {
-              labels.add("Mentions (" + cur.mentionNames.size() + ")"); actions.add(() -> showMentionsList(cur));
+              labels.add(getString(R.string.viewer_menu_mentions_count, cur.mentionNames.size())); actions.add(() -> showMentionsList(cur));
           }
           if (myUid == null || !myUid.equals(ownerUid)) {   // no point reporting your own status
-              labels.add("Report"); actions.add(() -> showReportDialog(cur));
+              labels.add(getString(R.string.viewer_menu_report)); actions.add(() -> showReportDialog(cur));
           }
-          labels.add("Cancel");    actions.add(this::resumeProgress);
+          labels.add(getString(android.R.string.cancel));    actions.add(this::resumeProgress);
           AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
               .setItems(labels.toArray(new String[0]), (d, w) -> actions.get(w).run())
               .setOnCancelListener(d -> resumeProgress())
@@ -5600,7 +5667,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       String ph = c.partnerPhoto != null && !c.partnerPhoto.isEmpty() ? c.partnerPhoto : c.partnerThumb;
                       if (ph != null && !ph.isEmpty()) seeds.put(c.partnerUid, ph);
                   }
-              } catch (Exception ignored) {}
+              } catch (Exception ignored) { logIgnored("seedViewerPhotosFromRoom", ignored); }
               handler.post(() -> {
                   for (Map.Entry<String, String> e : seeds.entrySet()) {
                       String have = VIEWER_PHOTOS.get(e.getKey());
@@ -6197,7 +6264,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   if (playerListener != null) player.removeListener(playerListener);
                   player.stop();
                   player.clearMediaItems();
-              } catch (Exception ignored) {}
+              } catch (Exception ignored) { logIgnored("releasePlayer", ignored); }
           }
           playerListener = null;
           videoStalled = false;

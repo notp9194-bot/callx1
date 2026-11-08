@@ -279,6 +279,8 @@ public class TemplateUsesActivity extends AppCompatActivity {
                 StatusItem it = null;
                 try { it = s.getValue(StatusItem.class); } catch (Exception ignored) { }
                 if (it == null) return;
+                // Thumbnail (with the play icon) plays the template's own story in the normal viewer.
+                findViewById(R.id.tu_thumb_wrap).setOnClickListener(v -> playTemplate());
                 final String name = it.caption != null && !it.caption.trim().isEmpty() ? it.caption.trim()
                         : (it.text != null && !it.text.trim().isEmpty() ? it.text.trim() : null);
                 if (name != null) templateName.setText(name);
@@ -298,6 +300,16 @@ public class TemplateUsesActivity extends AppCompatActivity {
             }
             @Override public void onCancelled(@NonNull DatabaseError e) { }
         });
+    }
+
+    /** Plays this template's story (status/{me}/{statusId}) alone in the normal status viewer; Back returns here. */
+    private void playTemplate() {
+        final Intent i = new Intent(this, StatusViewerActivity.class);
+        i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID, me);
+        i.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, tplOwnerName != null ? tplOwnerName : "");
+        i.putExtra(StatusViewerActivity.EXTRA_TARGET_STATUS_ID, statusId);
+        i.putExtra(StatusViewerActivity.EXTRA_SINGLE_STATUS_ONLY, true);
+        startActivity(i);
     }
 
     private void toggleSave() {

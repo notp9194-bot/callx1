@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v763: status viewer template chip ("Use this template" / "Your template" / fallback "Template by @name") -->
+    <color name="viewer_tpl_chip_bg">#E66A3DE8</color>
+    <dimen name="viewer_tpl_chip_text">15sp</dimen>
+    <dimen name="viewer_tpl_chip_more_text">20sp</dimen>
+    <dimen name="viewer_tpl_chip_radius">26dp</dimen>
+    <dimen name="viewer_tpl_chip_elevation">6dp</dimen>
+    <dimen name="viewer_tpl_chip_pad_h">10dp</dimen>
+    <dimen name="viewer_tpl_chip_pad_v">7dp</dimen>
+    <dimen name="viewer_tpl_chip_pad_end_plain">18dp</dimen>
+    <dimen name="viewer_tpl_chip_more_pad_start">12dp</dimen>
+    <dimen name="viewer_tpl_chip_more_pad_end">2dp</dimen>
+    <dimen name="viewer_tpl_chip_preview_w">24dp</dimen>
+    <dimen name="viewer_tpl_chip_preview_h">42dp</dimen>
+    <dimen name="viewer_tpl_chip_preview_gap">10dp</dimen>
+    <dimen name="viewer_tpl_chip_margin_default">96dp</dimen>
+    <dimen name="viewer_tpl_chip_margin_in_card">14dp</dimen>
+    <dimen name="viewer_tpl_chip_margin_min">72dp</dimen>
+    <dimen name="viewer_tpl_chip_gap_above_caption">10dp</dimen>
+</resources>

@@ -4,7 +4,7 @@
     <string name="tpl_uses_title">Used This Template</string>
     <string name="tpl_uses_default_name">Template</string>
     <string name="tpl_uses_story_template">Story Template</string>
-    <string name="tpl_uses_people_used"> people used this template</string>
+    <string name="tpl_uses_people_used">" people used this template"</string>
     <string name="tpl_uses_used_by">Used By</string>
     <string name="tpl_uses_people_count">%1$s People</string>
     <string name="tpl_uses_save">Save</string>
