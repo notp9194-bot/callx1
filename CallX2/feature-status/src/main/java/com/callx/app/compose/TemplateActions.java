@@ -235,7 +235,7 @@ public final class TemplateActions {
             s.setText(sub);
             s.setTextSize(13f);
             s.setTextColor(dark ? 0xAAFFFFFF : 0x99000000);
-            s.setPadding(0, dp(2), 0, 0);
+            s.setPadding(0, dp(c, 2), 0, 0);
             root.addView(s);
         }
         return root;
