@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v773 (part 1 + 2): Create Template screen (CreateTemplateActivity) -->
+<resources>
+    <string name="ct_title">Create Template</string>
+    <string name="ct_back">Back</string>
+    <string name="ct_help">Help</string>
+    <string name="ct_help_title">Template kaise banta hai</string>
+    <string name="ct_help_msg">1. Layout, frame, music aur effect chuno.\n2. Next dabao: composer me apni sample photos in boxes me daalo.\n3. Post karo. Jo bhi \"Use Template\" dabayega, usko yehi boxes khali milenge.\n\nBox-wise filter, animation aur duration baad me My Templates > Created > ⋮ > Template edit karo me badal sakte ho.</string>
+    <string name="ct_ok">Ok</string>
+    <string name="ct_tab_layout">Layout</string>
+    <string name="ct_tab_music">Music</string>
+    <string name="ct_tab_effects">Effects</string>
+    <string name="ct_layouts">Layouts</string>
+    <string name="ct_frames">Frames</string>
+    <string name="ct_frame_border">Border</string>
+    <string name="ct_frame_shadow">Shadow</string>
+    <string name="ct_category">Category</string>
+    <string name="ct_next">Next</string>
+    <string name="ct_lay_corner">Corner</string>
+    <string name="ct_lay_duo">Duo</string>
+    <string name="ct_lay_pair">Pair</string>
+    <string name="ct_lay_strip">Strip</string>
+    <string name="ct_lay_polaroid">Polaroid</string>
+    <string name="ct_lay_column">Column</string>
+    <string name="ct_lay_photos">%1$d photos</string>
+    <string name="ct_music_none_title">Music add karo</string>
+    <string name="ct_music_none_sub">Template ke saath ye song bajega</string>
+    <string name="ct_music_change">Change</string>
+    <string name="ct_music_remove">Remove</string>
+    <string name="ct_music_unavailable">Music picker abhi available nahi hai</string>
+    <string name="ct_music_hint">Song ka start / end composer me music sticker par long-press karke badal sakte ho.</string>
+    <string name="ct_music_sync_off_hint">Music sync ke liye pehle song chuno.</string>
+    <string name="ct_effects_filter">Filter</string>
+    <string name="ct_effects_anim">Animation</string>
+    <string name="ct_effects_hint">Ye sab photo / video boxes par lagta hai. Box-wise alag filter ya animation baad me Template Editor se.</string>
+    <string name="ct_create_pick_photos">Sample photos chuno. Template isi tarah dikhega, viewers ko boxes khali milenge.</string>
+    <!-- part 2: Multi-Scene -->
+    <string name="ct_ms_title">Multi-Scene</string>
+    <string name="ct_ms_info">Multi-Scene me template kai scenes ka hota hai. Har scene ka apna layout aur length hota hai, aur scenes ek ke baad ek chalte hain.\n\nFrame, filter, animation aur music sab scenes par ek jaise lagte hain.\n\nNext dabane par composer me har scene ki sample photos daalni hongi.</string>
+    <string name="ct_ms_off_hint">On karo to template me kai scenes jod sakte ho.</string>
+    <string name="ct_ms_hint">Layout grid se chuna hua scene ka layout badalta hai. Scene par tap karke use chuno.</string>
+    <string name="ct_scene_n">Scene %1$d</string>
+    <string name="ct_scene_add">Scene jodo</string>
+    <string name="ct_scene_len">Scene %1$d ki length</string>
+    <string name="ct_scene_remove">Scene hatao</string>
+    <string name="ct_scene_total">Total %1$s</string>
+    <!-- drafts -->
+    <string name="ct_draft_title">Draft me save karo?</string>
+    <string name="ct_draft_msg">Aapne badlav kiye hain. Draft My Templates > Drafts me milega.</string>
+    <string name="ct_draft_save">Save draft</string>
+    <string name="ct_draft_discard">Discard</string>
+    <string name="ct_draft_keep">Edit karte raho</string>
+    <string name="ct_draft_saved">Draft save ho gaya</string>
+    <string name="ct_draft_fail">Draft save nahi hua</string>
+</resources>

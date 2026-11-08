@@ -53,14 +53,13 @@ import java.util.Map;
  *  - Used:    userTemplateUsed/{me} (written when you post a status made from a template; ⋮: use again, share, remove).
  *  - "Create New Template" button, premium iOS look (white surface, purple accent, rounded cards), existing drawables only.
  *
- * Created > ⋮ > "Template edit karo" opens the Template Editor (v772). Drafts tab: still not here — the editor edits live templates
- * in place (there is no half-made template to keep), so a Drafts list would always be empty.
+ * Created > ⋮ > "Template edit karo" opens the Template Editor (v772). Drafts tab (v774): local Create Template drafts ({@link TemplateDrafts}) — tap / ⋮ > edit reopens the Create screen, ⋮ > delete.
  * Tapping a row opens the Preview screen (v769).
  */
 public class MyTemplatesActivity extends AppCompatActivity {
 
     private static final int PURPLE = 0xFF6A3DE8, PURPLE_LIGHT = 0xFF9A7BFF;
-    private static final int TAB_CREATED = 0, TAB_SAVED = 1, TAB_USED = 2;
+    private static final int TAB_CREATED = 0, TAB_SAVED = 1, TAB_DRAFTS = 2, TAB_USED = 3;
     private static final int MAX_ROWS = 60;
 
     private static final class Row {
@@ -68,6 +67,7 @@ public class MyTemplatesActivity extends AppCompatActivity {
         long ts;
         long uses = -1;
         boolean usesAsked;
+        boolean draft;   // v774: local Create Template draft (statusId = draft id)
         TemplatePreviewDrawable preview;
         String key() { return ownerUid + "/" + statusId; }
     }
@@ -75,6 +75,7 @@ public class MyTemplatesActivity extends AppCompatActivity {
     private final Map<String, Row> created = new LinkedHashMap<>();
     private final Map<String, Row> saved = new LinkedHashMap<>();
     private final Map<String, Row> used = new LinkedHashMap<>();
+    private final Map<String, Row> drafts = new LinkedHashMap<>();
 
     private boolean dark;
     private int bg, surface, textColor, subColor;
@@ -86,6 +87,8 @@ public class MyTemplatesActivity extends AppCompatActivity {
     private TextView empty;
     private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable renderRun = this::render;
+
+    private String editingId;   // declared before the launchers that use it (forward-reference fix)
 
     private final ActivityResultLauncher<Intent> previewLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), res -> {
@@ -106,7 +109,6 @@ public class MyTemplatesActivity extends AppCompatActivity {
                 r.preview = TemplatePreviewDrawable.fromJson(nj);
                 render();
             });
-    private String editingId;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -151,7 +153,13 @@ public class MyTemplatesActivity extends AppCompatActivity {
         loadCreatedFromTray();
         loadSaved();
         loadUsed();
+        loadDrafts();
         render();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (me != null && !me.isEmpty() && listBox != null) { loadDrafts(); render(); }   // v774: back from Create Template
     }
 
     @Override protected void onDestroy() {
@@ -222,12 +230,12 @@ public class MyTemplatesActivity extends AppCompatActivity {
         final LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(dp(16), dp(4), dp(16), dp(12));
-        final int[] labels = {R.string.mt_tab_created, R.string.mt_tab_saved, R.string.mt_tab_used};
+        final int[] labels = {R.string.mt_tab_created, R.string.mt_tab_saved, R.string.mt_tab_drafts, R.string.mt_tab_used};
         for (int i = 0; i < labels.length; i++) {
             final int idx = i;
             final TextView t = text(getString(labels[i]), 14f, textColor, true);
             t.setGravity(Gravity.CENTER);
-            t.setPadding(dp(18), dp(10), dp(18), dp(10));
+            t.setPadding(dp(6), dp(10), dp(6), dp(10));   // v774: 4 tabs
             t.setOnClickListener(v -> { tab = idx; render(); });
             final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
             lp.setMargins(0, 0, i == labels.length - 1 ? 0 : dp(8), 0);
@@ -254,7 +262,7 @@ public class MyTemplatesActivity extends AppCompatActivity {
         final TextView t = text(getString(R.string.mt_create_new), 16f, 0xFFFFFFFF, true);
         t.setPadding(dp(8), 0, 0, 0);
         cta.addView(t);
-        cta.setOnClickListener(v -> startActivity(new Intent(this, NewStatusActivity.class)));
+        cta.setOnClickListener(v -> startActivity(new Intent(this, CreateTemplateActivity.class)));   // v773: Create Template screen
         final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(54));
         lp.setMargins(dp(16), dp(12), dp(16), dp(12));
         wrap.addView(cta, lp);
@@ -335,10 +343,21 @@ public class MyTemplatesActivity extends AppCompatActivity {
         } catch (Exception ignored) { }
     }
 
+    /** v774: local drafts of the Create Template screen. */
+    private void loadDrafts() {
+        drafts.clear();
+        for (TemplateDrafts.Draft d : TemplateDrafts.list(this, me)) {
+            final Row r = makeRow(me, d.id, null, d.json, null, d.ts);
+            if (r == null) continue;
+            r.draft = true;
+            drafts.put(r.key(), r);
+        }
+    }
+
     // ── render ───────────────────────────────────────────────────────────────
 
     private List<Row> current() {
-        final List<Row> l = new ArrayList<>((tab == TAB_SAVED ? saved : tab == TAB_USED ? used : created).values());
+        final List<Row> l = new ArrayList<>((tab == TAB_SAVED ? saved : tab == TAB_USED ? used : tab == TAB_DRAFTS ? drafts : created).values());
         Collections.sort(l, (a, b) -> Long.compare(b.ts, a.ts));
         return l;
     }
@@ -355,9 +374,10 @@ public class MyTemplatesActivity extends AppCompatActivity {
         final List<Row> rows = current();
         for (Row r : rows) {
             listBox.addView(makeRowView(r), rowLp());
-            askUses(r);
+            if (!r.draft) askUses(r);
         }
-        empty.setText(tab == TAB_SAVED ? R.string.mt_empty_saved : tab == TAB_USED ? R.string.mt_empty_used : R.string.mt_empty_created);
+        empty.setText(tab == TAB_SAVED ? R.string.mt_empty_saved : tab == TAB_USED ? R.string.mt_empty_used
+                : tab == TAB_DRAFTS ? R.string.mt_empty_drafts : R.string.mt_empty_created);
         empty.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
@@ -403,10 +423,18 @@ public class MyTemplatesActivity extends AppCompatActivity {
         final LinearLayout mid = new LinearLayout(this);
         mid.setOrientation(LinearLayout.VERTICAL);
         final String who = ne(r.ownerName) ? r.ownerName : "user";
-        final TextView nm = text(mine ? getString(R.string.mt_your_template) : "@" + who, 16f, textColor, true);
+        final TextView nm = text(r.draft ? getString(R.string.mt_draft_name) : mine ? getString(R.string.mt_your_template) : "@" + who, 16f, textColor, true);
         nm.setSingleLine(true);
         nm.setEllipsize(TextUtils.TruncateAt.END);
         mid.addView(nm);
+        if (r.draft) {   // v774: drafts have no uses — show scene count + when it was saved
+            final int n = TemplateSpec.parse(r.json).isMultiScene() ? TemplateSpec.parse(r.json).scenes.size() : 1;
+            final String when = android.text.format.DateUtils.getRelativeTimeSpanString(r.ts, System.currentTimeMillis(),
+                    android.text.format.DateUtils.MINUTE_IN_MILLIS).toString();
+            final TextView dt = text(getString(R.string.mt_draft_sub, n, when), 13f, subColor, false);
+            dt.setPadding(0, dp(6), 0, 0);
+            mid.addView(dt);
+        }
         final LinearLayout uses = new LinearLayout(this);
         uses.setOrientation(LinearLayout.HORIZONTAL);
         uses.setGravity(Gravity.CENTER_VERTICAL);
@@ -416,7 +444,7 @@ public class MyTemplatesActivity extends AppCompatActivity {
                 13f, r.uses > 0 ? 0xFFFF6A1A : subColor, r.uses > 0);
         ut.setPadding(dp(4), 0, 0, 0);
         uses.addView(ut);
-        mid.addView(uses);
+        if (!r.draft) mid.addView(uses);
         final LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(0, -2, 1f);
         mlp.setMargins(dp(12), 0, dp(6), 0);
         card.addView(mid, mlp);
@@ -467,6 +495,7 @@ public class MyTemplatesActivity extends AppCompatActivity {
     }
 
     private void openPreview(final Row r) {
+        if (r.draft) { editDraft(r); return; }
         withJson(r, () -> {
             final Intent i = new Intent(this, TemplatePreviewActivity.class);
             i.putExtra(TemplatePreviewActivity.EXTRA_TPL_JSON, r.json);
@@ -480,7 +509,28 @@ public class MyTemplatesActivity extends AppCompatActivity {
         });
     }
 
+    private void editDraft(final Row r) {
+        startActivity(new Intent(this, CreateTemplateActivity.class).putExtra(CreateTemplateActivity.EXTRA_DRAFT_ID, r.statusId));
+    }
+
     private void showMenu(View anchor, final Row r, boolean mine) {
+        if (r.draft) {
+            final PopupMenu dm = new PopupMenu(this, anchor);
+            dm.getMenu().add(0, 1, 0, R.string.mt_draft_edit);
+            dm.getMenu().add(0, 2, 1, R.string.mt_draft_delete);
+            dm.setOnMenuItemClickListener(mi -> {
+                if (mi.getItemId() == 1) editDraft(r);
+                else if (mi.getItemId() == 2) {
+                    TemplateDrafts.delete(this, me, r.statusId);
+                    drafts.remove(r.key());
+                    Toast.makeText(this, R.string.mt_draft_deleted, Toast.LENGTH_SHORT).show();
+                    render();
+                }
+                return true;
+            });
+            dm.show();
+            return;
+        }
         if (tab == TAB_CREATED && mine) {
             // the owner sheet: who used it, reuse on / off, link, remove
             TemplateActions.showOwnerSheet(this, r.statusId, Math.max(0, r.uses), null, null, () -> {

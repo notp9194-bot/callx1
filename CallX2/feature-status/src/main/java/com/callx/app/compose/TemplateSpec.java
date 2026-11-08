@@ -22,6 +22,10 @@ import java.util.Locale;
  * </pre>
  * k = slot kind ("img" default | "video"), d = slot duration ms, flt = filter key, an = animation key,
  * tdur = whole template duration ms, msync = 1 → cuts follow the music beat (editor "Music Sync").
+ *
+ * <p>v774 MULTI-SCENE: optional {@code "scenes":[{"d":3000},{"d":2500,"slots":[..]},..]}. Scene 0 is ALWAYS the root {@code "slots"}
+ * (its entry only carries the length), so an old app / the v772 Editor still sees a normal one-scene template; scenes 1.. carry their
+ * own {@code slots} (same shape as the root ones, first = that scene's full-canvas base). Scenes play one after another.</p>
  */
 public final class TemplateSpec {
 
@@ -38,6 +42,12 @@ public final class TemplateSpec {
     public static final int MAX_SLOT_MS = 15_000;
     public static final int DEF_SLOT_MS = 3_000;
     public static final int MAX_TOTAL_MS = 60_000;
+
+    /** v774: scene limits. */
+    public static final int MAX_SCENES = 5;
+    public static final int MIN_SCENE_MS = 1_000;
+    public static final int MAX_SCENE_MS = 10_000;
+    public static final int DEF_SCENE_MS = 3_000;
 
     /** One box / scene of the template. */
     public static final class Slot {
@@ -74,7 +84,20 @@ public final class TemplateSpec {
         }
     }
 
+    /** v774: one scene of a multi-scene template. */
+    public static final class Scene {
+        public int durMs = DEF_SCENE_MS;
+        /** Scene 0: the root {@link TemplateSpec#slots}. Scenes 1..: parsed from the scene's own "slots". */
+        public final List<Slot> slots = new ArrayList<>();
+        /** Raw geometry of scenes 1.. (null for scene 0 — the caller reads the root "slots"). */
+        @Nullable public JSONArray rawSlots;
+
+        public int effectiveMs() { return clampSceneMs(durMs); }
+    }
+
     public final List<Slot> slots = new ArrayList<>();
+    /** v774: empty = ordinary one-scene template; otherwise 2..{@link #MAX_SCENES} scenes (index 0 = root slots). */
+    public final List<Scene> scenes = new ArrayList<>();
     /** Whole template duration in ms (0 = not set). */
     public int totalMs;
     public boolean musicSync;
@@ -92,6 +115,27 @@ public final class TemplateSpec {
             }
             t.totalMs = Math.max(0, Math.min(MAX_TOTAL_MS, root.optInt("tdur", 0)));
             t.musicSync = root.optInt("msync", 0) == 1;
+            final JSONArray sc = root.optJSONArray("scenes");
+            if (sc != null && sc.length() >= 2) {
+                for (int i = 0; i < sc.length() && i < MAX_SCENES; i++) {
+                    final JSONObject so = sc.optJSONObject(i);
+                    if (so == null) break;
+                    final Scene s = new Scene();
+                    s.durMs = clampSceneMs(so.optInt("d", DEF_SCENE_MS));
+                    if (i == 0) {
+                        s.slots.addAll(t.slots);
+                    } else {
+                        s.rawSlots = so.optJSONArray("slots");
+                        if (s.rawSlots == null || s.rawSlots.length() == 0) { t.scenes.clear(); break; }   // broken scene → plain one-scene template
+                        for (int k = 0; k < s.rawSlots.length(); k++) {
+                            final JSONObject o = s.rawSlots.optJSONObject(k);
+                            if (o != null) s.slots.add(Slot.fromJson(o));
+                        }
+                    }
+                    t.scenes.add(s);
+                }
+                if (t.scenes.size() < 2) t.scenes.clear();
+            }
         } catch (Exception ignored) { }
         return t;
     }
@@ -104,6 +148,15 @@ public final class TemplateSpec {
         } catch (Exception ignored) { }
     }
 
+    public boolean isMultiScene() { return scenes.size() >= 2; }
+
+    /** Sum of the scene lengths (0 for a one-scene template). */
+    public int scenesTotalMs() {
+        int sum = 0;
+        for (Scene s : scenes) sum += s.effectiveMs();
+        return Math.min(MAX_TOTAL_MS, sum);
+    }
+
     public boolean hasVideo() {
         for (Slot s : slots) if (s.isVideo()) return true;
         return false;
@@ -112,6 +165,7 @@ public final class TemplateSpec {
     /** Duration to show on a card / editor: explicit total, else sum of the non-base slot durations, else 0. */
     public int displayMs() {
         if (totalMs > 0) return totalMs;
+        if (isMultiScene()) return scenesTotalMs();
         int sum = 0;
         for (Slot s : slots) if (!s.base && s.durMs > 0) sum += s.effectiveMs();
         return Math.min(MAX_TOTAL_MS, sum);
@@ -125,6 +179,8 @@ public final class TemplateSpec {
     }
 
     public static int clampSlotMs(int ms) { return Math.max(MIN_SLOT_MS, Math.min(MAX_SLOT_MS, ms)); }
+
+    public static int clampSceneMs(int ms) { return Math.max(MIN_SCENE_MS, Math.min(MAX_SCENE_MS, ms)); }
 
     @NonNull private static String known(@NonNull String[] keys, @Nullable String v, @NonNull String def) {
         if (v == null) return def;

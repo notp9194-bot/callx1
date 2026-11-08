@@ -636,7 +636,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         fab.setElevation(dp(8));
         fab.addView(icon(R.drawable.ic_add, 0xFFFFFFFF, 30), new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER));
         fab.setContentDescription(getString(R.string.tpl_nav_create));
-        fab.setOnClickListener(v -> startActivity(new Intent(this, NewStatusActivity.class)));
+        fab.setOnClickListener(v -> startActivity(new Intent(this, CreateTemplateActivity.class)));   // v773: Create Template screen
         final FrameLayout.LayoutParams fl = new FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER);
         fl.topMargin = -dp(16);
         fabCell.addView(fab, fl);

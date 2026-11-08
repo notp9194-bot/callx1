@@ -5,6 +5,13 @@
     <string name="mt_tab_created">Created</string>
     <string name="mt_tab_saved">Saved</string>
     <string name="mt_tab_used">Used</string>
+    <string name="mt_tab_drafts">Drafts</string>
+    <string name="mt_empty_drafts">Koi draft nahi.\nCreate Template me badlav karke back dabao, \"Save draft\" se yahan aa jayega.</string>
+    <string name="mt_draft_name">Draft</string>
+    <string name="mt_draft_sub">%1$d scene(s) · %2$s</string>
+    <string name="mt_draft_edit">Draft edit karo</string>
+    <string name="mt_draft_delete">Draft delete karo</string>
+    <string name="mt_draft_deleted">Draft delete ho gaya</string>
     <string name="mt_create_new">Create New Template</string>
     <string name="mt_your_template">Your Template</string>
     <string name="mt_uses">%1$s uses</string>

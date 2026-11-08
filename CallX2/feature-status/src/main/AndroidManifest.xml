@@ -227,6 +227,11 @@
             android:name="com.callx.app.compose.TemplateAnalyticsActivity"
             android:theme="@style/Theme.CallX"
             android:exported="false"/>
+        <!-- v773: Create Template (layout / music / effects / frames) -> composer in create mode -->
+        <activity
+            android:name="com.callx.app.compose.CreateTemplateActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
         <!-- v772: Template Editor (filter / animation / duration / music sync) -->
         <activity
             android:name="com.callx.app.compose.TemplateEditorActivity"

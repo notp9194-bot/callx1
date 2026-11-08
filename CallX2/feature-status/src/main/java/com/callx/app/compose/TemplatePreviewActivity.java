@@ -379,7 +379,12 @@ public class TemplatePreviewActivity extends AppCompatActivity {
         sheet.addView(head);
 
         final int videos = countVideos(spec);
-        final int photos = Math.max(0, preview.photoCount() - videos);
+        int photosAll = preview.photoCount();
+        if (spec.isMultiScene()) {   // v774: every scene's boxes count (base + boxes of each scene)
+            photosAll = 0;
+            for (TemplateSpec.Scene sc : spec.scenes) photosAll += sc.slots.size();
+        }
+        final int photos = Math.max(0, photosAll - videos);
         final String song = musicName();
         final int ms = spec.displayMs();
         final LinearLayout tiles = new LinearLayout(this);
@@ -436,6 +441,10 @@ public class TemplatePreviewActivity extends AppCompatActivity {
 
     private static int countVideos(TemplateSpec spec) {
         int n = 0;
+        if (spec.isMultiScene()) {
+            for (TemplateSpec.Scene sc : spec.scenes) for (TemplateSpec.Slot s : sc.slots) if (!s.base && s.isVideo()) n++;
+            return n;
+        }
         for (TemplateSpec.Slot s : spec.slots) if (!s.base && s.isVideo()) n++;
         return n;
     }

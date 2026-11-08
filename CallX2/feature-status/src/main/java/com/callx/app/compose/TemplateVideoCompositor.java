@@ -66,6 +66,8 @@ public final class TemplateVideoCompositor {
         @Nullable public TemplateBoxStyle style;  // null = plain rounded box
         public long trimStartMs;                  // where in the clip this slot starts
         public long durationMs = 3000L;           // how long this box shows (clip loops if shorter)
+        /** v774: when (output time, ms) this box appears — 0 for single-scene templates, the scene's start for multi-scene ones. */
+        public long startMs;
         public float zoom = 1f;                   // ≥ 1: user zoom inside the box
         public float panX, panY;                  // -1..1 inside the free area left by zoom / cover-crop
         /** v772: photo box — drawn from this bitmap (already cropped to the box) instead of a decoded clip; {@link #path} unused. */
@@ -74,6 +76,13 @@ public final class TemplateVideoCompositor {
         @NonNull public String filter = TemplateSpec.DEF_FILTER;
         /** v772: {@link TemplateSpec#ANIMS} key, played over the box's own duration (zoom / pan / fade-in). */
         @NonNull public String anim = TemplateSpec.DEF_ANIM;
+    }
+
+    /** v774: one scene's opaque background (photo boxes without animation are already baked into it), shown from {@link #startMs}. */
+    public static final class Scene {
+        @NonNull public final Bitmap under;
+        public final long startMs;
+        public Scene(@NonNull Bitmap under, long startMs) { this.under = under; this.startMs = Math.max(0L, startMs); }
     }
 
     public interface Progress { void onProgress(int pct); }
@@ -99,9 +108,24 @@ public final class TemplateVideoCompositor {
                                  @Nullable String audioPath, long audioStartMs, long totalMs,
                                  int outW, int outH, @NonNull File out,
                                  @Nullable Progress progress, @Nullable AtomicBoolean cancel) {
+        final List<Scene> one = new ArrayList<>();
+        one.add(new Scene(under, 0L));
+        if (slots.isEmpty()) { final Result r = new Result(); r.error = "no slots / too short"; return r; }   // single scene: unchanged rule
+        return composeScenes(one, over, slots, audioPath, audioStartMs, totalMs, outW, outH, out, progress, cancel);
+    }
+
+    /**
+     * v774 multi-scene: {@code scenes} (sorted by start, first at 0) each give the background from their start time; every {@link Slot}
+     * carries its own {@link Slot#startMs}. A scene with no animated box simply has no slots (the background is the whole scene).
+     */
+    @NonNull
+    public static Result composeScenes(@NonNull List<Scene> scenes, @Nullable Bitmap over, @NonNull List<Slot> slots,
+                                       @Nullable String audioPath, long audioStartMs, long totalMs,
+                                       int outW, int outH, @NonNull File out,
+                                       @Nullable Progress progress, @Nullable AtomicBoolean cancel) {
         final Result res = new Result();
-        if (slots.isEmpty() || totalMs < 500) { res.error = "no slots / too short"; return res; }
-        final Engine e = new Engine(under, over, slots, audioPath, audioStartMs, totalMs,
+        if (scenes.isEmpty() || totalMs < 500) { res.error = "no scenes / too short"; return res; }
+        final Engine e = new Engine(scenes, over, slots, audioPath, audioStartMs, totalMs,
                 even(outW), even(outH), out, progress, cancel, res);
         try {
             e.run();
@@ -129,7 +153,9 @@ public final class TemplateVideoCompositor {
     // ── engine ───────────────────────────────────────────────────────────────
 
     private static final class Engine {
-        final Bitmap under, over;
+        final List<Scene> scenes;
+        final Bitmap over;
+        int[] sceneTex;
         final List<Slot> slots;
         final String audioPath;
         final long audioStartUs, totalUs;
@@ -157,11 +183,11 @@ public final class TemplateVideoCompositor {
         FloatBuffer quad;
         final float[] proj = new float[16];
         final List<Clip> clips = new ArrayList<>();
-        int underTex, overTex;
+        int overTex;
 
-        Engine(Bitmap under, Bitmap over, List<Slot> slots, String audioPath, long audioStartMs, long totalMs,
+        Engine(List<Scene> scenes, Bitmap over, List<Slot> slots, String audioPath, long audioStartMs, long totalMs,
                int w, int h, File out, Progress p, AtomicBoolean cancel, Result res) {
-            this.under = under; this.over = over; this.slots = slots; this.audioPath = audioPath;
+            this.scenes = scenes; this.over = over; this.slots = slots; this.audioPath = audioPath;
             this.audioStartUs = Math.max(0, audioStartMs) * 1000L;
             this.totalUs = totalMs * 1000L;
             this.W = w; this.H = h; this.outFile = out; this.progress = p; this.cancel = cancel; this.res = res;
@@ -187,7 +213,7 @@ public final class TemplateVideoCompositor {
             Matrix.orthoM(proj, 0, 0, W, H, 0, -1, 1);   // pixel space, y down
 
             for (Slot s : slots) clips.add(new Clip(s));
-            for (Clip c : clips) c.prepare();
+            for (Clip c : clips) if (c.slot.startMs <= 0L) { c.prepare(); c.live = true; }   // v774: later scenes' clips open when their scene starts
 
             audioFmt = audioPath != null ? findAacFormat(audioPath) : null;
             res.audioKept = audioFmt != null;
@@ -200,7 +226,7 @@ public final class TemplateVideoCompositor {
             for (int f = 0; f < totalFrames; f++) {
                 if (cancel != null && cancel.get()) { res.cancelled = true; return; }
                 final long tUs = f * 1_000_000L / fps;
-                for (Clip c : clips) c.advance(tUs);
+                for (Clip c : clips) { c.ensure(tUs); c.advance(tUs); }
                 drawFrame(tUs);
                 EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, tUs * 1000L);
                 EGL14.eglSwapBuffers(eglDisplay, eglSurface);
@@ -369,7 +395,8 @@ public final class TemplateVideoCompositor {
             GLES20.glEnable(GLES20.GL_BLEND);
             GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA);
 
-            underTex = bitmapTexture(under);
+            sceneTex = new int[scenes.size()];
+            for (int i = 0; i < sceneTex.length; i++) sceneTex[i] = bitmapTexture(scenes.get(i).under);
             overTex = over != null ? bitmapTexture(over) : 0;
         }
 
@@ -378,12 +405,15 @@ public final class TemplateVideoCompositor {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
             final float[] full = new float[16];
             screenMvp(full);
-            drawTex(underTex, full);
+            int si = 0;   // v774: the scene whose background is on screen now
+            for (int i = 0; i < scenes.size(); i++) if (scenes.get(i).startMs * 1000L <= tUs) si = i;
+            drawTex(sceneTex[si], full);
             for (Clip c : clips) {
-                final long slotEndUs = c.slot.durationMs * 1000L;
-                // box only shows for its own duration; after that the background shows through (a shorter slot ends early)
-                if (tUs < slotEndUs && c.hasFrame) c.draw(tUs);
-                if (c.frameTex != 0 && tUs < slotEndUs) drawTex(c.frameTex, c.mvp, c.frameAlpha);
+                final long local = tUs - c.slot.startMs * 1000L;
+                final boolean inWin = c.live && local >= 0 && local < c.slot.durationMs * 1000L;
+                // box only shows for its own window; outside it the background shows through (a shorter slot ends early)
+                if (inWin && c.hasFrame) c.draw(local);
+                if (c.frameTex != 0 && inWin) drawTex(c.frameTex, c.mvp, c.frameAlpha);
             }
             if (overTex != 0) drawTex(overTex, full);
         }
@@ -495,6 +525,7 @@ public final class TemplateVideoCompositor {
 
         final class Clip {
             final Slot slot;
+            boolean live, done;     // v774: prepared and not yet finished
             MediaExtractor ex;
             MediaCodec dec;
             Surface surface;
@@ -639,10 +670,25 @@ public final class TemplateVideoCompositor {
                 }
             }
 
-            /** Makes the GL texture hold the source frame for output time {@code tUs}. */
-            void advance(long tUs) {
+            /** v774: opens the clip when its scene starts, frees the decoder when its window is over. */
+            void ensure(long tUs) {
+                final long local = tUs - slot.startMs * 1000L;
+                if (!live && !done && local >= 0 && local < slot.durationMs * 1000L) {
+                    try { prepare(); live = true; }
+                    catch (Exception ex2) { Log.w(TAG, "late clip prepare failed", ex2); done = true; }
+                } else if (live && local >= slot.durationMs * 1000L && slot.startMs > 0L) {
+                    release();
+                    live = false;
+                    done = true;
+                }
+            }
+
+            /** Makes the GL texture hold the source frame for output time {@code tUs} (box-local, 0 = the box's first frame). */
+            void advance(long tAbsUs) {
+                if (!live) return;
+                final long tUs = tAbsUs - slot.startMs * 1000L;
                 if (slot.image != null) return;                 // photo box: nothing to decode
-                if (tUs >= slot.durationMs * 1000L) return;     // box already finished, nothing more to decode
+                if (tUs < 0 || tUs >= slot.durationMs * 1000L) return;   // box not started / already finished
                 final long loop = tUs / loopLenUs;
                 if (loop != curLoop) startLoop(loop);
                 final long needed = trimUs + (tUs % loopLenUs);

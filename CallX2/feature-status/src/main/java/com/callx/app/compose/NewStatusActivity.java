@@ -93,6 +93,8 @@ public class NewStatusActivity extends AppCompatActivity {
     public static final String EXTRA_PREFILL_TOAST = "prefillToast";
     /** v738: photo-slot template to start from (StatusItem.templateJson) + the original's stickersJson (music/text). */
     public static final String EXTRA_TEMPLATE_JSON = "templateJson";
+    /** v773: opened from Create Template — the poster fills the boxes with sample photos and the status is saved AS the template (no "used from" credit, no use counted). */
+    public static final String EXTRA_CREATE_TEMPLATE = "createTemplate";
     public static final String EXTRA_TEMPLATE_STICKERS_JSON = "templateStickersJson";
     /** v740: who owns the template being used (attribution + "N used" counter). */
     public static final String EXTRA_TEMPLATE_FROM_UID = "templateFromUid", EXTRA_TEMPLATE_FROM_ID = "templateFromId", EXTRA_TEMPLATE_FROM_NAME = "templateFromName";
@@ -194,6 +196,7 @@ public class NewStatusActivity extends AppCompatActivity {
     // ── v738 photo-slot templates ──
     private ActivityResultLauncher<String> slotPicker;
     private boolean templateMode;                 // opened from "Use this template"
+    private boolean createTemplateMode;           // v773: templateMode machinery, but the result is a NEW template (see EXTRA_CREATE_TEMPLATE)
     // v746: template text / music stay EXACTLY where the poster put them (centre ratios, re-applied on any re-layout)
     // until the viewer moves / scales / rotates that sticker himself (gesture commit drops its anchor).
     private final java.util.HashMap<StatusStickerOverlayView, float[]> templateAnchors = new java.util.HashMap<>(); // {cx, cy} 0..1
@@ -226,6 +229,9 @@ public class NewStatusActivity extends AppCompatActivity {
     // v768: VIDEO boxes (templateJson slot "k":"video")
     private final java.util.HashMap<StatusStickerOverlayView, TemplateSpec.Slot> layerSpec = new java.util.HashMap<>(); // poster: kind/duration of each added box
     private final java.util.HashMap<StatusStickerOverlayView, TemplateSpec.Slot> slotSpec = new java.util.HashMap<>();  // viewer: kind/duration of each template box
+    // v774: MULTI-SCENE template — every box belongs to one scene; only the current scene's boxes are visible (the rest INVISIBLE, still laid out)
+    private final java.util.HashMap<StatusStickerOverlayView, Integer> sceneOf = new java.util.HashMap<>();
+    private int sceneCount = 1, curScene = 0;
     private static final class VideoPick { String path; long clipMs, trimMs; int boxMs; }
     private final java.util.HashMap<StatusStickerOverlayView, VideoPick> slotVideo = new java.util.HashMap<>();         // viewer: chosen clip per video box
     private ActivityResultLauncher<String> slotVideoPicker;
@@ -490,6 +496,7 @@ public class NewStatusActivity extends AppCompatActivity {
         restoreDraft();
         applyPrefillStickerIfAny();
         restoreDraftStickers();
+        createTemplateMode = getIntent().getBooleanExtra(EXTRA_CREATE_TEMPLATE, false) && getIntent().hasExtra(EXTRA_TEMPLATE_JSON);
         if (getIntent().hasExtra(EXTRA_TEMPLATE_JSON)) binding.getRoot().post(this::applyTemplateIfAny); // after onCreate's showWizardStep(0)
         // v216: "Upload" button now opens the WhatsApp-style "Add status" sheet
         //       (Text / Music / Layout / Voice / AI Images + Recents grid) instead
@@ -850,6 +857,7 @@ public class NewStatusActivity extends AppCompatActivity {
         final LinearLayout strip = binding.mediaLayerStrip;
         strip.removeAllViews();
         if (pickedImage == null || pickedVideo != null) return;
+        if (templateMode && sceneCount > 1) { buildSceneStrip(strip); return; }   // v774
 
         final boolean baseSelected = selectedSticker == null || !photoLayers.containsKey(selectedSticker);
         strip.addView(makeLayerThumb(pickedImage, baseSelected, v -> hideStickerSizeBar(), null));
@@ -5206,6 +5214,145 @@ public class NewStatusActivity extends AppCompatActivity {
         stickerOverlayFrame.postDelayed(this::buildTemplateWhenReady, 150);
     }
 
+    /** v774: adds the boxes of ONE scene (same rules as the old single loop); scenes after the first start INVISIBLE. */
+    private void addTemplateSceneSlots(final org.json.JSONArray slots, final java.util.List<TemplateSpec.Slot> specs, final int scene) throws org.json.JSONException {
+        for (int i = 0; i < slots.length() && i <= MAX_PHOTO_LAYERS; i++) {
+            final org.json.JSONObject o = slots.getJSONObject(i);
+            final int before = templateSlots.size();
+            if (o.optBoolean("base", false)) {
+                if (o.optBoolean("fit", false) && o.has("w") && o.has("h")) // v742: poster's base was fit + blurred
+                    addTemplateSlot((float) o.optDouble("cx", 0.5), (float) o.optDouble("cy", 0.5),
+                            (float) o.optDouble("w", 1), (float) o.optDouble("h", 1), (float) o.optDouble("rot", 0), true, true);
+                else addTemplateSlot(0.5f, 0.5f, 1f, 1f, 0f, true, false);
+            } else {
+                addTemplateSlot((float) o.optDouble("cx", 0.5), (float) o.optDouble("cy", 0.5),
+                        (float) o.optDouble("w", 0.5), (float) o.optDouble("h", 0.3), (float) o.optDouble("rot", 0), false, false,
+                        TemplateBoxStyle.fromJson(o));
+                if (i < specs.size() && !templateSlots.isEmpty()) {   // v768 video box, v772 every box (filter / animation / duration)
+                    final StatusStickerOverlayView vs = templateSlots.get(templateSlots.size() - 1);
+                    slotSpec.put(vs, specs.get(i));
+                }
+                if (i < specs.size() && specs.get(i).isVideo() && !templateSlots.isEmpty()) {
+                    final StatusStickerOverlayView vs = templateSlots.get(templateSlots.size() - 1);
+                    final View vc = vs.getChildCount() > 0 ? vs.getChildAt(0) : null;
+                    if (vc instanceof ImageView) {
+                        ((ImageView) vc).setImageResource(com.callx.app.core.R.drawable.ic_video);
+                        vc.setContentDescription("Tap to add video");
+                    }
+                }
+            }
+            if (templateSlots.size() > before) sceneOf.put(templateSlots.get(templateSlots.size() - 1), scene);
+        }
+    }
+
+    /** v774: only {@code scene}'s boxes are shown / touchable / drawn; the others stay laid out (INVISIBLE) so they still get positioned. */
+    private void applySceneVisibility(int scene) {
+        for (StatusStickerOverlayView sv : templateSlots) {
+            if (sv.getParent() != stickerOverlayFrame) continue;
+            final Integer sc = sceneOf.get(sv);
+            sv.setVisibility(sc == null || sc == scene ? View.VISIBLE : View.INVISIBLE);
+        }
+    }
+
+    private void switchScene(int scene) {
+        if (scene < 0 || scene >= sceneCount || scene == curScene) return;
+        curScene = scene;
+        hideStickerSizeBar();
+        applySceneVisibility(scene);
+        refreshMediaLayerStrip();
+        toast("Scene " + (scene + 1) + " / " + sceneCount);
+    }
+
+    /** First scene (other than {@code except}) that still has an empty box, or -1. */
+    private int nextOpenScene(int except) {
+        for (int k = 1; k <= sceneCount; k++) {
+            final int sc = (except + k) % sceneCount;
+            if (sc == except) continue;
+            for (StatusStickerOverlayView sv : templateSlots) {
+                final Integer o = sceneOf.get(sv);
+                if (o != null && o == sc && sv.getParent() == stickerOverlayFrame && !filledSlots.contains(sv)) return sc;
+            }
+        }
+        return -1;
+    }
+
+    private boolean sceneHasOpenBox(int scene) {
+        for (StatusStickerOverlayView sv : templateSlots) {
+            final Integer o = sceneOf.get(sv);
+            if (o != null && o == scene && sv.getParent() == stickerOverlayFrame && !filledSlots.contains(sv)) return true;
+        }
+        return false;
+    }
+
+    /** v774: the media strip becomes the SCENE strip (thumbnail + length per scene) for a multi-scene template. */
+    private void buildSceneStrip(LinearLayout strip) {
+        final TemplateSpec ts = TemplateSpec.parse(getIntent().getStringExtra(EXTRA_TEMPLATE_JSON));
+        for (int sc = 0; sc < sceneCount; sc++) {
+            final int scene = sc;
+            StatusStickerOverlayView base = null;
+            for (StatusStickerOverlayView sv : templateSlots) {
+                final Integer o = sceneOf.get(sv);
+                if (o != null && o == sc && fitSlotOrBase(sv)) { base = sv; break; }
+            }
+            final FrameLayout box = new FrameLayout(this);
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(60), dp(60));
+            lp.setMarginEnd(dp(10));
+            box.setLayoutParams(lp);
+            box.setBackgroundResource(sc == curScene ? R.drawable.bg_layer_thumb_selected : R.drawable.bg_layer_thumb);
+            box.setPadding(dp(3), dp(3), dp(3), dp(3));
+            box.setContentDescription("Scene " + (sc + 1));
+            final ImageView iv = new ImageView(this);
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            iv.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override public void getOutline(View view, android.graphics.Outline o) {
+                    o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(14));
+                }
+            });
+            iv.setClipToOutline(true);
+            box.addView(iv, new FrameLayout.LayoutParams(-1, -1));
+            final Uri src = base != null ? photoLayers.get(base) : null;
+            if (src != null && base != null && filledSlots.contains(base)) {
+                Glide.with(this).load(src).centerCrop().override(dp(120), dp(120)).dontAnimate().into(iv);
+            } else {
+                iv.setBackgroundColor(0x33FFFFFF);
+            }
+            final TextView len = new TextView(this);
+            final int ms = sc < ts.scenes.size() ? ts.scenes.get(sc).effectiveMs() : TemplateSpec.DEF_SCENE_MS;
+            len.setText(String.format(java.util.Locale.US, "%.1fs", ms / 1000f));
+            len.setTextColor(0xFFFFFFFF);
+            len.setTextSize(10f);
+            len.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            len.setPadding(dp(5), dp(1), dp(5), dp(1));
+            final android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
+            pill.setColor(0x99000000);
+            pill.setCornerRadius(dp(8));
+            len.setBackground(pill);
+            final FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.END);
+            llp.setMargins(0, 0, dp(3), dp(3));
+            box.addView(len, llp);
+            if (sceneHasOpenBox(sc)) {   // small "+" marks a scene that still needs photos
+                final TextView plus = new TextView(this);
+                plus.setText("+");
+                plus.setTextColor(0xFFFFFFFF);
+                plus.setTextSize(14f);
+                plus.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                plus.setGravity(android.view.Gravity.CENTER);
+                final android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+                dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                dot.setColor(0xFF6A3DE8);
+                plus.setBackground(dot);
+                box.addView(plus, new FrameLayout.LayoutParams(dp(18), dp(18), android.view.Gravity.TOP | android.view.Gravity.START));
+            }
+            box.setOnClickListener(v -> switchScene(scene));
+            strip.addView(box);
+        }
+        capLayerStripWidth();
+    }
+
+    private boolean fitSlotOrBase(StatusStickerOverlayView sv) {
+        return sv.isLocked() || fitSlots.contains(sv);   // the full-canvas base box is the locked one
+    }
+
     private void buildTemplateWhenReady() {
         if (isFinishing() || isDestroyed() || stickerOverlayFrame == null) return;
         if (stickerOverlayFrame.getWidth() <= 0 || stickerOverlayFrame.getHeight() <= 0) {
@@ -5218,33 +5365,17 @@ public class NewStatusActivity extends AppCompatActivity {
             tplTextMode = tplObj.optInt("tm", 0);   // v750: 0 editable, 1 locked, 2 placeholder
             final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
             final TemplateSpec tplSpec = TemplateSpec.parse(tplObj.toString());   // v768: per-box kind / duration
-            // 1) photo boxes first (so music / text land on top of them)
-            for (int i = 0; i < slots.length() && i <= MAX_PHOTO_LAYERS; i++) {
-                final org.json.JSONObject o = slots.getJSONObject(i);
-                if (o.optBoolean("base", false)) {
-                    if (o.optBoolean("fit", false) && o.has("w") && o.has("h")) // v742: poster's base was fit + blurred
-                        addTemplateSlot((float) o.optDouble("cx", 0.5), (float) o.optDouble("cy", 0.5),
-                                (float) o.optDouble("w", 1), (float) o.optDouble("h", 1), (float) o.optDouble("rot", 0), true, true);
-                    else addTemplateSlot(0.5f, 0.5f, 1f, 1f, 0f, true, false);
-                }
-                else {
-                    addTemplateSlot((float) o.optDouble("cx", 0.5), (float) o.optDouble("cy", 0.5),
-                            (float) o.optDouble("w", 0.5), (float) o.optDouble("h", 0.3), (float) o.optDouble("rot", 0), false, false,
-                            TemplateBoxStyle.fromJson(o));
-                    if (i < tplSpec.slots.size() && !templateSlots.isEmpty()) {   // v768 video box, v772 every box (filter / animation / duration)
-                        final StatusStickerOverlayView vs = templateSlots.get(templateSlots.size() - 1);
-                        slotSpec.put(vs, tplSpec.slots.get(i));
-                    }
-                    if (i < tplSpec.slots.size() && tplSpec.slots.get(i).isVideo() && !templateSlots.isEmpty()) {
-                        final StatusStickerOverlayView vs = templateSlots.get(templateSlots.size() - 1);
-                        final View vc = vs.getChildCount() > 0 ? vs.getChildAt(0) : null;
-                        if (vc instanceof ImageView) {
-                            ((ImageView) vc).setImageResource(com.callx.app.core.R.drawable.ic_video);
-                            vc.setContentDescription("Tap to add video");
-                        }
-                    }
-                }
+            // 1) photo boxes first (so music / text land on top of them). v774: one pass per scene (a plain template = one scene)
+            sceneOf.clear();
+            curScene = 0;
+            sceneCount = tplSpec.isMultiScene() ? tplSpec.scenes.size() : 1;
+            for (int sc = 0; sc < sceneCount; sc++) {
+                final org.json.JSONArray sceneSlots = sc == 0 ? slots : tplSpec.scenes.get(sc).rawSlots;
+                final java.util.List<TemplateSpec.Slot> sceneSpecs = sc == 0 ? tplSpec.slots : tplSpec.scenes.get(sc).slots;
+                if (sceneSlots == null) continue;
+                addTemplateSceneSlots(sceneSlots, sceneSpecs, sc);
             }
+            if (sceneCount > 1) { applySceneVisibility(0); refreshMediaLayerStrip(); }
             // 2) the poster's music + text (+ other plain stickers), exactly where they were
             final String sj = getIntent().getStringExtra(EXTRA_TEMPLATE_STICKERS_JSON);
             if (sj != null && !sj.isEmpty()) {
@@ -5275,7 +5406,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 for (StatusStickerOverlayView sv : templateSlots) {
                     if (sv.getParent() == stickerOverlayFrame && !filledSlots.contains(sv)) {
                         templatePickerAutoOpened = true;
-                        toast("Apni photos chuno — pehli photo pehle box me jayegi");
+                        toast(createTemplateMode ? getString(R.string.ct_create_pick_photos) : "Apni photos chuno — pehli photo pehle box me jayegi");
                         openTemplateSlotPicker(sv);
                         break;
                     }
@@ -5492,6 +5623,10 @@ public class NewStatusActivity extends AppCompatActivity {
                         filledSlots.add(slot);
                         photoLayers.put(slot, uri);
                         refreshMediaLayerStrip();
+                        if (sceneCount > 1 && slot.getVisibility() == View.VISIBLE && !sceneHasOpenBox(curScene)) {   // v774: scene done → next scene with empty boxes
+                            final int nxt = nextOpenScene(curScene);
+                            if (nxt >= 0) slot.postDelayed(() -> { if (!isFinishing() && !isDestroyed()) switchScene(nxt); }, 450);
+                        }
                     }
                     @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable p) { }
                     @Override public void onLoadFailed(@androidx.annotation.Nullable android.graphics.drawable.Drawable e) {
@@ -5786,7 +5921,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** One entry per (template, user) → the viewer counts children for "N used". Written once the post is live. */
     private void recordTemplateUse() {
-        if (!templateMode) return;
+        if (!templateMode || createTemplateMode) return;   // v773: creating a template is not "using" one
         com.callx.app.utils.StatusTemplateUses.record(
                 getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID), getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID),
                 getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME), getIntent().getStringExtra(EXTRA_TEMPLATE_JSON),
@@ -5967,6 +6102,23 @@ public class NewStatusActivity extends AppCompatActivity {
         refreshMetaPills();
     }
 
+    /** v774: the viewer's pinch / drag window on the video frame ({@code slotXform}) → the compositor's zoom + pan (-1..1 in the free area). */
+    private void applyVideoXform(final TemplateVideoCompositor.Slot s, final StatusStickerOverlayView sv) {
+        final Bitmap src = slotSrc.get(sv);
+        final float[] xf = slotXform.get(sv);
+        if (s == null || src == null || xf == null || src.getHeight() <= 0 || sv.getWidth() <= 0 || sv.getHeight() <= 0) return;
+        final float aspect = sv.getWidth() / (float) sv.getHeight();
+        final float bw = src.getWidth(), bh = src.getHeight();
+        float fu = 1f, fv = 1f;
+        if (bw / bh > aspect) fu = aspect * bh / bw; else fv = bw / aspect / bh;
+        final float z = Math.max(1f, Math.min(5f, xf[0]));
+        fu /= z;
+        fv /= z;
+        s.zoom = z;
+        s.panX = fu >= 0.999f ? 0f : Math.max(-1f, Math.min(1f, (xf[1] - 0.5f) / ((1f - fu) / 2f)));
+        s.panY = fv >= 0.999f ? 0f : Math.max(-1f, Math.min(1f, (xf[2] - 0.5f) / ((1f - fv) / 2f)));
+    }
+
     /** Trim sheet: preview frame + start slider (the box shows {@code boxMs} of the clip, starting at the slider). */
     private void showVideoTrimDialog(final StatusStickerOverlayView slot) {
         final VideoPick vp = slotVideo.get(slot);
@@ -6053,15 +6205,53 @@ public class NewStatusActivity extends AppCompatActivity {
             root.addView(seek, new LinearLayout.LayoutParams(-1, -2));
         }
 
+        // v774: the viewer can pick how long this box shows (poster's length = the default)
+        final TextView lenLbl = new TextView(this);
+        lenLbl.setText("Box length");
+        lenLbl.setTextSize(13f);
+        lenLbl.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        lenLbl.setTextColor(0xFF111111);
+        lenLbl.setPadding(0, dp(14), 0, dp(6));
+        root.addView(lenLbl);
+        final HorizontalScrollView lenScroll = new HorizontalScrollView(this);
+        lenScroll.setHorizontalScrollBarEnabled(false);
+        final LinearLayout lenRow = new LinearLayout(this);
+        lenRow.setOrientation(LinearLayout.HORIZONTAL);
+        for (final int ms : BOX_MS) {
+            final boolean on = ms == vp.boxMs;
+            final TextView chip = new TextView(this);
+            chip.setText((ms / 1000) + "s");
+            chip.setTextSize(13f);
+            chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            chip.setTextColor(on ? 0xFFFFFFFF : 0xFF111111);
+            chip.setPadding(dp(14), dp(8), dp(14), dp(8));
+            final GradientDrawable cg = new GradientDrawable();
+            cg.setCornerRadius(dp(18));
+            cg.setColor(on ? 0xFF6A3DE8 : 0x14000000);
+            chip.setBackground(cg);
+            chip.setOnClickListener(v -> {
+                if (ms == vp.boxMs) return;
+                vp.boxMs = ms;
+                vp.trimMs = Math.min(vp.trimMs, Math.max(0L, vp.clipMs - ms));
+                d.dismiss();
+                showVideoTrimDialog(slot);   // reopen: the trim range depends on the length
+            });
+            final LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
+            clp.setMarginEnd(dp(8));
+            lenRow.addView(chip, clp);
+        }
+        lenScroll.addView(lenRow);
+        root.addView(lenScroll);
+
         final LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL);
         btns.setPadding(0, dp(20), 0, 0);
-        final TextView change = new TextView(this), done = new TextView(this);
-        for (TextView t : new TextView[]{change, done}) {
-            t.setTextSize(15f);
+        final TextView change = new TextView(this), zoom = new TextView(this), done = new TextView(this);
+        for (TextView t : new TextView[]{change, zoom, done}) {
+            t.setTextSize(14f);
             t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             t.setGravity(android.view.Gravity.CENTER);
-            t.setPadding(dp(18), dp(13), dp(18), dp(13));
+            t.setPadding(dp(10), dp(13), dp(10), dp(13));
             final GradientDrawable g = new GradientDrawable();
             g.setCornerRadius(dp(26));
             g.setColor(t == done ? 0xFF6A3DE8 : 0x14000000);
@@ -6071,7 +6261,9 @@ public class NewStatusActivity extends AppCompatActivity {
             lp.setMargins(dp(6), 0, dp(6), 0);
             btns.addView(t, lp);
         }
-        change.setText("Change video");
+        change.setText("Change");
+        zoom.setText("Zoom / Move");
+        zoom.setOnClickListener(v -> { d.dismiss(); showSlotAdjustDialog(slot); });   // v774: same pinch / drag screen as photo boxes
         done.setText("Done");
         change.setOnClickListener(v -> {
             d.dismiss();
@@ -6123,6 +6315,7 @@ public class NewStatusActivity extends AppCompatActivity {
             s.rot = st[3];
             s.style = slotStyle.get(sv);
             s.trimStartMs = vp != null ? vp.trimMs : 0L;
+            if (vp != null) applyVideoXform(s, sv);   // v774 zoom / pan
             final int boxMs = vp != null ? vp.boxMs : (sp0 != null ? sp0.effectiveMs() : TemplateSpec.DEF_SLOT_MS);
             s.durationMs = boxMs;
             if (sp0 != null) { s.filter = sp0.filter; s.anim = sp0.anim; }   // v772
@@ -6185,6 +6378,149 @@ public class NewStatusActivity extends AppCompatActivity {
                     pct -> runOnUiThread(() -> setHint("Preparing video… " + pct + "%")), tplCancel);
             runOnUiThread(() -> {
                 under.recycle();
+                if (isFinishing() || isDestroyed()) { //noinspection ResultOfMethodCallIgnored
+                    out.delete();
+                    return;
+                }
+                if (r.ok && out.exists()) {
+                    setHint("Compressing video… 0%");
+                    compressAndUploadVideo(Uri.fromFile(out), caption, txt, uid, name, photo);
+                } else {
+                    pendingTextOverlayJson = null;
+                    setPosting(false);
+                    toast(r.cancelled ? "Cancel ho gaya" : "Video prepare nahi hua — dusra clip try karo");
+                }
+            });
+        });
+    }
+
+    /**
+     * v774: MULTI-SCENE post. Per scene (UI thread): show only that scene's boxes, bake its backdrop + still photo boxes into one
+     * bitmap (animated / video boxes are hidden → they go to the compositor with {@code startMs} = the scene's start), then
+     * {@link TemplateVideoCompositor#composeScenes} plays the scenes one after another into ONE mp4 (normal video upload path).
+     * Text / music / stickers stay JSON overlays over the whole video, exactly like the single-scene video post.
+     */
+    private void prepareAndUploadTemplateScenes(final String caption, final String txt, final String uid, final String name, final String photo) {
+        if (stickerOverlayFrame == null || stickerOverlayFrame.getWidth() <= 0 || stickerOverlayFrame.getHeight() <= 0
+                || binding.ivPreview.getDrawable() == null || editorBlurBackground == null || editorBlurBackground.getDrawable() == null) {
+            setPosting(false);
+            toast("Story preview load nahi hua — dubara try karo");
+            return;
+        }
+        final TemplateSpec ts = TemplateSpec.parse(getIntent().getStringExtra(EXTRA_TEMPLATE_JSON));
+        final int n = Math.min(sceneCount, ts.scenes.size());
+        if (n < 2) { setPosting(false); toast("Template scenes load nahi hue"); return; }
+        final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+
+        boolean hasMusic = false;   // a music sticker plays by itself in the viewer → the mp4 stays silent then
+        long musicMs = 0L;
+        for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
+            final View ch = stickerOverlayFrame.getChildAt(i);
+            if (ch instanceof StatusStickerOverlayView && "music".equals(((StatusStickerOverlayView) ch).getStickerType())) {
+                hasMusic = true;
+                final StatusStickerOverlayView ms = (StatusStickerOverlayView) ch;
+                musicMs = Math.max(musicMs, (long) ms.getMusicEndMs() - ms.getMusicStartMs());
+            }
+        }
+        // scene lengths; "Music Sync" stretches / squeezes all scenes to the music clip the viewer kept
+        final long[] dur = new long[n];
+        long sum = 0L;
+        for (int i = 0; i < n; i++) { dur[i] = ts.scenes.get(i).effectiveMs(); sum += dur[i]; }
+        long totalMs = Math.min((long) TemplateSpec.MAX_TOTAL_MS, sum);
+        if (ts.musicSync && musicMs >= 1000L) {
+            totalMs = Math.min((long) TemplateSpec.MAX_TOTAL_MS, musicMs);
+            long used = 0L;
+            for (int i = 0; i < n; i++) {
+                dur[i] = i == n - 1 ? Math.max(500L, totalMs - used) : Math.max(500L, Math.round(dur[i] * (double) totalMs / sum));
+                used += dur[i];
+            }
+            totalMs = used;
+        } else {
+            long used = 0L;
+            for (int i = 0; i < n; i++) used += dur[i];
+            totalMs = used;
+        }
+
+        setHint("Preparing video…");
+        pendingTextOverlayJson = snapshotTextOverlayJson();
+        final int outW = 720;
+        final int outH = Math.max(2, Math.min(1600, Math.round(outW * fh / (float) fw))) & ~1;
+        final java.util.ArrayList<TemplateVideoCompositor.Scene> scs = new java.util.ArrayList<>();
+        final java.util.ArrayList<TemplateVideoCompositor.Slot> vs = new java.util.ArrayList<>();
+        String firstPath = null;
+        long firstTrim = 0L, firstStart = -1L, start = 0L;
+        boolean failed = false;
+        try {
+            for (int sc = 0; sc < n && !failed; sc++) {
+                snapshotHideExtra.clear();
+                applySceneVisibility(sc);
+                for (StatusStickerOverlayView sv : templateSlots) {
+                    final Integer so = sceneOf.get(sv);
+                    if (so == null || so != sc || sv.getParent() != stickerOverlayFrame || sv.getWidth() <= 0) continue;
+                    final VideoPick vp = slotVideo.get(sv);
+                    final TemplateSpec.Slot sp0 = slotSpec.get(sv);
+                    Bitmap img = null;
+                    if (vp == null) {                   // photo box with an animation → its own clip, else baked into the backdrop
+                        if (!isAnimatedPhotoSlot(sv)) continue;
+                        img = templateSlotWindow(sv);
+                        if (img == null) continue;
+                    }
+                    final float[] st = sv.captureState();
+                    final TemplateVideoCompositor.Slot s = new TemplateVideoCompositor.Slot();
+                    s.path = vp != null ? vp.path : null;
+                    s.image = img;
+                    s.cx = (st[0] + sv.getWidth() / 2f) / fw;
+                    s.cy = (st[1] + sv.getHeight() / 2f) / fh;
+                    s.w = sv.getWidth() * st[2] / fw;
+                    s.h = sv.getHeight() * st[2] / fh;
+                    s.rot = st[3];
+                    s.style = slotStyle.get(sv);
+                    s.trimStartMs = vp != null ? vp.trimMs : 0L;
+                    if (vp != null) applyVideoXform(s, sv);   // v774 zoom / pan
+                    s.startMs = start;
+                    final long boxMs = vp != null ? Math.min(dur[sc], (long) vp.boxMs) : dur[sc];   // photo animation spans the whole scene
+                    s.durationMs = boxMs;
+                    if (sp0 != null) { s.filter = sp0.filter; s.anim = sp0.anim; }
+                    vs.add(s);
+                    snapshotHideExtra.add(sv);
+                    if (vp != null && firstPath == null) { firstPath = vp.path; firstTrim = vp.trimMs; firstStart = start; }
+                }
+                final Bitmap full = renderStoryCanvas(false);
+                final Bitmap small = full.getWidth() == outW ? full : Bitmap.createScaledBitmap(full, outW, outH, true);   // keep 5 scenes light
+                if (small != full) full.recycle();
+                scs.add(new TemplateVideoCompositor.Scene(small, start));
+                start += dur[sc];
+            }
+        } catch (Throwable t) {
+            failed = true;
+        } finally {
+            snapshotHideExtra.clear();
+            applySceneVisibility(curScene);
+        }
+        if (failed || scs.size() < n) {
+            for (TemplateVideoCompositor.Scene sc : scs) sc.under.recycle();
+            for (TemplateVideoCompositor.Slot sl : vs) if (sl.image != null) sl.image.recycle();
+            pendingTextOverlayJson = null;
+            setPosting(false);
+            toast("Story preview prepare nahi hua");
+            return;
+        }
+        // the first clip's own sound only fits when that clip opens the video (scene 1); otherwise the mp4 stays silent
+        final String audioPath = !hasMusic && firstStart == 0L ? firstPath : null;
+        final long audioStart = audioPath != null ? firstTrim : 0L;
+        final long fTotal = totalMs;
+
+        final java.io.File dir = new java.io.File(getCacheDir(), "tpl_video");
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        final java.io.File out = new java.io.File(dir, "out_" + System.currentTimeMillis() + ".mp4");
+        tplCancel.set(false);
+        com.callx.app.utils.StatusBg.IO.execute(() -> {
+            final TemplateVideoCompositor.Result r = TemplateVideoCompositor.composeScenes(scs, null, vs, audioPath, audioStart,
+                    fTotal, outW, outH, out,
+                    pct -> runOnUiThread(() -> setHint("Preparing video… " + pct + "%")), tplCancel);
+            runOnUiThread(() -> {
+                for (TemplateVideoCompositor.Scene sc : scs) sc.under.recycle();
                 if (isFinishing() || isDestroyed()) { //noinspection ResultOfMethodCallIgnored
                     out.delete();
                     return;
@@ -6308,6 +6644,8 @@ public class NewStatusActivity extends AppCompatActivity {
         } else if (isGif && pickedImage != null) {
             // GIF / sticker — store as sticker type
             saveStatus("gif", pickedImage.toString(), null, txt, caption, uid, name, photo);
+        } else if (pickedImage != null && templateMode && sceneCount > 1) {
+            prepareAndUploadTemplateScenes(caption, txt, uid, name, photo);   // v774: multi-scene template → one mp4, scene after scene
         } else if (pickedImage != null && templateMode && (!slotVideo.isEmpty() || hasAnimatedPhotoSlot())) {
             prepareAndUploadTemplateVideo(caption, txt, uid, name, photo);   // v768: template with video boxes → one mp4
         } else if (pickedImage != null) {
@@ -6587,7 +6925,10 @@ public class NewStatusActivity extends AppCompatActivity {
             item.stickersJson = stickersJson;
         }
         if (makeTemplate) { String tj = buildTemplateJson(); if (tj != null) item.templateJson = tj; }
-        if (templateMode) {
+        if (templateMode && createTemplateMode) {   // v773: this status IS the template — exactly the json chosen on Create Template
+            final String createdJson = getIntent().getStringExtra(EXTRA_TEMPLATE_JSON);
+            if (createdJson != null && createdJson.length() <= com.callx.app.utils.StatusTemplateUses.MAX_JSON) item.templateJson = createdJson;
+        } else if (templateMode) {
             item.templateFromUid  = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID);
             item.templateFromId   = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID);
             item.templateFromName = com.callx.app.utils.StatusTemplateUses.capName(getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME));
@@ -6810,7 +7151,10 @@ public class NewStatusActivity extends AppCompatActivity {
             item.stickersJson = stickersJson;
         }
         if (makeTemplate) { String tj = buildTemplateJson(); if (tj != null) item.templateJson = tj; }
-        if (templateMode) {
+        if (templateMode && createTemplateMode) {   // v773: this status IS the template — exactly the json chosen on Create Template
+            final String createdJson = getIntent().getStringExtra(EXTRA_TEMPLATE_JSON);
+            if (createdJson != null && createdJson.length() <= com.callx.app.utils.StatusTemplateUses.MAX_JSON) item.templateJson = createdJson;
+        } else if (templateMode) {
             item.templateFromUid  = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID);
             item.templateFromId   = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID);
             item.templateFromName = com.callx.app.utils.StatusTemplateUses.capName(getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME));
