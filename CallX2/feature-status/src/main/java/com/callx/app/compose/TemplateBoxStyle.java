@@ -159,6 +159,65 @@ public final class TemplateBoxStyle {
         return out;
     }
 
+    // ── v766: video box pieces (used by TemplateVideoCompositor) ──────────────
+
+    /** The picture area inside a {@code w}×{@code h} box — same inset / fallback as {@link #render}. */
+    @NonNull
+    private RectF pictureArea(int w, int h) {
+        final float m = Math.min(w, h);
+        final float bw = border ? Math.max(2f, m * 0.028f) : 0f;
+        final float pad = shadow ? m * 0.05f : 0f;
+        final float inset = pad + bw / 2f;
+        final RectF area = new RectF(inset, inset, w - inset, h - inset - (shadow ? pad * 0.6f : 0f));
+        if (area.width() < 2f || area.height() < 2f) area.set(0, 0, w, h);
+        return area;
+    }
+
+    /** Opaque-white shape on transparent: the video is shown only where this is opaque (anti-aliased edge). */
+    @NonNull
+    public Bitmap maskBitmap(int w, int h) {
+        final Bitmap out = Bitmap.createBitmap(Math.max(2, w), Math.max(2, h), Bitmap.Config.ARGB_8888);
+        final Canvas c = new Canvas(out);
+        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xFFFFFFFF);
+        c.drawPath(path(shape, pictureArea(out.getWidth(), out.getHeight())), p);
+        return out;
+    }
+
+    /**
+     * Frame drawn ABOVE the video: the soft shadow (outside the shape only) and the white border. Null when the box has
+     * neither (then nothing is drawn over the clip).
+     */
+    @Nullable
+    public Bitmap frameBitmap(int w, int h) {
+        if (!border && !shadow) return null;
+        final Bitmap out = Bitmap.createBitmap(Math.max(2, w), Math.max(2, h), Bitmap.Config.ARGB_8888);
+        final int bw0 = out.getWidth(), bh0 = out.getHeight();
+        final Canvas c = new Canvas(out);
+        final float m = Math.min(bw0, bh0);
+        final float bw = border ? Math.max(2f, m * 0.028f) : 0f;
+        final float pad = shadow ? m * 0.05f : 0f;
+        final Path p = path(shape, pictureArea(bw0, bh0));
+        if (shadow) {
+            final Paint sp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            sp.setColor(0xFFFFFFFF);
+            sp.setShadowLayer(pad * 0.9f, 0f, pad * 0.45f, 0x99000000);
+            c.drawPath(p, sp);
+            final Paint clear = new Paint(Paint.ANTI_ALIAS_FLAG);
+            clear.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR));
+            c.drawPath(p, clear);          // the clip itself fills the inside, so only the outside glow stays
+        }
+        if (border) {
+            final Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            bp.setStyle(Paint.Style.STROKE);
+            bp.setStrokeWidth(bw);
+            bp.setStrokeJoin(Paint.Join.ROUND);
+            bp.setColor(0xFFFFFFFF);
+            c.drawPath(p, bp);
+        }
+        return out;
+    }
+
     // ── zoom / adjust dialog ─────────────────────────────────────────────────
 
     /**

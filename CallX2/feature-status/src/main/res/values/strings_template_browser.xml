@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v764: Templates home screen (TemplateBrowserActivity) -->
+<resources>
+    <string name="tpl_home_title">Templates</string>
+    <string name="tpl_home_my_templates">My Templates</string>
+    <string name="tpl_home_search_hint">Search Templates…</string>
+    <string name="tpl_home_filter">Sort</string>
+    <string name="tpl_chip_trending">Trending</string>
+    <string name="tpl_chip_popular">Popular</string>
+    <string name="tpl_chip_collage">Collage</string>
+    <string name="tpl_chip_love">Love</string>
+    <string name="tpl_chip_fun">Fun</string>
+    <string name="tpl_banner_pill">Trending This Week</string>
+    <string name="tpl_banner_title_other">@%1$s\'s Template</string>
+    <string name="tpl_banner_title_mine">Your Template</string>
+    <string name="tpl_banner_sub">%1$d photos, smooth animations &amp; music sync</string>
+    <string name="tpl_banner_cta">Use Template</string>
+    <string name="tpl_section_trending">Trending Templates</string>
+    <string name="tpl_section_popular">Popular Templates</string>
+    <string name="tpl_section_collage">Collage Templates</string>
+    <string name="tpl_section_love">Loved Templates</string>
+    <string name="tpl_section_fun">Fresh Templates</string>
+    <string name="tpl_section_saved">Saved Templates</string>
+    <string name="tpl_section_mine">My Templates</string>
+    <string name="tpl_section_categories">Categories</string>
+    <string name="tpl_see_all">See All</string>
+    <string name="tpl_see_less">See Less</string>
+    <string name="tpl_cat_love">Love</string>
+    <string name="tpl_cat_travel">Travel</string>
+    <string name="tpl_cat_birthday">Birthday</string>
+    <string name="tpl_cat_festival">Festival</string>
+    <string name="tpl_cat_aesthetic">Aesthetic</string>
+    <string name="tpl_empty_cat">Is category me abhi koi template nahi.\nTemplate banate waqt Template options me category chuno.</string>
+    <string name="tpl_opt_category">Category</string>
+    <string name="tpl_opt_category_none">None</string>
+    <string name="tpl_nav_templates">Templates</string>
+    <string name="tpl_nav_saved">Saved</string>
+    <string name="tpl_nav_notifications">Notifications</string>
+    <string name="tpl_nav_profile">Profile</string>
+    <string name="tpl_nav_create">Naya template banao</string>
+    <string name="tpl_nav_unavailable">Ye screen abhi khul nahi paayi</string>
+    <string name="tpl_photos_count">%1$d photos</string>
+    <string name="tpl_sort_used">Most used</string>
+    <string name="tpl_sort_newest">Newest</string>
+    <string name="tpl_sort_photos">Most photos</string>
+    <string name="tpl_empty_home">Abhi koi template nahi.\nJab koi apni status ko template banayega, yahan dikhega.</string>
+    <string name="tpl_empty_saved">Abhi koi template save nahi.\nKisi card par \u2661 dabao, yahan aa jayega.</string>
+    <string name="tpl_empty_mine">Aapne abhi koi template nahi banaya.\n+ dabao aur apni status ko template banao.</string>
+    <string name="tpl_empty_love">Abhi koi template pasand nahi kiya.\nKisi card par \u2661 dabao.</string>
+    <string name="tpl_empty_search">Is naam ka koi template nahi mila.</string>
+    <string name="tpl_dead">Owner ne band kiya</string>
+</resources>

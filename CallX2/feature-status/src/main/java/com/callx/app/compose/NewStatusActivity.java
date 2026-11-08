@@ -208,6 +208,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private final java.util.HashMap<StatusStickerOverlayView, Bitmap> layerSrcBmp = new java.util.HashMap<>();          // poster: original bitmap, to re-render on a style change
     private final java.util.HashMap<StatusStickerOverlayView, TemplateBoxStyle> slotStyle = new java.util.HashMap<>(); // viewer: style of each template box
     private int templateTextMode;                 // poster: 0 editable, 1 locked, 2 placeholder (saved as "tm")
+    private int templateCategory = -1;           // v765: poster's category tag (index into TemplateCategory.KEYS, -1 = none; saved as "cat")
     private int tplTextMode;                      // viewer: the poster's "tm"
     private boolean tplTextPending;               // viewer: placeholder text not replaced yet → Post stays disabled
     private String tplPlaceholderText = "";
@@ -4952,6 +4953,15 @@ public class NewStatusActivity extends AppCompatActivity {
                 populate[0].run();
             });
 
+            // ── v765: category tag (drives the Categories row on the Templates screen)
+            addOptionLabel(root, getString(R.string.tpl_opt_category), -1, textC);
+            final String[] catLabels = {getString(R.string.tpl_opt_category_none), getString(R.string.tpl_cat_love), getString(R.string.tpl_cat_travel),
+                    getString(R.string.tpl_cat_birthday), getString(R.string.tpl_cat_festival), getString(R.string.tpl_cat_aesthetic)};
+            addChipRow(root, catLabels, templateCategory + 1, dark, idx -> {
+                templateCategory = idx - 1;
+                populate[0].run();
+            });
+
             // ── text rule (only when this status has a text layer)
             addOptionLabel(root, "Text", -1, textC);
             if (editorTextOverlay != null && !editorTextOverlay.getText().toString().trim().isEmpty()) {
@@ -5103,6 +5113,7 @@ public class NewStatusActivity extends AppCompatActivity {
             }
             if (slots.length() < 2 || slots.length() > MAX_TEMPLATE_PHOTOS) return null;
             final org.json.JSONObject tpl = new org.json.JSONObject().put("v", 1).put("slots", slots);
+            if (templateCategory >= 0 && templateCategory < TemplateCategory.KEYS.length) tpl.put("cat", TemplateCategory.KEYS[templateCategory]);
             if (templateTextMode != 0 && editorTextOverlay != null && editorTextSticker != null   // v750: text rule only when there is text
                     && !editorTextOverlay.getText().toString().trim().isEmpty()) tpl.put("tm", templateTextMode);
             final String out = tpl.toString();
