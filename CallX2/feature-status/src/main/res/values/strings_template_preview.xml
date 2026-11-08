@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v769: Template Preview screen (TemplatePreviewActivity) + "New" chip on the Templates home -->
+<resources>
+    <string name="tpl_chip_new">New</string>
+    <string name="tpl_prev_title_other">@%1$s\'s Template</string>
+    <string name="tpl_prev_title_mine">Your Template</string>
+    <string name="tpl_prev_uses">%1$s uses</string>
+    <string name="tpl_prev_uses_none">New</string>
+    <string name="tpl_prev_creator">Creator</string>
+    <string name="tpl_prev_you">You</string>
+    <string name="tpl_prev_follow">Follow</string>
+    <string name="tpl_prev_following">Following</string>
+    <string name="tpl_prev_follow_failed">Follow nahi ho paya, dobara try karo</string>
+    <string name="tpl_prev_details">What\'s inside</string>
+    <string name="tpl_prev_music">Music</string>
+    <string name="tpl_prev_photos">Photos</string>
+    <string name="tpl_prev_videos">Videos</string>
+    <string name="tpl_prev_duration">Duration</string>
+    <string name="tpl_prev_yes">Yes</string>
+    <string name="tpl_prev_no">No</string>
+    <string name="tpl_prev_auto">Auto</string>
+    <string name="tpl_prev_use">Use Template</string>
+    <string name="tpl_prev_back">Back</string>
+    <string name="tpl_prev_save">Template save karo</string>
+    <string name="tpl_prev_unsave">Saved se hatao</string>
+    <string name="tpl_prev_saved_toast">Template save ho gaya</string>
+    <string name="tpl_prev_unsaved_toast">Saved se hata diya</string>
+    <string name="tpl_prev_save_failed">Ye template save nahi ho paya</string>
+    <string name="tpl_prev_play_pause">Preview play / pause</string>
+</resources>

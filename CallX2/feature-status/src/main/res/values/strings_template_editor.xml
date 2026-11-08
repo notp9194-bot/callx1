@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v772: Template Editor screen (TemplateEditorActivity) -->
+<resources>
+    <string name="te_title">Template Editor</string>
+    <string name="te_back">Back</string>
+    <string name="te_save">Save</string>
+    <string name="te_saved">Template save ho gaya</string>
+    <string name="te_save_failed">Save nahi hua — net check karke dubara try karo</string>
+    <string name="te_unavailable">Ye template ab edit nahi ho sakta.</string>
+    <string name="te_slot_n">Slot %1$d</string>
+    <string name="te_filter">Filter</string>
+    <string name="te_animation">Animation</string>
+    <string name="te_duration">Duration</string>
+    <string name="te_whole_template">Poora template</string>
+    <string name="te_total">Total length</string>
+    <string name="te_auto">Auto</string>
+    <string name="te_music_sync">Music Sync</string>
+    <string name="te_music_sync_sub">Video ki length music clip jitni hogi (jab music lagaya ho)</string>
+    <string name="te_no_boxes">Is template me photo box nahi hain, isliye sirf poore template ki settings badal sakte ho.</string>
+    <string name="te_apply_all">Sab slots par lagao</string>
+    <string name="te_discard_title">Changes save karne hain?</string>
+    <string name="te_discard_msg">Aapne kuch badla hai jo abhi save nahi hua.</string>
+    <string name="te_discard">Discard</string>
+    <string name="te_keep_editing">Edit karte raho</string>
+    <string name="te_flt_natural">Natural</string>
+    <string name="te_flt_warm">Warm</string>
+    <string name="te_flt_cool">Cool</string>
+    <string name="te_flt_bw">B&amp;W</string>
+    <string name="te_flt_vivid">Vivid</string>
+    <string name="te_flt_fade">Fade</string>
+    <string name="te_an_none">None</string>
+    <string name="te_an_zoom_in">Zoom In</string>
+    <string name="te_an_zoom_out">Zoom Out</string>
+    <string name="te_an_pan_l">Pan Left</string>
+    <string name="te_an_pan_r">Pan Right</string>
+    <string name="te_an_fade">Fade In</string>
+    <string name="mt_menu_edit">Template edit karo</string>
+</resources>

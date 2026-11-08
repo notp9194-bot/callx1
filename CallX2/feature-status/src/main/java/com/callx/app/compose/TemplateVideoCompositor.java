@@ -45,6 +45,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Timing is deterministic: frame N of the output is built from source time {@code trimStart + (N / fps) mod loopLength}, each clip
  * decoded forward and restarted from its trim point when the slot is longer than the clip (loop). No wall-clock dependence.
  *
+ * v772: a slot may also be a PHOTO box ({@link Slot#image}), and every slot has a colour filter + an animation (zoom / pan / fade-in).
+ *
  * Self-contained: touches no editor state. Call from a background thread. Not tested on device yet (v766).
  */
 public final class TemplateVideoCompositor {
@@ -66,6 +68,12 @@ public final class TemplateVideoCompositor {
         public long durationMs = 3000L;           // how long this box shows (clip loops if shorter)
         public float zoom = 1f;                   // ≥ 1: user zoom inside the box
         public float panX, panY;                  // -1..1 inside the free area left by zoom / cover-crop
+        /** v772: photo box — drawn from this bitmap (already cropped to the box) instead of a decoded clip; {@link #path} unused. */
+        @Nullable public Bitmap image;
+        /** v772: {@link TemplateSpec#FILTERS} key, colour-graded in the shader. */
+        @NonNull public String filter = TemplateSpec.DEF_FILTER;
+        /** v772: {@link TemplateSpec#ANIMS} key, played over the box's own duration (zoom / pan / fade-in). */
+        @NonNull public String anim = TemplateSpec.DEF_ANIM;
     }
 
     public interface Progress { void onProgress(int pct); }
@@ -113,6 +121,11 @@ public final class TemplateVideoCompositor {
 
     private static int even(int v) { return Math.max(2, v & ~1); }
 
+    /** One compiled box shader and its uniform locations. */
+    private static final class VProg {
+        int prog, aPos, mvp, texMat, crop, vid, mask, cm, alpha;
+    }
+
     // ── engine ───────────────────────────────────────────────────────────────
 
     private static final class Engine {
@@ -138,9 +151,9 @@ public final class TemplateVideoCompositor {
         int muxVideo = -1, muxAudio = -1;
         MediaFormat audioFmt;
 
-        int progVideo, progTex;
-        int vAPos, vMvp, vTexMat, vCrop, vVid, vMask;
-        int tAPos, tMvp, tTex;
+        VProg progVideo, progImage;     // v772: external-OES (clips) and plain 2D (photo boxes) variants of the box shader
+        int progTex;
+        int tAPos, tMvp, tTex, tAlpha;
         FloatBuffer quad;
         final float[] proj = new float[16];
         final List<Clip> clips = new ArrayList<>();
@@ -326,18 +339,6 @@ public final class TemplateVideoCompositor {
                   + "  vec2 uv = vec2(mix(uCrop.x, uCrop.z, t.x), mix(uCrop.w, uCrop.y, t.y));\n"
                   + "  vVid = (uTexMat * vec4(uv, 0.0, 1.0)).xy;\n"
                   + "}\n";
-            final String fsVideo =
-                    "#extension GL_OES_EGL_image_external : require\n"
-                  + "precision mediump float;\n"
-                  + "uniform samplerExternalOES uVid;\n"
-                  + "uniform sampler2D uMask;\n"
-                  + "varying vec2 vVid;\n"
-                  + "varying vec2 vMask;\n"
-                  + "void main(){\n"
-                  + "  vec3 c = texture2D(uVid, vVid).rgb;\n"
-                  + "  float a = texture2D(uMask, vMask).a;\n"
-                  + "  gl_FragColor = vec4(c * a, a);\n"   // premultiplied
-                  + "}\n";
             final String vsTex =
                     "attribute vec2 aPos;\n"
                   + "uniform mat4 uMvp;\n"
@@ -349,19 +350,16 @@ public final class TemplateVideoCompositor {
             final String fsTex =
                     "precision mediump float;\n"
                   + "uniform sampler2D uTex;\n"
+                  + "uniform float uA;\n"
                   + "varying vec2 vUV;\n"
-                  + "void main(){ gl_FragColor = texture2D(uTex, vUV); }\n";
-            progVideo = program(vsVideo, fsVideo);
-            vAPos = GLES20.glGetAttribLocation(progVideo, "aPos");
-            vMvp = GLES20.glGetUniformLocation(progVideo, "uMvp");
-            vTexMat = GLES20.glGetUniformLocation(progVideo, "uTexMat");
-            vCrop = GLES20.glGetUniformLocation(progVideo, "uCrop");
-            vVid = GLES20.glGetUniformLocation(progVideo, "uVid");
-            vMask = GLES20.glGetUniformLocation(progVideo, "uMask");
+                  + "void main(){ gl_FragColor = texture2D(uTex, vUV) * uA; }\n";
+            progVideo = videoProgram(vsVideo, true);
+            progImage = videoProgram(vsVideo, false);
             progTex = program(vsTex, fsTex);
             tAPos = GLES20.glGetAttribLocation(progTex, "aPos");
             tMvp = GLES20.glGetUniformLocation(progTex, "uMvp");
             tTex = GLES20.glGetUniformLocation(progTex, "uTex");
+            tAlpha = GLES20.glGetUniformLocation(progTex, "uA");
 
             final float[] q = {-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f};
             quad = ByteBuffer.allocateDirect(q.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
@@ -384,10 +382,40 @@ public final class TemplateVideoCompositor {
             for (Clip c : clips) {
                 final long slotEndUs = c.slot.durationMs * 1000L;
                 // box only shows for its own duration; after that the background shows through (a shorter slot ends early)
-                if (tUs < slotEndUs && c.hasFrame) c.draw();
-                if (c.frameTex != 0 && tUs < slotEndUs) drawTex(c.frameTex, c.mvp);
+                if (tUs < slotEndUs && c.hasFrame) c.draw(tUs);
+                if (c.frameTex != 0 && tUs < slotEndUs) drawTex(c.frameTex, c.mvp, c.frameAlpha);
             }
             if (overTex != 0) drawTex(overTex, full);
+        }
+
+        /** Box shader: clip/photo → colour matrix (filter) → box-shape mask → fade alpha, premultiplied. */
+        VProg videoProgram(String vs, boolean oes) {
+            final String fs =
+                    (oes ? "#extension GL_OES_EGL_image_external : require\n" : "")
+                  + "precision mediump float;\n"
+                  + (oes ? "uniform samplerExternalOES uVid;\n" : "uniform sampler2D uVid;\n")
+                  + "uniform sampler2D uMask;\n"
+                  + "uniform mat4 uCM;\n"
+                  + "uniform float uAlpha;\n"
+                  + "varying vec2 vVid;\n"
+                  + "varying vec2 vMask;\n"
+                  + "void main(){\n"
+                  + "  vec3 c = texture2D(uVid, vVid).rgb;\n"
+                  + "  c = clamp((uCM * vec4(c, 1.0)).rgb, 0.0, 1.0);\n"
+                  + "  float a = texture2D(uMask, vMask).a * uAlpha;\n"
+                  + "  gl_FragColor = vec4(c * a, a);\n"   // premultiplied
+                  + "}\n";
+            final VProg v = new VProg();
+            v.prog = program(vs, fs);
+            v.aPos = GLES20.glGetAttribLocation(v.prog, "aPos");
+            v.mvp = GLES20.glGetUniformLocation(v.prog, "uMvp");
+            v.texMat = GLES20.glGetUniformLocation(v.prog, "uTexMat");
+            v.crop = GLES20.glGetUniformLocation(v.prog, "uCrop");
+            v.vid = GLES20.glGetUniformLocation(v.prog, "uVid");
+            v.mask = GLES20.glGetUniformLocation(v.prog, "uMask");
+            v.cm = GLES20.glGetUniformLocation(v.prog, "uCM");
+            v.alpha = GLES20.glGetUniformLocation(v.prog, "uAlpha");
+            return v;
         }
 
         void screenMvp(float[] out) {
@@ -398,8 +426,11 @@ public final class TemplateVideoCompositor {
             Matrix.multiplyMM(out, 0, proj, 0, m, 0);
         }
 
-        void drawTex(int tex, float[] mvp) {
+        void drawTex(int tex, float[] mvp) { drawTex(tex, mvp, 1f); }
+
+        void drawTex(int tex, float[] mvp, float alpha) {
             GLES20.glUseProgram(progTex);
+            GLES20.glUniform1f(tAlpha, alpha);
             GLES20.glUniformMatrix4fv(tMvp, 1, false, mvp, 0);
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex);
@@ -473,6 +504,9 @@ public final class TemplateVideoCompositor {
             final float[] mvp = new float[16];
             final float[] crop = new float[4];
             int dispW, dispH;
+            float boxAspect = 1f, frameAlpha = 1f;
+            final float[] colorMat;          // v772: filter as a mat4
+            final float[] anim = new float[4];
             long trimUs, loopLenUs, curLoop = -1;
             boolean inEos, outEos, hasFrame;
             int held = -1;
@@ -481,9 +515,43 @@ public final class TemplateVideoCompositor {
             boolean frameAvail;
             final MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
 
-            Clip(Slot s) { slot = s; }
+            Clip(Slot s) { slot = s; colorMat = TemplateEffects.glMatrix(s.filter); }
+
+            /** v772: photo box — one texture, no decoder; the flip matrix turns bitmap rows (top-down) into the clip convention. */
+            void prepareImage() {
+                final Bitmap b = slot.image;
+                dispW = Math.max(1, b.getWidth());
+                dispH = Math.max(1, b.getHeight());
+                oesTex = bitmapTexture(b);
+                Matrix.setIdentityM(texMat, 0);
+                texMat[5] = -1f;
+                texMat[13] = 1f;
+                setupBox();
+                hasFrame = true;
+            }
+
+            /** Box pixels: mask + frame textures and the placement matrix. */
+            void setupBox() {
+                final float bw = Math.max(2f, slot.w * W), bh = Math.max(2f, slot.h * H);
+                final TemplateBoxStyle style = slot.style != null ? slot.style : new TemplateBoxStyle();
+                final Bitmap mask = style.maskBitmap(Math.round(bw), Math.round(bh));
+                maskTex = bitmapTexture(mask);
+                mask.recycle();
+                final Bitmap frame = style.frameBitmap(Math.round(bw), Math.round(bh));
+                if (frame != null) { frameTex = bitmapTexture(frame); frame.recycle(); }
+
+                final float[] m = new float[16];
+                Matrix.setIdentityM(m, 0);
+                Matrix.translateM(m, 0, slot.cx * W, slot.cy * H, 0f);
+                Matrix.rotateM(m, 0, slot.rot, 0f, 0f, 1f);
+                Matrix.scaleM(m, 0, bw / 2f, bh / 2f, 1f);
+                Matrix.multiplyMM(mvp, 0, proj, 0, m, 0);
+                boxAspect = bw / bh;
+                cropFor(0f);
+            }
 
             void prepare() throws Exception {
+                if (slot.image != null) { prepareImage(); return; }
                 ex = new MediaExtractor();
                 ex.setDataSource(slot.path);
                 int track = -1;
@@ -521,23 +589,7 @@ public final class TemplateVideoCompositor {
                 surface = new Surface(st);
                 Matrix.setIdentityM(texMat, 0);
 
-                // box pixels, mask + frame textures, matrix, cover-crop
-                final float bw = Math.max(2f, slot.w * W), bh = Math.max(2f, slot.h * H);
-                final TemplateBoxStyle style = slot.style != null ? slot.style : new TemplateBoxStyle();
-                final Bitmap mask = style.maskBitmap(Math.round(bw), Math.round(bh));
-                maskTex = bitmapTexture(mask);
-                mask.recycle();
-                final Bitmap frame = style.frameBitmap(Math.round(bw), Math.round(bh));
-                if (frame != null) { frameTex = bitmapTexture(frame); frame.recycle(); }
-
-                final float[] m = new float[16];
-                Matrix.setIdentityM(m, 0);
-                Matrix.translateM(m, 0, slot.cx * W, slot.cy * H, 0f);
-                Matrix.rotateM(m, 0, slot.rot, 0f, 0f, 1f);
-                Matrix.scaleM(m, 0, bw / 2f, bh / 2f, 1f);
-                Matrix.multiplyMM(mvp, 0, proj, 0, m, 0);
-
-                cropFor(bw / bh);
+                setupBox();
 
                 dec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME));
                 dec.configure(fmt, surface, null, 0);
@@ -545,15 +597,17 @@ public final class TemplateVideoCompositor {
                 startLoop(0);
             }
 
-            /** Centre-crop to fill the box, then user zoom / pan inside the free area. */
-            void cropFor(float boxAspect) {
+            /** Centre-crop to fill the box, then user zoom / pan + the slot animation (at progress {@code p}) inside the free area. */
+            void cropFor(float p) {
+                TemplateEffects.animState(slot.anim, p, anim);
+                frameAlpha = anim[3];
                 final float va = dispW / (float) dispH;
                 float fu = 1f, fv = 1f;                       // visible fraction of the video
                 if (va > boxAspect) fu = boxAspect / va; else fv = va / boxAspect;
-                final float z = Math.max(1f, slot.zoom);
+                final float z = Math.max(1f, slot.zoom) * anim[0];
                 fu = Math.max(0.05f, fu / z);
                 fv = Math.max(0.05f, fv / z);
-                final float px = Math.max(-1f, Math.min(1f, slot.panX)), py = Math.max(-1f, Math.min(1f, slot.panY));
+                final float px = Math.max(-1f, Math.min(1f, slot.panX + anim[1])), py = Math.max(-1f, Math.min(1f, slot.panY + anim[2]));
                 float u0 = (1f - fu) / 2f + px * (1f - fu) / 2f;
                 float v0 = (1f - fv) / 2f - py * (1f - fv) / 2f;   // +panY shows the lower part (texture v grows upward)
                 u0 = Math.max(0f, Math.min(1f - fu, u0));
@@ -587,6 +641,7 @@ public final class TemplateVideoCompositor {
 
             /** Makes the GL texture hold the source frame for output time {@code tUs}. */
             void advance(long tUs) {
+                if (slot.image != null) return;                 // photo box: nothing to decode
                 if (tUs >= slot.durationMs * 1000L) return;     // box already finished, nothing more to decode
                 final long loop = tUs / loopLenUs;
                 if (loop != curLoop) startLoop(loop);
@@ -633,19 +688,25 @@ public final class TemplateVideoCompositor {
                 hasFrame = true;
             }
 
-            void draw() {
-                GLES20.glUseProgram(progVideo);
-                GLES20.glUniformMatrix4fv(vMvp, 1, false, mvp, 0);
-                GLES20.glUniformMatrix4fv(vTexMat, 1, false, texMat, 0);
-                GLES20.glUniform4f(vCrop, crop[0], crop[1], crop[2], crop[3]);
+            void draw(long tUs) {
+                final long durUs = Math.max(1L, slot.durationMs * 1000L);
+                cropFor(Math.min(1f, tUs / (float) durUs));    // v772: zoom / pan / fade follow the box's own timeline
+                final VProg v = slot.image != null ? progImage : progVideo;
+                final int target = slot.image != null ? GLES20.GL_TEXTURE_2D : GLES11Ext.GL_TEXTURE_EXTERNAL_OES;
+                GLES20.glUseProgram(v.prog);
+                GLES20.glUniformMatrix4fv(v.mvp, 1, false, mvp, 0);
+                GLES20.glUniformMatrix4fv(v.texMat, 1, false, texMat, 0);
+                GLES20.glUniformMatrix4fv(v.cm, 1, false, colorMat, 0);
+                GLES20.glUniform1f(v.alpha, anim[3]);
+                GLES20.glUniform4f(v.crop, crop[0], crop[1], crop[2], crop[3]);
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTex);
-                GLES20.glUniform1i(vVid, 0);
+                GLES20.glBindTexture(target, oesTex);
+                GLES20.glUniform1i(v.vid, 0);
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskTex);
-                GLES20.glUniform1i(vMask, 1);
-                GLES20.glEnableVertexAttribArray(vAPos);
-                GLES20.glVertexAttribPointer(vAPos, 2, GLES20.GL_FLOAT, false, 0, quad);
+                GLES20.glUniform1i(v.mask, 1);
+                GLES20.glEnableVertexAttribArray(v.aPos);
+                GLES20.glVertexAttribPointer(v.aPos, 2, GLES20.GL_FLOAT, false, 0, quad);
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
             }

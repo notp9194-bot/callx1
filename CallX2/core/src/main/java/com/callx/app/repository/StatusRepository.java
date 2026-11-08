@@ -165,7 +165,7 @@ public class StatusRepository {
                         FirebaseUtils.db().getReference().updateChildren(finalUpdates, (e, ref) -> {
                             // v743: a scheduled status made FROM a template only goes live now → count the use now
                             if (e == null && published.templateFromUid != null && published.templateFromId != null)
-                                com.callx.app.utils.StatusTemplateUses.record(published.templateFromUid, published.templateFromId);
+                                com.callx.app.utils.StatusTemplateUses.record(published.templateFromUid, published.templateFromId, published.templateFromName, null, null);
                             mainHandler.post(() -> { if (cb != null) cb.onDone(e == null); });
                         });
                     }

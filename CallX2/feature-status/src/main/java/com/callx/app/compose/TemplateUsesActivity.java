@@ -158,6 +158,14 @@ public class TemplateUsesActivity extends AppCompatActivity {
     private final ArrayDeque<String> onlinePending = new ArrayDeque<>();
     private boolean profilesDirty, saveQueued;
 
+    // v770: All Users / Followers / Following (relations are read once, only when a filter is first chosen)
+    private static final int F_ALL = 0, F_FOLLOWERS = 1, F_FOLLOWING = 2, FILTER_AUTO_PAGES = 5, FILTER_MIN_ROWS = 12;
+    private int filter = F_ALL;
+    private Set<String> followersSet, followingSet;     // null = not loaded yet
+    private boolean relationsLoading;
+    private int filterAutoPages;
+    private final TextView[] filterViews = new TextView[3];
+
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() { refreshQueued = false; if (!dead()) refreshNow(); }
     };
@@ -194,6 +202,11 @@ public class TemplateUsesActivity extends AppCompatActivity {
         footerProgress = findViewById(R.id.tu_footer_progress);
         footerRetry = findViewById(R.id.tu_footer_retry);
         findViewById(R.id.tu_back).setOnClickListener(v -> finish());
+        filterViews[F_ALL] = findViewById(R.id.tu_f_all);
+        filterViews[F_FOLLOWERS] = findViewById(R.id.tu_f_followers);
+        filterViews[F_FOLLOWING] = findViewById(R.id.tu_f_following);
+        for (int i = 0; i < filterViews.length; i++) { final int f = i; filterViews[i].setOnClickListener(v -> setFilter(f)); }
+        styleFilters();
 
         rv = findViewById(R.id.tu_list);
         rv.setLayoutManager(new LinearLayoutManager(this));
@@ -220,12 +233,17 @@ public class TemplateUsesActivity extends AppCompatActivity {
         if (me == null || me.isEmpty() || statusId == null || statusId.isEmpty()) { finish(); return; }
 
         findViewById(R.id.tu_more).setOnClickListener(v ->
-                TemplateActions.showOwnerSheet(this, statusId, seenAt.size(), null, null, this::finish));
+                TemplateActions.showOwnerSheet(this, statusId, Math.max(statsTotal, seenAt.size()), null, null, this::finish));
         bindCounts();
         setSkeleton(true);
         loadTemplateHeader();
         loadDiskAndRelationsAsync();
         attachLive();
+        com.callx.app.utils.StatusTemplateUses.fetchStats(me, statusId, st -> {   // v767: exact total (new templates)
+            if (dead() || st.total < 0) return;
+            statsTotal = st.total;
+            bindCounts();
+        });
     }
 
     @Override protected void onResume() {
@@ -249,16 +267,19 @@ public class TemplateUsesActivity extends AppCompatActivity {
 
     // ── header ───────────────────────────────────────────────────────────────
 
+    /** v767: exact total from templateStats (-1 = old template without a counter → paged estimate). */
+    private volatile long statsTotal = -1;
+
     /** "12.8K"-style count; "40+" while older pages still exist. */
     private String countText() {
-        final int n = seenAt.size();
+        final long n = statsTotal >= 0 ? Math.max(statsTotal, seenAt.size()) : seenAt.size();   // v767: exact total when a counter exists
         final String c;
         if (n < 1000) c = String.valueOf(n);
         else {
             final String k = String.format(Locale.US, "%.1f", n / 1000f);
             c = (k.endsWith(".0") ? k.substring(0, k.length() - 2) : k) + "K";
         }
-        return exhausted || n == 0 ? c : c + "+";
+        return exhausted || n == 0 || statsTotal >= 0 ? c : c + "+";
     }
 
     private void bindCounts() {
@@ -426,6 +447,59 @@ public class TemplateUsesActivity extends AppCompatActivity {
         footerRetry.setVisibility(loadFailed ? View.VISIBLE : View.GONE);
     }
 
+    // ── v770: filter ─────────────────────────────────────────────────────────
+
+    private void setFilter(int f) {
+        if (f == filter) return;
+        filter = f;
+        filterAutoPages = 0;
+        styleFilters();
+        if (f != F_ALL) loadRelationsIfNeeded();
+        scheduleRefresh();
+    }
+
+    private void styleFilters() {
+        final boolean dk = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        final float r = 22 * getResources().getDisplayMetrics().density;
+        for (int i = 0; i < filterViews.length; i++) {
+            final TextView t = filterViews[i];
+            if (t == null) continue;
+            final boolean on = i == filter;
+            final android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+            g.setCornerRadius(r);
+            g.setColor(on ? 0xFF6A3DE8 : (dk ? 0x22FFFFFF : 0xFFF2F0F8));
+            t.setBackground(g);
+            t.setTextColor(on ? 0xFFFFFFFF : (dk ? 0xFFFFFFFF : 0xFF14142B));
+        }
+    }
+
+    /** reelFollows/{me} + reelFollowers/{me} (uids only), each read once; the list refreshes when both are in. */
+    private void loadRelationsIfNeeded() {
+        if (relationsLoading || (followersSet != null && followingSet != null)) return;
+        relationsLoading = true;
+        final int[] left = {2};
+        final Runnable done = () -> { if (--left[0] <= 0) { relationsLoading = false; if (!dead()) scheduleRefresh(); } };
+        try {
+            FirebaseUtils.getReelFollowersRef(me).get().addOnCompleteListener(t -> {
+                final Set<String> s = new HashSet<>();
+                if (t.isSuccessful() && t.getResult() != null) for (DataSnapshot c : t.getResult().getChildren()) if (c.getKey() != null) s.add(c.getKey());
+                followersSet = s;       // a failed read = empty set (filter shows "nobody"), not a crash
+                done.run();
+            });
+            FirebaseUtils.getReelFollowsRef(me).get().addOnCompleteListener(t -> {
+                final Set<String> s = new HashSet<>();
+                if (t.isSuccessful() && t.getResult() != null) for (DataSnapshot c : t.getResult().getChildren()) if (c.getKey() != null) s.add(c.getKey());
+                followingSet = s;
+                done.run();
+            });
+        } catch (Exception e) {
+            followersSet = new HashSet<>(); followingSet = new HashSet<>();
+            relationsLoading = false;
+            scheduleRefresh();
+        }
+    }
+
     // ── refresh (bg build + DiffUtil) ────────────────────────────────────────
 
     private void scheduleRefresh() {
@@ -442,6 +516,11 @@ public class TemplateUsesActivity extends AppCompatActivity {
 
     private void refreshNow() {
         final HashMap<String, Long> snapshot = new HashMap<>(seenAt);
+        if (filter != F_ALL) {   // v770: keep only followers / following (empty until the relation list has loaded)
+            final Set<String> keep = filter == F_FOLLOWERS ? followersSet : followingSet;
+            if (keep == null) snapshot.clear(); else snapshot.keySet().retainAll(keep);
+        }
+        final int activeFilter = filter;
         final HashMap<String, Prof> profs = new HashMap<>(snapshot.size() * 2);
         for (String uid : snapshot.keySet()) { final Prof p = profileOf(uid); if (p != null) profs.put(uid, p); }
         final HashMap<String, Boolean> on = new HashMap<>(online);
@@ -458,10 +537,19 @@ public class TemplateUsesActivity extends AppCompatActivity {
                 bindCounts();
                 final boolean none = out.isEmpty();
                 setSkeleton(!loaded && none);
-                if (loaded && none) {
+                if (loaded && none && activeFilter != F_ALL && !failed) {
+                    if (relationsLoading) { empty.setVisibility(View.GONE); }
+                    else { empty.setText(R.string.tpl_uses_filter_empty); empty.setVisibility(View.VISIBLE); }
+                } else if (loaded && none) {
                     empty.setText(failed ? R.string.tpl_uses_error : R.string.tpl_uses_empty);
                     empty.setVisibility(View.VISIBLE);
                 } else empty.setVisibility(View.GONE);
+                // a filtered list can be too short to scroll -> pull a few more pages by itself (capped)
+                if (activeFilter != F_ALL && out.size() < FILTER_MIN_ROWS && !exhausted && !loadingMore && filterAutoPages < FILTER_AUTO_PAGES
+                        && (activeFilter == F_FOLLOWERS ? followersSet : followingSet) != null) {
+                    filterAutoPages++;
+                    loadMore();
+                }
             });
         });
     }

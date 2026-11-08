@@ -278,11 +278,21 @@
           "forwardedFrom": {
             ".validate": "!newData.exists() || newData.isString()"
           },
-          "templateJson":         { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 60000)" },
-          "templateStickersJson": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 60000)" },
-          "templateFromUid":      { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)" },
-          "templateFromId":       { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)" },
-          "templateFromName":     { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 120)" }
+          "templateJson": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 60000)"
+          },
+          "templateStickersJson": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 60000)"
+          },
+          "templateFromUid": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)"
+          },
+          "templateFromId": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)"
+          },
+          "templateFromName": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 120)"
+          }
         }
       }
     },
@@ -1195,27 +1205,57 @@
       ".read": "auth != null",
       "$uid": {
         ".write": "auth != null && auth.uid == $uid",
-        ".indexOn": ["mediaUrl"],
+        ".indexOn": [
+          "mediaUrl"
+        ],
         "$statusId": {
           ".validate": "!newData.exists() || newData.hasChildren(['timestamp','expiresAt'])",
-          "timestamp": { ".validate": "newData.isNumber()" },
+          "timestamp": {
+            ".validate": "newData.isNumber()"
+          },
           "forwardCount": {
             ".write": "auth != null",
             ".validate": "newData.isNumber() && newData.val() >= 0 && (data.exists() ? newData.val() === data.val() + 1 || auth.uid === $uid : newData.val() === 1 || auth.uid === $uid)"
           },
-          "deleted":   { ".validate": "newData.isBoolean()" },
-          "expiresAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
-          "resharedFromType":     { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 20)" },
-          "resharedFromOwnerUsername": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 30)" },
-          "resharedFromId":       { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)" },
-          "resharedFromOwnerUid": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)" },
-          "templateJson":         { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 60000)" },
-          "templateFromUid":      { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)" },
-          "templateFromId":       { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)" },
-          "templateFromName":     { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 120)" },
-          "templateLayoutJson":   { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 8000)" },
-          "privacy":              { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 20)" },
-          "isCloseFriends":       { ".validate": "!newData.exists() || newData.isBoolean()" },
+          "deleted": {
+            ".validate": "newData.isBoolean()"
+          },
+          "expiresAt": {
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "resharedFromType": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 20)"
+          },
+          "resharedFromOwnerUsername": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 30)"
+          },
+          "resharedFromId": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)"
+          },
+          "resharedFromOwnerUid": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)"
+          },
+          "templateJson": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 60000)"
+          },
+          "templateFromUid": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)"
+          },
+          "templateFromId": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 128)"
+          },
+          "templateFromName": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 120)"
+          },
+          "templateLayoutJson": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 8000)"
+          },
+          "privacy": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 20)"
+          },
+          "isCloseFriends": {
+            ".validate": "!newData.exists() || newData.isBoolean()"
+          },
           "mentionNames": {
             "$username": {
               ".write": "auth != null && !newData.exists() && data.val() === auth.uid",
@@ -1223,7 +1263,9 @@
             }
           },
           "seenBy": {
-            ".indexOn": [".value"],
+            ".indexOn": [
+              ".value"
+            ],
             "$viewerUid": {
               ".write": "auth != null && auth.uid == $viewerUid && root.child('blocks').child($uid).child(auth.uid).val() != true",
               ".validate": "!newData.exists() || (newData.isNumber() && newData.val() <= now && root.child('status').child($uid).child($statusId).exists() && root.child('status').child($uid).child($statusId).child('deleted').val() != true && (root.child('status').child($uid).child($statusId).child('expiresAt').exists() ? root.child('status').child($uid).child($statusId).child('expiresAt').val() > now : (root.child('status').child($uid).child($statusId).child('timestamp').exists() && root.child('status').child($uid).child($statusId).child('timestamp').val() + 86400000 > now)))"
@@ -1246,16 +1288,30 @@
             }
           },
           "replies": {
-            ".indexOn": ["timestamp"],
+            ".indexOn": [
+              "timestamp"
+            ],
             "$replyId": {
               ".write": "auth != null && ((!data.exists() && newData.exists() && root.child('blocks').child($uid).child(auth.uid).val() != true && root.child('status').child($uid).child($statusId).exists() && root.child('status').child($uid).child($statusId).child('deleted').val() != true && (root.child('status').child($uid).child($statusId).child('expiresAt').exists() ? root.child('status').child($uid).child($statusId).child('expiresAt').val() > now : (root.child('status').child($uid).child($statusId).child('timestamp').exists() && root.child('status').child($uid).child($statusId).child('timestamp').val() + 86400000 > now))) || (data.exists() && !newData.exists() && data.child('uid').val() == auth.uid))",
               ".validate": "newData.hasChildren(['uid','name','text','timestamp']) && newData.child('uid').val() == auth.uid",
-              "uid":       { ".validate": "newData.isString()" },
-              "name":      { ".validate": "newData.isString() && newData.val().length <= 100" },
-              "avatarUrl": { ".validate": "newData.isString() && newData.val().length <= 1000" },
-              "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300" },
-              "timestamp": { ".validate": "newData.isNumber() && newData.val() == now" },
-              "$other":    { ".validate": false }
+              "uid": {
+                ".validate": "newData.isString()"
+              },
+              "name": {
+                ".validate": "newData.isString() && newData.val().length <= 100"
+              },
+              "avatarUrl": {
+                ".validate": "newData.isString() && newData.val().length <= 1000"
+              },
+              "text": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300"
+              },
+              "timestamp": {
+                ".validate": "newData.isNumber() && newData.val() == now"
+              },
+              "$other": {
+                ".validate": false
+              }
             }
           }
         }
@@ -1278,14 +1334,18 @@
     "addYoursChainEntries": {
       "$chainId": {
         ".read": "auth != null",
-        ".indexOn": ["ts"],
+        ".indexOn": [
+          "ts"
+        ],
         ".write": false
       }
     },
     "statusTemplateUses": {
       "$ownerUid": {
         "$statusId": {
-          ".indexOn": [".value"],
+          ".indexOn": [
+            ".value"
+          ],
           ".read": "auth != null",
           ".write": "auth != null && auth.uid === $ownerUid && !newData.exists()",
           "$uid": {
@@ -1299,16 +1359,52 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
-        ".indexOn": ["ts"],
+        ".indexOn": [
+          "ts"
+        ],
         "$key": {
           ".validate": "!newData.exists() || (newData.hasChildren(['ownerUid','statusId','templateJson','ts']))",
-          "ownerUid":     { ".validate": "newData.isString() && newData.val().length <= 128" },
-          "statusId":     { ".validate": "newData.isString() && newData.val().length <= 128" },
-          "ownerName":    { ".validate": "newData.isString() && newData.val().length <= 120" },
-          "templateJson": { ".validate": "newData.isString() && newData.val().length <= 60000" },
-          "stickersJson": { ".validate": "newData.isString() && newData.val().length <= 60000" },
-          "ts":           { ".validate": "newData.isNumber()" },
-          "$other":       { ".validate": false }
+          "ownerUid": {
+            ".validate": "newData.isString() && newData.val().length <= 128"
+          },
+          "statusId": {
+            ".validate": "newData.isString() && newData.val().length <= 128"
+          },
+          "ownerName": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "templateJson": {
+            ".validate": "newData.isString() && newData.val().length <= 60000"
+          },
+          "stickersJson": {
+            ".validate": "newData.isString() && newData.val().length <= 60000"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "templateStats": {
+      "_comment": "v767: templateStats/{ownerUid}/{statusId} = { uses: N, days: { yyyyMMdd(UTC): n } }. Written by a user right after his statusTemplateUses row was accepted (+1 only, row must be < 5 min old). Owner may wipe it (status deleted).",
+      "$ownerUid": {
+        "$statusId": {
+          ".read": "auth != null",
+          ".write": "auth != null && ((auth.uid === $ownerUid && !newData.exists()) || (root.child('statusTemplateUses').child($ownerUid).child($statusId).child(auth.uid).val() > now - 300000 && newData.child('uses').val() === (data.child('uses').exists() ? data.child('uses').val() : 0) + 1))",
+          "uses": {
+            ".validate": "newData.isNumber() && newData.val() >= 1"
+          },
+          "days": {
+            "$day": {
+              ".validate": "$day.matches(/^[0-9]{8}$/) && newData.isNumber() && newData.val() >= 1 && newData.val() <= 1000000"
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
         }
       }
     },
@@ -1317,10 +1413,18 @@
         "$statusId": {
           ".read": "auth != null",
           ".write": "auth != null && auth.uid === $ownerUid",
-          "off":     { ".validate": "newData.isBoolean()" },
-          "removed": { ".validate": "newData.isBoolean()" },
-          "ts":      { ".validate": "newData.isNumber()" },
-          "$other":  { ".validate": false }
+          "off": {
+            ".validate": "newData.isBoolean()"
+          },
+          "removed": {
+            ".validate": "newData.isBoolean()"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
         }
       }
     },
@@ -1331,9 +1435,15 @@
           "$reporter": {
             ".write": "auth != null && auth.uid === $reporter && $reporter != $ownerUid && !data.exists()",
             ".validate": "!newData.exists() || newData.hasChildren(['reason','ts'])",
-            "reason": { ".validate": "newData.isString() && newData.val().length <= 40" },
-            "ts":     { ".validate": "newData.isNumber()" },
-            "$other": { ".validate": false }
+            "reason": {
+              ".validate": "newData.isString() && newData.val().length <= 40"
+            },
+            "ts": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
           }
         }
       }
@@ -1845,7 +1955,9 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
-        ".indexOn": ["archivedAt"]
+        ".indexOn": [
+          "archivedAt"
+        ]
       }
     },
     "reelUploadFailures": {
@@ -2117,7 +2229,9 @@
       }
     },
     "sounds": {
-      ".indexOn": ["titleLower"],
+      ".indexOn": [
+        "titleLower"
+      ],
       "$key": {
         ".read": "auth != null",
         ".write": "auth != null && !newData.exists() && data.child('ownerUid').val() === auth.uid",
@@ -2213,14 +2327,18 @@
       ".write": false
     },
     "audio_match_jobs": {
-      ".indexOn": ["status"],
+      ".indexOn": [
+        "status"
+      ],
       "$jobId": {
         ".read": "auth != null && data.child('uid').val() === auth.uid",
         ".write": false
       }
     },
     "audio_fingerprints": {
-      ".indexOn": ["createdAt"],
+      ".indexOn": [
+        "createdAt"
+      ],
       ".read": false,
       ".write": false
     },
@@ -2629,6 +2747,40 @@
     "trendingHashtags": {
       ".read": "auth != null",
       ".write": false
+    },
+    "userTemplateUsed": {
+      "_comment": "v770: userTemplateUsed/{uid}/{ownerUid_statusId} = templates I made a status from (My Templates > Used). Only the user reads / writes his own list; templateJson is a snapshot like savedTemplates.",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        ".indexOn": [
+          "ts"
+        ],
+        "$key": {
+          ".validate": "!newData.exists() || newData.hasChildren(['ownerUid','statusId','ts'])",
+          "ownerUid": {
+            ".validate": "newData.isString() && newData.val().length <= 128"
+          },
+          "statusId": {
+            ".validate": "newData.isString() && newData.val().length <= 128"
+          },
+          "ownerName": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "templateJson": {
+            ".validate": "newData.isString() && newData.val().length <= 60000"
+          },
+          "stickersJson": {
+            ".validate": "newData.isString() && newData.val().length <= 60000"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
     }
   }
 }

@@ -26,6 +26,9 @@ import android.widget.Toast;
 
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.view.WindowCompat;
@@ -55,7 +58,8 @@ import java.util.Set;
  *  - Header (My Templates pill) + search + sort, chips (Trending / Popular / Collage / Love / Fun),
  *    auto-rotating "Trending This Week" banner, Trending grid (See All), Categories row, bottom nav.
  *  - Data layer is unchanged from v751: Discover = live photo templates from your cached status tray, Saved = savedTemplates/{me}.
- *    Tap a card -> TemplateActions.use (re-checks the owner's reuse switch).
+ *    v769: tap a card -> TemplatePreviewActivity (screen 2) -> Use Template (re-checks the owner's reuse switch).
+ *    v769: 'New' chip (newest first) + duration badge on every card.
  * Every icon is an existing project drawable (tinted in code); no new artwork.
  */
 public class TemplateBrowserActivity extends AppCompatActivity {
@@ -64,7 +68,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
     private static final int GRID_COLS = 3, HOME_ROWS = 2;
     private static final int PURPLE = 0xFF6A3DE8, PURPLE_LIGHT = 0xFF9A7BFF;
     private static final int MODE_HOME = 0, MODE_SAVED = 1, MODE_MINE = 2;
-    private static final int CHIP_TRENDING = 0, CHIP_POPULAR = 1, CHIP_COLLAGE = 2, CHIP_LOVE = 3, CHIP_FUN = 4;
+    private static final int CHIP_TRENDING = 0, CHIP_POPULAR = 1, CHIP_COLLAGE = 2, CHIP_LOVE = 3, CHIP_NEW = 4;   // v769: 'Fun' became 'New' (newest first)
     private static final int SORT_DEFAULT = 0, SORT_USED = 1, SORT_NEWEST = 2, SORT_PHOTOS = 3;
 
     private static final class Row {
@@ -77,8 +81,10 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         long savedTs;      // when it was saved (Saved order)
         boolean blocked;   // owner turned reuse off / removed it
         boolean metaAsked;
+        int durMs = -1;    // v769: TemplateSpec.displayMs(), parsed once
         TemplatePreviewDrawable preview;
         String key() { return originUid + "/" + originId; }
+        int dur() { if (durMs < 0) durMs = TemplateSpec.parse(tplJson).displayMs(); return durMs; }
         long time() { return ts > 0 ? ts : savedTs; }
     }
 
@@ -100,6 +106,9 @@ public class TemplateBrowserActivity extends AppCompatActivity {
     private String query = "";
     private boolean showAll;
     private int bannerIdx;
+    private Row previewRow;
+    private final ActivityResultLauncher<Intent> previewLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), res -> onPreviewResult(res.getData()));
 
     // views
     private LinearLayout myPill, chipRow, gridBox, navTemplates, navSaved;
@@ -243,7 +252,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         final TextView mt = text(getString(R.string.tpl_home_my_templates), 14f, textColor, true);
         mt.setPadding(dp(6), 0, 0, 0);
         myPill.addView(mt);
-        myPill.setOnClickListener(v -> setMode(mode == MODE_MINE ? MODE_HOME : MODE_MINE));
+        myPill.setOnClickListener(v -> startActivity(new Intent(this, MyTemplatesActivity.class)));   // v770: own screen (Created / Saved / Used)
         head.addView(myPill, new LinearLayout.LayoutParams(-2, -2));
         content.addView(head, new LinearLayout.LayoutParams(-1, -2));
     }
@@ -306,8 +315,8 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         hs.setPadding(dp(16), 0, dp(16), dp(14));
         chipRow = new LinearLayout(this);
         chipRow.setOrientation(LinearLayout.HORIZONTAL);
-        final int[] labels = {R.string.tpl_chip_trending, R.string.tpl_chip_popular, R.string.tpl_chip_collage, R.string.tpl_chip_love, R.string.tpl_chip_fun};
-        final int[] icons = {R.drawable.ic_sound_flame_outline, R.drawable.ic_star_outline, R.drawable.ic_layout_grid_2x2, R.drawable.ic_heart_filled, R.drawable.ic_emoji};
+        final int[] labels = {R.string.tpl_chip_trending, R.string.tpl_chip_popular, R.string.tpl_chip_collage, R.string.tpl_chip_love, R.string.tpl_chip_new};
+        final int[] icons = {R.drawable.ic_sound_flame_outline, R.drawable.ic_star_outline, R.drawable.ic_layout_grid_2x2, R.drawable.ic_heart_filled, R.drawable.ic_clock_small};
         for (int i = 0; i < labels.length; i++) {
             final int idx = i;
             final LinearLayout c = new LinearLayout(this);
@@ -733,12 +742,10 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         if (r.metaAsked) return;
         r.metaAsked = true;
         final int[] pending = {r.mine ? 1 : 2};
-        FirebaseUtils.db().getReference("statusTemplateUses").child(r.originUid).child(r.originId)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot s) { r.uses = s.getChildrenCount(); done(); }
-                    @Override public void onCancelled(@NonNull DatabaseError e) { r.uses = 0; done(); }
-                    private void done() { if (--pending[0] <= 0) scheduleRebuild(); }
-                });
+        com.callx.app.utils.StatusTemplateUses.fetchCount(r.originUid, r.originId, n -> {   // v767: counter, not a row download
+            r.uses = n;
+            if (--pending[0] <= 0) scheduleRebuild();
+        });
         if (r.mine) return;   // the owner is never blocked from his own template
         TemplateActions.fetchControl(r.originUid, r.originId, (off, removed) -> {
             r.blocked = off || removed;
@@ -787,7 +794,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
             shown.add(r);
         }
         final int sort = sortOverride != SORT_DEFAULT ? sortOverride
-                : (mode == MODE_SAVED ? SORT_NEWEST : (mode == MODE_HOME && chip == CHIP_FUN) || mode == MODE_MINE ? SORT_NEWEST : SORT_USED);
+                : (mode == MODE_SAVED ? SORT_NEWEST : (mode == MODE_HOME && chip == CHIP_NEW) || mode == MODE_MINE ? SORT_NEWEST : SORT_USED);
         Collections.sort(shown, (a, b) -> {
             if (sort == SORT_PHOTOS) {
                 final int pa = a.preview.photoCount(), pb = b.preview.photoCount();
@@ -819,7 +826,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         // titles + See All
         final int titleRes = mode == MODE_SAVED ? R.string.tpl_section_saved : mode == MODE_MINE ? R.string.tpl_section_mine
                 : chip == CHIP_POPULAR ? R.string.tpl_section_popular : chip == CHIP_COLLAGE ? R.string.tpl_section_collage
-                : chip == CHIP_LOVE ? R.string.tpl_section_love : chip == CHIP_FUN ? R.string.tpl_section_fun
+                : chip == CHIP_LOVE ? R.string.tpl_section_love : chip == CHIP_NEW ? R.string.tpl_section_fun
                 : R.string.tpl_section_trending;
         final int[] catNames = {R.string.tpl_cat_love, R.string.tpl_cat_travel, R.string.tpl_cat_birthday, R.string.tpl_cat_festival, R.string.tpl_cat_aesthetic};
         if (mode == MODE_HOME && catFilter >= 0) sectionTitle.setText(catNames[catFilter]); else sectionTitle.setText(titleRes);
@@ -925,7 +932,9 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         nm.setSingleLine(true);
         nm.setEllipsize(TextUtils.TruncateAt.END);
         foot.addView(nm, new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView pc = text(String.valueOf(r.preview.photoCount()), 11f, 0xFFFFFFFF, true);
+        final String durTxt = TemplateSpec.formatDuration(r.dur());   // v769: duration badge ("" when the template has none)
+        final TextView pc = text(durTxt.isEmpty() ? String.valueOf(r.preview.photoCount())
+                : durTxt + " \u00B7 " + r.preview.photoCount(), 11f, 0xFFFFFFFF, true);
         foot.addView(pc);
         foot.setPadding(dp(10), 0, dp(10), dp(10));
         card.addView(foot, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
@@ -937,9 +946,36 @@ public class TemplateBrowserActivity extends AppCompatActivity {
 
     // ── actions ──────────────────────────────────────────────────────────────
 
+    /** v769: card / banner tap -> Preview screen (Use Template there re-checks the owner's reuse switch / removal). */
     private void open(Row r) {
-        // honours the owner's reuse switch / removal (TemplateActions.use re-checks it)
-        TemplateActions.use(this, r.tplJson, r.stickersJson, r.originUid, r.originId, r.originName, null);
+        previewRow = r;
+        final Intent i = new Intent(this, TemplatePreviewActivity.class);
+        i.putExtra(TemplatePreviewActivity.EXTRA_TPL_JSON, r.tplJson);
+        if (ne(r.stickersJson) && r.stickersJson.length() < 100_000) i.putExtra(TemplatePreviewActivity.EXTRA_STICKERS_JSON, r.stickersJson);
+        i.putExtra(TemplatePreviewActivity.EXTRA_OWNER_UID, r.originUid);
+        i.putExtra(TemplatePreviewActivity.EXTRA_STATUS_ID, r.originId);
+        i.putExtra(TemplatePreviewActivity.EXTRA_OWNER_NAME, r.originName != null ? r.originName : "");
+        i.putExtra(TemplatePreviewActivity.EXTRA_USES, r.uses);
+        i.putExtra(TemplatePreviewActivity.EXTRA_SAVED, savedKeys.contains(r.key()));
+        previewLauncher.launch(i);
+    }
+
+    /** The Preview's bookmark may have changed the saved state -> keep hearts / Saved tab in sync. */
+    private void onPreviewResult(@Nullable Intent data) {
+        final Row r = previewRow;
+        previewRow = null;
+        if (r == null || data == null || !data.hasExtra(TemplatePreviewActivity.RESULT_SAVED)) return;
+        final boolean nowSaved = data.getBooleanExtra(TemplatePreviewActivity.RESULT_SAVED, false);
+        final String k = r.key();
+        if (nowSaved) {
+            r.savedTs = System.currentTimeMillis();
+            savedKeys.add(k);
+            saved.put(k, r);
+        } else {
+            savedKeys.remove(k);
+            saved.remove(k);
+        }
+        rebuild();
     }
 
     private void toggleSave(Row r) {

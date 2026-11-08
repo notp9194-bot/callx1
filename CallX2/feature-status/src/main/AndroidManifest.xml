@@ -222,6 +222,26 @@
             android:name="com.callx.app.compose.TemplateBrowserActivity"
             android:theme="@style/Theme.CallX"
             android:exported="false"/>
+        <!-- v771: template analytics (Total / This week / uses graph from templateStats) -->
+        <activity
+            android:name="com.callx.app.compose.TemplateAnalyticsActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+        <!-- v772: Template Editor (filter / animation / duration / music sync) -->
+        <activity
+            android:name="com.callx.app.compose.TemplateEditorActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+        <!-- v770: My Templates (Created / Saved / Used) -->
+        <activity
+            android:name="com.callx.app.compose.MyTemplatesActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+        <!-- v769: template preview (Discovery -> Preview -> Use Template) -->
+        <activity
+            android:name="com.callx.app.compose.TemplatePreviewActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
         <activity
             android:name="com.callx.app.compose.TemplateUsesActivity"
             android:theme="@style/Theme.CallX"

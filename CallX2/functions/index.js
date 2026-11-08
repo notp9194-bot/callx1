@@ -446,6 +446,7 @@ exports.cleanupExpiredStatusReplies = functions.pubsub
         // v752: template side-nodes of this status die with it (who-used list, owner switch, reports).
         // savedTemplates/{uid} is NOT touched — saved snapshots are meant to outlive the 24h status.
         updates[`statusTemplateUses/${ownerSnap.key}/${statusSnap.key}`] = null;
+        updates[`templateStats/${ownerSnap.key}/${statusSnap.key}`] = null; // v767
         updates[`templateControl/${ownerSnap.key}/${statusSnap.key}`] = null;
         updates[`templateReports/${ownerSnap.key}/${statusSnap.key}`] = null;
         removed++;

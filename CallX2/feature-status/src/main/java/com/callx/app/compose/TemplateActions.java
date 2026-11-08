@@ -22,6 +22,7 @@ import androidx.core.graphics.ColorUtils;
 
 import com.callx.app.interactions.StatusForwardBottomSheet;
 import com.callx.app.models.StatusItem;
+import com.callx.app.status.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.StatusTemplateUses;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -268,10 +269,22 @@ public final class TemplateActions {
     public static void showOwnerSheet(@NonNull final Activity a, @NonNull final String statusId, final long uses,
                                       @Nullable final Runnable onPause, @Nullable final Runnable onResume,
                                       @Nullable final Runnable onRemoved) {
+        showOwnerSheet(a, statusId, uses, onPause, onResume, onRemoved, null);
+    }
+
+    /** @param onEdit when not null the sheet starts with "Template edit karo" (opens the Template Editor, v772). */
+    public static void showOwnerSheet(@NonNull final Activity a, @NonNull final String statusId, final long uses,
+                                      @Nullable final Runnable onPause, @Nullable final Runnable onResume,
+                                      @Nullable final Runnable onRemoved, @Nullable final Runnable onEdit) {
         final String me = me();
         if (!ne(me)) return;
         final LinearLayout root = sheetRoot(a, "Your template", uses > 0 ? uses + " logon ne use kiya" : "Abhi kisi ne use nahi kiya");
         final BottomSheetDialog[] ref = new BottomSheetDialog[1];
+
+        if (onEdit != null) row(a, root, a.getString(R.string.mt_menu_edit), false, v -> {
+            ref[0].dismiss();
+            onEdit.run();
+        });
 
         row(a, root, "Kisne use kiya", false, v -> {
             ref[0].dismiss();

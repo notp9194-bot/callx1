@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v771: Template Analytics screen (TemplateAnalyticsActivity) -->
+<resources>
+    <string name="ta_title">Template Analytics</string>
+    <string name="ta_total_uses">Total Uses</string>
+    <string name="ta_this_week">This Week</string>
+    <string name="ta_today_plus">+%1$s today</string>
+    <string name="ta_vs_last_week">%1$s%% vs last week</string>
+    <string name="ta_new_this_week">New this week</string>
+    <string name="ta_range_7">7 days</string>
+    <string name="ta_range_30">30 days</string>
+    <string name="ta_uses_over_time">Uses over time</string>
+    <string name="ta_summary">Summary</string>
+    <string name="ta_best_day">Best day</string>
+    <string name="ta_avg_per_day">Average / day</string>
+    <string name="ta_today">Today</string>
+    <string name="ta_uses_n">%1$s uses</string>
+    <string name="ta_view_users">Kisne use kiya</string>
+    <string name="ta_no_daily">Is template ka din-wise data nahi hai (ye v767 se pehle ka hai). Total upar dikh raha hai.</string>
+    <string name="ta_unavailable">Analytics sirf aapke apne template ka hota hai.</string>
+    <string name="ta_template">Template</string>
+</resources>

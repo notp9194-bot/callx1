@@ -57,6 +57,9 @@ public final class TemplatePreviewDrawable extends Drawable {
     private final Paint plus = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF tmp = new RectF();
     private int alpha = 255;
+    /** v769: animated preview — box i is "in focus" when the phase is i; < 0 = no emphasis (static preview, as before). */
+    private float focusPhase = -1f;
+    private final float[] animBox = new float[5];
 
     private TemplatePreviewDrawable() {
         stroke.setStyle(Paint.Style.STROKE);
@@ -104,6 +107,12 @@ public final class TemplatePreviewDrawable extends Drawable {
         return boxCount + 1;
     }
 
+    /** v769: drives the Preview screen's loop (boxes light up one after another). Pass a negative value to stop. */
+    public void setFocusPhase(float phase) {
+        focusPhase = phase;
+        invalidateSelf();
+    }
+
     @Override
     public void draw(@NonNull Canvas c) {
         final Rect r = getBounds();
@@ -139,10 +148,23 @@ public final class TemplatePreviewDrawable extends Drawable {
         plus.setStrokeWidth(Math.max(1f, sw * 0.6f));
         for (int i = 0; i < boxCount; i++) {
             final int col = slotColor(i + 1);          // same colour the composer gives this box
-            stroke.setColor(col); stroke.setAlpha(alpha);
-            plus.setColor(col);   plus.setAlpha(alpha);
-            fill.setColor(col);   fill.setAlpha(Math.min(alpha, 0x55));
-            drawBox(c, r, boxes[i], fill, stroke, corner * 0.45f, true, shapes[i]);
+            float k = 1f;                               // v769: 1 = in focus, 0 = idle (only while animating)
+            float[] bx = boxes[i];
+            if (focusPhase >= 0f && boxCount > 0) {
+                float dd = Math.abs(focusPhase - i);
+                dd = Math.min(dd, boxCount - dd);
+                k = Math.max(0f, 1f - dd);
+                final float sc = 1f + 0.07f * k;
+                System.arraycopy(bx, 0, animBox, 0, 5);
+                animBox[2] *= sc;
+                animBox[3] *= sc;
+                bx = animBox;
+            }
+            final float ka = focusPhase >= 0f ? 0.35f + 0.65f * k : 1f;
+            stroke.setColor(col); stroke.setAlpha(Math.round(alpha * ka));
+            plus.setColor(col);   plus.setAlpha(Math.round(alpha * ka));
+            fill.setColor(col);   fill.setAlpha(Math.round(Math.min(alpha, focusPhase >= 0f ? (0x33 + (int) (0x66 * k)) : 0x55)));
+            drawBox(c, r, bx, fill, stroke, corner * 0.45f, true, shapes[i]);
         }
         c.restoreToCount(save);
     }

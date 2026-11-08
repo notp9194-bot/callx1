@@ -4250,14 +4250,9 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
               });
               if (isTemplate) {
-                  FirebaseUtils.db().getReference("statusTemplateUses").child(originUid).child(originId)
-                          .addListenerForSingleValueEvent(new ValueEventListener() {
-                      @Override public void onDataChange(DataSnapshot snap) {
-                          final long n = snap.getChildrenCount();
-                          usesN[0] = n;
-                          if (n > 0 && box.getParent() != null) chip.setText(getString(R.string.viewer_tpl_with_uses, baseLabel, (int) n));
-                      }
-                      @Override public void onCancelled(DatabaseError e) { }
+                  com.callx.app.utils.StatusTemplateUses.fetchCount(originUid, originId, n -> {   // v767: one counter read
+                      usesN[0] = n;
+                      if (n > 0 && box.getParent() != null) chip.setText(getString(R.string.viewer_tpl_with_uses, baseLabel, (int) n));
                   });
               }
           } catch (Exception e) {
