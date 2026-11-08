@@ -1285,6 +1285,7 @@
     "statusTemplateUses": {
       "$ownerUid": {
         "$statusId": {
+          ".indexOn": [".value"],
           ".read": "auth != null",
           ".write": "auth != null && auth.uid === $ownerUid && !newData.exists()",
           "$uid": {

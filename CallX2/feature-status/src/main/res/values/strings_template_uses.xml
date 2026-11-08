@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v758: "Used This Template" screen (TemplateUsesActivity) -->
+    <string name="tpl_uses_title">Used This Template</string>
+    <string name="tpl_uses_default_name">Template</string>
+    <string name="tpl_uses_story_template">Story Template</string>
+    <string name="tpl_uses_people_used"> people used this template</string>
+    <string name="tpl_uses_used_by">Used By</string>
+    <string name="tpl_uses_people_count">%1$s People</string>
+    <string name="tpl_uses_save">Save</string>
+    <string name="tpl_uses_saved">Saved</string>
+    <string name="tpl_uses_view">View</string>
+    <string name="tpl_uses_user">User</string>
+    <string name="tpl_uses_empty">Abhi kisi ne use nahi kiya.</string>
+    <string name="tpl_uses_name_loading">…</string>
+    <string name="tpl_uses_error">Load nahi ho paya. Dobara try karne ke liye tap karein.</string>
+    <string name="tpl_uses_retry">Load nahi ho paya. Retry ke liye tap karein.</string>
+</resources>

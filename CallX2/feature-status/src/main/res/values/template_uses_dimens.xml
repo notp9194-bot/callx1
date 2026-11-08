@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v758: avatar 30dp + 2dp gap + 1.5dp story ring (same ring StoryRingApplier draws everywhere else).
+         ring view = avatar + 2 * (gap + stroke) = 30 + 2 * (2 + 1.5) = 37dp -->
+    <dimen name="tpl_use_avatar">30dp</dimen>
+    <dimen name="tpl_use_ring">37dp</dimen>
+    <dimen name="tpl_use_online_dot">9dp</dimen>
+</resources>
