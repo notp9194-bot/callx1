@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v788: NewStatusActivity toasts moved out of Java. -->
+<resources>
+    <string name="ns_toast_gallery_permission_denied">Gallery permission denied</string>
+    <string name="ns_toast_failed_to_build_layout">Failed to build layout: %1$s</string>
+    <string name="ns_toast_pehle_text_ya_media_add">Pehle text ya media add karo</string>
+    <string name="ns_toast_location_picker_abhi_available_nahi">Location picker abhi available nahi hai</string>
+    <string name="ns_toast_fit_sirf_photo_status_par">Fit sirf photo status par kaam karta hai</string>
+    <string name="ns_toast_photo_pehle_se_poora_frame">Photo pehle se poora frame bhar rahi hai</string>
+    <string name="ns_toast_fill_kinare_kat_sakte_hain">Fill — kinare kat sakte hain. Dubara double-tap = poori photo</string>
+    <string name="ns_toast_pehle_photo_ya_video_select">Pehle photo ya video select karo</string>
+    <string name="ns_toast_video_par_textdraweffects_reel_editor">Video par text/draw/effects Reel editor me hote hain</string>
+    <string name="ns_toast_ai_label_abhi_photo_status">AI label abhi photo status ke liye available hai</string>
+    <string name="ns_toast_video_plays_for_its_own">Video plays for its own length</string>
+    <string name="ns_toast_gallery_save_is_available_for">Gallery save is available for photos</string>
+    <string name="ns_toast_preview_is_still_loading_try">Preview is still loading — try again in a moment</string>
+    <string name="ns_toast_saved_to_picturescallxstatuses">Saved to Pictures/CallX/Statuses</string>
+    <string name="ns_toast_could_not_save_story_preview">Could not save story preview</string>
+    <string name="ns_toast_no_audio_recorder_found_on">No audio recorder found on this device</string>
+    <string name="ns_toast_ai_image_generation_coming_soon">AI image generation coming soon…</string>
+    <string name="ns_toast_camera_error">Camera error: %1$s</string>
+    <string name="ns_toast_advance_editing_is_not_available">Advance editing is not available on this build</string>
+    <string name="ns_toast_camera_error_2">Camera error: %1$s</string>
+    <string name="ns_toast_camera_permission_denied">Camera permission denied</string>
+    <string name="ns_toast_enter_a_valid_https_link">Enter a valid http(s) link</string>
+    <string name="ns_toast_scene">Scene %1$s / %2$s</string>
+    <string name="ns_toast_text_badalna_hai_text_par">Text badalna hai? Text par tap karo, phir dobara tap karke edit karo</string>
+    <string name="ns_toast_story_preview_load_nahi_hua">Story preview load nahi hua — dubara try karo</string>
+    <string name="ns_toast_story_preview_prepare_nahi_hua">Story preview prepare nahi hua</string>
+    <string name="ns_toast_pehle_apna_text_likho_placeholder">Pehle apna text likho — placeholder badlo</string>
+    <string name="ns_toast_kuch_text_ya_media_add">Kuch text ya media add karo</string>
+    <string name="ns_toast_text_700_characters_se_zyada">Text 700 characters se zyada nahi</string>
+    <string name="ns_toast_story_preview_prepare_nahi_hua_2">Story preview prepare nahi hua: %1$s</string>
+    <string name="ns_toast_story_image_prepare_nahi_hua">Story image prepare nahi hua: %1$s</string>
+    <string name="ns_toast_status_scheduled_for">Status scheduled for %1$s</string>
+    <string name="ns_toast_failed_to_schedule_status">Failed to schedule status</string>
+    <string name="ns_toast_status_posted">Status posted!</string>
+    <string name="ns_toast_failed_to_post">Failed to post: %1$s</string>
+    <string name="ns_toast_statuses_scheduled_for">Statuses scheduled for %1$s</string>
+    <string name="ns_toast_failed_to_schedule_item">Failed to schedule item %1$s</string>
+    <string name="ns_toast_failed_to_post_item">Failed to post item %1$s: %2$s</string>
+    <string name="ns_toast_pick_a_time_in_the">Pick a time in the future</string>
+    <string name="ns_toast_will_be_scheduled_for">Will be scheduled for %1$s</string>
+    <string name="ns_sticker_added_drag">%1$s added! Drag to reposition.</string>
+    <string name="ns_mention_not_found">@%1$s not found — not mentioned</string>
+</resources>

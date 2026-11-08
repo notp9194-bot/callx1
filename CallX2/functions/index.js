@@ -2568,3 +2568,120 @@ exports.cleanupExpiredAddYoursEntries = functions.pubsub
     console.log(`Add Yours cleanup: removed ${removed} expired entr${removed === 1 ? "y" : "ies"}.`);
     return null;
   });
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * v788 — Template feed + owner-edit propagation (items 21 + 22)
+ *
+ *  templateLatest/{ownerUid}/{statusId} = { templateJson, stickersJson?, ownerName, ts }
+ *      The newest version of a template. Mirrors status/…/templateJson on every write and is NOT swept with the
+ *      24h status, so saved snapshots on other users' phones can refresh themselves from it (item 21).
+ *  templateFeed/{ownerUid_statusId} = { ownerUid, statusId, ownerName, templateJson, stickersJson?, cat, ts, uses,
+ *      score, hidden? }
+ *      Server-side Discover (item 22): every PUBLIC original template, trending by `score`, newest by `ts`.
+ *      Clients read it with orderByChild("score"/"ts").limitToLast(N); only the Admin SDK writes it.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const TPL_MAX_JSON = 60000;
+const TPL_FEED_KEEP_MS = 45 * 24 * 60 * 60 * 1000;   // unused feed rows older than this are pruned
+
+function tplFeedKey(ownerUid, statusId) { return `${ownerUid}_${statusId}`; }
+
+function tplCategory(templateJson) {
+  try {
+    const c = JSON.parse(templateJson).cat;
+    return ["love", "travel", "birthday", "festival", "aesthetic"].includes(c) ? c : "";
+  } catch (e) { return ""; }
+}
+
+exports.onTemplateStatusWritten = functions.database
+  .ref("/status/{ownerUid}/{statusId}")
+  .onWrite(async (change, context) => {
+    const { ownerUid, statusId } = context.params;
+    const after = change.after.exists() ? (change.after.val() || {}) : null;
+    if (!after) return null;   // expiry sweep / delete: snapshots + feed rows are meant to outlive the 24h status
+
+    const json = typeof after.templateJson === "string" ? after.templateJson : "";
+    if (!json || json.length > TPL_MAX_JSON || after.deleted === true) return null;
+    // a repost only points at the original template; the original's own status feeds the nodes
+    if (after.templateFromUid && after.templateFromId) return null;
+
+    const before = change.before.exists() ? (change.before.val() || {}) : {};
+    const privacyChanged = before.privacy !== after.privacy;
+    if (before.templateJson === json && !privacyChanged && change.before.exists()) return null;
+
+    const db = getDatabase();
+    const ts = Number(after.timestamp) > 0 ? Number(after.timestamp) : Date.now();
+    const name = String(after.ownerName || "").slice(0, 120);
+    const stickers = typeof after.stickersJson === "string" && after.stickersJson.length <= TPL_MAX_JSON
+      ? after.stickersJson : null;
+
+    const updates = {};
+    // item 21 — newest version, whatever the privacy of the status
+    updates[`templateLatest/${ownerUid}/${statusId}`] = {
+      templateJson: json, stickersJson: stickers, ownerName: name, ts: Date.now(),
+    };
+
+    // item 22 — only public statuses are discoverable
+    const key = tplFeedKey(ownerUid, statusId);
+    if (after.privacy === "everyone") {
+      const ctrl = (await db.ref(`templateControl/${ownerUid}/${statusId}`).once("value")).val() || {};
+      const stats = (await db.ref(`templateStats/${ownerUid}/${statusId}/uses`).once("value")).val();
+      const uses = Number(stats) > 0 ? Number(stats) : 0;
+      const row = {
+        ownerUid, statusId, ownerName: name, templateJson: json, stickersJson: stickers,
+        cat: tplCategory(json), ts, uses, score: uses,
+      };
+      if (ctrl.off === true || ctrl.removed === true) row.hidden = true;
+      updates[`templateFeed/${key}`] = row;
+    } else {
+      updates[`templateFeed/${key}`] = null;   // went private
+    }
+    await db.ref().update(updates);
+    return null;
+  });
+
+/** 'N used' counter moved → keep the feed row's uses/score in step (trending order). */
+exports.onTemplateUsesChanged = functions.database
+  .ref("/templateStats/{ownerUid}/{statusId}/uses")
+  .onWrite(async (change, context) => {
+    const { ownerUid, statusId } = context.params;
+    if (!change.after.exists()) return null;
+    const uses = Number(change.after.val()) || 0;
+    const ref = getDatabase().ref(`templateFeed/${tplFeedKey(ownerUid, statusId)}`);
+    // transaction: only touch rows that exist (a private template has none)
+    await ref.transaction((cur) => (cur ? { ...cur, uses, score: uses } : cur));
+    return null;
+  });
+
+/** Owner switched reuse off / removed the template → hide (or un-hide) its feed row. */
+exports.onTemplateControlChanged = functions.database
+  .ref("/templateControl/{ownerUid}/{statusId}")
+  .onWrite(async (change, context) => {
+    const { ownerUid, statusId } = context.params;
+    const c = change.after.exists() ? (change.after.val() || {}) : {};
+    const hidden = c.off === true || c.removed === true;
+    const ref = getDatabase().ref(`templateFeed/${tplFeedKey(ownerUid, statusId)}`);
+    await ref.transaction((cur) => {
+      if (!cur) return cur;
+      const next = { ...cur };
+      if (hidden) next.hidden = true; else delete next.hidden;
+      return next;
+    });
+    return null;
+  });
+
+/** Daily: drop feed rows nobody used for 45 days and templateLatest rows whose feed/snapshots are long gone. */
+exports.pruneTemplateFeed = functions.pubsub
+  .schedule("every 24 hours")
+  .onRun(async () => {
+    const db = getDatabase();
+    const cutoff = Date.now() - TPL_FEED_KEEP_MS;
+    const old = await db.ref("templateFeed").orderByChild("ts").endAt(cutoff).limitToFirst(500).once("value");
+    const updates = {};
+    old.forEach((c) => {
+      const v = c.val() || {};
+      if ((Number(v.uses) || 0) === 0) updates[`templateFeed/${c.key}`] = null;
+    });
+    if (Object.keys(updates).length) await db.ref().update(updates);
+    return null;
+  });

@@ -37,6 +37,11 @@
     <string name="tpl_nav_saved">Saved</string>
     <string name="tpl_nav_notifications">Notifications</string>
     <string name="tpl_nav_profile">Profile</string>
+    <string name="tpl_nav_analytics">Analytics</string>
+    <string name="tpl_pick_analytics">Kis template ka analytics?</string>
+    <string name="tpl_pick_users">Kis template ke users?</string>
+    <string name="tpl_pick_item">Template %1$d</string>
+    <string name="tpl_pick_none">Aapne abhi koi template nahi banaya</string>
     <string name="tpl_nav_create">Naya template banao</string>
     <string name="tpl_nav_unavailable">Ye screen abhi khul nahi paayi</string>
     <string name="tpl_photos_count">%1$d photos</string>

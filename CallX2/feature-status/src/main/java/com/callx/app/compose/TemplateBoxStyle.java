@@ -78,7 +78,13 @@ public final class TemplateBoxStyle {
     /** Outline of this shape inside {@code r} (circle / heart use the largest centred square). */
     @NonNull
     public static Path path(int shape, @NonNull RectF r) {
-        final Path p = new Path();
+        return path(shape, r, new Path());
+    }
+
+    /** Same as {@link #path(int, RectF)} but fills a caller-owned {@code p} (rewound first) — no allocation per draw. */
+    @NonNull
+    public static Path path(int shape, @NonNull RectF r, @NonNull Path p) {
+        p.rewind();
         final float w = r.width(), h = r.height(), m = Math.min(w, h);
         switch (clampShape(shape)) {
             case RECT:

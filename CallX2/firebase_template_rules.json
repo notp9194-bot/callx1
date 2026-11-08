@@ -70,6 +70,41 @@
           }
         }
       }
+    },
+    "templateLatest": {
+      "_comment": "v788: templateLatest/{ownerUid}/{statusId} = newest version of a template (mirrored by Cloud Function onTemplateStatusWritten, and written by the owner's Editor). Not swept with the 24h status, so other users' saved snapshots can refresh from it. Only the owner writes.",
+      "$ownerUid": {
+        "$statusId": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid === $ownerUid",
+          ".validate": "!newData.exists() || newData.hasChildren(['templateJson','ts'])",
+          "templateJson": {
+            ".validate": "newData.isString() && newData.val().length <= 60000"
+          },
+          "stickersJson": {
+            ".validate": "newData.isString() && newData.val().length <= 60000"
+          },
+          "ownerName": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "templateFeed": {
+      "_comment": "v788: server-side Discover feed. Written ONLY by Cloud Functions (Admin SDK bypasses rules). Clients read: orderByChild('score') = trending, orderByChild('ts') = newest.",
+      ".read": "auth != null",
+      ".write": false,
+      ".indexOn": [
+        "score",
+        "ts",
+        "cat"
+      ]
     }
   },
   "status_child_validators": {

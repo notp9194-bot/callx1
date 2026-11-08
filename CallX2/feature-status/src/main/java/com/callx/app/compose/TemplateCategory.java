@@ -18,9 +18,16 @@ public final class TemplateCategory {
     public static int indexOf(@Nullable String templateJson) {
         if (templateJson == null || templateJson.isEmpty()) return -1;
         try {
-            final String k = new JSONObject(templateJson).optString("cat", "");
-            for (int i = 0; i < KEYS.length; i++) if (KEYS[i].equals(k)) return i;
+            return indexOfRoot(new JSONObject(templateJson));
         } catch (Exception ignored) { }
+        return -1;
+    }
+
+    /** Same as {@link #indexOf(String)} for an already parsed root. */
+    public static int indexOfRoot(@Nullable JSONObject root) {
+        if (root == null) return -1;
+        final String k = root.optString("cat", "");
+        for (int i = 0; i < KEYS.length; i++) if (KEYS[i].equals(k)) return i;
         return -1;
     }
 }

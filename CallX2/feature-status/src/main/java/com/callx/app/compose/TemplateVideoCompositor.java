@@ -48,6 +48,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * v772: a slot may also be a PHOTO box ({@link Slot#image}), and every slot has a colour filter + an animation (zoom / pan / fade-in).
  *
  * Self-contained: touches no editor state. Call from a background thread. Not tested on device yet (v766).
+ *
+ * v785: a clip whose sound is not AAC (MP3 / Opus / Vorbis / AMR …) is first converted by {@link TemplateAudioTranscoder}, so the
+ * video is no longer silent for those files.
  */
 public final class TemplateVideoCompositor {
 
@@ -89,6 +92,8 @@ public final class TemplateVideoCompositor {
 
     public static final class Result {
         public boolean ok, cancelled, audioKept;
+        /** v785: the clip's sound was not AAC (MP3 / Opus / …) and was converted to AAC. */
+        public boolean audioTranscoded;
         @Nullable public String error;
         public int frames;
     }
@@ -100,7 +105,7 @@ public final class TemplateVideoCompositor {
     /**
      * @param under      opaque background, drawn first (scaled to the output size)
      * @param over       transparent top layer (text / stickers), may be null
-     * @param audioPath  file whose AAC track is copied (null = silent); non-AAC audio is skipped, see {@link Result#audioKept}
+     * @param audioPath  file whose AAC track is copied (null = silent); non-AAC audio (MP3, Opus, …) is converted to AAC first (v785), see {@link Result#audioKept}
      * @param totalMs    output length
      */
     @NonNull
@@ -157,8 +162,10 @@ public final class TemplateVideoCompositor {
         final Bitmap over;
         int[] sceneTex;
         final List<Slot> slots;
-        final String audioPath;
-        final long audioStartUs, totalUs;
+        String audioPath;                // v785: becomes the transcoded .m4a when the source audio was not AAC
+        long audioStartUs;
+        final long totalUs;
+        File transcoded;                 // v785: temp .m4a to delete in release()
         final int W, H, fps = DEFAULT_FPS;
         final File outFile;
         final Progress progress;
@@ -216,6 +223,18 @@ public final class TemplateVideoCompositor {
             for (Clip c : clips) if (c.slot.startMs <= 0L) { c.prepare(); c.live = true; }   // v774: later scenes' clips open when their scene starts
 
             audioFmt = audioPath != null ? findAacFormat(audioPath) : null;
+            if (audioPath != null && audioFmt == null && TemplateAudioTranscoder.audioMime(audioPath) != null) {
+                // v785: MP3 / Opus / Vorbis / AMR … → AAC first (was: silent video)
+                final File dir = outFile.getParentFile();
+                final File tmp = new File(dir != null ? dir : outFile.getAbsoluteFile().getParentFile(), "aud_" + System.nanoTime() + ".m4a");
+                if (TemplateAudioTranscoder.toAac(audioPath, audioStartUs, totalUs, tmp, cancel)) {
+                    transcoded = tmp;
+                    audioPath = tmp.getAbsolutePath();
+                    audioStartUs = 0L;                 // the transcoder already cut the wanted window
+                    audioFmt = findAacFormat(audioPath);
+                    res.audioTranscoded = audioFmt != null;
+                }
+            }
             res.audioKept = audioFmt != null;
 
             muxer = new MediaMuxer(outFile.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
@@ -505,6 +524,8 @@ public final class TemplateVideoCompositor {
         }
 
         void release() {
+            if (transcoded != null) //noinspection ResultOfMethodCallIgnored
+                transcoded.delete();
             for (Clip c : clips) c.release();
             try { if (encoder != null) { encoder.stop(); } } catch (Throwable ignored) { }
             try { if (encoder != null) encoder.release(); } catch (Throwable ignored) { }

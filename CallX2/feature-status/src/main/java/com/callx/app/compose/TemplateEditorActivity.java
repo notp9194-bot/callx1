@@ -90,6 +90,14 @@ public class TemplateEditorActivity extends AppCompatActivity {
     private SwitchCompat syncSwitch;
     private final List<TextView> tabViews = new ArrayList<>();
     private final List<View> tabBars = new ArrayList<>();
+    // v785 (17): multi-scene editing — every scene has its own boxes + length; scene 0 = the root slots
+    private int sceneSel;
+    private FrameLayout tabsHolder;
+    private LinearLayout sceneStrip;
+    private View slotCard;
+    private TextView noneTxt, sceneLenVal;
+    private SeekBar sceneBar;
+    private ValueAnimator liveLoop;   // v785: plays the selected box's filter + animation on a sample picture
     private boolean binding;   // true while the controls are being set from the model (no dirty / no feedback loops)
 
     @Override protected void onCreate(Bundle b) {
@@ -104,7 +112,7 @@ public class TemplateEditorActivity extends AppCompatActivity {
             finish();
             return;
         }
-        for (int i = 0; i < spec.slots.size(); i++) if (!spec.slots.get(i).base) boxIdx.add(i);
+        rebuildBoxIdx();
 
         final TypedValue tv = new TypedValue();
         getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true);
@@ -120,7 +128,12 @@ public class TemplateEditorActivity extends AppCompatActivity {
         root.setBackgroundColor(bg);
         buildTopBar(root);
         root.addView(buildStage(), new LinearLayout.LayoutParams(-1, 0, 1f));
-        if (!boxIdx.isEmpty()) root.addView(buildTabs(), new LinearLayout.LayoutParams(-1, -2));
+        final LinearLayout nav = new LinearLayout(this);
+        nav.setOrientation(LinearLayout.VERTICAL);
+        if (spec.isMultiScene()) nav.addView(buildSceneStrip(), new LinearLayout.LayoutParams(-1, -2));
+        tabsHolder = new FrameLayout(this);
+        nav.addView(tabsHolder, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(nav, new LinearLayout.LayoutParams(-1, -2));
         root.addView(buildOptions(), new LinearLayout.LayoutParams(-1, -2));
         setContentView(root);
         if (!dark) WindowCompat.getInsetsController(getWindow(), root).setAppearanceLightStatusBars(true);
@@ -128,8 +141,33 @@ public class TemplateEditorActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() { tryClose(); }
         });
+        preview.setSampleMode(true);
+        fillTabs();
+        applySceneUi();
         selectSlot(0);
+        bindSceneLen();
         refreshSave();
+    }
+
+    @Override protected void onResume() { super.onResume(); startLive(); }
+
+    @Override protected void onPause() { stopLive(); super.onPause(); }
+
+    /** v785: loops the selected box's animation (its own length + a short hold) so filter / animation are SEEN while editing. */
+    private void startLive() {
+        stopLive();
+        final TemplateSpec.Slot s = cur();
+        final int len = (s != null ? s.effectiveMs() : TemplateSpec.DEF_SLOT_MS) + 600;
+        liveLoop = ValueAnimator.ofInt(0, len);
+        liveLoop.setDuration(len);
+        liveLoop.setInterpolator(new LinearInterpolator());
+        liveLoop.setRepeatCount(ValueAnimator.INFINITE);
+        liveLoop.addUpdateListener(a -> preview.setTimeMs((Integer) a.getAnimatedValue()));
+        liveLoop.start();
+    }
+
+    private void stopLive() {
+        if (liveLoop != null) { liveLoop.cancel(); liveLoop = null; }
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -178,7 +216,84 @@ public class TemplateEditorActivity extends AppCompatActivity {
         });
     }
 
-    private TemplateSpec.Slot cur() { return boxIdx.isEmpty() ? null : spec.slots.get(boxIdx.get(sel)); }
+    /** Slots of the scene being edited (scene 0 = the root slots). */
+    private List<TemplateSpec.Slot> slotsOf() { return spec.isMultiScene() ? spec.scenes.get(sceneSel).slots : spec.slots; }
+
+    private void rebuildBoxIdx() {
+        boxIdx.clear();
+        final List<TemplateSpec.Slot> l = slotsOf();
+        for (int i = 0; i < l.size(); i++) if (!l.get(i).base) boxIdx.add(i);
+    }
+
+    private TemplateSpec.Slot cur() { return boxIdx.isEmpty() || sel >= boxIdx.size() ? null : slotsOf().get(boxIdx.get(sel)); }
+
+    private View buildSceneStrip() {
+        final HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        sceneStrip = new LinearLayout(this);
+        sceneStrip.setOrientation(LinearLayout.HORIZONTAL);
+        sceneStrip.setPadding(dp(14), dp(4), dp(14), dp(6));
+        for (int i = 0; i < spec.scenes.size(); i++) {
+            final int idx = i;
+            final TextView t = text("", 13f, textColor, true);
+            t.setPadding(dp(14), dp(8), dp(14), dp(8));
+            t.setOnClickListener(v -> selectScene(idx));
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.setMargins(0, 0, dp(8), 0);
+            sceneStrip.addView(t, lp);
+        }
+        hs.addView(sceneStrip, new ViewGroup.LayoutParams(-2, -2));
+        styleSceneStrip();
+        return hs;
+    }
+
+    private void styleSceneStrip() {
+        if (sceneStrip == null) return;
+        for (int i = 0; i < sceneStrip.getChildCount(); i++) {
+            final TextView t = (TextView) sceneStrip.getChildAt(i);
+            final boolean on = i == sceneSel;
+            t.setText(getString(R.string.te_scene_n, i + 1) + " \u00B7 " + secs(spec.scenes.get(i).effectiveMs()));
+            t.setTextColor(on ? 0xFFFFFFFF : textColor);
+            t.setBackground(round(on ? PURPLE : surface, 18));
+        }
+    }
+
+    private void selectScene(int i) {
+        if (!spec.isMultiScene()) return;
+        sceneSel = Math.max(0, Math.min(spec.scenes.size() - 1, i));
+        rebuildBoxIdx();
+        sel = 0;
+        preview.setScene(sceneSel);
+        styleSceneStrip();
+        fillTabs();
+        applySceneUi();
+        selectSlot(0);
+        bindSceneLen();
+        startLive();
+    }
+
+    private void fillTabs() {
+        tabViews.clear();
+        tabBars.clear();
+        tabsHolder.removeAllViews();
+        if (!boxIdx.isEmpty()) tabsHolder.addView(buildTabs());
+    }
+
+    /** Slot card only when this scene has boxes; otherwise the hint. */
+    private void applySceneUi() {
+        final boolean has = !boxIdx.isEmpty();
+        if (slotCard != null) slotCard.setVisibility(has ? View.VISIBLE : View.GONE);
+        if (noneTxt != null) noneTxt.setVisibility(has ? View.GONE : View.VISIBLE);
+    }
+
+    private void bindSceneLen() {
+        if (sceneLenVal == null || !spec.isMultiScene()) return;
+        final TemplateSpec.Scene sc = spec.scenes.get(sceneSel);
+        binding = true;
+        sceneLenVal.setText(secs(sc.effectiveMs()));
+        sceneBar.setProgress((sc.effectiveMs() - TemplateSpec.MIN_SCENE_MS) / 500);
+        binding = false;
+    }
 
     private static String secs(int ms) { return String.format(Locale.US, "%.1fs", ms / 1000f); }
 
@@ -316,8 +431,9 @@ public class TemplateEditorActivity extends AppCompatActivity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(16), dp(8), dp(16), dp(16));
 
-        if (!boxIdx.isEmpty()) {
+        {
             final LinearLayout card = card();
+            slotCard = card;
             fltVal = text("", 14f, subColor, false);
             final LinearLayout fr = makeRow(R.drawable.ic_filter, getString(R.string.te_filter), fltVal, true);
             fr.setOnClickListener(v -> showFilterSheet());
@@ -336,6 +452,7 @@ public class TemplateEditorActivity extends AppCompatActivity {
                 final TemplateSpec.Slot s = cur();
                 if (s == null || !user) return;
                 s.durMs = TemplateSpec.clampSlotMs(TemplateSpec.MIN_SLOT_MS + p * 500);
+                preview.setBoxEffect(sceneSel, sel, null, null, s.durMs);
                 markDirty();
                 bindSlot();
             });
@@ -343,9 +460,11 @@ public class TemplateEditorActivity extends AppCompatActivity {
             dlp.setMargins(dp(54), 0, 0, dp(8));
             card.addView(durBar, dlp);
             col.addView(card);
-        } else {
+        }
+        {
             final TextView none = text(getString(R.string.te_no_boxes), 13f, subColor, false);
             none.setPadding(dp(4), dp(4), dp(4), dp(10));
+            noneTxt = none;
             col.addView(none);
         }
 
@@ -354,10 +473,29 @@ public class TemplateEditorActivity extends AppCompatActivity {
         head.setPadding(dp(6), dp(14), 0, dp(8));
         col.addView(head);
         final LinearLayout card2 = card();
+        if (spec.isMultiScene()) {
+            sceneLenVal = text("", 14f, subColor, false);
+            card2.addView(makeRow(R.drawable.ic_timer, getString(R.string.te_scene_len), sceneLenVal, false));
+            sceneBar = seek((TemplateSpec.MAX_SCENE_MS - TemplateSpec.MIN_SCENE_MS) / 500, (p, user) -> {
+                if (!user) return;
+                final TemplateSpec.Scene sc = spec.scenes.get(sceneSel);
+                sc.durMs = TemplateSpec.clampSceneMs(TemplateSpec.MIN_SCENE_MS + p * 500);
+                preview.setSceneMs(sceneSel, sc.durMs);
+                markDirty();
+                styleSceneStrip();
+                bindTemplate();
+                final TextView t = sceneLenVal;
+                if (t != null) t.setText(secs(sc.effectiveMs()));
+            });
+            final LinearLayout.LayoutParams slp3 = new LinearLayout.LayoutParams(-1, dp(36));
+            slp3.setMargins(dp(54), 0, 0, dp(8));
+            card2.addView(sceneBar, slp3);
+            card2.addView(divider());
+        }
         totVal = text("", 14f, subColor, false);
         card2.addView(makeRow(R.drawable.ic_clock_small, getString(R.string.te_total), totVal, false));
         totBar = seek(TemplateSpec.MAX_TOTAL_MS / 500, (p, user) -> {
-            if (!user) return;
+            if (!user || spec.isMultiScene()) return;   // multi-scene: the total is the sum of the scenes
             spec.totalMs = p == 0 ? 0 : Math.min(TemplateSpec.MAX_TOTAL_MS, p * 500);
             markDirty();
             bindTemplate();
@@ -365,6 +503,7 @@ public class TemplateEditorActivity extends AppCompatActivity {
         final LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, dp(36));
         tlp.setMargins(dp(54), 0, 0, dp(8));
         card2.addView(totBar, tlp);
+        if (spec.isMultiScene()) totBar.setVisibility(View.GONE);
         card2.addView(divider());
 
         syncSwitch = new SwitchCompat(this);
@@ -450,7 +589,8 @@ public class TemplateEditorActivity extends AppCompatActivity {
     // ── model → controls ─────────────────────────────────────────────────────
 
     private void selectSlot(int i) {
-        if (boxIdx.isEmpty()) { durChip.setVisibility(View.GONE); bindTemplate(); return; }
+        if (boxIdx.isEmpty()) { durChip.setVisibility(View.GONE); preview.setFocusPhase(-1f); preview.setAnimOnly(-1); bindTemplate(); return; }
+        durChip.setVisibility(View.VISIBLE);
         sel = Math.max(0, Math.min(boxIdx.size() - 1, i));
         for (int k = 0; k < tabViews.size(); k++) {
             final boolean on = k == sel;
@@ -458,7 +598,9 @@ public class TemplateEditorActivity extends AppCompatActivity {
             tabBars.get(k).setVisibility(on ? View.VISIBLE : View.INVISIBLE);
         }
         preview.setFocusPhase(sel);   // the other boxes dim
+        preview.setAnimOnly(sel);     // v785: only this box plays its animation
         bindSlot();
+        if (liveLoop != null) startLive();
         bindTemplate();
     }
 
@@ -476,8 +618,12 @@ public class TemplateEditorActivity extends AppCompatActivity {
 
     private void bindTemplate() {
         binding = true;
-        totVal.setText(spec.totalMs > 0 ? TemplateSpec.formatDuration(spec.totalMs) : getString(R.string.te_auto));
-        totBar.setProgress(spec.totalMs / 500);
+        if (spec.isMultiScene()) {
+            totVal.setText(TemplateSpec.formatDuration(spec.scenesTotalMs()));
+        } else {
+            totVal.setText(spec.totalMs > 0 ? TemplateSpec.formatDuration(spec.totalMs) : getString(R.string.te_auto));
+            totBar.setProgress(spec.totalMs / 500);
+        }
         syncSwitch.setChecked(spec.musicSync);
         binding = false;
     }
@@ -605,12 +751,14 @@ public class TemplateEditorActivity extends AppCompatActivity {
     private void applyToSlots(boolean all, @Nullable String filter, @Nullable String anim) {
         final int from = all ? 0 : sel, to = all ? boxIdx.size() - 1 : sel;
         for (int i = from; i <= to; i++) {
-            final TemplateSpec.Slot s = spec.slots.get(boxIdx.get(i));
+            final TemplateSpec.Slot s = slotsOf().get(boxIdx.get(i));
             if (filter != null) s.filter = filter;
             if (anim != null) s.anim = anim;
+            preview.setBoxEffect(sceneSel, i, filter, anim, 0);   // v785: the stage shows the change at once
         }
         markDirty();
         bindSlot();
+        startLive();
     }
 
     /** Filter sample: a colourful gradient seen through the filter; ring when selected. */
@@ -619,6 +767,7 @@ public class TemplateEditorActivity extends AppCompatActivity {
         private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF r = new RectF();
         private final boolean on;
+        private boolean shaderReady;
 
         FilterSwatch(android.content.Context c, String key, boolean on) {
             super(c);
@@ -629,11 +778,18 @@ public class TemplateEditorActivity extends AppCompatActivity {
             ring.setColor(PURPLE);
         }
 
-        @Override protected void onDraw(Canvas c) {
+        // perf: rect + shader depend only on the size → built in onSizeChanged, onDraw allocates nothing
+        @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
+            super.onSizeChanged(w, h, ow, oh);
             final float pad = dp(3);
-            r.set(pad, pad, getWidth() - pad, getHeight() - pad);
+            r.set(pad, pad, w - pad, h - pad);
             p.setShader(new LinearGradient(r.left, r.top, r.right, r.bottom,
                     new int[]{0xFF4FC3F7, 0xFF81C784, 0xFFFFB74D, 0xFFF06292}, null, Shader.TileMode.CLAMP));
+            shaderReady = true;
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            if (!shaderReady) onSizeChanged(getWidth(), getHeight(), 0, 0);
             final float rad = dp(14);
             c.drawRoundRect(r, rad, rad, p);
             if (on) c.drawRoundRect(r, rad, rad, ring);
@@ -654,6 +810,25 @@ public class TemplateEditorActivity extends AppCompatActivity {
                 o.remove("flt");
                 o.remove("an");
                 spec.slots.get(i).putJson(o);   // writes only the non-default values
+            }
+            if (spec.isMultiScene()) {   // v785: scenes 1.. own boxes + every scene's length; tdur = their sum (as Create writes it)
+                final JSONArray scs = root.getJSONArray("scenes");
+                for (int k = 0; k < scs.length() && k < spec.scenes.size(); k++) {
+                    final JSONObject so = scs.getJSONObject(k);
+                    final TemplateSpec.Scene sc = spec.scenes.get(k);
+                    so.put("d", sc.effectiveMs());
+                    if (k == 0) continue;
+                    final JSONArray sa = so.getJSONArray("slots");
+                    for (int i = 0; i < sa.length() && i < sc.slots.size(); i++) {
+                        final JSONObject o = sa.getJSONObject(i);
+                        if (o.optBoolean("base", false)) continue;
+                        o.remove("d");
+                        o.remove("flt");
+                        o.remove("an");
+                        sc.slots.get(i).putJson(o);
+                    }
+                }
+                spec.totalMs = spec.scenesTotalMs();
             }
             root.remove("tdur");
             root.remove("msync");
@@ -678,7 +853,7 @@ public class TemplateEditorActivity extends AppCompatActivity {
             final DatabaseReference live = FirebaseUtils.db().getReference("status").child(me).child(statusId).child("templateJson");
             final DatabaseReference snap = FirebaseUtils.db().getReference("savedTemplates").child(me)
                     .child(TemplateActions.savedKey(me, statusId)).child("templateJson");
-            final int[] pending = {2};
+            final int[] pending = {3};
             final boolean[] okAny = {false};
             final Runnable one = () -> {
                 if (--pending[0] > 0) return;
@@ -696,10 +871,27 @@ public class TemplateEditorActivity extends AppCompatActivity {
             };
             writeIfExists(live, out, okAny, one);   // the 24h status, while it is live
             writeIfExists(snap, out, okAny, one);   // the owner's saved snapshot, if any
+            writeLatest(out, okAny, one);           // v788: newest version for everyone's saved snapshots (item 21)
         } catch (Exception e) {
             saving = false;
             refreshSave();
             Toast.makeText(this, R.string.te_save_failed, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** templateLatest/{me}/{id}: other users' saved snapshots of this template refresh from here (it outlives the 24h status). */
+    private void writeLatest(final String value, final boolean[] okAny, final Runnable done) {
+        try {
+            final java.util.Map<String, Object> up = new java.util.HashMap<>();
+            up.put("templateJson", value);
+            up.put("ts", com.google.firebase.database.ServerValue.TIMESTAMP);
+            FirebaseUtils.db().getReference("templateLatest").child(me).child(statusId).updateChildren(up)
+                    .addOnCompleteListener(t -> {
+                        if (t.isSuccessful()) { okAny[0] = true; TemplateActions.invalidateLatest(me, statusId); }
+                        done.run();
+                    });
+        } catch (Exception e) {
+            done.run();
         }
     }
 

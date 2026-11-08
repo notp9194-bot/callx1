@@ -69,6 +69,9 @@ public class MyTemplatesActivity extends AppCompatActivity {
         boolean usesAsked;
         boolean draft;   // v774: local Create Template draft (statusId = draft id)
         TemplatePreviewDrawable preview;
+        View view;       // perf: row view is built once and re-attached while its sig is unchanged
+        String viewSig;
+        int draftScenes = -1;   // perf: parsed once (was TemplateSpec.parse twice per draft row per render)
         String key() { return ownerUid + "/" + statusId; }
     }
 
@@ -106,6 +109,7 @@ public class MyTemplatesActivity extends AppCompatActivity {
                 final Row r = created.get(me + "/" + sid);
                 if (r == null) return;
                 r.json = nj;
+                r.draftScenes = -1;
                 r.preview = TemplatePreviewDrawable.fromJson(nj);
                 render();
             });
@@ -370,10 +374,13 @@ public class MyTemplatesActivity extends AppCompatActivity {
             t.setBackground(round(on ? PURPLE : surface, 22));
             t.setTextColor(on ? 0xFFFFFFFF : textColor);
         }
-        listBox.removeAllViews();
+        listBox.removeAllViews();   // cached row views are only detached here
         final List<Row> rows = current();
         for (Row r : rows) {
-            listBox.addView(makeRowView(r), rowLp());
+            final String sig = tab + "|" + r.uses + "|" + System.identityHashCode(r.preview) + "|" + r.ownerName
+                    + (r.draft ? "|" + (System.currentTimeMillis() / 60_000L) : "");
+            if (r.view == null || !sig.equals(r.viewSig)) { r.view = makeRowView(r); r.viewSig = sig; }
+            listBox.addView(r.view, rowLp());
             if (!r.draft) askUses(r);
         }
         empty.setText(tab == TAB_SAVED ? R.string.mt_empty_saved : tab == TAB_USED ? R.string.mt_empty_used
@@ -428,7 +435,11 @@ public class MyTemplatesActivity extends AppCompatActivity {
         nm.setEllipsize(TextUtils.TruncateAt.END);
         mid.addView(nm);
         if (r.draft) {   // v774: drafts have no uses — show scene count + when it was saved
-            final int n = TemplateSpec.parse(r.json).isMultiScene() ? TemplateSpec.parse(r.json).scenes.size() : 1;
+            if (r.draftScenes < 0) {
+                final TemplateSpec sp = TemplateSpec.parse(r.json);
+                r.draftScenes = sp.isMultiScene() ? sp.scenes.size() : 1;
+            }
+            final int n = r.draftScenes;
             final String when = android.text.format.DateUtils.getRelativeTimeSpanString(r.ts, System.currentTimeMillis(),
                     android.text.format.DateUtils.MINUTE_IN_MILLIS).toString();
             final TextView dt = text(getString(R.string.mt_draft_sub, n, when), 13f, subColor, false);
@@ -499,7 +510,7 @@ public class MyTemplatesActivity extends AppCompatActivity {
         withJson(r, () -> {
             final Intent i = new Intent(this, TemplatePreviewActivity.class);
             i.putExtra(TemplatePreviewActivity.EXTRA_TPL_JSON, r.json);
-            if (ne(r.stickers) && r.stickers.length() < 100_000) i.putExtra(TemplatePreviewActivity.EXTRA_STICKERS_JSON, r.stickers);
+            TemplatePayloadStore.put(i, TemplatePreviewActivity.EXTRA_STICKERS_JSON, r.stickers);
             i.putExtra(TemplatePreviewActivity.EXTRA_OWNER_UID, r.ownerUid);
             i.putExtra(TemplatePreviewActivity.EXTRA_STATUS_ID, r.statusId);
             i.putExtra(TemplatePreviewActivity.EXTRA_OWNER_NAME, r.ownerName != null ? r.ownerName : "");

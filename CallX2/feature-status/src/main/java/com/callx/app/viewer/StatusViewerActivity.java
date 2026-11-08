@@ -4134,6 +4134,21 @@ import com.callx.app.utils.AlertDialogStyler;
       // On a status made FROM a template: "Template by @name" → opens the original template.
       // v742: a REPOST of a template carries templateJson + the original's id, so it shows "Use this template" too and the
       // count / attribution / launch all point at the ORIGINAL template. The chip also shows a mini layout preview.
+      /** perf: the chip's preview drawable (JSON parse) is kept per status, so stepping back / forth between statuses doesn't re-parse. */
+      private final android.util.LruCache<String, com.callx.app.compose.TemplatePreviewDrawable> chipPreviewCache = new android.util.LruCache<>(8);
+
+      private com.callx.app.compose.TemplatePreviewDrawable chipPreview(final StatusItem item) {
+          final String json = item.templateJson;
+          if (item.id == null || json == null) return com.callx.app.compose.TemplatePreviewDrawable.fromJson(json);
+          final String key = item.id + "#" + json.hashCode();
+          com.callx.app.compose.TemplatePreviewDrawable d = chipPreviewCache.get(key);
+          if (d == null) {
+              d = com.callx.app.compose.TemplatePreviewDrawable.fromJson(json);
+              if (d != null) chipPreviewCache.put(key, d);
+          }
+          return d;
+      }
+
       private void renderTemplateChip(final StatusItem item) {
           try {
               if (item == null) return;
@@ -4176,7 +4191,7 @@ import com.callx.app.utils.AlertDialogStyler;
               if (!inCard) box.setAlpha(0f);
 
               final com.callx.app.compose.TemplatePreviewDrawable pv = hasTpl
-                      ? com.callx.app.compose.TemplatePreviewDrawable.fromJson(item.templateJson) : null;
+                      ? chipPreview(item) : null;
               if (pv != null) {
                   final android.widget.ImageView iv = new android.widget.ImageView(this);
                   final int pvW = res.getDimensionPixelSize(R.dimen.viewer_tpl_chip_preview_w);

@@ -334,13 +334,13 @@ public class NewStatusActivity extends AppCompatActivity {
         legacySavePermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(), granted -> {
                     if (granted) saveEditorPreviewToGallery();
-                    else toast("Gallery permission denied");
+                    else toast(R.string.ns_toast_gallery_permission_denied);
                 });
         // v751: "Auto-fill" pill needs read access to recent photos
         autoFillPermLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(), granted -> {
                     if (granted || hasImageReadAccess()) runAutoFill();
-                    else toast("Photos ki permission chahiye — ya box par tap karke gallery se chuno");
+                    else toast(R.string.ns_tpl_perm_photos);
                 });
         // v543: @username suggestions under the status text + caption boxes
         try { com.callx.app.utils.MentionUi.attachAutocomplete(binding.etText); } catch (Exception ignored) {}
@@ -462,7 +462,7 @@ public class NewStatusActivity extends AppCompatActivity {
                         } catch (Exception e) {
                             runOnUiThread(() -> {
                                 setPosting(false);
-                                toast("Failed to build layout: " + e.getMessage());
+                                toast(getString(R.string.ns_toast_failed_to_build_layout, e.getMessage()));
                             });
                         }
                     });
@@ -535,7 +535,7 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.btnStepNext.setOnClickListener(v -> {
             if (wizardStep < 2) {
                 if (wizardStep == 0 && !hasComposerContent()) {
-                    toast("Pehle text ya media add karo");
+                    toast(R.string.ns_toast_pehle_text_ya_media_add);
                     return;
                 }
                 showWizardStep(wizardStep + 1);
@@ -798,10 +798,10 @@ public class NewStatusActivity extends AppCompatActivity {
         if (binding.tvPillTemplate != null)
             binding.tvPillTemplate.setOnClickListener(v -> {
                 if (templateMode) { autoFillFromRecents(); return; } // v751: in template mode this pill is "Auto-fill"
-                if (photoLayers.size() + 1 > MAX_TEMPLATE_PHOTOS) { toast("Template me max " + MAX_TEMPLATE_PHOTOS + " photos — extra photos hata do"); return; }
+                if (photoLayers.size() + 1 > MAX_TEMPLATE_PHOTOS) { toast(getString(R.string.ns_tpl_max_photos, MAX_TEMPLATE_PHOTOS)); return; }
                 if (!makeTemplate) {
                     makeTemplate = true;
-                    toast("Template on — viewers apni photos in boxes me daal payenge");
+                    toast(R.string.ns_tpl_on);
                     refreshMetaPills(); // v742: on → layout preview on the pill
                 }
                 showTemplateOptionsSheet(); // v750: shape / frame / text rules (+ "turn off")
@@ -944,7 +944,7 @@ public class NewStatusActivity extends AppCompatActivity {
         plus.setImageResource(R.drawable.ic_layer_plus);
         box.addView(plus, new FrameLayout.LayoutParams(dp(28), dp(28), android.view.Gravity.CENTER));
         box.setOnClickListener(v -> {
-            if (photoLayers.size() >= MAX_PHOTO_LAYERS) { toast("Max " + MAX_PHOTO_LAYERS + " photos"); return; }
+            if (photoLayers.size() >= MAX_PHOTO_LAYERS) { toast(getString(R.string.ns_max_photos, MAX_PHOTO_LAYERS)); return; }
             if (layerPicker != null) layerPicker.launch("image/*");
         });
         return box;
@@ -953,7 +953,7 @@ public class NewStatusActivity extends AppCompatActivity {
     /** Decodes {@code uri} and drops it on top of the current media as an adjustable layer. */
     private void addPhotoLayer(final Uri uri) {
         if (uri == null || stickerOverlayFrame == null || pickedImage == null || pickedVideo != null) return;
-        if (photoLayers.size() >= MAX_PHOTO_LAYERS) { toast("Max " + MAX_PHOTO_LAYERS + " photos"); return; }
+        if (photoLayers.size() >= MAX_PHOTO_LAYERS) { toast(getString(R.string.ns_max_photos, MAX_PHOTO_LAYERS)); return; }
         Glide.with(this).asBitmap().load(uri)
                 .downsample(com.bumptech.glide.load.resource.bitmap.DownsampleStrategy.AT_MOST)
                 .override(1600, 1600)
@@ -977,7 +977,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     }
                     @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable p) { }
                     @Override public void onLoadFailed(@androidx.annotation.Nullable android.graphics.drawable.Drawable e) {
-                        toast("Photo load nahi hui");
+                        toast(R.string.ns_photo_load_failed);
                     }
                 });
     }
@@ -1048,7 +1048,7 @@ public class NewStatusActivity extends AppCompatActivity {
         try {
             locationPickerLauncher.launch(i);
         } catch (Exception e) {
-            toast("Location picker abhi available nahi hai");
+            toast(R.string.ns_toast_location_picker_abhi_available_nahi);
         }
     }
 
@@ -1455,7 +1455,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private void fitPhotoIntoSafeArea() {
         if (!editorPhotoMode || stickerOverlayFrame == null || editorSafeArea == null
                 || binding.ivPreview.getDrawable() == null) {
-            toast("Fit sirf photo status par kaam karta hai");
+            toast(R.string.ns_toast_fit_sirf_photo_status_par);
             return;
         }
         final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
@@ -1508,11 +1508,11 @@ public class NewStatusActivity extends AppCompatActivity {
         float fit  = Math.min(fw / dw, fh / dh);
         float fill = Math.max(fw / dw, fh / dh);
         float ratio = fill / fit;
-        if (ratio < 1.03f) { toast("Photo pehle se poora frame bhar rahi hai"); return; }
+        if (ratio < 1.03f) { toast(R.string.ns_toast_photo_pehle_se_poora_frame); return; }
         editorMediaScale = ratio;
         binding.ivPreview.animate().scaleX(ratio).scaleY(ratio).translationX(0f).translationY(0f)
                 .setDuration(200).start();
-        toast("Fill — kinare kat sakte hain. Dubara double-tap = poori photo");
+        toast(R.string.ns_toast_fill_kinare_kat_sakte_hain);
     }
 
     /** Back to the untransformed photo (double-tap, More → Reset photo position). */
@@ -1752,7 +1752,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private void onStatusEditorTool(String action, View anchor) {
         if (pickedImage == null && pickedVideo == null) {
-            toast("Pehle photo ya video select karo");
+            toast(R.string.ns_toast_pehle_photo_ya_video_select);
             return;
         }
         if (pickedVideo != null) {
@@ -1762,13 +1762,13 @@ public class NewStatusActivity extends AppCompatActivity {
                 // ReelEditor already bakes these edits into video output.
                 if (!editorVideoToolHintShown) {
                     editorVideoToolHintShown = true;
-                    toast("Video par text/draw/effects Reel editor me hote hain");
+                    toast(R.string.ns_toast_video_par_textdraweffects_reel_editor);
                 }
                 openAdvanceEditingForPickedVideo();
                 return;
             }
             if ("Label AI".equals(action)) {
-                toast("AI label abhi photo status ke liye available hai");
+                toast(R.string.ns_toast_ai_label_abhi_photo_status);
                 return;
             }
         }
@@ -1879,7 +1879,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private void showEditorTextDialog(boolean mentionOnly) {
         if (templateMode && tplTextMode == 1 && editorTextOverlay != null) { // v750: poster locked the template text
-            toast("Poster ne ye text lock kiya hai");
+            toast(R.string.ns_tpl_text_locked);
             return;
         }
         // snapshot so Cancel / back restores the previous style
@@ -2144,7 +2144,7 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void showDisplayDurationPicker() {
-        if (pickedVideo != null) { toast("Video plays for its own length"); return; }
+        if (pickedVideo != null) { toast(R.string.ns_toast_video_plays_for_its_own); return; }
         final BottomSheetDialog sheet = new BottomSheetDialog(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -2254,7 +2254,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private void saveEditorPreviewToGallery() {
         if (pickedImage == null || stickerOverlayFrame == null) {
-            toast("Gallery save is available for photos");
+            toast(R.string.ns_toast_gallery_save_is_available_for);
             return;
         }
         if (android.os.Build.VERSION.SDK_INT < 29
@@ -2268,7 +2268,7 @@ public class NewStatusActivity extends AppCompatActivity {
         try {
             preview = renderStoryCanvas(true);
         } catch (Exception e) {
-            toast("Preview is still loading — try again in a moment");
+            toast(R.string.ns_toast_preview_is_still_loading_try);
             return;
         }
         com.callx.app.utils.StatusBg.IO.execute(() -> {
@@ -2307,8 +2307,8 @@ public class NewStatusActivity extends AppCompatActivity {
             }
             final Uri result = savedUri;
             runOnUiThread(() -> {
-                if (result != null) toast("Saved to Pictures/CallX/Statuses");
-                else toast("Could not save story preview");
+                if (result != null) toast(R.string.ns_toast_saved_to_picturescallxstatuses);
+                else toast(R.string.ns_toast_could_not_save_story_preview);
             });
         });
     }
@@ -2422,7 +2422,7 @@ public class NewStatusActivity extends AppCompatActivity {
             addedStickerJsons.add(result.json);
             addStickerOverlay(result.json);
             Toast.makeText(this,
-                getStickerAddedLabel(result.type) + " added! Drag to reposition.",
+                getString(R.string.ns_sticker_added_drag, getStickerAddedLabel(result.type)),
                 Toast.LENGTH_SHORT).show();
         });
     }
@@ -3414,7 +3414,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private void toggleStickerLock() {
         com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
         if (s == null) return;
-        if (templateMode && tplTextMode == 1 && s == editorTextSticker) { toast("Poster ne ye text lock kiya hai"); return; } // v750
+        if (templateMode && tplTextMode == 1 && s == editorTextSticker) { toast(R.string.ns_tpl_text_locked); return; } // v750
         s.setLocked(!s.isLocked());
         s.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
         refreshStickerBar(s);
@@ -3574,7 +3574,7 @@ public class NewStatusActivity extends AppCompatActivity {
             if (voiceIntent.resolveActivity(getPackageManager()) != null) {
                 startActivityForResult(voiceIntent, 9022);
             } else {
-                toast("No audio recorder found on this device");
+                toast(R.string.ns_toast_no_audio_recorder_found_on);
             }
         });
 
@@ -3825,7 +3825,7 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         for (String n : names) {
             com.callx.app.utils.MentionUserSearch.exists(n, ok -> {
-                if (!ok) android.widget.Toast.makeText(app, "@" + n + " not found \u2014 not mentioned",
+                if (!ok) android.widget.Toast.makeText(app, app.getString(R.string.ns_mention_not_found, n),
                         android.widget.Toast.LENGTH_LONG).show();
             });
         }
@@ -3841,7 +3841,7 @@ public class NewStatusActivity extends AppCompatActivity {
             .setPositiveButton("Generate", (d, w) -> {
                 String prompt = et.getText().toString().trim();
                 if (!prompt.isEmpty()) {
-                    toast("AI image generation coming soon…");
+                    toast(R.string.ns_toast_ai_image_generation_coming_soon);
                 }
             })
             .setNegativeButton("Cancel", null)
@@ -3930,7 +3930,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
             if (cameraImageUri != null) cameraCapture.launch(cameraImageUri);
         } catch (Exception e) {
-            toast("Camera error: " + e.getMessage());
+            toast(getString(R.string.ns_toast_camera_error, e.getMessage()));
         }
     }
 
@@ -3964,7 +3964,7 @@ public class NewStatusActivity extends AppCompatActivity {
         } else if (pickedImage != null) {
             openAdvanceEditingForPickedImage();
         } else {
-            toast("Pehle photo ya video select karo");
+            toast(R.string.ns_toast_pehle_photo_ya_video_select);
         }
     }
 
@@ -3979,7 +3979,7 @@ public class NewStatusActivity extends AppCompatActivity {
         reelEditIntent.putExtra("allow_media_edit_fallback", true);
         reelEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         if (reelEditIntent.resolveActivity(getPackageManager()) == null) {
-            toast("Advance editing is not available on this build");
+            toast(R.string.ns_toast_advance_editing_is_not_available);
             return;
         }
         String existingCaption = binding.etCaption != null && binding.etCaption.getText() != null
@@ -4004,7 +4004,7 @@ public class NewStatusActivity extends AppCompatActivity {
         photoEditIntent.putExtra("allow_media_edit_fallback", true);
         photoEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         if (photoEditIntent.resolveActivity(getPackageManager()) == null) {
-            toast("Advance editing is not available on this build");
+            toast(R.string.ns_toast_advance_editing_is_not_available);
             return;
         }
         String existingCaption = binding.etCaption != null && binding.etCaption.getText() != null
@@ -4032,7 +4032,7 @@ public class NewStatusActivity extends AppCompatActivity {
             }
             reelCameraLauncher.launch(intent);
         } catch (Exception e) {
-            toast("Camera error: " + e.getMessage());
+            toast(getString(R.string.ns_toast_camera_error_2, e.getMessage()));
             captureFromCamera();
         }
     }
@@ -4220,7 +4220,7 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     private void requestCameraPermission() {
         registerForActivityResult(new ActivityResultContracts.RequestPermission(),
-            granted -> { if (!granted) toast("Camera permission denied"); })
+            granted -> { if (!granted) toast(R.string.ns_toast_camera_permission_denied); })
             .launch(Manifest.permission.CAMERA);
     }
     // ── GIF / Sticker input (NEW) ─────────────────────────────────────────
@@ -4237,7 +4237,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 String scheme = parsed.getScheme();
                 if (!("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
                         || parsed.getHost() == null) {
-                    toast("Enter a valid http(s) link");
+                    toast(R.string.ns_toast_enter_a_valid_https_link);
                     return;
                 }
                 fetchedPreview = null;
@@ -4919,7 +4919,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private void showTemplateOptionsSheet() {
         final java.util.ArrayList<StatusStickerOverlayView> layers = templatePhotoLayers();
-        if (layers.isEmpty()) { toast("Pehle koi photo add karo"); return; }
+        if (layers.isEmpty()) { toast(R.string.ns_add_photo_first); return; }
         final android.util.TypedValue tv = new android.util.TypedValue();
         getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true);
         final boolean dark = androidx.core.graphics.ColorUtils.calculateLuminance(tv.data) < 0.5;
@@ -5188,14 +5188,18 @@ public class NewStatusActivity extends AppCompatActivity {
     /** Plain dark-gradient 9:16 base so the normal photo editor (Edit step) can open before any photo exists. */
     private Uri makeTemplatePlaceholder() {
         try {
+            // perf: the 540x960 gradient never changes → render + JPEG-encode it once and reuse the file on every later Use
+            final java.io.File f = new java.io.File(getCacheDir(), "template_base.jpg");
+            if (f.isFile() && f.length() > 0) return Uri.fromFile(f);
             final Bitmap b = Bitmap.createBitmap(540, 960, Bitmap.Config.ARGB_8888);
             final Canvas cv = new Canvas(b);
             final android.graphics.Paint p = new android.graphics.Paint();
             p.setShader(new android.graphics.LinearGradient(0, 0, 0, 960, 0xFF2B1B3D, 0xFF0F0A18, android.graphics.Shader.TileMode.CLAMP));
             cv.drawRect(0, 0, 540, 960, p);
-            final java.io.File f = new java.io.File(getCacheDir(), "template_base_" + System.currentTimeMillis() + ".jpg");
-            try (java.io.FileOutputStream os = new java.io.FileOutputStream(f)) { b.compress(Bitmap.CompressFormat.JPEG, 85, os); }
+            final java.io.File tmp = new java.io.File(getCacheDir(), "template_base.tmp");
+            try (java.io.FileOutputStream os = new java.io.FileOutputStream(tmp)) { b.compress(Bitmap.CompressFormat.JPEG, 85, os); }
             b.recycle();
+            if (!tmp.renameTo(f)) return Uri.fromFile(tmp);   // rename failed → still usable, just not shared
             return Uri.fromFile(f);
         } catch (Exception e) {
             return null;
@@ -5206,7 +5210,7 @@ public class NewStatusActivity extends AppCompatActivity {
         final String tj = getIntent().getStringExtra(EXTRA_TEMPLATE_JSON);
         if (tj == null || tj.isEmpty() || stickerOverlayFrame == null || isFinishing() || isDestroyed()) return;
         final Uri ph = makeTemplatePlaceholder();
-        if (ph == null) { toast("Template khul nahi paya"); return; }
+        if (ph == null) { toast(R.string.ns_tpl_open_failed); return; }
         templateMode = true;
         pickedImage = ph; pickedVideo = null;
         showImagePreview(ph);              // opens the Edit step (step 2) straight away
@@ -5260,7 +5264,7 @@ public class NewStatusActivity extends AppCompatActivity {
         hideStickerSizeBar();
         applySceneVisibility(scene);
         refreshMediaLayerStrip();
-        toast("Scene " + (scene + 1) + " / " + sceneCount);
+        toast(getString(R.string.ns_toast_scene, (scene + 1), sceneCount));
     }
 
     /** First scene (other than {@code except}) that still has an empty box, or -1. */
@@ -5377,7 +5381,7 @@ public class NewStatusActivity extends AppCompatActivity {
             }
             if (sceneCount > 1) { applySceneVisibility(0); refreshMediaLayerStrip(); }
             // 2) the poster's music + text (+ other plain stickers), exactly where they were
-            final String sj = getIntent().getStringExtra(EXTRA_TEMPLATE_STICKERS_JSON);
+            final String sj = TemplatePayloadStore.get(getIntent(), EXTRA_TEMPLATE_STICKERS_JSON);
             if (sj != null && !sj.isEmpty()) {
                 final org.json.JSONArray arr = new org.json.JSONArray(sj);
                 for (int i = 0; i < arr.length(); i++) {
@@ -5413,7 +5417,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 }
             }, 700);
         } catch (Exception e) {
-            toast("Template load nahi hua");
+            toast(R.string.ns_tpl_load_failed);
         }
     }
 
@@ -5462,7 +5466,7 @@ public class NewStatusActivity extends AppCompatActivity {
         final float textAlpha = tplTextMode == 2 ? 0.55f : 1f;   // v750: placeholder text looks "empty" until replaced
         if (tplTextMode == 1) {          // locked by the poster: no move / edit / delete
             ts.setLocked(true);
-            ts.setOnStickerTappedListener(sv -> toast("Poster ne ye text lock kiya hai"));
+            ts.setOnStickerTappedListener(sv -> toast(R.string.ns_tpl_text_locked));
         } else if (tplTextMode == 2) {   // placeholder: the viewer has to write his own
             tplTextPending = true;
             tplPlaceholderText = o.optString("text", "");
@@ -5618,7 +5622,7 @@ public class NewStatusActivity extends AppCompatActivity {
                         }
                         if (templateTextRestored && !templateTextHintShown) { // v745: text is the viewer's to change
                             templateTextHintShown = true;
-                            toast("Text badalna hai? Text par tap karo, phir dobara tap karke edit karo");
+                            toast(R.string.ns_toast_text_badalna_hai_text_par);
                         }
                         filledSlots.add(slot);
                         photoLayers.put(slot, uri);
@@ -5630,7 +5634,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     }
                     @Override public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable p) { }
                     @Override public void onLoadFailed(@androidx.annotation.Nullable android.graphics.drawable.Drawable e) {
-                        toast("Photo load nahi hui");
+                        toast(R.string.ns_photo_load_failed);
                     }
                 });
     }
@@ -5744,7 +5748,7 @@ public class NewStatusActivity extends AppCompatActivity {
     /** "Auto-fill" pill: newest photos (screenshots skipped) go into every empty box, in order. */
     private void autoFillFromRecents() {
         if (!templateMode) return;
-        if (countOpenPhotoSlots() == 0) { toast("Saare photo boxes bhare hue hain"); return; }
+        if (countOpenPhotoSlots() == 0) { toast(R.string.ns_tpl_all_filled); return; }
         if (hasImageReadAccess()) { runAutoFill(); return; }
         if (autoFillPermLauncher != null)
             autoFillPermLauncher.launch(android.os.Build.VERSION.SDK_INT >= 33
@@ -5763,7 +5767,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 final java.util.ArrayList<Uri> picks = pickRecentPhotos(need);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    if (picks.isEmpty()) { toast("Recent me koi photo nahi mili — box par tap karke chuno"); return; }
+                    if (picks.isEmpty()) { toast(R.string.ns_tpl_no_recent); return; }
                     int n = 0;
                     for (StatusStickerOverlayView sv : open) {
                         if (n >= picks.size()) break;
@@ -5925,7 +5929,7 @@ public class NewStatusActivity extends AppCompatActivity {
         com.callx.app.utils.StatusTemplateUses.record(
                 getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID), getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID),
                 getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME), getIntent().getStringExtra(EXTRA_TEMPLATE_JSON),
-                getIntent().getStringExtra(EXTRA_TEMPLATE_STICKERS_JSON));   // v770: snapshot for My Templates > Used
+                TemplatePayloadStore.get(getIntent(), EXTRA_TEMPLATE_STICKERS_JSON));   // v770: snapshot for My Templates > Used
     }
 
     /** v763: placeholder text was deleted (not replaced) → nothing left to write, so the Post gate must not stay locked. */
@@ -6031,7 +6035,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** Copies the picked video into the app cache (the compositor needs a real file path), then drops its first frame in the box. */
     private void importVideoForSlot(final StatusStickerOverlayView slot, final Uri uri) {
-        toast("Video load ho raha hai…");
+        toast(R.string.ns_video_loading);
         try {
             if (tplExec == null) tplExec = java.util.concurrent.Executors.newSingleThreadExecutor();
             tplExec.execute(() -> {
@@ -6061,7 +6065,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     if (isFinishing() || isDestroyed() || slot.getParent() != stickerOverlayFrame || file == null || clip <= 0 || fr == null) {
                         if (file != null) //noinspection ResultOfMethodCallIgnored
                             file.delete();
-                        if (!isFinishing() && !isDestroyed()) toast("Video khul nahi paya — dusra video chuno");
+                        if (!isFinishing() && !isDestroyed()) toast(R.string.ns_video_open_failed);
                         return;
                     }
                     final VideoPick old = slotVideo.get(slot);
@@ -6285,7 +6289,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (stickerOverlayFrame == null || stickerOverlayFrame.getWidth() <= 0 || stickerOverlayFrame.getHeight() <= 0
                 || binding.ivPreview.getDrawable() == null || editorBlurBackground == null || editorBlurBackground.getDrawable() == null) {
             setPosting(false);
-            toast("Story preview load nahi hua — dubara try karo");
+            toast(R.string.ns_toast_story_preview_load_nahi_hua);
             return;
         }
         final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
@@ -6327,7 +6331,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (vs.isEmpty()) {
             snapshotHideExtra.clear();
             setPosting(false);
-            toast("Video box khali hai");
+            toast(R.string.ns_tpl_video_empty);
             return;
         }
         final TemplateSpec ts = TemplateSpec.parse(getIntent().getStringExtra(EXTRA_TEMPLATE_JSON));
@@ -6361,7 +6365,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (u == null) {
             pendingTextOverlayJson = null;
             setPosting(false);
-            toast("Story preview prepare nahi hua");
+            toast(R.string.ns_toast_story_preview_prepare_nahi_hua);
             return;
         }
         final Bitmap under = u;
@@ -6404,12 +6408,12 @@ public class NewStatusActivity extends AppCompatActivity {
         if (stickerOverlayFrame == null || stickerOverlayFrame.getWidth() <= 0 || stickerOverlayFrame.getHeight() <= 0
                 || binding.ivPreview.getDrawable() == null || editorBlurBackground == null || editorBlurBackground.getDrawable() == null) {
             setPosting(false);
-            toast("Story preview load nahi hua — dubara try karo");
+            toast(R.string.ns_toast_story_preview_load_nahi_hua);
             return;
         }
         final TemplateSpec ts = TemplateSpec.parse(getIntent().getStringExtra(EXTRA_TEMPLATE_JSON));
         final int n = Math.min(sceneCount, ts.scenes.size());
-        if (n < 2) { setPosting(false); toast("Template scenes load nahi hue"); return; }
+        if (n < 2) { setPosting(false); toast(R.string.ns_tpl_scenes_failed); return; }
         final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
 
         boolean hasMusic = false;   // a music sticker plays by itself in the viewer → the mp4 stays silent then
@@ -6502,7 +6506,7 @@ public class NewStatusActivity extends AppCompatActivity {
             for (TemplateVideoCompositor.Slot sl : vs) if (sl.image != null) sl.image.recycle();
             pendingTextOverlayJson = null;
             setPosting(false);
-            toast("Story preview prepare nahi hua");
+            toast(R.string.ns_toast_story_preview_prepare_nahi_hua);
             return;
         }
         // the first clip's own sound only fits when that clip opens the video (scene 1); otherwise the mp4 stays silent
@@ -6607,8 +6611,8 @@ public class NewStatusActivity extends AppCompatActivity {
     private void post() {
         if (templateMode) {
             final int open = countOpenTemplateSlots();
-            if (open > 0) { toast("Pehle sabhi photo boxes bharo (" + open + " baaki)"); return; }
-            if (tplTextPending) { toast("Pehle apna text likho — placeholder badlo"); return; } // v750
+            if (open > 0) { toast(getString(R.string.ns_tpl_fill_boxes, open)); return; }
+            if (tplTextPending) { toast(R.string.ns_toast_pehle_apna_text_likho_placeholder); return; } // v750
             if (confirmPosterTextBeforePost()) return;   // v763
         }
         String txt     = binding.etText.getText().toString().trim();
@@ -6619,9 +6623,9 @@ public class NewStatusActivity extends AppCompatActivity {
                 && pickedImage != null
                 && ("https".equalsIgnoreCase(pickedImage.getScheme()) || "http".equalsIgnoreCase(pickedImage.getScheme()));
         if (pickedImage == null && pickedVideo == null && txt.isEmpty() && fetchedPreview == null) {
-            toast("Kuch text ya media add karo"); return;
+            toast(R.string.ns_toast_kuch_text_ya_media_add); return;
         }
-        if (txt.length() > 700) { toast("Text 700 characters se zyada nahi"); return; }
+        if (txt.length() > 700) { toast(R.string.ns_toast_text_700_characters_se_zyada); return; }
         setPosting(true);
         String uid  = FirebaseUtils.getCurrentUid();
         String name = FirebaseUtils.getCurrentName();
@@ -6688,7 +6692,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 return;
             }
             setPosting(false);
-            toast("Story preview load nahi hua — photo dubara select karke try karo");
+            toast(R.string.ns_preview_failed);
             return;
         }
 
@@ -6707,7 +6711,7 @@ public class NewStatusActivity extends AppCompatActivity {
         } catch (Exception e) {
             pendingTextOverlayJson = null;
             setPosting(false);
-            toast("Story preview prepare nahi hua: " + e.getMessage());
+            toast(getString(R.string.ns_toast_story_preview_prepare_nahi_hua_2, e.getMessage()));
             return;
         }
         setHint("Preparing story image…");
@@ -6751,7 +6755,7 @@ public class NewStatusActivity extends AppCompatActivity {
                     pendingTextOverlayJson = null;
                     composed.recycle();
                     setPosting(false);
-                    toast("Story image prepare nahi hua: " + e.getMessage());
+                    toast(getString(R.string.ns_toast_story_image_prepare_nahi_hua, e.getMessage()));
                 });
                 return;
             }
@@ -6962,11 +6966,11 @@ public class NewStatusActivity extends AppCompatActivity {
                         clearDraft();
                         String fmt = new java.text.SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
                             .format(new Date(scheduledAt));
-                        toast("Status scheduled for " + fmt);
+                        toast(getString(R.string.ns_toast_status_scheduled_for, fmt));
                         finish();
                     } else {
                         setPosting(false);
-                        toast("Failed to schedule status");
+                        toast(R.string.ns_toast_failed_to_schedule_status);
                     }
                 }));
             return;
@@ -6976,13 +6980,13 @@ public class NewStatusActivity extends AppCompatActivity {
                 clearDraft();
                 recordTemplateUse();
                 StatusNotificationHelper.scheduleStatusExpiryReminder(this, item.id, item.expiresAt);
-                toast("Status posted!");
+                toast(R.string.ns_toast_status_posted);
                 warnUnresolvedMentions(item);
                 finish();
             })
             .addOnFailureListener(e -> {
                 setPosting(false);
-                toast("Failed to post: " + e.getMessage());
+                toast(getString(R.string.ns_toast_failed_to_post, e.getMessage()));
             });
     }
     // ── Batch post (attach-sheet multi-select) ─────────────────────────────
@@ -7023,10 +7027,10 @@ public class NewStatusActivity extends AppCompatActivity {
             if (pendingScheduledAt > 0) {
                 String fmt = new java.text.SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
                     .format(new Date(pendingScheduledAt));
-                toast("Statuses scheduled for " + fmt);
+                toast(getString(R.string.ns_toast_statuses_scheduled_for, fmt));
                 pendingScheduledAt = 0;
             } else {
-                toast("Status posted!");
+                toast(R.string.ns_toast_status_posted);
             }
             finish();
             return;
@@ -7171,7 +7175,7 @@ public class NewStatusActivity extends AppCompatActivity {
             com.callx.app.repository.StatusRepository.getInstance(this)
                 .scheduleStatus(item, scheduledAt, ok -> runOnUiThread(() -> {
                     pendingBatchIndex++;
-                    if (!ok) toast("Failed to schedule item " + pendingBatchIndex);
+                    if (!ok) toast(getString(R.string.ns_toast_failed_to_schedule_item, pendingBatchIndex));
                     postNextBatchItem();
                 }));
             return;
@@ -7184,7 +7188,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 postNextBatchItem();
             })
             .addOnFailureListener(e -> {
-                toast("Failed to post item " + (pendingBatchIndex + 1) + ": " + e.getMessage());
+                toast(getString(R.string.ns_toast_failed_to_post_item, (pendingBatchIndex + 1), e.getMessage()));
                 pendingBatchIndex++;
                 postNextBatchItem();
             });
@@ -7218,13 +7222,13 @@ public class NewStatusActivity extends AppCompatActivity {
                         picked.set(Calendar.MILLISECOND, 0);
 
                         if (picked.getTimeInMillis() <= System.currentTimeMillis()) {
-                            toast("Pick a time in the future");
+                            toast(R.string.ns_toast_pick_a_time_in_the);
                             return;
                         }
                         pendingScheduledAt = picked.getTimeInMillis();
                         String fmt = new java.text.SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
                             .format(new Date(pendingScheduledAt));
-                        toast("Will be scheduled for " + fmt);
+                        toast(getString(R.string.ns_toast_will_be_scheduled_for, fmt));
                         post();
                     },
                     now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), false);

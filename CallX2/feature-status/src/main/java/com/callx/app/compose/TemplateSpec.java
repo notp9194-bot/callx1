@@ -104,10 +104,18 @@ public final class TemplateSpec {
 
     /** Parses templateJson; never throws. Returns an empty spec for null / bad JSON. */
     @NonNull public static TemplateSpec parse(@Nullable String json) {
-        final TemplateSpec t = new TemplateSpec();
-        if (json == null || json.isEmpty()) return t;
+        if (json == null || json.isEmpty()) return new TemplateSpec();
         try {
-            final JSONObject root = new JSONObject(json);
+            return parseRoot(new JSONObject(json));
+        } catch (Exception ignored) { }
+        return new TemplateSpec();
+    }
+
+    /** Same as {@link #parse(String)} for an already parsed root (lets a caller parse the JSON text once). Never throws. */
+    @NonNull public static TemplateSpec parseRoot(@Nullable JSONObject root) {
+        final TemplateSpec t = new TemplateSpec();
+        if (root == null) return t;
+        try {
             final JSONArray a = root.optJSONArray("slots");
             if (a != null) for (int i = 0; i < a.length(); i++) {
                 final JSONObject o = a.optJSONObject(i);

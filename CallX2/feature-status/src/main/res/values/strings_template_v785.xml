@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tpl_card_scenes">%1$d scenes</string>
+    <string name="tpl_prev_scene_n">Scene %1$d/%2$d</string>
+    <string name="tpl_prev_mute">Music mute karo</string>
+    <string name="tpl_prev_unmute">Music on karo</string>
+    <string name="te_scene_n">Scene %1$d</string>
+    <string name="te_scene_len">Scene length</string>
+</resources>

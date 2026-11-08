@@ -10,6 +10,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.callx.app.models.StatusItem;
+import com.callx.app.status.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.StatusPrivacyManager;
 import com.google.firebase.database.DataSnapshot;
@@ -78,7 +79,7 @@ public class TemplateLinkActivity extends AppCompatActivity {
     }
 
     private void gone() {
-        Toast.makeText(this, "Template ab available nahi hai", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.tpl_act_unavailable, Toast.LENGTH_SHORT).show();
         finish();
     }
 }

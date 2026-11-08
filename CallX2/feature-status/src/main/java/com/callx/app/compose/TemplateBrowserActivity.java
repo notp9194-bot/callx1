@@ -33,7 +33,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.view.WindowCompat;
 import androidx.core.widget.ImageViewCompat;
-import androidx.core.widget.NestedScrollView;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import android.content.res.ColorStateList;
 
 import com.callx.app.cache.StatusCacheManager;
@@ -61,6 +63,11 @@ import java.util.Set;
  *    v769: tap a card -> TemplatePreviewActivity (screen 2) -> Use Template (re-checks the owner's reuse switch).
  *    v769: 'New' chip (newest first) + duration badge on every card.
  * Every icon is an existing project drawable (tinted in code); no new artwork.
+ *
+ * v785: the whole screen is ONE {@link RecyclerView} (3-column grid): header (title / search / chips / banner / section title) = first
+ * full-width item, template cards = recycled grid items (a card view is bound, never rebuilt), footer (empty text / categories) =
+ * last full-width item. While the first template parse is running the grid shows pulsing skeleton cards instead of a blank area.
+ * Cards count the photos / length of ALL scenes of a multi-scene template and show a scene badge.
  */
 public class TemplateBrowserActivity extends AppCompatActivity {
 
@@ -69,12 +76,13 @@ public class TemplateBrowserActivity extends AppCompatActivity {
     private static final int PURPLE = 0xFF6A3DE8, PURPLE_LIGHT = 0xFF9A7BFF;
     private static final int MODE_HOME = 0, MODE_SAVED = 1, MODE_MINE = 2;
     private static final int CHIP_TRENDING = 0, CHIP_POPULAR = 1, CHIP_COLLAGE = 2, CHIP_LOVE = 3, CHIP_NEW = 4;   // v769: 'Fun' became 'New' (newest first)
+    private static final long SEARCH_DEBOUNCE_MS = 250L;
     private static final int SORT_DEFAULT = 0, SORT_USED = 1, SORT_NEWEST = 2, SORT_PHOTOS = 3;
 
     private static final class Row {
         String tplJson, stickersJson;
         String originUid, originId, originName;
-        boolean mine, original;
+        boolean mine, original, fromFeed;   // fromFeed: row came from the server templateFeed (v788)
         long uses = -1;
         int cat = -1;      // v765: TemplateCategory index
         long ts;           // status time (Discover order tie-break)
@@ -86,6 +94,20 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         String key() { return originUid + "/" + originId; }
         int dur() { if (durMs < 0) durMs = TemplateSpec.parse(tplJson).displayMs(); return durMs; }
         long time() { return ts > 0 ? ts : savedTs; }
+
+        /** perf: ONE JSON parse fills preview + category + duration (was 3 separate parses per template). @return false for a bad template. */
+        boolean parseOnce() {
+            try {
+                final org.json.JSONObject root = new org.json.JSONObject(tplJson);
+                preview = TemplatePreviewDrawable.fromRoot(root);
+                if (preview == null) return false;
+                cat = TemplateCategory.indexOfRoot(root);
+                durMs = TemplateSpec.parseRoot(root).displayMs();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
     }
 
     private final Map<String, Row> discover = new LinkedHashMap<>();
@@ -111,7 +133,9 @@ public class TemplateBrowserActivity extends AppCompatActivity {
             new ActivityResultContracts.StartActivityForResult(), res -> onPreviewResult(res.getData()));
 
     // views
-    private LinearLayout myPill, chipRow, gridBox, navTemplates, navSaved;
+    private LinearLayout myPill, chipRow, headerBox, footerBox, navTemplates, navSaved;
+    private RecyclerView rv;
+    private GridAdapter adapter;
     private TextView sectionTitle, seeAll, empty, bannerTitle, bannerSub;
     private View bannerCard, categoriesBox;
     private ImageView bannerL, bannerC, bannerR;
@@ -135,26 +159,62 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         root.setBackgroundColor(bg);
         root.setClipChildren(false);
 
-        final NestedScrollView scroll = new NestedScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setVerticalScrollBarEnabled(false);
-        final LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(0, 0, 0, dp(24));
-        scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        headerBox = new LinearLayout(this);
+        headerBox.setOrientation(LinearLayout.VERTICAL);
+        footerBox = new LinearLayout(this);
+        footerBox.setOrientation(LinearLayout.VERTICAL);
+        footerBox.setPadding(0, 0, 0, dp(24));
 
-        buildHeader(content);
-        buildSearch(content);
-        buildChips(content);
-        buildBanner(content);
-        buildSection(content);
-        buildCategories(content);
+        buildHeader(headerBox);
+        buildSearch(headerBox);
+        buildChips(headerBox);
+        buildBanner(headerBox);
+        buildSection(headerBox, footerBox);
+        buildCategories(footerBox);
+
+        rv = new RecyclerView(this);
+        rv.setVerticalScrollBarEnabled(false);
+        rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        final GridLayoutManager glm = new GridLayoutManager(this, GRID_COLS);
+        glm.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override public int getSpanSize(int position) {
+                final int t = adapter.getItemViewType(position);
+                return t == T_HEADER || t == T_FOOTER ? GRID_COLS : 1;
+            }
+        });
+        rv.setLayoutManager(glm);
+        adapter = new GridAdapter();
+        adapter.setHasStableIds(true);
+        rv.setAdapter(adapter);
+        rv.getRecycledViewPool().setMaxRecycledViews(T_HEADER, 1);
+        rv.getRecycledViewPool().setMaxRecycledViews(T_FOOTER, 1);
+        rv.getRecycledViewPool().setMaxRecycledViews(T_CARD, 12);
+        rv.setItemAnimator(null);   // cards swap on filter / sort — no fly-in per keystroke
+        rv.addItemDecoration(new RecyclerView.ItemDecoration() {
+            @Override public void getItemOffsets(@NonNull android.graphics.Rect out, @NonNull View v, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+                final int pos = parent.getChildAdapterPosition(v);
+                if (pos == RecyclerView.NO_POSITION) return;
+                final int t = adapter.getItemViewType(pos);
+                if (t == T_HEADER || t == T_FOOTER) return;
+                final int col = ((GridLayoutManager.LayoutParams) v.getLayoutParams()).getSpanIndex();
+                final float m = dp(16), gap = dp(10);
+                final float x = (2f * gap - m) / 3f;     // equal card widths: L+R is the same in every column
+                final float l, r2;
+                if (col == 0) { l = m; r2 = x; }
+                else if (col == 1) { l = gap - x; r2 = m + 2f * x - gap; }
+                else { l = 2f * gap - m - 2f * x; r2 = m; }
+                out.left = Math.round(l);
+                out.right = Math.round(r2);
+                out.bottom = Math.round(gap);
+            }
+        });
+        root.addView(rv, new LinearLayout.LayoutParams(-1, 0, 1f));
         root.addView(buildNav(), new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(root);
         if (!dark) WindowCompat.getInsetsController(getWindow(), root).setAppearanceLightStatusBars(true);
 
         loadDiscover();
+        loadFeed();   // v788: server-side trending/newest on top of the locally cached statuses
         loadSaved();
         rebuild();
     }
@@ -282,7 +342,8 @@ public class TemplateBrowserActivity extends AppCompatActivity {
             @Override public void onTextChanged(CharSequence s, int a, int b2, int c) { }
             @Override public void afterTextChanged(Editable s) {
                 query = s == null ? "" : s.toString().trim().toLowerCase(Locale.ROOT);
-                rebuild();
+                ui.removeCallbacks(rebuildRun);          // perf: wait for a typing pause instead of a full rebuild per keystroke
+                ui.postDelayed(rebuildRun, SEARCH_DEBOUNCE_MS);
             }
         });
         bar.addView(et, new LinearLayout.LayoutParams(0, -1, 1f));
@@ -451,6 +512,22 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         content.addView(banner, blp);
     }
 
+    // perf: banner drawables are built once per (slot, row) — no JSON re-parse every 4 s; each ImageView keeps its own drawable
+    private final Map<Row, TemplatePreviewDrawable> bannerPvC = new java.util.HashMap<>(),
+            bannerPvL = new java.util.HashMap<>(), bannerPvR = new java.util.HashMap<>();
+    private boolean started;
+
+    private static void setBannerImage(ImageView iv, Map<Row, TemplatePreviewDrawable> cache, Row row) {
+        if (cache.size() > 6) cache.clear();
+        TemplatePreviewDrawable d = cache.get(row);
+        if (d == null) {
+            d = TemplatePreviewDrawable.fromJson(row.tplJson);
+            if (d == null) { iv.setImageDrawable(null); return; }
+            cache.put(row, d);
+        }
+        if (iv.getDrawable() != d) iv.setImageDrawable(d);
+    }
+
     private void bindBanner() {
         if (bannerRows.isEmpty()) return;
         final int n = bannerRows.size();
@@ -458,24 +535,52 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         final Row c = bannerRows.get(bannerIdx);
         final Row l = bannerRows.get((bannerIdx + n - 1) % n);
         final Row r = bannerRows.get((bannerIdx + 1) % n);
-        bannerC.setImageDrawable(TemplatePreviewDrawable.fromJson(c.tplJson));
-        bannerL.setImageDrawable(TemplatePreviewDrawable.fromJson(l.tplJson));
-        bannerR.setImageDrawable(TemplatePreviewDrawable.fromJson(r.tplJson));
+        setBannerImage(bannerC, bannerPvC, c);
+        setBannerImage(bannerL, bannerPvL, l);
+        setBannerImage(bannerR, bannerPvR, r);
         bannerTitle.setText(c.mine ? getString(R.string.tpl_banner_title_mine)
                 : getString(R.string.tpl_banner_title_other, ne(c.originName) ? c.originName : "user"));
         bannerSub.setText(getString(R.string.tpl_banner_sub, c.preview.photoCount()));
-        dots.removeAllViews();
-        for (int i = 0; i < n; i++) {
-            final View d = new View(this);
-            d.setBackground(round(i == bannerIdx ? 0xFFFFFFFF : 0x66FFFFFF, 3));
-            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(i == bannerIdx ? 22 : 12), dp(4));
-            lp.setMargins(dp(3), 0, dp(3), 0);
-            final int to = i;
-            d.setOnClickListener(v -> { bannerIdx = to; bindBanner(); });
-            dots.addView(d, lp);
+        // dots: views are created once per count, afterwards only restyled
+        if (dots.getChildCount() != n) {
+            dots.removeAllViews();
+            for (int i = 0; i < n; i++) {
+                final View d = new View(this);
+                final int to = i;
+                d.setOnClickListener(v -> { bannerIdx = to; bindBanner(); });
+                final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(12), dp(4));
+                lp.setMargins(dp(3), 0, dp(3), 0);
+                dots.addView(d, lp);
+            }
+            dotsIdx = -1;
+        }
+        if (dotsIdx != bannerIdx) {
+            for (int i = 0; i < n; i++) {
+                final View d = dots.getChildAt(i);
+                final boolean on = i == bannerIdx;
+                d.setBackground(round(on ? 0xFFFFFFFF : 0x66FFFFFF, 3));
+                final LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) d.getLayoutParams();
+                lp.width = dp(on ? 22 : 12);
+                d.setLayoutParams(lp);
+            }
+            dotsIdx = bannerIdx;
         }
         ui.removeCallbacks(bannerRun);
-        if (n > 1) ui.postDelayed(bannerRun, 4000);
+        if (n > 1 && started) ui.postDelayed(bannerRun, 4000);
+    }
+
+    private int dotsIdx = -1;
+
+    @Override protected void onStart() {
+        super.onStart();
+        started = true;
+        if (bannerRows.size() > 1) { ui.removeCallbacks(bannerRun); ui.postDelayed(bannerRun, 4000); }
+    }
+
+    @Override protected void onStop() {
+        started = false;
+        ui.removeCallbacks(bannerRun);   // no banner ticks while the screen is hidden
+        super.onStop();
     }
 
     private void nextBanner() {
@@ -486,7 +591,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
 
     // ── section (grid) / categories ──────────────────────────────────────────
 
-    private void buildSection(LinearLayout content) {
+    private void buildSection(LinearLayout content, LinearLayout footer) {
         final LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
@@ -502,17 +607,12 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         head.addView(seeAll);
         content.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
-        gridBox = new LinearLayout(this);
-        gridBox.setOrientation(LinearLayout.VERTICAL);
-        gridBox.setPadding(dp(16), 0, dp(16), 0);
-        content.addView(gridBox, new LinearLayout.LayoutParams(-1, -2));
-
         empty = text("", 14f, subColor, false);
         empty.setGravity(Gravity.CENTER);
         empty.setPadding(dp(32), dp(40), dp(32), dp(40));
         empty.setLineSpacing(0, 1.15f);
         empty.setVisibility(View.GONE);
-        content.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        footer.addView(empty, new LinearLayout.LayoutParams(-1, -2));
     }
 
     private void buildCategories(LinearLayout content) {
@@ -620,12 +720,18 @@ public class TemplateBrowserActivity extends AppCompatActivity {
 
         navTemplates = navItem(R.drawable.ic_home, R.string.tpl_nav_templates);
         navSaved = navItem(R.drawable.ic_bookmark, R.string.tpl_nav_saved);
+        // v776: Templates | Saved | (+) | Analytics | Notifications — Analytics / Notifications are about MY templates (pick one if several)
+        final LinearLayout navAnalytics = navItem(R.drawable.ic_tpl_analytics, R.string.tpl_nav_analytics);
         final LinearLayout navNotif = navItem(R.drawable.ic_notifications, R.string.tpl_nav_notifications);
-        final LinearLayout navProfile = navItem(R.drawable.ic_person, R.string.tpl_nav_profile);
         navTemplates.setOnClickListener(v -> setMode(MODE_HOME));
         navSaved.setOnClickListener(v -> setMode(mode == MODE_SAVED ? MODE_HOME : MODE_SAVED));
-        navNotif.setOnClickListener(v -> openByName("com.callx.app.activities.NotificationCenterActivity"));
-        navProfile.setOnClickListener(v -> openByName("com.callx.app.activities.ProfileActivity"));
+        navAnalytics.setOnClickListener(v -> OwnTemplatePicker.show(this, R.string.tpl_pick_analytics,
+                (id, json) -> startActivity(new Intent(this, TemplateAnalyticsActivity.class)
+                        .putExtra(TemplateAnalyticsActivity.EXTRA_STATUS_ID, id)
+                        .putExtra(TemplateAnalyticsActivity.EXTRA_TPL_JSON, json))));
+        navNotif.setOnClickListener(v -> OwnTemplatePicker.show(this, R.string.tpl_pick_users,
+                (id, json) -> startActivity(new Intent(this, TemplateUsesActivity.class)
+                        .putExtra(TemplateUsesActivity.EXTRA_STATUS_ID, id))));
 
         final FrameLayout fabCell = new FrameLayout(this);
         fabCell.setClipChildren(false);
@@ -644,8 +750,8 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         bar.addView(navTemplates, new LinearLayout.LayoutParams(0, -2, 1f));
         bar.addView(navSaved, new LinearLayout.LayoutParams(0, -2, 1f));
         bar.addView(fabCell, new LinearLayout.LayoutParams(0, dp(58), 1f));
+        bar.addView(navAnalytics, new LinearLayout.LayoutParams(0, -2, 1f));
         bar.addView(navNotif, new LinearLayout.LayoutParams(0, -2, 1f));
-        bar.addView(navProfile, new LinearLayout.LayoutParams(0, -2, 1f));
         wrap.addView(bar, new LinearLayout.LayoutParams(-1, -2));
         return wrap;
     }
@@ -668,13 +774,17 @@ public class TemplateBrowserActivity extends AppCompatActivity {
 
     // ── data ─────────────────────────────────────────────────────────────────
 
+    /**
+     * perf: only cheap field copies + dedupe run on the main thread; the JSON parse (preview / category / duration) runs on
+     * {@link com.callx.app.utils.StatusBg#IO}. The grid shows no "empty" message until this first pass is applied.
+     */
     private void loadDiscover() {
         final String me = FirebaseUtils.getCurrentUid();
         final StatusCacheManager cm = StatusCacheManager.getInstance(getApplicationContext());
         final Map<String, List<StatusItem>> all = new LinkedHashMap<>(cm.getAllStatuses());
         if (ne(me) && !all.containsKey(me)) all.put(me, cm.getStatuses(me));
 
-        discover.clear();
+        final Map<String, Row> cand = new LinkedHashMap<>();
         for (List<StatusItem> list : all.values()) {
             if (list == null) continue;
             for (StatusItem it : list) {
@@ -690,12 +800,101 @@ public class TemplateBrowserActivity extends AppCompatActivity {
                 if (!ne(r.originUid) || !ne(r.originId)) continue;
                 r.mine = ne(me) && me.equals(r.originUid);
                 r.ts = it.timestamp != null ? it.timestamp : 0L;
-                r.preview = TemplatePreviewDrawable.fromJson(it.templateJson);
-                r.cat = TemplateCategory.indexOf(it.templateJson);
-                if (r.preview == null) continue;
-                final Row old = discover.get(r.key());
-                if (old == null || (!old.original && r.original)) discover.put(r.key(), r); // the original wins over a repost of it
+                final Row old = cand.get(r.key());
+                if (old != null && !(!old.original && r.original)) continue;   // a repost of a kept original costs nothing
+                cand.put(r.key(), r);                                          // the original wins over a repost of it
             }
+        }
+        if (cand.isEmpty()) { dropLocalDiscover(); discoverLoading = false; return; }
+        discoverLoading = true;
+        final int gen = ++discoverGen;
+        com.callx.app.utils.StatusBg.IO.execute(() -> {
+            final List<Row> ok = new ArrayList<>(cand.size());
+            for (Row r : cand.values()) if (r.parseOnce()) ok.add(r);
+            ui.post(() -> {
+                if (isFinishing() || isDestroyed() || gen != discoverGen) return;
+                dropLocalDiscover();
+                for (Row r : ok) discover.put(r.key(), r);   // a cached status row replaces a feed row of the same template
+                discoverLoading = false;
+                rebuild();
+            });
+        });
+    }
+
+    /** Clears the rows built from cached statuses but keeps what the server feed already delivered. */
+    private void dropLocalDiscover() {
+        for (java.util.Iterator<Map.Entry<String, Row>> it = discover.entrySet().iterator(); it.hasNext(); ) {
+            if (!it.next().getValue().fromFeed) it.remove();
+        }
+    }
+
+    private volatile boolean discoverLoading, savedLoading;
+    private int discoverGen;
+
+    private static final int FEED_TRENDING = 60, FEED_NEWEST = 40;
+
+    /**
+     * v788 (item 22): server-side Discover. {@code templateFeed} (filled by Cloud Functions from every PUBLIC original template,
+     * not swept with the 24h status) gives trending (by uses) + newest rows, so Discover no longer depends on the statuses this
+     * phone happened to cache. Rows merge into {@link #discover}; a locally cached (fresher) row of the same template wins.
+     */
+    private void loadFeed() {
+        final String me = FirebaseUtils.getCurrentUid();
+        if (!ne(me)) return;
+        final int[] left = {2};
+        final Map<String, Row> got = new LinkedHashMap<>();
+        final Runnable done = () -> {
+            if (--left[0] > 0) return;
+            if (got.isEmpty()) return;
+            final int gen = discoverGen;
+            com.callx.app.utils.StatusBg.IO.execute(() -> {
+                final List<Row> ok = new ArrayList<>(got.size());
+                for (Row r : got.values()) if (r.parseOnce()) ok.add(r);
+                ui.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    boolean changed = false;
+                    for (Row r : ok) {
+                        if (discover.containsKey(r.key())) continue;   // cached status row (fresher) wins
+                        discover.put(r.key(), r);
+                        changed = true;
+                    }
+                    if (changed || gen != discoverGen) scheduleRebuild();
+                });
+            });
+        };
+        final ValueEventListener l = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                for (DataSnapshot c : s.getChildren()) {
+                    if (Boolean.TRUE.equals(c.child("hidden").getValue(Boolean.class))) continue;   // owner turned reuse off / removed it
+                    final String json = c.child("templateJson").getValue(String.class);
+                    final String ou = c.child("ownerUid").getValue(String.class);
+                    final String oi = c.child("statusId").getValue(String.class);
+                    if (!ne(json) || !ne(ou) || !ne(oi)) continue;
+                    final Row r = new Row();
+                    r.tplJson = json;
+                    r.stickersJson = c.child("stickersJson").getValue(String.class);
+                    r.originUid = ou;
+                    r.originId = oi;
+                    r.originName = c.child("ownerName").getValue(String.class);
+                    r.original = true;
+                    r.fromFeed = true;
+                    r.mine = me.equals(ou);
+                    final Long ts = c.child("ts").getValue(Long.class);
+                    r.ts = ts != null ? ts : 0L;
+                    final Long uses = c.child("uses").getValue(Long.class);
+                    if (uses != null) r.uses = uses;   // the feed row already carries the counter → no extra read for this card
+                    got.putIfAbsent(r.key(), r);
+                }
+                done.run();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) { done.run(); /* offline / rules: Discover just stays local */ }
+        };
+        try {
+            final com.google.firebase.database.DatabaseReference feed = FirebaseUtils.db().getReference("templateFeed");
+            feed.orderByChild("score").limitToLast(FEED_TRENDING).addListenerForSingleValueEvent(l);
+            feed.orderByChild("ts").limitToLast(FEED_NEWEST).addListenerForSingleValueEvent(l);
+        } catch (Exception e) {
+            left[0] = 0;
         }
     }
 
@@ -703,18 +902,19 @@ public class TemplateBrowserActivity extends AppCompatActivity {
     private void loadSaved() {
         final String me = FirebaseUtils.getCurrentUid();
         if (!ne(me)) return;
+        savedLoading = true;   // v785: the Saved tab shows skeleton cards until this read answers
         try {
             FirebaseUtils.db().getReference("savedTemplates").child(me).orderByChild("ts").limitToLast(MAX_SAVED)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot s) {
                             if (isFinishing() || isDestroyed()) return;
+                            final List<Row> cand = new ArrayList<>();
                             for (DataSnapshot c : s.getChildren()) {
                                 final String json = c.child("templateJson").getValue(String.class);
                                 final String ou = c.child("ownerUid").getValue(String.class);
                                 final String oi = c.child("statusId").getValue(String.class);
                                 if (!ne(json) || !ne(ou) || !ne(oi)) continue;
-                                final String key = ou + "/" + oi;
-                                if (saved.containsKey(key)) continue;       // toggled while this read was in flight
+                                if (saved.containsKey(ou + "/" + oi)) continue;       // toggled while this read was in flight
                                 final Row r = new Row();
                                 r.tplJson = json;
                                 r.stickersJson = c.child("stickersJson").getValue(String.class);
@@ -724,24 +924,48 @@ public class TemplateBrowserActivity extends AppCompatActivity {
                                 r.mine = ou.equals(me);
                                 final Long ts = c.child("ts").getValue(Long.class);
                                 r.savedTs = ts != null ? ts : 0L;
-                                r.preview = TemplatePreviewDrawable.fromJson(json);
-                                r.cat = TemplateCategory.indexOf(json);
-                                if (r.preview == null) continue;
-                                saved.put(key, r);
-                                savedKeys.add(key);
+                                cand.add(r);
                             }
-                            scheduleRebuild();
+                            if (cand.isEmpty()) { savedLoading = false; scheduleRebuild(); return; }
+                            com.callx.app.utils.StatusBg.IO.execute(() -> {
+                                final List<Row> ok = new ArrayList<>(cand.size());
+                                for (Row r : cand) if (r.parseOnce()) ok.add(r);
+                                ui.post(() -> {
+                                    savedLoading = false;
+                                    if (isFinishing() || isDestroyed()) return;
+                                    for (Row r : ok) {
+                                        final String key = r.key();
+                                        if (saved.containsKey(key)) continue;     // toggled while parsing
+                                        saved.put(key, r);
+                                        savedKeys.add(key);
+                                    }
+                                    scheduleRebuild();
+                                });
+                            });
                         }
-                        @Override public void onCancelled(@NonNull DatabaseError e) { /* Saved just stays empty */ }
+                        @Override public void onCancelled(@NonNull DatabaseError e) { savedLoading = false; scheduleRebuild(); /* Saved just stays empty */ }
                     });
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) { savedLoading = false; }
     }
 
     /** "N used" + the owner's reuse switch, once per card. */
     private void fetchMeta(final Row r) {
         if (r.metaAsked) return;
         r.metaAsked = true;
-        final int[] pending = {r.mine ? 1 : 2};
+        final boolean followLatest = !r.mine && saved.containsKey(r.key());   // v788: my saved snapshot of someone else's template
+        final int[] pending = {(r.mine ? 1 : 2) + (followLatest ? 1 : 0)};
+        if (followLatest) {
+            TemplateActions.fetchLatest(r.originUid, r.originId, r.tplJson, true, (json, stickers) -> {
+                if (json == null || json.equals(r.tplJson)) { if (--pending[0] <= 0) scheduleRebuild(); return; }
+                com.callx.app.utils.StatusBg.IO.execute(() -> {
+                    final String old = r.tplJson, oldSt = r.stickersJson;
+                    r.tplJson = json;
+                    if (stickers != null) r.stickersJson = stickers;
+                    if (!r.parseOnce()) { r.tplJson = old; r.stickersJson = oldSt; r.parseOnce(); }   // bad newest version: keep the old one
+                    ui.post(() -> { if (--pending[0] <= 0) scheduleRebuild(); });
+                });
+            });
+        }
         com.callx.app.utils.StatusTemplateUses.fetchCount(r.originUid, r.originId, n -> {   // v767: counter, not a row download
             r.uses = n;
             if (--pending[0] <= 0) scheduleRebuild();
@@ -765,7 +989,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
     }
 
     private void rebuild() {
-        if (isFinishing() || isDestroyed() || gridBox == null) return;
+        if (isFinishing() || isDestroyed() || rv == null) return;
         List<Row> pool = new ArrayList<>();
         if (mode == MODE_SAVED) {
             pool.addAll(saved.values());
@@ -841,14 +1065,15 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         styleNavItem(navSaved, mode == MODE_SAVED);
         myPill.setBackground(mode == MODE_MINE ? purpleStroke() : round(surface, 26));
 
-        renderGrid(limited ? Math.min(cap, shown.size()) : shown.size());
+        final boolean loading = shown.isEmpty() && (mode == MODE_SAVED ? savedLoading : discoverLoading);
+        submitGrid(limited ? Math.min(cap, shown.size()) : shown.size(), loading);
 
         final int emptyRes = !query.isEmpty() ? R.string.tpl_empty_search
                 : (mode == MODE_HOME && catFilter >= 0) ? R.string.tpl_empty_cat
                 : mode == MODE_SAVED ? R.string.tpl_empty_saved : mode == MODE_MINE ? R.string.tpl_empty_mine
                 : chip == CHIP_LOVE ? R.string.tpl_empty_love : R.string.tpl_empty_home;
         empty.setText(emptyRes);
-        empty.setVisibility(shown.isEmpty() ? View.VISIBLE : View.GONE);
+        empty.setVisibility(shown.isEmpty() && !loading ? View.VISIBLE : View.GONE);
         for (Row r : new ArrayList<>(shown)) fetchMeta(r);
     }
 
@@ -858,90 +1083,258 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         return g;
     }
 
-    private void renderGrid(int count) {
-        gridBox.removeAllViews();
+    // ── v785: grid (one RecyclerView: header · cards · footer) ───────────────
+
+    private static final int T_HEADER = 0, T_CARD = 1, T_SKEL = 2, T_FOOTER = 3;
+
+    private static final class Item {
+        final int type;
+        final Row row;
+        final String sig;
+        final long id;
+        Item(int type, Row row, String sig, long id) { this.type = type; this.row = row; this.sig = sig; this.id = id; }
+    }
+
+    private final List<Item> items = new ArrayList<>();
+    private final Map<String, Long> idMap = new java.util.HashMap<>();   // stable, collision-free ids (a hash could collide)
+    private long nextId = 1000L;
+
+    private long idFor(String key) {
+        Long id = idMap.get(key);
+        if (id == null) { id = nextId++; idMap.put(key, id); }
+        return id;
+    }
+
+    /** What a card shows (a change here = that one card is re-bound, nothing else). */
+    private String cardSig(Row r) {
+        final boolean dead = r.blocked && mode == MODE_SAVED;
+        return r.uses + "|" + savedKeys.contains(r.key()) + "|" + dead + "|" + r.mine + "|" + r.originName;
+    }
+
+    /** Header + {@code count} cards (or skeleton cards while loading) + footer; only the differences touch the RecyclerView. */
+    private void submitGrid(int count, boolean loading) {
+        final List<Item> next = new ArrayList<>(count + 3);
+        next.add(new Item(T_HEADER, null, "", 1L));
+        if (loading) {
+            for (int i = 0; i < GRID_COLS * HOME_ROWS; i++) next.add(new Item(T_SKEL, null, "", 100L + i));
+        } else {
+            for (int i = 0; i < count; i++) {
+                final Row r = shown.get(i);
+                next.add(new Item(T_CARD, r, cardSig(r), idFor(r.key())));
+            }
+        }
+        next.add(new Item(T_FOOTER, null, "", 2L));
+        final List<Item> old = new ArrayList<>(items);
+        final DiffUtil.DiffResult dr = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return old.size(); }
+            @Override public int getNewListSize() { return next.size(); }
+            @Override public boolean areItemsTheSame(int o, int n) { return old.get(o).id == next.get(n).id && old.get(o).type == next.get(n).type; }
+            @Override public boolean areContentsTheSame(int o, int n) {
+                final Item a = old.get(o), b = next.get(n);
+                return a.row == b.row && a.sig.equals(b.sig);   // same Row object + same visible state → no re-bind
+            }
+        }, false);
+        items.clear();
+        items.addAll(next);
+        dr.dispatchUpdatesTo(adapter);
+    }
+
+    private int cellH() {
         final int gap = dp(10);
         final int cellW = (getResources().getDisplayMetrics().widthPixels - dp(32) - gap * (GRID_COLS - 1)) / GRID_COLS;
-        LinearLayout row = null;
-        for (int i = 0; i < count; i++) {
-            if (i % GRID_COLS == 0) {
-                row = new LinearLayout(this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                final LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
-                rlp.setMargins(0, 0, 0, gap);
-                gridBox.addView(row, rlp);
-            }
-            final LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(cellW, Math.round(cellW * 1.45f));
-            clp.setMargins(0, 0, (i % GRID_COLS == GRID_COLS - 1) ? 0 : gap, 0);
-            row.addView(makeCard(shown.get(i)), clp);
+        return Math.round(cellW * 1.45f);
+    }
+
+    private static final class StaticHolder extends RecyclerView.ViewHolder {
+        StaticHolder(View v) { super(v); }
+    }
+
+    private final class SkelHolder extends RecyclerView.ViewHolder {
+        android.animation.ObjectAnimator pulse;
+        SkelHolder(View v) { super(v); }
+        void start() {
+            if (pulse != null) return;
+            pulse = android.animation.ObjectAnimator.ofFloat(itemView, View.ALPHA, 0.5f, 1f);
+            pulse.setDuration(850L);
+            pulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+            pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            pulse.start();
+        }
+        void stop() {
+            if (pulse != null) { pulse.cancel(); pulse = null; }
+            itemView.setAlpha(1f);
         }
     }
 
-    private View makeCard(final Row r) {
-        final FrameLayout card = new FrameLayout(this);
-        card.setBackground(round(surface, 18));
-        clipRound(card, 18);
-        final ImageView p = new ImageView(this);
-        p.setScaleType(ImageView.ScaleType.FIT_XY);   // drawable takes the view bounds
-        p.setImageDrawable(r.preview);
-        card.addView(p, new FrameLayout.LayoutParams(-1, -1));
+    /** A card is built ONCE per holder; {@link #bind} only sets text / icons / drawable. */
+    private final class CardHolder extends RecyclerView.ViewHolder {
+        final ImageView p, heartIc;
+        final LinearLayout pill, sceneChip;
+        final TextView usesTx, nm, pc, sceneTx;
+        final FrameLayout heart;
+        Row row;
 
-        final View scrim = new View(this);
-        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00000000, 0xCC000000}));
-        card.addView(scrim, new FrameLayout.LayoutParams(-1, dp(72), Gravity.BOTTOM));
+        CardHolder(FrameLayout card) {
+            super(card);
+            card.setBackground(round(surface, 18));
+            clipRound(card, 18);
+            p = new ImageView(TemplateBrowserActivity.this);
+            p.setScaleType(ImageView.ScaleType.FIT_XY);   // drawable takes the view bounds
+            card.addView(p, new FrameLayout.LayoutParams(-1, -1));
 
-        final FrameLayout play = new FrameLayout(this);
-        play.setBackground(oval(0x66000000));
-        play.addView(icon(R.drawable.ic_status_card_play, 0xFFFFFFFF, 16), new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
-        final FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.TOP | Gravity.START);
-        plp.setMargins(dp(8), dp(8), 0, 0);
-        card.addView(play, plp);
+            final View scrim = new View(TemplateBrowserActivity.this);
+            scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00000000, 0xCC000000}));
+            card.addView(scrim, new FrameLayout.LayoutParams(-1, dp(72), Gravity.BOTTOM));
 
-        if (r.uses > 0) {
-            final LinearLayout pill = new LinearLayout(this);
+            final FrameLayout play = new FrameLayout(TemplateBrowserActivity.this);
+            play.setBackground(oval(0x66000000));
+            play.addView(icon(R.drawable.ic_status_card_play, 0xFFFFFFFF, 16), new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+            final FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.TOP | Gravity.START);
+            plp.setMargins(dp(8), dp(8), 0, 0);
+            card.addView(play, plp);
+
+            // v785: multi-scene badge under the play mark
+            sceneChip = new LinearLayout(TemplateBrowserActivity.this);
+            sceneChip.setOrientation(LinearLayout.HORIZONTAL);
+            sceneChip.setGravity(Gravity.CENTER_VERTICAL);
+            sceneChip.setPadding(dp(6), dp(4), dp(8), dp(4));
+            sceneChip.setBackground(round(0x66000000, 12));
+            sceneChip.addView(icon(R.drawable.ic_layout_grid_2x2, 0xFFFFFFFF, 12));
+            sceneTx = text("", 10f, 0xFFFFFFFF, true);
+            sceneTx.setPadding(dp(3), 0, 0, 0);
+            sceneChip.addView(sceneTx);
+            sceneChip.setVisibility(View.GONE);
+            final FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+            slp.setMargins(dp(8), dp(44), 0, 0);
+            card.addView(sceneChip, slp);
+
+            // top-right column: uses pill (only when > 0) + heart
+            final LinearLayout col = new LinearLayout(TemplateBrowserActivity.this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setGravity(Gravity.END);
+            pill = new LinearLayout(TemplateBrowserActivity.this);
             pill.setOrientation(LinearLayout.HORIZONTAL);
             pill.setGravity(Gravity.CENTER_VERTICAL);
             pill.setPadding(dp(7), dp(5), dp(9), dp(5));
             pill.setBackground(round(0x66000000, 14));
             pill.addView(icon(R.drawable.ic_sound_flame_outline, 0xFFFF7A1A, 13));
-            final TextView ut = text(compact(r.uses), 11f, 0xFFFFFFFF, true);
-            ut.setPadding(dp(3), 0, 0, 0);
-            pill.addView(ut);
-            final FrameLayout.LayoutParams ulp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-            ulp.setMargins(0, dp(8), dp(8), 0);
-            card.addView(pill, ulp);
+            usesTx = text("", 11f, 0xFFFFFFFF, true);
+            usesTx.setPadding(dp(3), 0, 0, 0);
+            pill.addView(usesTx);
+            col.addView(pill, new LinearLayout.LayoutParams(-2, -2));
+            heart = new FrameLayout(TemplateBrowserActivity.this);
+            heart.setBackground(oval(0x66000000));
+            heartIc = icon(R.drawable.ic_heart, 0xFFFFFFFF, 15);
+            heart.addView(heartIc, new FrameLayout.LayoutParams(dp(15), dp(15), Gravity.CENTER));
+            heart.setOnClickListener(v -> { if (row != null) toggleSave(row); });
+            final LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(dp(30), dp(30));
+            hlp.topMargin = dp(8);
+            col.addView(heart, hlp);
+            final FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+            clp.setMargins(0, dp(8), dp(8), 0);
+            card.addView(col, clp);
+
+            final LinearLayout foot = new LinearLayout(TemplateBrowserActivity.this);
+            foot.setOrientation(LinearLayout.HORIZONTAL);
+            foot.setGravity(Gravity.CENTER_VERTICAL);
+            nm = text("", 12f, 0xFFFFFFFF, true);
+            nm.setSingleLine(true);
+            nm.setEllipsize(TextUtils.TruncateAt.END);
+            foot.addView(nm, new LinearLayout.LayoutParams(0, -2, 1f));
+            pc = text("", 11f, 0xFFFFFFFF, true);
+            foot.addView(pc);
+            foot.setPadding(dp(10), 0, dp(10), dp(10));
+            card.addView(foot, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+            card.setOnClickListener(v -> { if (row != null) open(row); });
         }
 
-        final boolean on = savedKeys.contains(r.key());
-        final FrameLayout heart = new FrameLayout(this);
-        heart.setBackground(oval(0x66000000));
-        heart.addView(icon(on ? R.drawable.ic_heart_filled : R.drawable.ic_heart, on ? 0xFFFF4D6D : 0xFFFFFFFF, 15),
-                new FrameLayout.LayoutParams(dp(15), dp(15), Gravity.CENTER));
-        heart.setContentDescription(on ? "Saved se hatao" : "Template save karo");
-        heart.setOnClickListener(v -> toggleSave(r));
-        final FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.TOP | Gravity.END);
-        hlp.setMargins(0, dp(r.uses > 0 ? 38 : 8), dp(8), 0);
-        card.addView(heart, hlp);
+        void bind(Row r) {
+            row = r;
+            final boolean dead = r.blocked && mode == MODE_SAVED;
+            if (p.getDrawable() != r.preview) p.setImageDrawable(r.preview);
+            p.setAlpha(dead ? 0.45f : 1f);
 
-        final LinearLayout foot = new LinearLayout(this);
-        foot.setOrientation(LinearLayout.HORIZONTAL);
-        foot.setGravity(Gravity.CENTER_VERTICAL);
-        final boolean dead = r.blocked && mode == MODE_SAVED;
-        final TextView nm = text(dead ? getString(R.string.tpl_dead) : (r.mine ? getString(R.string.tpl_banner_title_mine)
-                : "@" + (ne(r.originName) ? r.originName : "user")), 12f, 0xFFFFFFFF, true);
-        nm.setSingleLine(true);
-        nm.setEllipsize(TextUtils.TruncateAt.END);
-        foot.addView(nm, new LinearLayout.LayoutParams(0, -2, 1f));
-        final String durTxt = TemplateSpec.formatDuration(r.dur());   // v769: duration badge ("" when the template has none)
-        final TextView pc = text(durTxt.isEmpty() ? String.valueOf(r.preview.photoCount())
-                : durTxt + " \u00B7 " + r.preview.photoCount(), 11f, 0xFFFFFFFF, true);
-        foot.addView(pc);
-        foot.setPadding(dp(10), 0, dp(10), dp(10));
-        card.addView(foot, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+            final boolean hasUses = r.uses > 0;
+            pill.setVisibility(hasUses ? View.VISIBLE : View.GONE);
+            if (hasUses) usesTx.setText(compact(r.uses));
+            ((LinearLayout.LayoutParams) heart.getLayoutParams()).topMargin = hasUses ? dp(8) : 0;
+            heart.requestLayout();
 
-        p.setAlpha(dead ? 0.45f : 1f);
-        card.setOnClickListener(v -> open(r));
-        return card;
+            final boolean on = savedKeys.contains(r.key());
+            heartIc.setImageResource(on ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+            ImageViewCompat.setImageTintList(heartIc, ColorStateList.valueOf(on ? 0xFFFF4D6D : 0xFFFFFFFF));
+            heart.setContentDescription(on ? getString(R.string.tpl_prev_unsave) : getString(R.string.tpl_prev_save));
+
+            nm.setText(dead ? getString(R.string.tpl_dead) : (r.mine ? getString(R.string.tpl_banner_title_mine)
+                    : "@" + (ne(r.originName) ? r.originName : "user")));
+            final String durTxt = TemplateSpec.formatDuration(r.dur());   // v769: duration badge ("" when the template has none)
+            final int photos = r.preview.photoCount();                    // v785: ALL scenes
+            pc.setText(durTxt.isEmpty() ? String.valueOf(photos) : durTxt + " \u00B7 " + photos);
+
+            final int scenes = r.preview.sceneCount();
+            sceneChip.setVisibility(scenes > 1 ? View.VISIBLE : View.GONE);
+            if (scenes > 1) {
+                sceneTx.setText(String.valueOf(scenes));
+                sceneChip.setContentDescription(getString(R.string.tpl_card_scenes, scenes));
+            }
+        }
+    }
+
+    private View detached(View v) {
+        if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
+        v.setLayoutParams(new RecyclerView.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return v;
+    }
+
+    private View newSkeleton() {
+        final FrameLayout f = new FrameLayout(this);
+        f.setBackground(round(surface, 18));
+        clipRound(f, 18);
+        final int bar = dark ? 0x22FFFFFF : 0x14000000;
+        final View b1 = new View(this);
+        b1.setBackground(round(bar, 6));
+        final FrameLayout.LayoutParams l1 = new FrameLayout.LayoutParams(dp(54), dp(10), Gravity.BOTTOM | Gravity.START);
+        l1.setMargins(dp(10), 0, 0, dp(28));
+        f.addView(b1, l1);
+        final View b2 = new View(this);
+        b2.setBackground(round(bar, 6));
+        final FrameLayout.LayoutParams l2 = new FrameLayout.LayoutParams(dp(34), dp(8), Gravity.BOTTOM | Gravity.START);
+        l2.setMargins(dp(10), 0, 0, dp(12));
+        f.addView(b2, l2);
+        final View dot = new View(this);
+        dot.setBackground(oval(bar));
+        final FrameLayout.LayoutParams l3 = new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.TOP | Gravity.START);
+        l3.setMargins(dp(8), dp(8), 0, 0);
+        f.addView(dot, l3);
+        f.setLayoutParams(new RecyclerView.LayoutParams(-1, cellH()));
+        return f;
+    }
+
+    private final class GridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        @Override public int getItemCount() { return items.size(); }
+        @Override public int getItemViewType(int pos) { return items.get(pos).type; }
+        @Override public long getItemId(int pos) { return items.get(pos).id; }
+
+        @NonNull @Override public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int type) {
+            if (type == T_HEADER) return new StaticHolder(detached(headerBox));
+            if (type == T_FOOTER) return new StaticHolder(detached(footerBox));
+            if (type == T_SKEL) return new SkelHolder(newSkeleton());
+            final FrameLayout card = new FrameLayout(TemplateBrowserActivity.this);
+            card.setLayoutParams(new RecyclerView.LayoutParams(-1, cellH()));
+            return new CardHolder(card);
+        }
+
+        @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
+            if (h instanceof CardHolder) ((CardHolder) h).bind(items.get(pos).row);
+        }
+
+        @Override public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder h) {
+            if (h instanceof SkelHolder) ((SkelHolder) h).start();
+        }
+
+        @Override public void onViewDetachedFromWindow(@NonNull RecyclerView.ViewHolder h) {
+            if (h instanceof SkelHolder) ((SkelHolder) h).stop();
+        }
     }
 
     // ── actions ──────────────────────────────────────────────────────────────
@@ -951,7 +1344,7 @@ public class TemplateBrowserActivity extends AppCompatActivity {
         previewRow = r;
         final Intent i = new Intent(this, TemplatePreviewActivity.class);
         i.putExtra(TemplatePreviewActivity.EXTRA_TPL_JSON, r.tplJson);
-        if (ne(r.stickersJson) && r.stickersJson.length() < 100_000) i.putExtra(TemplatePreviewActivity.EXTRA_STICKERS_JSON, r.stickersJson);
+        TemplatePayloadStore.put(i, TemplatePreviewActivity.EXTRA_STICKERS_JSON, r.stickersJson);
         i.putExtra(TemplatePreviewActivity.EXTRA_OWNER_UID, r.originUid);
         i.putExtra(TemplatePreviewActivity.EXTRA_STATUS_ID, r.originId);
         i.putExtra(TemplatePreviewActivity.EXTRA_OWNER_NAME, r.originName != null ? r.originName : "");
@@ -984,14 +1377,14 @@ public class TemplateBrowserActivity extends AppCompatActivity {
             TemplateActions.unsave(r.originUid, r.originId);
             savedKeys.remove(k);
             saved.remove(k);
-            Toast.makeText(this, "Saved se hata diya", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.tpl_act_unsaved_toast), Toast.LENGTH_SHORT).show();
         } else if (TemplateActions.save(r.originUid, r.originId, r.originName, r.tplJson, r.stickersJson)) {
             r.savedTs = System.currentTimeMillis();
             savedKeys.add(k);
             saved.put(k, r);
-            Toast.makeText(this, "Template save ho gaya", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.tpl_act_saved_toast), Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(this, "Ye template save nahi ho paya", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.tpl_act_save_failed), Toast.LENGTH_SHORT).show();
         }
         rebuild();
     }

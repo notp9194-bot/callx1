@@ -77,6 +77,15 @@ public class TemplatePreviewActivity extends AppCompatActivity {
 
     private TemplatePreviewDrawable preview;
     private ValueAnimator loop;
+    // v785: sample-picture timeline (scenes / animations) + music
+    private int[] sceneStartMs;
+    private int cycleMs;
+    private TextView sceneChipTx;
+    private LinearLayout musicChip;
+    private android.media.MediaPlayer mp;
+    private boolean mpReady, muted, musicResolved;
+    private String musicUrl;
+    private int musicStartMs, musicEndMs;
     private View playBadge;
     private ImageView saveIcon;
     private TextView usesText, followBtn, avatarInitial;
@@ -86,7 +95,7 @@ public class TemplatePreviewActivity extends AppCompatActivity {
         super.onCreate(b);
         final Intent in = getIntent();
         json = in.getStringExtra(EXTRA_TPL_JSON);
-        stickers = in.getStringExtra(EXTRA_STICKERS_JSON);
+        stickers = TemplatePayloadStore.get(in, EXTRA_STICKERS_JSON);
         ownerUid = in.getStringExtra(EXTRA_OWNER_UID);
         statusId = in.getStringExtra(EXTRA_STATUS_ID);
         ownerName = in.getStringExtra(EXTRA_OWNER_NAME);
@@ -96,7 +105,7 @@ public class TemplatePreviewActivity extends AppCompatActivity {
         final String me = FirebaseUtils.getCurrentUid();
         mine = ne(me) && me.equals(ownerUid);
         if (preview == null || !ne(ownerUid) || !ne(statusId)) {
-            Toast.makeText(this, "Template ab available nahi hai", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.tpl_act_unavailable), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -124,6 +133,10 @@ public class TemplatePreviewActivity extends AppCompatActivity {
         wic.setAppearanceLightStatusBars(false);
         wic.setAppearanceLightNavigationBars(!dark);
 
+        preview.setSampleMode(true);    // v785: real filter / animation on sample pictures instead of empty dotted boxes
+        preview.setFocusPhase(-1f);
+        buildTimeline();
+        resolveMusic();
         refreshUses();
         if (!mine) { loadCreator(); loadFollowState(); }
         startLoop();
@@ -141,6 +154,7 @@ public class TemplatePreviewActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         stopLoop();
+        releaseMusic();
         super.onDestroy();
     }
 
@@ -256,11 +270,21 @@ public class TemplatePreviewActivity extends AppCompatActivity {
         }
         final String song = musicName();
         if (song != null) {
-            final LinearLayout chip = chip(R.drawable.ic_music_note, song.isEmpty() ? getString(R.string.tpl_prev_music) : song);
+            final LinearLayout chip = chip(R.drawable.ic_volume_on, song.isEmpty() ? getString(R.string.tpl_prev_music) : song);
             ((TextView) chip.getChildAt(1)).setMaxWidth(dp(110));
+            musicChip = chip;
+            chip.setContentDescription(getString(R.string.tpl_prev_mute));
+            chip.setOnClickListener(v -> toggleMute());
             final FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
             lp.setMargins(0, 0, dp(12), dp(12));
             holder.addView(chip, lp);
+        }
+        if (preview.sceneCount() > 1) {
+            final LinearLayout sc = chip(R.drawable.ic_layout_grid_2x2, "");
+            sceneChipTx = (TextView) sc.getChildAt(1);
+            final FrameLayout.LayoutParams slp2 = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+            slp2.setMargins(dp(12), dp(12), 0, 0);
+            holder.addView(sc, slp2);
         }
         holder.setOnClickListener(v -> togglePlay());
         holder.setContentDescription(getString(R.string.tpl_prev_play_pause));
@@ -403,6 +427,7 @@ public class TemplatePreviewActivity extends AppCompatActivity {
         final GradientDrawable cg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{PURPLE_LIGHT, PURPLE});
         cg.setCornerRadius(dp(27));
         cta.setBackground(cg);
+        useCta = cta;
         cta.setOnClickListener(v -> useTemplate());
         final LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, dp(54));
         clp.setMargins(0, dp(20), 0, 0);
@@ -564,29 +589,64 @@ public class TemplatePreviewActivity extends AppCompatActivity {
         setResult(RESULT_OK, new Intent().putExtra(RESULT_SAVED, saved));
     }
 
+    private TextView useCta;
+
     private void useTemplate() {
+        // feedback: button looks busy while the owner's switch is being checked (and can't be double-tapped);
+        // it comes back enabled when the composer did not open, so a failed attempt is just tapped again
+        if (useCta != null) { useCta.setEnabled(false); useCta.setAlpha(0.6f); }
         // re-checks the owner's reuse switch / removal; the Preview closes only when the composer really opened
         TemplateActions.use(this, json, stickers, ownerUid, statusId, ownerName,
                 () -> launched = true,
-                () -> { if (launched) finish(); });
+                () -> {
+                    if (launched) { finish(); return; }
+                    if (useCta != null) { useCta.setEnabled(true); useCta.setAlpha(1f); }
+                });
     }
 
     // ── animated preview ─────────────────────────────────────────────────────
 
+    /** Scene start times + the length of one full cycle (a one-scene template: its longest box, at least 3 s). */
+    private void buildTimeline() {
+        final int n = preview.sceneCount();
+        sceneStartMs = new int[n];
+        int sum = 0;
+        for (int i = 0; i < n; i++) { sceneStartMs[i] = sum; sum += preview.sceneMs(i); }
+        if (n > 1) {
+            cycleMs = Math.max(1000, sum);
+        } else {
+            final int d = TemplateSpec.parse(json).displayMs();
+            cycleMs = Math.max(3000, Math.min(TemplateSpec.MAX_SCENE_MS, d > 0 ? d : 3000));
+            preview.setSceneMs(0, cycleMs);
+        }
+    }
+
+    private void showAt(int t) {
+        int sc = 0;
+        for (int i = 0; i < sceneStartMs.length; i++) if (t >= sceneStartMs[i]) sc = i;
+        preview.setScene(sc);
+        preview.setTimeMs(t - sceneStartMs[sc]);
+        if (sceneChipTx != null) sceneChipTx.setText(getString(R.string.tpl_prev_scene_n, sc + 1, preview.sceneCount()));
+    }
+
     private void startLoop() {
         if (loop != null || preview == null) return;
-        final int n = Math.max(1, preview.photoCount() - 1);   // photo boxes (base is not a box)
-        loop = ValueAnimator.ofFloat(0f, n);
-        loop.setDuration(LOOP_MS_PER_BOX * n);
+        loop = ValueAnimator.ofInt(0, cycleMs);
+        loop.setDuration(cycleMs);
         loop.setInterpolator(new LinearInterpolator());
         loop.setRepeatCount(ValueAnimator.INFINITE);
-        loop.addUpdateListener(a -> preview.setFocusPhase((float) a.getAnimatedValue()));
+        loop.addUpdateListener(a -> showAt((Integer) a.getAnimatedValue()));
+        loop.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationRepeat(android.animation.Animator an) { restartMusic(); }
+        });
         loop.start();
         if (playBadge != null) playBadge.setVisibility(View.GONE);
+        playMusic();
     }
 
     private void stopLoop() {
         if (loop != null) { loop.cancel(); loop = null; }
+        pauseMusic();
     }
 
     private void togglePlay() {
@@ -595,8 +655,100 @@ public class TemplatePreviewActivity extends AppCompatActivity {
             startLoop();
         } else {
             stopLoop();
-            preview.setFocusPhase(-1f);                      // static, all boxes at full strength
             if (playBadge != null) playBadge.setVisibility(View.VISIBLE);
         }
+    }
+
+    // ── music (v785) ─────────────────────────────────────────────────────────
+
+    /** soundUrl straight from the sticker, else soundId → sounds/{id} (same keys the status viewer uses). */
+    private void resolveMusic() {
+        if (!ne(stickers) || musicName() == null) return;
+        String id = "";
+        try {
+            final JSONArray a = new JSONArray(stickers);
+            for (int i = 0; i < a.length(); i++) {
+                final JSONObject o = a.optJSONObject(i);
+                if (o == null || !"music".equals(o.optString("type"))) continue;
+                musicUrl = o.optString("soundUrl", "").replace("\\/", "/");
+                id = o.optString("soundId", "");
+                musicStartMs = Math.max(0, o.optInt("startMs", 0));
+                musicEndMs = Math.max(0, o.optInt("endMs", 0));
+                break;
+            }
+        } catch (Exception ignored) { }
+        if (ne(musicUrl)) { prepareMusic(); return; }
+        if (!ne(id)) return;
+        try {
+            FirebaseUtils.db().getReference("sounds").child(id).get().addOnSuccessListener(sn -> {
+                if (isFinishing() || isDestroyed()) return;
+                for (String k : new String[]{"previewAudioUrl", "audioUrl", "audio_url", "url"}) {
+                    final String v = sn.child(k).getValue(String.class);
+                    if (ne(v)) { musicUrl = v; prepareMusic(); return; }
+                }
+            });
+        } catch (Exception ignored) { }
+    }
+
+    private void prepareMusic() {
+        if (musicResolved || !ne(musicUrl)) return;
+        musicResolved = true;
+        try {
+            final android.media.MediaPlayer p = new android.media.MediaPlayer();
+            mp = p;
+            p.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build());
+            p.setDataSource(musicUrl);
+            p.setOnPreparedListener(m -> {
+                if (mp != m) return;
+                mpReady = true;
+                applyVolume();
+                if (playing && loop != null) { seekMusic(); try { m.start(); } catch (Exception ignored) { } }
+            });
+            p.setOnCompletionListener(m -> { if (mp == m && playing && loop != null) { seekMusic(); try { m.start(); } catch (Exception ignored) { } } });
+            p.setOnErrorListener((m, w, e) -> { if (mp == m) { mpReady = false; } return true; });   // no sound is fine, the preview still plays
+            p.prepareAsync();
+        } catch (Exception e) {
+            releaseMusic();
+        }
+    }
+
+    private void seekMusic() {
+        try { if (mp != null && mpReady) mp.seekTo(musicStartMs); } catch (Exception ignored) { }
+    }
+
+    private void restartMusic() {
+        if (mp == null || !mpReady) return;
+        seekMusic();
+        try { if (!mp.isPlaying()) mp.start(); } catch (Exception ignored) { }
+    }
+
+    private void playMusic() {
+        if (mp == null || !mpReady) return;
+        try { if (!mp.isPlaying()) mp.start(); } catch (Exception ignored) { }
+    }
+
+    private void pauseMusic() {
+        try { if (mp != null && mpReady && mp.isPlaying()) mp.pause(); } catch (Exception ignored) { }
+    }
+
+    private void releaseMusic() {
+        if (mp != null) { try { mp.release(); } catch (Exception ignored) { } }
+        mp = null;
+        mpReady = false;
+    }
+
+    private void applyVolume() {
+        try { if (mp != null) mp.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); } catch (Exception ignored) { }
+        if (musicChip != null) {
+            ((ImageView) musicChip.getChildAt(0)).setImageResource(muted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+            musicChip.setContentDescription(getString(muted ? R.string.tpl_prev_unmute : R.string.tpl_prev_mute));
+        }
+    }
+
+    private void toggleMute() {
+        muted = !muted;
+        applyVolume();
     }
 }
