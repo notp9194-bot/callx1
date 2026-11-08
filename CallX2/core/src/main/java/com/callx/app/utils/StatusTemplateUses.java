@@ -15,6 +15,8 @@ public final class StatusTemplateUses {
     public static final int MAX_NAME = 120;
     /** Rules cap templateJson / templateStickersJson at 60000 chars. */
     public static final int MAX_JSON = 60_000;
+    /** v750: rules cap templateLayoutJson (reveal geometry on a status made from a template) at 8000 chars. */
+    public static final int MAX_LAYOUT_JSON = 8_000;
 
     private StatusTemplateUses() { }
 
@@ -42,6 +44,7 @@ public final class StatusTemplateUses {
             final String me = FirebaseUtils.getCurrentUid();
             if (!ne(ownerUid) || !ne(statusId) || !ne(me) || !me.equals(ownerUid)) return;
             FirebaseUtils.db().getReference("statusTemplateUses").child(ownerUid).child(statusId).removeValue();
+            FirebaseUtils.db().getReference("templateControl").child(ownerUid).child(statusId).removeValue(); // v750: no stale switch
         } catch (Exception ignored) { }
     }
 }

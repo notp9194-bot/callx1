@@ -32,8 +32,21 @@ public final class TemplatePreviewDrawable extends Drawable {
 
     private static final int MAX_BOXES = 12;
 
+    /** v747: every empty template box gets its own colour (dotted outline + "+" + tint) so boxes are told apart at a glance. */
+    private static final int[] SLOT_COLORS = {
+            0xFF4FC3F7, // sky blue
+            0xFFFFB74D, // orange
+            0xFFF06292, // pink
+            0xFF81C784, // green
+            0xFFBA68C8, // violet
+            0xFFFFF176  // yellow
+    };
+    /** @param index 0 = base photo, 1.. = boxes in template order */
+    public static int slotColor(int index) { return SLOT_COLORS[Math.floorMod(index, SLOT_COLORS.length)]; }
+
     // {cx, cy, w, h, rot} per photo box, fractions of the canvas (rot in degrees)
     private final float[][] boxes = new float[MAX_BOXES][5];
+    private final int[] shapes = new int[MAX_BOXES];   // v750: TemplateBoxStyle shape per box
     private int boxCount;
     private final float[] baseFit = new float[5];
     private boolean hasBaseFit;
@@ -72,6 +85,7 @@ public final class TemplatePreviewDrawable extends Drawable {
                     continue;
                 }
                 if (d.boxCount >= MAX_BOXES) break;
+                d.shapes[d.boxCount] = TemplateBoxStyle.fromJson(o).shape;
                 final float[] b = d.boxes[d.boxCount++];
                 b[0] = (float) o.optDouble("cx", 0.5);
                 b[1] = (float) o.optDouble("cy", 0.5);
@@ -113,7 +127,7 @@ public final class TemplatePreviewDrawable extends Drawable {
         fill.setColor(0x33FFFFFF);
         fill.setAlpha(Math.min(alpha, 0x55));
         if (hasBaseFit) {
-            drawBox(c, r, baseFit, fill, null, 0f, false);
+            drawBox(c, r, baseFit, fill, null, 0f, false, TemplateBoxStyle.ROUND);
         } else {
             tmp.set(r);
             c.drawRect(tmp, fill);
@@ -121,27 +135,33 @@ public final class TemplatePreviewDrawable extends Drawable {
 
         // photo boxes
         stroke.setStrokeWidth(sw * 0.7f);
-        stroke.setColor(0xEEFFFFFF);
-        stroke.setAlpha(alpha);
         stroke.setPathEffect(new DashPathEffect(new float[]{sw * 1.8f, sw * 1.2f}, 0f));
         plus.setStrokeWidth(Math.max(1f, sw * 0.6f));
-        plus.setColor(0xFFFFFFFF);
-        plus.setAlpha(Math.min(alpha, 0xCC));
-        fill.setColor(0x44FFFFFF);
-        fill.setAlpha(Math.min(alpha, 0x66));
-        for (int i = 0; i < boxCount; i++) drawBox(c, r, boxes[i], fill, stroke, corner * 0.45f, true);
+        for (int i = 0; i < boxCount; i++) {
+            final int col = slotColor(i + 1);          // same colour the composer gives this box
+            stroke.setColor(col); stroke.setAlpha(alpha);
+            plus.setColor(col);   plus.setAlpha(alpha);
+            fill.setColor(col);   fill.setAlpha(Math.min(alpha, 0x55));
+            drawBox(c, r, boxes[i], fill, stroke, corner * 0.45f, true, shapes[i]);
+        }
         c.restoreToCount(save);
     }
 
-    private void drawBox(Canvas c, Rect r, float[] b, Paint fillP, @Nullable Paint strokeP, float rad, boolean withPlus) {
+    private void drawBox(Canvas c, Rect r, float[] b, Paint fillP, @Nullable Paint strokeP, float rad, boolean withPlus, int shape) {
         final float w = r.width(), h = r.height();
         final float bw = Math.max(w * 0.08f, b[2] * w), bh = Math.max(h * 0.05f, b[3] * h);
         final float cx = r.left + b[0] * w, cy = r.top + b[1] * h;
         final int s = c.save();
         c.rotate(b[4], cx, cy);
         tmp.set(cx - bw / 2f, cy - bh / 2f, cx + bw / 2f, cy + bh / 2f);
-        c.drawRoundRect(tmp, rad, rad, fillP);
-        if (strokeP != null) c.drawRoundRect(tmp, rad, rad, strokeP);
+        if (shape == TemplateBoxStyle.ROUND) {
+            c.drawRoundRect(tmp, rad, rad, fillP);
+            if (strokeP != null) c.drawRoundRect(tmp, rad, rad, strokeP);
+        } else {   // v750: square / circle / heart / arch
+            final android.graphics.Path sp = TemplateBoxStyle.path(shape, tmp);
+            c.drawPath(sp, fillP);
+            if (strokeP != null) c.drawPath(sp, strokeP);
+        }
         if (withPlus) {
             final float arm = Math.min(bw, bh) * 0.18f;
             c.drawLine(cx - arm, cy, cx + arm, cy, plus);

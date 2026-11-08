@@ -977,6 +977,13 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="callx" android:host="status"/>
             </intent-filter>
+            <!-- v750: callx://template/{ownerUid}/{statusId} (the https link is covered by the host filter above) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="callx" android:host="template"/>
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>

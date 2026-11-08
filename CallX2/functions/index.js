@@ -443,6 +443,11 @@ exports.cleanupExpiredStatusReplies = functions.pubsub
         if (exp + GRACE >= now) return;                   // still live / inside grace
 
         updates[`status/${ownerSnap.key}/${statusSnap.key}`] = null; // whole record incl. replies
+        // v752: template side-nodes of this status die with it (who-used list, owner switch, reports).
+        // savedTemplates/{uid} is NOT touched — saved snapshots are meant to outlive the 24h status.
+        updates[`statusTemplateUses/${ownerSnap.key}/${statusSnap.key}`] = null;
+        updates[`templateControl/${ownerSnap.key}/${statusSnap.key}`] = null;
+        updates[`templateReports/${ownerSnap.key}/${statusSnap.key}`] = null;
         removed++;
       });
     });

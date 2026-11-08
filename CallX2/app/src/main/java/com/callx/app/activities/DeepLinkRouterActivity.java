@@ -38,6 +38,7 @@ import com.callx.app.viewer.StatusViewerActivity;
  *
  * STATUS
  *   /status/{uid}           → StatusViewerActivity
+ *   /template/{uid}/{id}    → TemplateLinkActivity (opens the photo template; also callx://template/{uid}/{id})
  *
  * APP SECTIONS (no param needed)
  *   /chats                  → MainActivity TAB_CHATS
@@ -74,6 +75,8 @@ public class DeepLinkRouterActivity extends AppCompatActivity {
 
     private void route(Uri uri) {
         String path = uri.getPath();          // e.g. "/u/uid123"
+        // v750: callx://template/{owner}/{id} carries the section as the HOST → normalise to the https path form
+        if ("callx".equals(uri.getScheme()) && "template".equals(uri.getHost())) path = "/template" + (path == null ? "" : path);
         if (path == null || path.isEmpty()) { goHome(); return; }
 
         // Remove leading slash and split
@@ -179,6 +182,16 @@ public class DeepLinkRouterActivity extends AppCompatActivity {
                 if (param1.isEmpty()) { goHome(); return; }
                 Intent i = new Intent(this, StatusViewerActivity.class);
                 i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID, param1);
+                startActivity(i);
+                break;
+            }
+
+            // ── TEMPLATE LINK (v750) ──────────────────────────────────────
+            case "template": {
+                if (param1.isEmpty() || param2.isEmpty()) { goHome(); return; }
+                Intent i = new Intent(this, com.callx.app.compose.TemplateLinkActivity.class);
+                i.putExtra(com.callx.app.compose.TemplateLinkActivity.EXTRA_OWNER_UID, param1);
+                i.putExtra(com.callx.app.compose.TemplateLinkActivity.EXTRA_STATUS_ID, param2);
                 startActivity(i);
                 break;
             }

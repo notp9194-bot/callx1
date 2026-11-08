@@ -2523,13 +2523,25 @@ public class StatusStickerOverlayView extends LinearLayout {
         v.mentionUsername = username;
 
         TextView tvAt = new TextView(ctx);
-        tvAt.setText("👤");
+        // v749: optional "prefix" (e.g. "Template by") shown before @username — the credit sticker of a template reuse
+        final String mentionPrefix = jsonStr(json, "prefix", "");
+        tvAt.setText(mentionPrefix.isEmpty() ? "👤" : "✨");
         tvAt.setTextSize(16);
         LinearLayout.LayoutParams atLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         atLp.rightMargin = dp * 8;
         v.addView(tvAt, atLp);
 
+        if (!mentionPrefix.isEmpty()) {
+            TextView tvPrefix = new TextView(ctx);
+            tvPrefix.setText(mentionPrefix);
+            tvPrefix.setTextColor(0xFFFFFFFF);
+            tvPrefix.setTextSize(13);
+            LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            pLp.rightMargin = dp * 5;
+            v.addView(tvPrefix, pLp);
+        }
         TextView tvUsername = new TextView(ctx);
         tvUsername.setText("@" + username);
         tvUsername.setTextColor(0xFF3D9BE9);

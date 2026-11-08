@@ -168,6 +168,8 @@ public class StatusItem {
     public String templateJson;
     /** v740: set on a status made FROM a template — who/what it came from ("Template by @name"). */
     public String templateFromUid, templateFromId, templateFromName;
+    /** v750: slot geometry (a copy of the template's templateJson, ≤ 8000 chars) kept on a status made FROM a template so the viewer can play the box-by-box reveal. Never makes the status a usable template. */
+    public String templateLayoutJson;
 
     // ── Link preview ──────────────────────────────────────────────────
     public String linkUrl;
@@ -400,6 +402,9 @@ public class StatusItem {
             m.put("templateFromUid", templateFromUid); m.put("templateFromId", templateFromId);
             if (templateFromName != null) m.put("templateFromName", com.callx.app.utils.StatusTemplateUses.capName(templateFromName));
         }
+        if (templateLayoutJson != null && !templateLayoutJson.isEmpty()
+                && templateLayoutJson.length() <= com.callx.app.utils.StatusTemplateUses.MAX_LAYOUT_JSON)
+            m.put("templateLayoutJson", templateLayoutJson);
         if (linkUrl != null)          m.put("linkUrl", linkUrl);
         if (linkTitle != null)        m.put("linkTitle", linkTitle);
         if (linkDescription != null)  m.put("linkDescription", linkDescription);

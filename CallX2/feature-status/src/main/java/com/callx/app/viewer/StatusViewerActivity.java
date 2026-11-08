@@ -1365,6 +1365,7 @@ import com.callx.app.utils.AlertDialogStyler;
           applyReshareCardMode(s);
           renderStickers(s);
           renderTemplateChip(s);
+          playTemplateReveal(s); // v750
           deferAfterFirstFrame(seq, this::prefetchNextImage);
 
           // ── Reshare attribution card ─────────────────────────────────────
@@ -3731,8 +3732,8 @@ import com.callx.app.utils.AlertDialogStyler;
                   if ("music".equals(sticker.getStickerType())) {
                       // Always tappable now: retry (failed) / sound page (linked) / "Original audio" sheet.
                       armStickerZoomGate(sticker, () -> onMusicStickerTapped(sticker));
-                      // On a repost card the sticker shrinks with the card (fitK kept); small min-bump for readability.
-                      if (reshareCardActive) sticker.applyViewerScale(Math.max(sticker.getStickerScale(), 1.1f)); // keeps fitK → shrinks with card
+                      // v748: on a repost card the music sticker keeps the poster's own size x fitK (card width / canvas width),
+                      // exactly like every other sticker. The old "min 1.1x readability bump" made it look bigger than the original.
                   }
 
                   if ("countdown".equals(sticker.getStickerType())
@@ -4140,8 +4141,31 @@ import com.callx.app.utils.AlertDialogStyler;
               box.addView(chip, new android.widget.LinearLayout.LayoutParams(
                       android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
 
+              final long[] usesN = {0L};   // v750: filled by the counter read below, shown in the owner sheet
+              final Runnable ownerSheet = () -> com.callx.app.compose.TemplateActions.showOwnerSheet(
+                      StatusViewerActivity.this, originId, usesN[0], this::pauseProgress, this::resumeProgress,
+                      () -> box.setVisibility(View.GONE));
               if (isTemplate && !mine) box.setOnClickListener(v -> launchTemplateComposer(item, originUid, originId, originName));
+              else if (isTemplate) box.setOnClickListener(v -> ownerSheet.run());   // v750: owner → control sheet (also with 0 uses)
               else if (fromTemplate) box.setOnClickListener(v -> openOriginalTemplate(item));
+              if (isTemplate) {   // v750: "⋯" → save / chat / link / report (owner: same control sheet)
+                  final android.widget.TextView more = new android.widget.TextView(this);
+                  more.setText("\u22EF");
+                  more.setTextColor(0xFFFFFFFF);
+                  more.setTextSize(20f);
+                  more.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                  more.setGravity(Gravity.CENTER);
+                  more.setPadding(dpToPx(12), 0, dpToPx(2), 0);
+                  more.setContentDescription("Template options");
+                  more.setOnClickListener(v -> {
+                      if (mine) ownerSheet.run();
+                      else com.callx.app.compose.TemplateActions.showViewerSheet(StatusViewerActivity.this, item,
+                              originUid, originId, originName, this::pauseProgress, this::resumeProgress);
+                  });
+                  box.addView(more, new android.widget.LinearLayout.LayoutParams(
+                          android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.MATCH_PARENT));
+                  box.setPadding(dpToPx(10), dpToPx(7), dpToPx(10), dpToPx(7));
+              }
               final FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                       FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                       Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
@@ -4165,6 +4189,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           .addListenerForSingleValueEvent(new ValueEventListener() {
                       @Override public void onDataChange(DataSnapshot snap) {
                           final long n = snap.getChildrenCount();
+                          usesN[0] = n;
                           if (n > 0 && box.getParent() != null) chip.setText(baseLabel + "  \u2022  " + n + " used");
                       }
                       @Override public void onCancelled(DatabaseError e) { }
@@ -4197,17 +4222,75 @@ import com.callx.app.utils.AlertDialogStyler;
       private void launchTemplateComposer(StatusItem item, String fromUid, String fromId, String fromName) {
           if (isFinishing() || isDestroyed() || item == null || item.templateJson == null) return;
           try {
-              Intent intent = new Intent(this, com.callx.app.compose.NewStatusActivity.class);
-              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_JSON, item.templateJson);
-              if (item.stickersJson != null && !item.stickersJson.isEmpty() && item.stickersJson.length() < 100_000)
-                  intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_STICKERS_JSON, item.stickersJson);
-              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_FROM_UID, fromUid);
-              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_FROM_ID, fromId);
-              intent.putExtra(com.callx.app.compose.NewStatusActivity.EXTRA_TEMPLATE_FROM_NAME, fromName);
-              pauseProgress();
-              startActivity(intent); // onResume() resumes the progress bar when the viewer comes back
+              // v750: checks the owner's reuse switch / removal first, then opens the composer; onResume() resumes the story bar
+              com.callx.app.compose.TemplateActions.use(this, item.templateJson, item.stickersJson,
+                      fromUid, fromId, fromName, this::pauseProgress);
           } catch (Exception e) {
               CrashReporter.report(this, "StatusViewer.launchTemplate", e);
+          }
+      }
+
+      // ── v750: box-by-box reveal ──────────────────────────────────────────────
+      // A photo made from a template (templateLayoutJson) or the template itself (templateJson) opens with its photo boxes
+      // "closed" (dark box + dotted outline + "+") and lifts them one after another. The boxes are laid over the already
+      // visible photo using the saved slot geometry (fractions of the story canvas, same fit rect as renderTextOverlay).
+      // Once per status per viewer session; skipped when animations are off; never blocks touches.
+      private final java.util.HashSet<String> templateRevealed = new java.util.HashSet<>();
+
+      private void playTemplateReveal(final StatusItem item) {
+          try {
+              if (item == null || reshareCardActive || item.id == null || !"image".equals(item.type)) return;
+              final String json = item.templateJson != null && !item.templateJson.isEmpty() ? item.templateJson : item.templateLayoutJson;
+              if (json == null || json.isEmpty() || templateRevealed.contains(item.id)) return;
+              if (android.provider.Settings.Global.getFloat(getContentResolver(),
+                      android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) return;
+              final JSONArray slots = new JSONObject(json).getJSONArray("slots");
+              final java.util.ArrayList<JSONObject> boxes = new java.util.ArrayList<>();
+              for (int i = 0; i < slots.length() && boxes.size() < 6; i++) {
+                  final JSONObject o = slots.getJSONObject(i);
+                  if (!o.optBoolean("base", false)) boxes.add(o);
+              }
+              if (boxes.isEmpty()) return;
+              templateRevealed.add(item.id);
+              final int seq = showSeq;
+              final FrameLayout ov = stickerOverlay();
+              final Runnable build = () -> {
+                  if (isFinishing() || isDestroyed() || seq != showSeq) return;
+                  addTemplateReveal(ov, item, boxes);
+              };
+              if (ov.getWidth() > 0 && ov.getHeight() > 0) build.run(); else ov.post(build);
+          } catch (Exception ignored) { /* a bad layout just means no animation */ }
+      }
+
+      private void addTemplateReveal(final FrameLayout ov, StatusItem item, java.util.List<JSONObject> boxes) {
+          final float frameW = ov.getWidth() > 0 ? ov.getWidth() : binding.flStoryCard.getWidth();
+          final float frameH = ov.getHeight() > 0 ? ov.getHeight() : binding.flStoryCard.getHeight();
+          if (frameW <= 0 || frameH <= 0) return;
+          float fitW = frameW, fitH = frameH, left = 0f, top = 0f;
+          if (item.mediaWidth > 0 && item.mediaHeight > 0) {
+              final float f = Math.min(frameW / item.mediaWidth, frameH / item.mediaHeight);
+              fitW = item.mediaWidth * f;
+              fitH = item.mediaHeight * f;
+              left = (frameW - fitW) / 2f;
+              top = (frameH - fitH) / 2f;
+          }
+          for (int i = 0; i < boxes.size(); i++) {
+              final JSONObject o = boxes.get(i);
+              final int bw = Math.max(dpToPx(24), Math.round((float) o.optDouble("w", 0.5) * fitW));
+              final int bh = Math.max(dpToPx(24), Math.round((float) o.optDouble("h", 0.3) * fitH));
+              final com.callx.app.compose.TemplateRevealCover cover = new com.callx.app.compose.TemplateRevealCover(this,
+                      com.callx.app.compose.TemplateBoxStyle.fromJson(o).shape,
+                      com.callx.app.compose.TemplatePreviewDrawable.slotColor(i + 1));
+              final FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(bw, bh, Gravity.TOP | Gravity.START);
+              lp.leftMargin = Math.round(left + (float) o.optDouble("cx", 0.5) * fitW - bw / 2f);
+              lp.topMargin = Math.round(top + (float) o.optDouble("cy", 0.5) * fitH - bh / 2f);
+              ov.addView(cover, lp);
+              cover.setRotation((float) o.optDouble("rot", 0.0));
+              cover.animate().setStartDelay(450L + i * 280L).setDuration(420L)
+                      .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                      .alpha(0f).scaleX(1.12f).scaleY(1.12f)
+                      .withEndAction(() -> { if (cover.getParent() == ov) ov.removeView(cover); })
+                      .start();
           }
       }
 

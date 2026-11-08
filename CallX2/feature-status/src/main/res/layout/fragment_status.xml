@@ -189,4 +189,19 @@
         android:contentDescription="@string/status_scheduled_cd"
         android:visibility="visible"/>
 
+    <!-- v749: Templates shortcut (live photo templates from your tray) -->
+    <ImageButton
+        android:id="@+id/btn_status_templates"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="112dp"
+        android:layout_margin="16dp"
+        android:src="@drawable/ic_layer_plus"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"
+        android:tint="?attr/colorOnSurfaceVariant"
+        android:contentDescription="Templates"
+        android:visibility="visible"/>
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

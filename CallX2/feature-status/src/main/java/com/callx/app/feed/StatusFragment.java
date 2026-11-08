@@ -338,6 +338,12 @@ public class StatusFragment extends BaseFragment {
                 startActivity(new Intent(requireContext(),
                     com.callx.app.compose.StatusScheduledActivity.class)));
 
+        View btnTemplates = v.findViewById(R.id.btn_status_templates);
+        if (btnTemplates != null)
+            btnTemplates.setOnClickListener(x ->
+                startActivity(new Intent(requireContext(),
+                    com.callx.app.compose.TemplateBrowserActivity.class)));
+
         return v;
     }
 

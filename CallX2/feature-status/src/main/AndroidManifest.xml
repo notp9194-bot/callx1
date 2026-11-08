@@ -217,6 +217,22 @@
             android:theme="@style/Theme.CallX"
             android:exported="false"/>
 
+        <!-- v749: template browser (live templates from your tray) + "who used my template" list -->
+        <activity
+            android:name="com.callx.app.compose.TemplateBrowserActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+        <activity
+            android:name="com.callx.app.compose.TemplateUsesActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+        <!-- v750: template links (https …/template/{owner}/{statusId}) → straight into the template composer -->
+        <activity
+            android:name="com.callx.app.compose.TemplateLinkActivity"
+            android:theme="@style/Theme.CallX.Fullscreen.Translucent"
+            android:excludeFromRecents="true"
+            android:exported="false"/>
+
         <!-- v216: Multi-photo layout picker — WhatsApp-style story layout selector.
              Select up to 6 photos → MediaEditActivity.
              v222: Split into two real screens — this is now the pure

@@ -187,13 +187,33 @@ public class NewStatusActivity extends AppCompatActivity {
     /** Sticker-engine type of a photo added on top of the current media via the strip's "+" tile. */
     private static final String TYPE_PHOTO_LAYER = "photo_layer";
     private static final int MAX_PHOTO_LAYERS = 8;
+    /** v744: template = collage of 2..4 photos (base + up to 3 boxes). More boxes are too much for a viewer to fill. */
+    private static final int MAX_TEMPLATE_PHOTOS = 4;
     /** Picks extra photos that land ON TOP of the current media (adjustable layers). */
     private ActivityResultLauncher<String> layerPicker;
     // ── v738 photo-slot templates ──
     private ActivityResultLauncher<String> slotPicker;
     private boolean templateMode;                 // opened from "Use this template"
+    // v746: template text / music stay EXACTLY where the poster put them (centre ratios, re-applied on any re-layout)
+    // until the viewer moves / scales / rotates that sticker himself (gesture commit drops its anchor).
+    private final java.util.HashMap<StatusStickerOverlayView, float[]> templateAnchors = new java.util.HashMap<>(); // {cx, cy} 0..1
+    private StatusStickerOverlayView lastAddedSticker;
+    private boolean templateAnchorFrameListener;
+    private boolean templateTextRestored, templateTextHintShown; // v745: poster's text came along → tell the viewer it is editable
     private boolean makeTemplate;                 // poster toggled "Make template" on this status
+    // v750: box shapes / frames, locked or placeholder text, per-slot style on the viewer side
+    private final java.util.HashMap<StatusStickerOverlayView, TemplateBoxStyle> layerStyle = new java.util.HashMap<>(); // poster: style of each added photo layer
+    private final java.util.HashMap<StatusStickerOverlayView, Bitmap> layerSrcBmp = new java.util.HashMap<>();          // poster: original bitmap, to re-render on a style change
+    private final java.util.HashMap<StatusStickerOverlayView, TemplateBoxStyle> slotStyle = new java.util.HashMap<>(); // viewer: style of each template box
+    private int templateTextMode;                 // poster: 0 editable, 1 locked, 2 placeholder (saved as "tm")
+    private int tplTextMode;                      // viewer: the poster's "tm"
+    private boolean tplTextPending;               // viewer: placeholder text not replaced yet → Post stays disabled
+    private String tplPlaceholderText = "";
     private StatusStickerOverlayView pendingSlot; // slot the picker was opened for
+    // v751: smart fit (face-aware crop) + "auto-fill from recent photos"
+    private final java.util.HashSet<StatusStickerOverlayView> slotAuto = new java.util.HashSet<>(); // crop still auto (viewer has not adjusted it)
+    private java.util.concurrent.ExecutorService tplExec;                                           // face detection / recents query (off main thread)
+    private ActivityResultLauncher<String> autoFillPermLauncher;
     private int templateTries;
     private final java.util.ArrayList<StatusStickerOverlayView> templateSlots = new java.util.ArrayList<>();
     private final java.util.HashMap<StatusStickerOverlayView, android.animation.ObjectAnimator> slotPulse = new java.util.HashMap<>();
@@ -297,6 +317,12 @@ public class NewStatusActivity extends AppCompatActivity {
                 new ActivityResultContracts.RequestPermission(), granted -> {
                     if (granted) saveEditorPreviewToGallery();
                     else toast("Gallery permission denied");
+                });
+        // v751: "Auto-fill" pill needs read access to recent photos
+        autoFillPermLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(), granted -> {
+                    if (granted || hasImageReadAccess()) runAutoFill();
+                    else toast("Photos ki permission chahiye — ya box par tap karke gallery se chuno");
                 });
         // v543: @username suggestions under the status text + caption boxes
         try { com.callx.app.utils.MentionUi.attachAutocomplete(binding.etText); } catch (Exception ignored) {}
@@ -746,9 +772,14 @@ public class NewStatusActivity extends AppCompatActivity {
             binding.tvPillMention.setOnClickListener(v -> onStatusEditorTool("Mention", v));
         if (binding.tvPillTemplate != null)
             binding.tvPillTemplate.setOnClickListener(v -> {
-                makeTemplate = !makeTemplate;
-                if (makeTemplate) toast("Template on — viewers apni photos in boxes me daal payenge");
-                refreshMetaPills(); // v742: on → layout preview on the pill; off → preview cleared
+                if (templateMode) { autoFillFromRecents(); return; } // v751: in template mode this pill is "Auto-fill"
+                if (photoLayers.size() + 1 > MAX_TEMPLATE_PHOTOS) { toast("Template me max " + MAX_TEMPLATE_PHOTOS + " photos — extra photos hata do"); return; }
+                if (!makeTemplate) {
+                    makeTemplate = true;
+                    toast("Template on — viewers apni photos in boxes me daal payenge");
+                    refreshMetaPills(); // v742: on → layout preview on the pill
+                }
+                showTemplateOptionsSheet(); // v750: shape / frame / text rules (+ "turn off")
             });
         updateMediaLayerChrome();
     }
@@ -767,11 +798,21 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void refreshMetaPills() {
-        if (binding != null && binding.tvPillTemplate != null) {
+        if (binding != null && binding.tvPillTemplate != null && templateMode) {
+            // v751: viewer side — the pill becomes "Auto-fill N boxes" while any box is still empty
+            final int open = countOpenTemplateSlots();
+            binding.tvPillTemplate.setVisibility(open > 0 ? View.VISIBLE : View.GONE);
+            binding.tvPillTemplate.setText("\u2728 Auto-fill " + open + " box" + (open == 1 ? "" : "es") + " (recent photos)");
+            binding.tvPillTemplate.setAlpha(1f);
+            binding.tvPillTemplate.setCompoundDrawablesRelative(null, null, null, null);
+        } else if (binding != null && binding.tvPillTemplate != null) {
             final boolean show = !templateMode && pickedVideo == null && !photoLayers.isEmpty();
-            if (!show) makeTemplate = false;
+            final boolean tooMany = show && photoLayers.size() + 1 > MAX_TEMPLATE_PHOTOS; // base + layers
+            if (!show || tooMany) makeTemplate = false;
             binding.tvPillTemplate.setVisibility(show ? View.VISIBLE : View.GONE);
-            binding.tvPillTemplate.setText(makeTemplate ? "\u2713 Template on (tap to turn off)" : "Make template (viewers add own photos)");
+            binding.tvPillTemplate.setText(makeTemplate ? "\u2713 Template on (tap for options)"
+                    : tooMany ? "Template: max " + MAX_TEMPLATE_PHOTOS + " photos" : "Make template (viewers add own photos)");
+            binding.tvPillTemplate.setAlpha(tooMany ? 0.5f : 1f);
             // v742: tiny layout preview while the template is on; fully cleared when it is switched off / hidden
             TemplatePreviewDrawable pv = null;
             if (show && makeTemplate) pv = TemplatePreviewDrawable.fromJson(buildTemplateJson());
@@ -925,6 +966,8 @@ public class NewStatusActivity extends AppCompatActivity {
                 android.view.Gravity.CENTER));
         wireStickerEngine(sv);
         photoLayers.put(sv, uri);
+        layerSrcBmp.put(sv, bmp);                  // v750: kept so the poster can change the box shape / frame later
+        layerStyle.put(sv, new TemplateBoxStyle());
         sv.setOnStickerTappedListener(this::showStickerSizeBar);
         pushPresenceUndo(UA_ADD, sv, null, -1, null);   // add is undoable like every other layer
         restoreOverlayChrome();
@@ -1799,6 +1842,10 @@ public class NewStatusActivity extends AppCompatActivity {
     }
 
     private void showEditorTextDialog(boolean mentionOnly) {
+        if (templateMode && tplTextMode == 1 && editorTextOverlay != null) { // v750: poster locked the template text
+            toast("Poster ne ye text lock kiya hai");
+            return;
+        }
         // snapshot so Cancel / back restores the previous style
         final int sColor = editorTextColorIdx, sFont = editorTextFontIdx, sAlign = editorTextAlignIdx,
                 sBg = editorTextBgMode, sSize = editorTextSizeSp;
@@ -1966,6 +2013,11 @@ public class NewStatusActivity extends AppCompatActivity {
         applyEditorTextStyle(editorTextOverlay);
         editorTextOverlay.setText(text);
         editorTextOverlay.setVisibility(View.VISIBLE);
+        if (templateMode && tplTextPending && !text.equals(tplPlaceholderText)) { // v750: placeholder replaced by the viewer's own text
+            tplTextPending = false;
+            if (editorTextSticker != null) editorTextSticker.setAlpha(1f);
+            refreshTemplateGate();
+        }
         if (editorToolRail != null) editorToolRail.bringToFront();
         if (editorDrawBar != null && editorDrawBar.getVisibility() == View.VISIBLE) editorDrawBar.bringToFront();
     }
@@ -2764,6 +2816,7 @@ public class NewStatusActivity extends AppCompatActivity {
         lp.topMargin = (stickerStackBottomPx < 0) ? dp(16) : (stickerStackBottomPx + gap);
         if (replacedTopMargin >= 0) lp.topMargin = replacedTopMargin; // replaced music sticker → same spot
         stickerOverlayFrame.addView(stickerView, lp);
+        lastAddedSticker = stickerView;
         if (editorToolRail != null) editorToolRail.bringToFront();
 
         // Enable drag + pinch/twist/pan + corner handle + drag-to-trash (v649 engine)
@@ -2818,7 +2871,10 @@ public class NewStatusActivity extends AppCompatActivity {
     private void wireStickerEngine(final StatusStickerOverlayView stickerView) {
         stickerView.attachDragToParent(stickerOverlayFrame);
         stickerView.setAutoRaiseOnTouch(false); // z-order is explicit now: ⬆ / ⬇ in the sticker bar
-        stickerView.setOnTransformCommittedListener((sv, before, after) -> pushStickerUndo(sv, before, after));
+        stickerView.setOnTransformCommittedListener((sv, before, after) -> {
+            templateAnchors.remove(sv);              // v746: the viewer moved/scaled/rotated it → no more template anchoring
+            pushStickerUndo(sv, before, after);
+        });
         stickerView.setOnStickerRemovedListener(this::onStickerRemovedFromCanvas);
         final boolean[] stickerInSafe = {true};
         stickerView.setOnStickerDragListener(new StatusStickerOverlayView.OnStickerDragListener() {
@@ -3314,6 +3370,7 @@ public class NewStatusActivity extends AppCompatActivity {
     private void toggleStickerLock() {
         com.callx.app.stickers.StatusStickerOverlayView s = selectedSticker;
         if (s == null) return;
+        if (templateMode && tplTextMode == 1 && s == editorTextSticker) { toast("Poster ne ye text lock kiya hai"); return; } // v750
         s.setLocked(!s.isLocked());
         s.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
         refreshStickerBar(s);
@@ -4780,6 +4837,207 @@ public class NewStatusActivity extends AppCompatActivity {
     // placed and every photo replaced by an empty "+" box; the post button waits until all boxes are filled.
     // ══════════════════════════════════════════════════════════════════════
 
+    // ── v750: poster's "Template options" sheet — box shape / frame per box, text rule, turn off ──
+
+    private interface PickCb { void pick(int idx); }
+
+    /** Photo layers in z-order — the same ones buildTemplateJson() turns into boxes. */
+    private java.util.ArrayList<StatusStickerOverlayView> templatePhotoLayers() {
+        final java.util.ArrayList<StatusStickerOverlayView> out = new java.util.ArrayList<>();
+        if (stickerOverlayFrame == null) return out;
+        for (int i = 0; i < stickerOverlayFrame.getChildCount(); i++) {
+            final View c = stickerOverlayFrame.getChildAt(i);
+            if (isPhotoLayerView(c) && c.getWidth() > 0 && !((StatusStickerOverlayView) c).isRemoving())
+                out.add((StatusStickerOverlayView) c);
+        }
+        return out;
+    }
+
+    private TemplateBoxStyle styleOfLayer(StatusStickerOverlayView sv) {
+        TemplateBoxStyle st = layerStyle.get(sv);
+        if (st == null) { st = new TemplateBoxStyle(); layerStyle.put(sv, st); }
+        return st;
+    }
+
+    /** Re-draws one added photo in its (new) shape / frame — what the poster sees is what gets baked. */
+    private void restyleLayer(StatusStickerOverlayView sv) {
+        final Bitmap src = layerSrcBmp.get(sv);
+        final View c = sv.getChildCount() > 0 ? sv.getChildAt(0) : null;
+        if (src == null || !(c instanceof ImageView)) return;
+        ((ImageView) c).setImageBitmap(styleOfLayer(sv).render(src));
+    }
+
+    private void showTemplateOptionsSheet() {
+        final java.util.ArrayList<StatusStickerOverlayView> layers = templatePhotoLayers();
+        if (layers.isEmpty()) { toast("Pehle koi photo add karo"); return; }
+        final android.util.TypedValue tv = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true);
+        final boolean dark = androidx.core.graphics.ColorUtils.calculateLuminance(tv.data) < 0.5;
+        final int textC = dark ? 0xFFFFFFFF : 0xFF111111, subC = dark ? 0xAAFFFFFF : 0x99000000;
+
+        final BottomSheetDialog sheet = new BottomSheetDialog(this);
+        final android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(24));
+        scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
+
+        final Runnable[] populate = new Runnable[1];
+        populate[0] = () -> {
+            root.removeAllViews();
+            final TextView title = new TextView(this);
+            title.setText("Template options");
+            title.setTextSize(18f);
+            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            title.setTextColor(textC);
+            root.addView(title);
+
+            // ── box shape: "all" + one row per box
+            int common = -2;
+            for (StatusStickerOverlayView sv : layers) {
+                final int sh = styleOfLayer(sv).shape;
+                common = common == -2 ? sh : (common == sh ? sh : -1);
+            }
+            addOptionLabel(root, "Box shape", -1, textC);
+            addChipRow(root, TemplateBoxStyle.LABELS, common, dark, idx -> {
+                for (StatusStickerOverlayView sv : layers) { styleOfLayer(sv).shape = idx; restyleLayer(sv); }
+                refreshMetaPills();
+                populate[0].run();
+            });
+            for (int i = 0; i < layers.size(); i++) {
+                final StatusStickerOverlayView sv = layers.get(i);
+                addOptionLabel(root, "Box " + (i + 1), TemplatePreviewDrawable.slotColor(i + 1), subC);
+                addChipRow(root, TemplateBoxStyle.LABELS, styleOfLayer(sv).shape, dark, idx -> {
+                    styleOfLayer(sv).shape = idx; restyleLayer(sv);
+                    refreshMetaPills();
+                    populate[0].run();
+                });
+            }
+
+            // ── frame (all boxes)
+            int frame = -2;
+            for (StatusStickerOverlayView sv : layers) {
+                final TemplateBoxStyle st = styleOfLayer(sv);
+                final int f = (st.border ? 1 : 0) + (st.shadow ? 2 : 0);
+                frame = frame == -2 ? f : (frame == f ? f : -1);
+            }
+            addOptionLabel(root, "Frame", -1, textC);
+            addChipRow(root, new String[]{"None", "Border", "Shadow", "Border + Shadow"}, frame, dark, idx -> {
+                for (StatusStickerOverlayView sv : layers) {
+                    final TemplateBoxStyle st = styleOfLayer(sv);
+                    st.border = idx == 1 || idx == 3;
+                    st.shadow = idx == 2 || idx == 3;
+                    restyleLayer(sv);
+                }
+                refreshMetaPills();
+                populate[0].run();
+            });
+
+            // ── text rule (only when this status has a text layer)
+            addOptionLabel(root, "Text", -1, textC);
+            if (editorTextOverlay != null && !editorTextOverlay.getText().toString().trim().isEmpty()) {
+                addChipRow(root, new String[]{"Editable", "Locked", "Placeholder"}, templateTextMode, dark, idx -> {
+                    templateTextMode = idx;
+                    populate[0].run();
+                });
+                final TextView hint = new TextView(this);
+                hint.setTextSize(12f);
+                hint.setTextColor(subC);
+                hint.setPadding(0, dp(6), 0, 0);
+                hint.setText(templateTextMode == 1 ? "Text fixed rahega — viewer na badal sakta hai, na hata sakta hai."
+                        : templateTextMode == 2 ? "Viewer ko ye text apne text se badalna hoga (jaise \"Yahan naam likho\")."
+                        : "Viewer text badal sakta hai.");
+                root.addView(hint);
+            } else {
+                final TextView none = new TextView(this);
+                none.setTextSize(13f);
+                none.setTextColor(subC);
+                none.setText("Text add karo, phir yahan lock ya placeholder choose kar sakte ho.");
+                root.addView(none);
+            }
+
+            final LinearLayout btns = new LinearLayout(this);
+            btns.setOrientation(LinearLayout.HORIZONTAL);
+            btns.setGravity(android.view.Gravity.CENTER);
+            btns.setPadding(0, dp(20), 0, 0);
+            final TextView off = new TextView(this), done = new TextView(this);
+            for (TextView t : new TextView[]{off, done}) {
+                t.setTextSize(15f);
+                t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                t.setGravity(android.view.Gravity.CENTER);
+                t.setPadding(dp(22), dp(12), dp(22), dp(12));
+                final GradientDrawable g = new GradientDrawable();
+                g.setCornerRadius(dp(26));
+                g.setColor(t == done ? 0xFF6A3DE8 : (dark ? 0x22FFFFFF : 0x14000000));
+                t.setBackground(g);
+                t.setTextColor(t == done ? 0xFFFFFFFF : textC);
+                final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                lp.setMargins(dp(6), 0, dp(6), 0);
+                btns.addView(t, lp);
+            }
+            off.setText("Template off");
+            done.setText("Done");
+            off.setOnClickListener(v -> { makeTemplate = false; refreshMetaPills(); sheet.dismiss(); });
+            done.setOnClickListener(v -> sheet.dismiss());
+            root.addView(btns);
+        };
+        populate[0].run();
+        sheet.setContentView(scroll);
+        sheet.setOnDismissListener(d -> refreshMetaPills());
+        sheet.show();
+    }
+
+    private void addOptionLabel(LinearLayout parent, String text, int dotColor, int color) {
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(16), 0, dp(6));
+        if (dotColor != -1) {
+            final View dot = new View(this);
+            final GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(dotColor);
+            dot.setBackground(g);
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(10), dp(10));
+            lp.setMarginEnd(dp(8));
+            row.addView(dot, lp);
+        }
+        final TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(14f);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setTextColor(color);
+        row.addView(t);
+        parent.addView(row);
+    }
+
+    private void addChipRow(LinearLayout parent, String[] labels, int selected, boolean dark, PickCb cb) {
+        final android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < labels.length; i++) {
+            final int idx = i;
+            final TextView chip = new TextView(this);
+            chip.setText(labels[i]);
+            chip.setTextSize(14f);
+            chip.setPadding(dp(16), dp(9), dp(16), dp(9));
+            final GradientDrawable g = new GradientDrawable();
+            g.setCornerRadius(dp(20));
+            final boolean on = i == selected;
+            g.setColor(on ? 0xFF6A3DE8 : (dark ? 0x22FFFFFF : 0x14000000));
+            chip.setBackground(g);
+            chip.setTextColor(on ? 0xFFFFFFFF : (dark ? 0xFFFFFFFF : 0xFF111111));
+            chip.setContentDescription(labels[i]);
+            chip.setOnClickListener(v -> cb.pick(idx));
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.setMarginEnd(dp(8));
+            row.addView(chip, lp);
+        }
+        hs.addView(row);
+        parent.addView(hs, new LinearLayout.LayoutParams(-1, -2));
+    }
+
     /** Slot geometry (fractions of the story canvas) of the base photo + every photo layer, in z-order. */
     private String buildTemplateJson() {
         try {
@@ -4820,10 +5078,15 @@ public class NewStatusActivity extends AppCompatActivity {
                 o.put("w", sv.getWidth() * st[2] / fw);
                 o.put("h", sv.getHeight() * st[2] / fh);
                 o.put("rot", st[3]);
+                final TemplateBoxStyle bs = layerStyle.get(sv);   // v750: shape + frame of this box
+                if (bs != null) bs.putJson(o);
                 slots.put(o);
             }
-            if (slots.length() < 2) return null;
-            final String out = new org.json.JSONObject().put("v", 1).put("slots", slots).toString();
+            if (slots.length() < 2 || slots.length() > MAX_TEMPLATE_PHOTOS) return null;
+            final org.json.JSONObject tpl = new org.json.JSONObject().put("v", 1).put("slots", slots);
+            if (templateTextMode != 0 && editorTextOverlay != null && editorTextSticker != null   // v750: text rule only when there is text
+                    && !editorTextOverlay.getText().toString().trim().isEmpty()) tpl.put("tm", templateTextMode);
+            final String out = tpl.toString();
             return out.length() <= com.callx.app.utils.StatusTemplateUses.MAX_JSON ? out : null; // rules cap templateJson
         } catch (Exception e) {
             return null;
@@ -4866,8 +5129,9 @@ public class NewStatusActivity extends AppCompatActivity {
             return;
         }
         try {
-            final org.json.JSONArray slots = new org.json.JSONObject(
-                    getIntent().getStringExtra(EXTRA_TEMPLATE_JSON)).getJSONArray("slots");
+            final org.json.JSONObject tplObj = new org.json.JSONObject(getIntent().getStringExtra(EXTRA_TEMPLATE_JSON));
+            final org.json.JSONArray slots = tplObj.getJSONArray("slots");
+            tplTextMode = tplObj.optInt("tm", 0);   // v750: 0 editable, 1 locked, 2 placeholder
             final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
             // 1) photo boxes first (so music / text land on top of them)
             for (int i = 0; i < slots.length() && i <= MAX_PHOTO_LAYERS; i++) {
@@ -4879,7 +5143,8 @@ public class NewStatusActivity extends AppCompatActivity {
                     else addTemplateSlot(0.5f, 0.5f, 1f, 1f, 0f, true, false);
                 }
                 else addTemplateSlot((float) o.optDouble("cx", 0.5), (float) o.optDouble("cy", 0.5),
-                        (float) o.optDouble("w", 0.5), (float) o.optDouble("h", 0.3), (float) o.optDouble("rot", 0), false);
+                        (float) o.optDouble("w", 0.5), (float) o.optDouble("h", 0.3), (float) o.optDouble("rot", 0), false, false,
+                        TemplateBoxStyle.fromJson(o));
             }
             // 2) the poster's music + text (+ other plain stickers), exactly where they were
             final String sj = getIntent().getStringExtra(EXTRA_TEMPLATE_STICKERS_JSON);
@@ -4891,11 +5156,17 @@ public class NewStatusActivity extends AppCompatActivity {
                     if ("addyours".equals(type)) continue;
                     if (com.callx.app.utils.StatusTextOverlayRenderer.isOverlayText(o)) { restoreTemplateText(o); continue; }
                     o.remove("locked");
+                    final double cxr = o.optDouble("cxRatio", -1), cyr = o.optDouble("cyRatio", -1);
+                    final boolean anchored = cxr >= 0 && cyr >= 0;
+                    if (anchored) { o.remove("posXRatio"); o.remove("posYRatio"); } // centre anchor replaces the top-left restore
                     final String j = o.toString();
                     addedStickerJsons.add(j);
+                    lastAddedSticker = null;
                     addStickerOverlay(j);
+                    if (anchored && lastAddedSticker != null) anchorTemplateSticker(lastAddedSticker, (float) cxr, (float) cyr);
                 }
             }
+            addTemplateCreditSticker(); // v749: "Template by @owner" — tappable, movable, removable
             // v739: open the gallery right away (pick all photos at once); cancelling leaves the pulsing "+" boxes
             stickerOverlayFrame.postDelayed(() -> {
                 if (templatePickerAutoOpened || isFinishing() || isDestroyed()) return;
@@ -4913,6 +5184,33 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * v749: auto credit — a "Template by @owner" mention sticker (tap → owner's profile; the owner gets the usual mention
+     * ping). Added once the owner's username is known; skipped for the owner's own use. Movable / removable like any sticker.
+     */
+    private void addTemplateCreditSticker() {
+        final String fromUid = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID);
+        final String me = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+        if (fromUid == null || fromUid.isEmpty() || fromUid.equals(me)) return;
+        com.callx.app.utils.FirebaseUtils.getUserRef(fromUid).child("username")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                if (isFinishing() || isDestroyed() || stickerOverlayFrame == null) return;
+                final String u = snap.getValue(String.class);
+                if (u == null) return;
+                final String name = u.trim();
+                if (!name.matches("[\\p{L}\\p{N}._-]{1,40}")) return;   // JSON-safe handle only
+                for (String ex : addedStickerJsons) if (ex.contains("\"username\":\"" + name + "\"")) return; // already tagged
+                final String j = "{\"type\":\"mention\",\"username\":\"" + name + "\",\"prefix\":\"Template by\"}";
+                addedStickerJsons.add(j);
+                lastAddedSticker = null;
+                addStickerOverlay(j);
+                if (lastAddedSticker != null) anchorTemplateSticker(lastAddedSticker, 0.5f, 0.86f);
+            }
+            @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) { }
+        });
+    }
+
     /** Re-creates the poster's text layer (style + spot) from its "overlaytext" JSON entry. */
     private void restoreTemplateText(org.json.JSONObject o) {
         final int color = o.optInt("color", 0xFFFFFFFF);
@@ -4926,17 +5224,56 @@ public class NewStatusActivity extends AppCompatActivity {
         setEditorTextOverlay(o.optString("text", ""));
         final StatusStickerOverlayView ts = editorTextSticker;
         if (ts == null) return;
+        templateTextRestored = true;
+        final float textAlpha = tplTextMode == 2 ? 0.55f : 1f;   // v750: placeholder text looks "empty" until replaced
+        if (tplTextMode == 1) {          // locked by the poster: no move / edit / delete
+            ts.setLocked(true);
+            ts.setOnStickerTappedListener(sv -> toast("Poster ne ye text lock kiya hai"));
+        } else if (tplTextMode == 2) {   // placeholder: the viewer has to write his own
+            tplTextPending = true;
+            tplPlaceholderText = o.optString("text", "");
+            refreshTemplateGate();
+        }
         final float cx = (float) o.optDouble("cx", 0.5), cy = (float) o.optDouble("cy", 0.5);
         final float sc = (float) o.optDouble("scale", 1.0), rot = (float) o.optDouble("rot", 0.0);
         ts.setAlpha(0f);
         placeWhenLaidOut(ts, () -> {
-            ts.setX(cx * stickerOverlayFrame.getWidth() - ts.getWidth() / 2f);
-            ts.setY(cy * stickerOverlayFrame.getHeight() - ts.getHeight() / 2f);
             ts.applyScale(sc);
             ts.applyRotation(rot);
-            ts.setAlpha(1f);
+            anchorTemplateSticker(ts, cx, cy);   // v746: stays at the poster's spot until the viewer moves it
+            ts.setAlpha(tplTextPending ? textAlpha : 1f);
         });
-        ts.postDelayed(() -> ts.setAlpha(1f), 2000);
+        ts.postDelayed(() -> ts.setAlpha(tplTextPending ? textAlpha : 1f), 2000);
+    }
+
+    /**
+     * v746: pins a restored template sticker (poster's text / music) to the poster's centre ratio. Re-applied whenever the
+     * sticker or the canvas re-lays out (card height after the song loads, text edit, canvas resize), so it never drifts.
+     * A user gesture on it (see wireStickerEngine) removes the anchor — after that the viewer's position wins.
+     */
+    private void anchorTemplateSticker(final StatusStickerOverlayView sv, final float cx, final float cy) {
+        if (sv == null || stickerOverlayFrame == null) return;
+        templateAnchors.put(sv, new float[]{cx, cy});
+        sv.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> reapplyTemplateAnchor(sv));
+        if (!templateAnchorFrameListener) {
+            templateAnchorFrameListener = true;
+            stickerOverlayFrame.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (templateAnchors.isEmpty()) return;
+                for (StatusStickerOverlayView k : new java.util.ArrayList<>(templateAnchors.keySet())) reapplyTemplateAnchor(k);
+            });
+        }
+        reapplyTemplateAnchor(sv);
+    }
+
+    private void reapplyTemplateAnchor(StatusStickerOverlayView sv) {
+        final float[] a = templateAnchors.get(sv);
+        if (a == null || stickerOverlayFrame == null) return;
+        if (sv.getParent() != stickerOverlayFrame) { templateAnchors.remove(sv); return; }
+        final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
+        if (fw <= 0 || fh <= 0 || sv.getWidth() <= 0 || sv.getHeight() <= 0) return;
+        // setX/setY are translations → no new layout pass → no listener loop
+        sv.setX(a[0] * fw - sv.getWidth() / 2f);
+        sv.setY(a[1] * fh - sv.getHeight() / 2f);
     }
 
     private void placeWhenLaidOut(final View v, final Runnable r) {
@@ -4958,15 +5295,28 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private void addTemplateSlot(final float cx, final float cy, final float wR, final float hR,
                                  final float rot, final boolean base, final boolean fit) {
+        addTemplateSlot(cx, cy, wR, hR, rot, base, fit, null);
+    }
+
+    private void addTemplateSlot(final float cx, final float cy, final float wR, final float hR,
+                                 final float rot, final boolean base, final boolean fit,
+                                 @androidx.annotation.Nullable final TemplateBoxStyle boxStyle) {
+        final TemplateBoxStyle style = base || boxStyle == null ? new TemplateBoxStyle() : boxStyle; // v750
         final int fw = stickerOverlayFrame.getWidth(), fh = stickerOverlayFrame.getHeight();
         final int w = Math.max(dp(48), Math.round(wR * fw)), h = Math.max(dp(48), Math.round(hR * fh));
         final ImageView iv = new ImageView(this);
-        final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(0x33FFFFFF);
-        bg.setCornerRadius(base && !fit ? 0f : dp(14));
-        if (!base || fit) bg.setStroke(dp(2), 0xCCFFFFFF, dp(8), dp(5));
-        iv.setBackground(bg);
+        // v747: each box has its own colour — dotted outline, "+" and a light tint all match, so boxes are easy to tell apart
+        final int slotColor = TemplatePreviewDrawable.slotColor(templateSlots.size());
+        if (base && !fit) {   // full-canvas base: plain tint, no outline
+            final android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor((slotColor & 0x00FFFFFF) | 0x38000000);
+            bg.setCornerRadius(0f);
+            iv.setBackground(bg);
+        } else {
+            iv.setBackground(style.placeholder(slotColor, getResources().getDisplayMetrics().density)); // v750: box shape
+        }
         iv.setImageResource(R.drawable.ic_layer_plus);
+        if (!base || fit) iv.setColorFilter(slotColor, android.graphics.PorterDuff.Mode.SRC_IN); // cleared when a photo is placed
         iv.setScaleType(ImageView.ScaleType.CENTER);
         iv.setContentDescription("Tap to add photo");
         final StatusStickerOverlayView sv = StatusStickerOverlayView.wrapContent(this, iv, TYPE_PHOTO_LAYER);
@@ -4976,6 +5326,7 @@ public class NewStatusActivity extends AppCompatActivity {
         wireStickerEngine(sv);
         photoLayers.put(sv, pickedImage);          // thumbnail source until a photo is chosen
         templateSlots.add(sv);
+        slotStyle.put(sv, style);
         slotRegion.put(sv, new float[]{w, h});
         slotCenter.put(sv, new float[]{cx, cy});
         if (fit) fitSlots.add(sv);
@@ -5018,13 +5369,20 @@ public class NewStatusActivity extends AppCompatActivity {
                         final ImageView iv = (ImageView) c;
                         iv.setBackground(null);
                         iv.setScaleType(ImageView.ScaleType.FIT_XY);
+                        iv.clearColorFilter();   // v747: drop the "+" tint, the photo must show its own colours
                         stopSlotPulse(slot);
                         if (fitSlots.contains(slot)) {
                             applyFitSlot(slot, iv, bmp, uri);
                         } else {
                             slotSrc.put(slot, bmp);
                             slotXform.put(slot, new float[]{1f, 0.5f, 0.5f});
+                            slotAuto.add(slot);              // v751: crop is still automatic
                             renderTemplateSlot(slot);
+                            focusSlotOnFaces(slot, bmp);     // v751: then nudge the crop so faces are not cut
+                        }
+                        if (templateTextRestored && !templateTextHintShown) { // v745: text is the viewer's to change
+                            templateTextHintShown = true;
+                            toast("Text badalna hai? Text par tap karo, phir dobara tap karke edit karo");
                         }
                         filledSlots.add(slot);
                         photoLayers.put(slot, uri);
@@ -5094,7 +5452,98 @@ public class NewStatusActivity extends AppCompatActivity {
         final int cw = Math.max(1, Math.min(src.getWidth() - x, Math.round(w[2])));
         final int ch = Math.max(1, Math.min(src.getHeight() - y, Math.round(w[3])));
         final Bitmap cropped = Bitmap.createBitmap(src, x, y, cw, ch);
-        ((ImageView) c).setImageBitmap(slot.isLocked() ? cropped : roundedLayerBitmap(cropped));
+        final TemplateBoxStyle bs = slotStyle.get(slot);   // v750: square / rounded / circle / heart / arch + frame
+        ((ImageView) c).setImageBitmap(slot.isLocked() ? cropped : (bs != null ? bs : new TemplateBoxStyle()).render(cropped));
+    }
+
+    // ── v751: smart photo fit + auto-fill ────────────────────────────────────
+
+    /**
+     * Face-aware crop: detects faces off the main thread and, if any, moves the crop window so they stay inside the box.
+     * Does nothing when there is no face, or when the viewer already changed the photo / adjusted the crop meanwhile.
+     */
+    private void focusSlotOnFaces(final StatusStickerOverlayView slot, final Bitmap bmp) {
+        try {
+            if (tplExec == null) tplExec = java.util.concurrent.Executors.newSingleThreadExecutor();
+            tplExec.execute(() -> {
+                final float[] f = TemplateSmartCrop.faceFocus(bmp);
+                if (f == null) return;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed() || slot.getParent() != stickerOverlayFrame) return;
+                    if (slotSrc.get(slot) != bmp || !slotAuto.contains(slot)) return;
+                    final float[] xf = slotXform.get(slot);
+                    if (xf == null) return;
+                    xf[1] = f[0];
+                    xf[2] = f[1];
+                    renderTemplateSlot(slot);   // slotWindow() keeps the window inside the photo
+                });
+            });
+        } catch (Exception ignored) { /* executor shut down (screen closing) */ }
+    }
+
+    private boolean hasImageReadAccess() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED) return true;
+            // Android 14+: "selected photos only" access still lets the loader see what the user allowed
+            return android.os.Build.VERSION.SDK_INT >= 34
+                    && ContextCompat.checkSelfPermission(this, "android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == PackageManager.PERMISSION_GRANTED;
+        }
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** "Auto-fill" pill: newest photos (screenshots skipped) go into every empty box, in order. */
+    private void autoFillFromRecents() {
+        if (!templateMode) return;
+        if (countOpenTemplateSlots() == 0) { toast("Saare boxes bhare hue hain"); return; }
+        if (hasImageReadAccess()) { runAutoFill(); return; }
+        if (autoFillPermLauncher != null)
+            autoFillPermLauncher.launch(android.os.Build.VERSION.SDK_INT >= 33
+                    ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE);
+    }
+
+    private void runAutoFill() {
+        final java.util.ArrayList<StatusStickerOverlayView> open = new java.util.ArrayList<>();
+        for (StatusStickerOverlayView sv : templateSlots)
+            if (sv.getParent() == stickerOverlayFrame && !filledSlots.contains(sv)) open.add(sv);
+        if (open.isEmpty()) return;
+        final int need = open.size();
+        try {
+            if (tplExec == null) tplExec = java.util.concurrent.Executors.newSingleThreadExecutor();
+            tplExec.execute(() -> {
+                final java.util.ArrayList<Uri> picks = pickRecentPhotos(need);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (picks.isEmpty()) { toast("Recent me koi photo nahi mili — box par tap karke chuno"); return; }
+                    int n = 0;
+                    for (StatusStickerOverlayView sv : open) {
+                        if (n >= picks.size()) break;
+                        if (sv.getParent() != stickerOverlayFrame || filledSlots.contains(sv)) continue; // filled by hand meanwhile
+                        fillTemplateSlot(sv, picks.get(n++));
+                    }
+                    if (n > 0) toast(n + " box" + (n == 1 ? "" : "es") + " recent photos se bhar diye — kisi box par tap karke badal sakte ho");
+                });
+            });
+        } catch (Exception ignored) { /* screen closing */ }
+    }
+
+    /** Newest still photos; screenshots / screen recordings are only used if there are not enough real photos. */
+    private java.util.ArrayList<Uri> pickRecentPhotos(int need) {
+        final java.util.ArrayList<Uri> good = new java.util.ArrayList<>(), junk = new java.util.ArrayList<>();
+        try {
+            final java.util.List<com.callx.app.conversation.controllers.RecentMediaLoader.Item> items =
+                    com.callx.app.conversation.controllers.RecentMediaLoader.loadRecent(getApplicationContext(), Math.max(40, need * 12));
+            if (items != null) {
+                for (com.callx.app.conversation.controllers.RecentMediaLoader.Item it : items) {
+                    if (it == null || it.isVideo || it.uri == null) continue;
+                    final String b = it.bucketName == null ? "" : it.bucketName.toLowerCase(java.util.Locale.ROOT);
+                    if (b.contains("screenshot") || b.contains("screenrecord") || b.contains("screen record")) junk.add(it.uri);
+                    else good.add(it.uri);
+                    if (good.size() >= need) break;
+                }
+            }
+        } catch (Exception ignored) { /* no access yet / odd OEM cursor → empty list */ }
+        for (int i = 0; good.size() < need && i < junk.size(); i++) good.add(junk.get(i));
+        return good;
     }
 
     /** Full-screen "pinch to zoom, drag to move" editor for the photo inside one template box. */
@@ -5130,10 +5579,16 @@ public class NewStatusActivity extends AppCompatActivity {
         box.setClipToOutline(true);
         final android.graphics.drawable.GradientDrawable boxBg = new android.graphics.drawable.GradientDrawable();
         boxBg.setColor(0xFF111111);
-        boxBg.setCornerRadius(slot.isLocked() ? 0f : dp(14));
+        final TemplateBoxStyle dlgStyle = slot.isLocked() ? null : slotStyle.get(slot);
+        boxBg.setCornerRadius(slot.isLocked() || dlgStyle != null ? 0f : dp(14));
         box.setBackground(boxBg);
         box.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         box.addView(iv, new FrameLayout.LayoutParams(fbw, fbh));
+        if (dlgStyle != null) { // v751: dim everything outside the real shape (circle / heart / arch …) so the viewer pans to what will show
+            final View mask = new View(this);
+            mask.setBackground(dlgStyle.outsideMask(0xCC000000, getResources().getDisplayMetrics().density));
+            box.addView(mask, new FrameLayout.LayoutParams(fbw, fbh));
+        }
         root.addView(box, new LinearLayout.LayoutParams(fbw, fbh));
 
         final android.graphics.Matrix m = new android.graphics.Matrix();
@@ -5203,6 +5658,7 @@ public class NewStatusActivity extends AppCompatActivity {
         done.setText("Done");
         change.setOnClickListener(v -> { d.dismiss(); openTemplateSlotPicker(slot); });
         done.setOnClickListener(v -> {
+            slotAuto.remove(slot);   // v751: viewer set the crop by hand → never auto-move it again
             slotXform.put(slot, xf);
             renderTemplateSlot(slot);
             refreshMediaLayerStrip();
@@ -5224,8 +5680,8 @@ public class NewStatusActivity extends AppCompatActivity {
     private void refreshTemplateGate() {
         if (!templateMode || binding == null || binding.btnStepNext == null) return;
         final int open = countOpenTemplateSlots();
-        if (wizardStep == 2 && open > 0) {
-            binding.btnStepNext.setText("Fill " + open + " photo box" + (open == 1 ? "" : "es"));
+        if (wizardStep == 2 && (open > 0 || tplTextPending)) {
+            binding.btnStepNext.setText(open > 0 ? "Fill " + open + " photo box" + (open == 1 ? "" : "es") : "Write your text");
             binding.btnStepNext.setAlpha(0.5f);
         } else {
             binding.btnStepNext.setAlpha(1f);
@@ -5289,6 +5745,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (templateMode) {
             final int open = countOpenTemplateSlots();
             if (open > 0) { toast("Pehle sabhi photo boxes bharo (" + open + " baaki)"); return; }
+            if (tplTextPending) { toast("Pehle apna text likho — placeholder badlo"); return; } // v750
         }
         String txt     = binding.etText.getText().toString().trim();
         String caption = binding.etCaption != null ? binding.etCaption.getText().toString().trim() : "";
@@ -5589,6 +6046,9 @@ public class NewStatusActivity extends AppCompatActivity {
             item.templateFromUid  = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID);
             item.templateFromId   = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID);
             item.templateFromName = com.callx.app.utils.StatusTemplateUses.capName(getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME));
+            // v750: box geometry kept on the new status so viewers get the box-by-box reveal (does NOT make it a usable template)
+            final String layout = getIntent().getStringExtra(EXTRA_TEMPLATE_JSON);
+            if (layout != null && layout.length() <= com.callx.app.utils.StatusTemplateUses.MAX_LAYOUT_JSON) item.templateLayoutJson = layout;
         }
         // Mentions: uid resolution + notification are done server-side (functions: onStatusCreatedMentions),
         // which writes status/{owner}/{id}/mentionNames/{username} = uid. The client must not write them.
@@ -5809,6 +6269,9 @@ public class NewStatusActivity extends AppCompatActivity {
             item.templateFromUid  = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_UID);
             item.templateFromId   = getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_ID);
             item.templateFromName = com.callx.app.utils.StatusTemplateUses.capName(getIntent().getStringExtra(EXTRA_TEMPLATE_FROM_NAME));
+            // v750: box geometry kept on the new status so viewers get the box-by-box reveal (does NOT make it a usable template)
+            final String layout = getIntent().getStringExtra(EXTRA_TEMPLATE_JSON);
+            if (layout != null && layout.length() <= com.callx.app.utils.StatusTemplateUses.MAX_LAYOUT_JSON) item.templateLayoutJson = layout;
         }
         // ── Scheduled post? Route to statusScheduled instead of going live now ──
         if (pendingScheduledAt > 0) {
@@ -5917,6 +6380,7 @@ public class NewStatusActivity extends AppCompatActivity {
         if (activeStepRingSpin != null) activeStepRingSpin.cancel();
         for (android.animation.ObjectAnimator a : slotPulse.values()) a.cancel();
         slotPulse.clear();
+        if (tplExec != null) { tplExec.shutdownNow(); tplExec = null; } // v751
         stopMusicPreview(); // (6a) release MediaPlayer + audio focus
         stopVideoPreview(); // v589: release the editor's VideoView player
         super.onDestroy();
