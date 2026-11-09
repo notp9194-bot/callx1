@@ -550,9 +550,9 @@ public class ReelDuetController {
         ReelModel reel = delegate.getReel();
         if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
 
-        com.callx.app.social.ReelRemixPickerSheet sheet =
-            com.callx.app.social.ReelRemixPickerSheet.newInstance(reel);
-        sheet.show(delegate.getChildFragmentManager(), "remix_picker");
+        // v790 — go through Remix & Collab (mode + permission check) instead of the old layout-only picker
+        com.callx.app.social.RemixCollabFlow.start(delegate.requireContext(), reel,
+            com.callx.app.social.RemixCollabTarget.MODE_REMIX);
     }
 
     /**
@@ -585,6 +585,12 @@ public class ReelDuetController {
     public void openRemix() {
         ReelModel reel = delegate.getReel();
         if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        // v790 — permission-checked entry
+        if (true) {
+            com.callx.app.social.RemixCollabFlow.start(delegate.requireContext(), reel,
+                com.callx.app.social.RemixCollabTarget.MODE_REMIX);
+            return;
+        }
         Intent i = new Intent(delegate.getActivity(),
             com.callx.app.social.ReelRemixActivity.class);
         i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_REEL_ID,    reel.reelId);

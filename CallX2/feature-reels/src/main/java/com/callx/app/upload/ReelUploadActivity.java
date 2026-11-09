@@ -313,6 +313,13 @@ public class ReelUploadActivity extends AppCompatActivity {
     private int   musicEndMs         = 0;
 
     // Fix 4 & 6 & 8: duet metadata
+    // ── v790 Remix / Collab flow (set by ReelRemixActivity → ReelEditorActivity) ──
+    private boolean isRemixFlow     = false;
+    private String  remixMode       = "remix";      // "remix" | "collab"
+    private String  remixOriginalId = "", remixOriginalUid = "", remixOriginalName = "",
+                    remixOriginalUrl = "", remixOriginalThumb = "", remixLayout = "";
+    private ChipGroup chipRemixLevel;
+
     private boolean isDuet          = false;
     private String  duetOriginalId  = "";
     private String  duetOwnerUid    = "";
@@ -856,6 +863,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         chipAudience         = findViewById(R.id.chip_audience);
         chipDuetLevel        = findViewById(R.id.chip_duet_level);
         chipStitchLevel      = findViewById(R.id.chip_stitch_level);
+        chipRemixLevel       = findViewById(R.id.chip_remix_level);
         btnTagPeople         = findViewById(R.id.btn_tag_people);
         btnLocationTag       = findViewById(R.id.btn_location_tag);
         btnAddCollaborators  = findViewById(R.id.btn_add_collaborators);
@@ -1363,6 +1371,24 @@ public class ReelUploadActivity extends AppCompatActivity {
         }
 
         // ✅ FIX GAP #2: read stitch metadata
+        // v790 — Remix / Collab metadata
+        isRemixFlow = i.getBooleanExtra("is_remix", false);
+        if (isRemixFlow) {
+            remixMode          = "collab".equals(i.getStringExtra("remix_mode")) ? "collab" : "remix";
+            remixOriginalId    = nzStr(i.getStringExtra("remix_original_reel_id"));
+            remixOriginalUid   = nzStr(i.getStringExtra("remix_original_uid"));
+            remixOriginalName  = nzStr(i.getStringExtra("remix_original_name"));
+            remixOriginalUrl   = nzStr(i.getStringExtra("remix_original_url"));
+            remixOriginalThumb = nzStr(i.getStringExtra("remix_original_thumb"));
+            remixLayout        = nzStr(i.getStringExtra("remix_layout_mode"));
+            if (remixOriginalId.isEmpty() || remixOriginalUid.isEmpty()) isRemixFlow = false;
+            android.widget.TextView credit = findViewById(R.id.tv_remix_credit);
+            if (isRemixFlow && credit != null) {
+                credit.setVisibility(View.VISIBLE);
+                credit.setText(("collab".equals(remixMode) ? "Collab with @" : "Remix with @") + remixOriginalName
+                    + "\nThe original creator is credited automatically.");
+            }
+        }
         isStitch = i.getBooleanExtra("is_stitch", false);
         String sId      = i.getStringExtra("stitch_original_id");
         String sUrl     = i.getStringExtra("stitch_original_url");
@@ -2868,6 +2894,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.allowStitch      = !"off".equals(stitchLevel);
                     // Per-reel watermark override — see ReelModel#watermarkEnabled doc.
                     reel.watermarkEnabled = a.watermarkEnabledForThisReel;
+                    a.applyRemixFields(reel);
 
                     if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
                     if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
@@ -3014,6 +3041,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                 reel.allowStitch      = !"off".equals(stitchLevel); // legacy boolean
                 // Per-reel watermark override — see ReelModel#watermarkEnabled doc.
                 reel.watermarkEnabled = a.watermarkEnabledForThisReel;
+                a.applyRemixFields(reel);
 
                 // Attach pre-selected sound if provided
                 if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
@@ -3091,6 +3119,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                         FirebaseUtils.getReelsByUserRef(myUid).child(finalReelId).setValue(true);
                         generateAndAttachBlurHash(b, finalReelId, reel.thumbUrl);
                         b.sendPendingCollabInvitesIfAny(finalReelId, reel.thumbUrl, myUid, myName);
+                        b.publishRemixIfAny(finalReelId, reel, myUid, myName);
 
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
                         // ── @Mention notifications (Instagram-style) ─────────────────────────
@@ -3776,6 +3805,43 @@ public class ReelUploadActivity extends AppCompatActivity {
      * Returns "everyone" | "followers" | "off" based on the Duet chip selection.
      * Default (everyone) is pre-checked in layout XML.
      */
+    private static String nzStr(String s) { return s == null ? "" : s; }
+
+    /** v790 — "everyone" | "followers" | "approval" | "off" (default everyone, so nothing changes for old posts). */
+    private String getRemixLevel() {
+        if (chipRemixLevel == null) return "everyone";
+        int id = chipRemixLevel.getCheckedChipId();
+        if (id == R.id.chip_remix_followers) return "followers";
+        if (id == R.id.chip_remix_approval)  return "approval";
+        if (id == R.id.chip_remix_off)       return "off";
+        return "everyone";
+    }
+
+    /** v790 — remix permission + original-post credit on the reel about to be saved. */
+    private void applyRemixFields(com.callx.app.models.ReelModel reel) {
+        java.util.Map<String, Object> rs = new java.util.HashMap<>();
+        rs.put("remix", getRemixLevel());
+        reel.remix_settings = rs;
+        if (isRemixFlow) {
+            reel.isRemix          = "remix".equals(remixMode);   // the "Remix with @x" strip; a collab shows the co-creator row instead
+            reel.remixMode        = remixMode;
+            reel.remixOf          = remixOriginalId;
+            reel.remixOfOwnerUid  = remixOriginalUid;
+            reel.remixOfOwnerName = remixOriginalName;
+            reel.remixOfThumb     = remixOriginalThumb;
+            reel.remixLayoutMode  = remixLayout;
+        }
+    }
+
+    /** v790 — runs once the reel is confirmed saved: remix record / collab co-author + notifications. */
+    private void publishRemixIfAny(String newReelId, com.callx.app.models.ReelModel reel, String myUid, String myName) {
+        if (!isRemixFlow) return;
+        String myPhoto = FirebaseUtils.getCurrentPhotoUrl();
+        com.callx.app.social.RemixPublishHelper.afterPublish(remixMode, newReelId,
+            remixOriginalId, remixOriginalUid, remixOriginalName, remixOriginalThumb, remixOriginalUrl, remixLayout,
+            myUid, myName, myPhoto, reel.videoUrl, reel.thumbUrl, reel.caption);
+    }
+
     private String getDuetLevel() {
         if (chipDuetLevel == null) return "everyone";
         int id = chipDuetLevel.getCheckedChipId();

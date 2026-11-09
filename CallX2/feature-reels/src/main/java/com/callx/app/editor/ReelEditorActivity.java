@@ -4186,6 +4186,19 @@ public class ReelEditorActivity extends AppCompatActivity {
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_END,     trimEndMs);
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_ALREADY_BAKED, trimBakedIntoFile);
         intent.putExtra(ReelUploadActivity.EXTRA_TEXT_OVERLAY, textOverlay);
+        // v790 — Remix / Collab: carry the original-post credit through to the upload screen. These extras were
+        // set by ReelRemixActivity but were never forwarded, so remixes were never recorded / credited.
+        {
+            Intent src = getIntent();
+            if (src != null && src.getBooleanExtra("is_remix", false)) {
+                intent.putExtra("is_remix", true);
+                for (String k : new String[]{"remix_mode", "remix_original_reel_id", "remix_original_uid",
+                        "remix_original_name", "remix_original_url", "remix_original_thumb", "remix_layout_mode"}) {
+                    String v = src.getStringExtra(k);
+                    if (v != null) intent.putExtra(k, v);
+                }
+            }
+        }
         if (!resumedDraftId.isEmpty()) {
             intent.putExtra(ReelUploadActivity.EXTRA_DRAFT_ID_TO_DELETE,        resumedDraftId);
             intent.putExtra(ReelUploadActivity.EXTRA_DRAFT_VIDEO_URI_TO_DELETE, resumedDraftVideoUri);

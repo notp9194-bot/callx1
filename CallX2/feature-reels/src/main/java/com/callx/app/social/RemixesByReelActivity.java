@@ -43,6 +43,10 @@ public class RemixesByReelActivity extends AppCompatActivity {
     private LinearLayout       layoutEmpty;
     private RemixListAdapter   adapter;
     private final List<ReelRemixModel> remixes = new ArrayList<>();
+    // v790 — owner controls: remixes the original creator removed (remixBlocks/{reelId}/{remixReelId})
+    private final List<ReelRemixModel> allRemixes = new ArrayList<>();
+    private final java.util.Set<String> blocked = new java.util.HashSet<>();
+    private ValueEventListener blocksListener;
     private ValueEventListener listener;
     private String             reelId;
 
@@ -78,15 +82,14 @@ public class RemixesByReelActivity extends AppCompatActivity {
         listener = new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snap) {
-                remixes.clear();
+                allRemixes.clear();
                 for (DataSnapshot s : snap.getChildren()) {
                     ReelRemixModel m = s.getValue(ReelRemixModel.class);
-                    if (m != null) remixes.add(m);
+                    if (m != null) allRemixes.add(m);
                 }
-                remixes.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                allRemixes.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
                 progressBar.setVisibility(View.GONE);
-                layoutEmpty.setVisibility(remixes.isEmpty() ? View.VISIBLE : View.GONE);
-                adapter.notifyDataSetChanged();
+                applyBlocks();
             }
 
             @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -97,6 +100,29 @@ public class RemixesByReelActivity extends AppCompatActivity {
             .getReference("reelRemixes")
             .child(reelId)
             .addValueEventListener(listener);
+
+        blocksListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                blocked.clear();
+                for (DataSnapshot c : snap.getChildren()) if (c.getKey() != null) blocked.add(c.getKey());
+                applyBlocks();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        };
+        FirebaseUtils.db().getReference("remixBlocks").child(reelId).addValueEventListener(blocksListener);
+    }
+
+    /** The original creator sees every remix (removed ones marked); everybody else does not see removed ones. */
+    private void applyBlocks() {
+        String me = FirebaseUtils.getCurrentUid();
+        remixes.clear();
+        for (ReelRemixModel m : allRemixes) {
+            boolean isOwner = me != null && me.equals(m.originalOwnerUid);
+            if (blocked.contains(m.remixReelId) && !isOwner) continue;
+            remixes.add(m);
+        }
+        layoutEmpty.setVisibility(remixes.isEmpty() ? View.VISIBLE : View.GONE);
+        adapter.notifyDataSetChanged();
     }
 
     @Override protected void onDestroy() {
@@ -104,6 +130,8 @@ public class RemixesByReelActivity extends AppCompatActivity {
         if (listener != null)
             FirebaseUtils.db().getReference("reelRemixes").child(reelId)
                 .removeEventListener(listener);
+        if (blocksListener != null)
+            FirebaseUtils.db().getReference("remixBlocks").child(reelId).removeEventListener(blocksListener);
     }
 
     // ── Inner adapter ─────────────────────────────────────────────────────────
@@ -124,7 +152,9 @@ public class RemixesByReelActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             ReelRemixModel m = data.get(pos);
 
-            h.tvRemixerName.setText("@" + m.remixerName);
+            final boolean isBlocked = blocked.contains(m.remixReelId);
+            h.tvRemixerName.setText("@" + m.remixerName + (isBlocked ? "  (removed)" : ""));
+            h.itemView.setAlpha(isBlocked ? 0.5f : 1f);
             h.tvLayoutMode.setText(layoutLabel(m.layoutMode));
             h.tvCaption.setText(m.remixCaption != null ? m.remixCaption : "");
             h.tvStats.setText(m.viewsCount + " views · " + m.likesCount + " likes");
@@ -152,6 +182,25 @@ public class RemixesByReelActivity extends AppCompatActivity {
                 intent.putExtra(SingleReelPlayerActivity.EXTRA_REEL_ID, m.remixReelId);
                 startActivity(intent);
             });
+
+            // v790 — owner control: long-press to remove / restore a remix of MY post
+            String me = FirebaseUtils.getCurrentUid();
+            final boolean iAmOwner = me != null && me.equals(m.originalOwnerUid);
+            h.itemView.setOnLongClickListener(iAmOwner ? v -> {
+                new androidx.appcompat.app.AlertDialog.Builder(RemixesByReelActivity.this)
+                    .setTitle(isBlocked ? "Restore this remix?" : "Remove this remix?")
+                    .setMessage(isBlocked
+                        ? "It will show again in the remixes of your post."
+                        : "It is hidden from the remixes of your post and its credit shows \"Original removed\". The remix itself stays on its creator's profile.")
+                    .setPositiveButton(isBlocked ? "Restore" : "Remove", (d, w) ->
+                        RemixRequestHelper.blockRemix(reelId, m.remixReelId, !isBlocked, ok -> {
+                            if (!ok) Toast.makeText(RemixesByReelActivity.this,
+                                "Couldn't update. Try again", Toast.LENGTH_SHORT).show();
+                        }))
+                    .setNegativeButton("Cancel", null)
+                    .show();
+                return true;
+            } : null);
         }
 
         @Override public int getItemCount() { return data.size(); }

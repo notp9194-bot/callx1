@@ -155,7 +155,7 @@ public class CollaboratorsBottomSheet extends BottomSheetDialogFragment {
                     for (DataSnapshot child : snap.getChildren()) {
                         ReelModel.CollabCollaborator c = child.getValue(ReelModel.CollabCollaborator.class);
                         if (c != null && c.uid != null && !c.uid.isEmpty()
-                                && !"declined".equals(c.status)) {
+                                && !"declined".equals(c.status) && !"removed".equals(c.status)) {
                             collabs.add(c);
                         }
                     }
@@ -257,6 +257,28 @@ public class CollaboratorsBottomSheet extends BottomSheetDialogFragment {
                 h.btnFollow.setText(following ? "Following" : "Follow");
                 h.btnFollow.setOnClickListener(v -> toggleFollow(r, h.btnFollow));
             }
+
+            // v790 — remove-collaboration control: the post's owner can remove a co-creator; a co-creator can leave.
+            final boolean iAmOwner = myUid != null && myUid.equals(ownerUid);
+            final boolean isRowOwner = "owner".equals(r.status);
+            final boolean canRemove = !isRowOwner && (iAmOwner || (myUid != null && myUid.equals(r.uid)));
+            h.itemView.setOnLongClickListener(canRemove ? v -> {
+                final boolean leaving = !iAmOwner;
+                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle(leaving ? "Leave this collab?" : "Remove collaborator?")
+                    .setMessage(leaving
+                        ? "This post will no longer appear in your Collabs."
+                        : "@" + (r.handle.isEmpty() ? r.name : r.handle) + " will no longer be a co-creator of this post.")
+                    .setPositiveButton(leaving ? "Leave" : "Remove", (d, w) ->
+                        CollabControl.remove(reelId, r.uid, ok -> {
+                            if (!isAdded()) return;
+                            Toast.makeText(requireContext(), ok ? "Done" : "Couldn't update. Try again", Toast.LENGTH_SHORT).show();
+                            if (ok) loadCollaborators();
+                        }))
+                    .setNegativeButton("Cancel", null)
+                    .show();
+                return true;
+            } : null);
 
             h.itemView.setOnClickListener(v -> {
                 try {

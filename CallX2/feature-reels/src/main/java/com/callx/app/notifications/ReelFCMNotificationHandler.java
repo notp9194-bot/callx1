@@ -68,6 +68,10 @@ public class ReelFCMNotificationHandler {
     // (VALID_REEL_TYPES) and forwards collab_id, but nothing on the app
     // side handled it, so the initiator never saw a decline notification.
     public static final String TYPE_COLLAB_DECLINED    = "collab_declined";
+    // v790 — Remix & Collab permission requests (sent by Cloud Functions onRemixRequestCreated / onRemixRequestDecided)
+    public static final String TYPE_REMIX_REQUEST      = "remix_request";
+    public static final String TYPE_REMIX_APPROVED     = "remix_approved";
+    public static final String TYPE_REMIX_REJECTED     = "remix_rejected";
     public static final String TYPE_GIFT               = "gift";
     public static final String TYPE_LIVE_STARTED       = "live_started";
     public static final String TYPE_LIVE_MILESTONE     = "live_milestone";
@@ -255,6 +259,17 @@ public class ReelFCMNotificationHandler {
                     ReelNotificationHelper.showCollabDeclinedNotification(
                             ctx, senderName, senderPhoto, collabId));
                 break;
+
+            case TYPE_REMIX_REQUEST:
+            case TYPE_REMIX_APPROVED:
+            case TYPE_REMIX_REJECTED: {
+                final String rqId   = get(data, "request_id");
+                final String rqMode = get(data, "mode");
+                Executors.newSingleThreadExecutor().execute(() ->
+                    ReelNotificationHelper.showRemixRequestNotification(
+                            ctx, type, senderName, senderPhoto, rqId, rqMode));
+                break;
+            }
 
             case TYPE_GIFT:
                 Executors.newSingleThreadExecutor().execute(() ->

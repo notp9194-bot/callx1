@@ -1047,6 +1047,64 @@
                     style="@style/Widget.Material3.Chip.Filter"/>
             </com.google.android.material.chip.ChipGroup>
 
+            <!-- v790 — Remix credit (only when this reel is a Remix / Collab) -->
+            <TextView
+                android:id="@+id/tv_remix_credit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/rc_bg_note"
+                android:padding="12dp"
+                android:textColor="@color/rc_purple"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:visibility="gone"/>
+
+            <!-- v790 — Who can Remix / Collab -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="6dp"
+                android:fontFamily="sans-serif-medium"
+                android:text="Who can Remix &amp; Collab"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chip_remix_level"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_remix_everyone"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Everyone"/>
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_remix_followers"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Followers"/>
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_remix_approval"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Approval"/>
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_remix_off"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Off"/>
+            </com.google.android.material.chip.ChipGroup>
+
 
             </LinearLayout>
             <!-- ═══════════════ /STEP 3 ═══════════════ -->

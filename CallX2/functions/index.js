@@ -2685,3 +2685,102 @@ exports.pruneTemplateFeed = functions.pubsub
     if (Object.keys(updates).length) await db.ref().update(updates);
     return null;
   });
+
+/* v789 — Remix/Collab permission requests: pending requests older than expiresAt (48h) become "expired". */
+exports.expireRemixRequests = functions.pubsub
+  .schedule("every 60 minutes")
+  .onRun(async () => {
+    const db = getDatabase();
+    const now = Date.now();
+    const owners = await db.ref("remixRequests").once("value");
+    const updates = {};
+    owners.forEach((o) => {
+      o.forEach((r) => {
+        const v = r.val() || {};
+        if (v.status === "pending" && Number(v.expiresAt) > 0 && Number(v.expiresAt) < now) {
+          updates[`remixRequests/${o.key}/${r.key}/status`] = "expired";
+          updates[`remixRequests/${o.key}/${r.key}/decidedAt`] = now;
+        }
+      });
+    });
+    if (Object.keys(updates).length) await db.ref().update(updates);
+    return null;
+  });
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * v790 — Remix / Collab permission-request push notifications
+ *   • new request           → owner      (reel_notif_type = remix_request)
+ *   • approved / rejected   → requester  (remix_approved / remix_rejected)
+ * Payload keys match what ReelFCMNotificationHandler already reads.
+ * ─────────────────────────────────────────────────────────────────────────── */
+async function sendRemixPush(toUid, type, data) {
+  if (!toUid) return null;
+  const db = getDatabase();
+  const tokSnap = await db.ref("users").child(toUid).child("fcmToken").once("value");
+  const token = tokSnap.exists() ? tokSnap.val() : null;
+  if (!token || typeof token !== "string") return null;
+  const payload = {
+    reel_notif_type: type,
+    sender_uid: String(data.senderUid || ""),
+    sender_name: String(data.senderName || ""),
+    sender_photo: String(data.senderPhoto || ""),
+    reel_id: String(data.reelId || ""),
+    reel_thumb: String(data.reelThumb || ""),
+    request_id: String(data.requestId || ""),
+    mode: String(data.mode || "remix"),
+  };
+  try {
+    await getMessaging().send({
+      token,
+      data: payload,
+      android: { priority: "high", ttl: 86400000 },
+    });
+  } catch (e) {
+    if (e && e.code === "messaging/registration-token-not-registered") {
+      await db.ref("users").child(toUid).child("fcmToken").remove();
+    } else {
+      console.warn("sendRemixPush failed", type, toUid, e && e.message);
+    }
+  }
+  return null;
+}
+
+exports.onRemixRequestCreated = functions.database
+  .ref("/remixRequests/{ownerUid}/{requestId}")
+  .onCreate(async (snap, context) => {
+    const v = snap.val() || {};
+    if (v.status !== "pending") return null;
+    return sendRemixPush(context.params.ownerUid, "remix_request", {
+      senderUid: v.requesterUid,
+      senderName: v.requesterName,
+      senderPhoto: v.requesterPhoto,
+      reelId: v.reelId,
+      reelThumb: v.thumbUrl,
+      requestId: context.params.requestId,
+      mode: v.mode,
+    });
+  });
+
+exports.onRemixRequestDecided = functions.database
+  .ref("/remixRequests/{ownerUid}/{requestId}/status")
+  .onUpdate(async (change, context) => {
+    const before = change.before.val();
+    const after = change.after.val();
+    if (before !== "pending" || (after !== "approved" && after !== "rejected")) return null;
+    const db = getDatabase();
+    const reqSnap = await db
+      .ref("remixRequests").child(context.params.ownerUid).child(context.params.requestId).once("value");
+    const v = reqSnap.val() || {};
+    if (!v.requesterUid) return null;
+    const ownerSnap = await db.ref("users").child(context.params.ownerUid).once("value");
+    const owner = ownerSnap.val() || {};
+    return sendRemixPush(v.requesterUid, after === "approved" ? "remix_approved" : "remix_rejected", {
+      senderUid: context.params.ownerUid,
+      senderName: owner.name || owner.username || owner.displayName || "",
+      senderPhoto: owner.thumbUrl || owner.photoUrl || "",
+      reelId: v.reelId,
+      reelThumb: v.thumbUrl,
+      requestId: context.params.requestId,
+      mode: v.mode,
+    });
+  });

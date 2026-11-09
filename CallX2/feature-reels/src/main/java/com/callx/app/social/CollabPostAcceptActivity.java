@@ -159,6 +159,10 @@ public class CollabPostAcceptActivity extends AppCompatActivity {
         updates.put("reelsByUser/" + myUid + "/" + reelId,      true);
         // Also add to collaborator's profile grid
         updates.put("userReels/" + myUid + "/" + reelId,        true);
+        // v790 — profile "Collabs" index for both co-creators
+        updates.put("userCollabPosts/" + myUid + "/" + reelId,        now);
+        if (initiatorUid != null && !initiatorUid.isEmpty())
+            updates.put("userCollabPosts/" + initiatorUid + "/" + reelId, now);
 
         root.updateChildren(updates, (error, ref) -> {
             if (error != null) {

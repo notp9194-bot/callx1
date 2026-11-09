@@ -713,6 +713,10 @@ public class ReelUiController {
             }
         }
 
+        // v790 — "Remix with @owner" credit strip
+        com.callx.app.social.RemixCreditBinder.bind(
+            (android.widget.TextView) fragmentView.findViewById(R.id.tv_remix_credit), reel);
+
         // ── Collab Joint-Author display ──────────────────────────────────────
         // ✅ MULTI-COLLABORATOR: renders an overlapping avatar stack (up to 3)
         // plus an Instagram-style "and N others" summary, and opens the full

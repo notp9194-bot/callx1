@@ -510,6 +510,7 @@ public class UserReelsActivity extends AppCompatActivity
         setupHeader();
         setupHeaderParallax();
         setupScrollPagination();
+        setupCollabsRow();   // v790
         setupTabs();
         setupFilterChips();
         setupMultiSelectBar();
@@ -547,6 +548,25 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     // ── Bind views ────────────────────────────────────────────────────────
+
+    /** v790 — profile "Collabs (N) · See All": shown only when this profile has collab posts. */
+    private void setupCollabsRow() {
+        final android.view.View row = findViewById(R.id.row_collabs);
+        final android.widget.TextView title = findViewById(R.id.tv_collabs_title);
+        if (row == null || title == null) return;
+        row.setOnClickListener(v -> com.callx.app.social.UserCollabsActivity.open(this, targetUid));
+        FirebaseUtils.db().getReference("userCollabPosts").child(targetUid).limitToLast(200)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot s) {
+                    if (isFinishing() || isDestroyed()) return;
+                    long n = s.getChildrenCount();
+                    if (n <= 0) { row.setVisibility(android.view.View.GONE); return; }
+                    title.setText("Collabs (" + n + ")");
+                    row.setVisibility(android.view.View.VISIBLE);
+                }
+                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+            });
+    }
 
     private void bindViews() {
         ivAvatar             = findViewById(R.id.iv_avatar);

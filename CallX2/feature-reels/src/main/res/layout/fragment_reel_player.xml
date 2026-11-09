@@ -741,6 +741,24 @@
           <!-- Collab Joint-Author row (shown only when isCollabPost=true) —
                ViewStub-backed: not inflated for the majority of (non-collab)
                reels. -->
+          <!-- v790 — "Remix with @owner" credit strip (remix reels only) -->
+          <TextView
+              android:id="@+id/tv_remix_credit"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="6dp"
+              android:background="@drawable/bg_pill_dark_translucent"
+              android:paddingStart="10dp"
+              android:paddingTop="4dp"
+              android:paddingEnd="10dp"
+              android:paddingBottom="4dp"
+              android:textColor="#FFFFFF"
+              android:textSize="12sp"
+              android:textStyle="bold"
+              android:visibility="gone"
+              app:layout_constraintTop_toBottomOf="@id/ll_owner_row"
+              app:layout_constraintStart_toStartOf="parent"/>
+
           <ViewStub
               android:id="@+id/stub_collab_row"
               android:inflatedId="@+id/ll_collab_second_author"

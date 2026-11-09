@@ -37,6 +37,9 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
     private String reelId;
     private static final String[] OPTIONS = {"Everyone", "Followers Only", "Off"};
     private static final String[] VALUES  = {"everyone", "followers", "off"};
+    // v790 — Remix / Collab: creator can require approval per request
+    private static final String[] REMIX_OPTIONS = {"Everyone", "Followers Only", "Approval Required", "Off"};
+    private static final String[] REMIX_VALUES  = {"everyone", "followers", "approval", "off"};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,7 +79,7 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
         spStitch.setAdapter(new android.widget.ArrayAdapter<>(this,
             android.R.layout.simple_spinner_item, OPTIONS));
         spRemix.setAdapter(new android.widget.ArrayAdapter<>(this,
-            android.R.layout.simple_spinner_item, OPTIONS));
+            android.R.layout.simple_spinner_item, REMIX_OPTIONS));
         spAudio.setAdapter(new android.widget.ArrayAdapter<>(this,
             android.R.layout.simple_spinner_item, OPTIONS));
 
@@ -98,7 +101,9 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
                     applySpinner(spStitch, snap.child("allowStitchLevel").getValue(String.class));
                     // Remix/audio from remix_settings sub-node
                     com.google.firebase.database.DataSnapshot rs = snap.child("remix_settings");
-                    applySpinner(spRemix, rs.child("remix").getValue(String.class));
+                    String rv = rs.child("remix").getValue(String.class);
+                    for (int ri = 0; rv != null && ri < REMIX_VALUES.length; ri++)
+                        if (REMIX_VALUES[ri].equals(rv)) { spRemix.setSelection(ri); break; }
                     applySpinner(spAudio, rs.child("audio").getValue(String.class));
                     Boolean showViews = rs.child("show_views").getValue(Boolean.class);
                     Boolean showLikes = rs.child("show_likes").getValue(Boolean.class);
@@ -162,7 +167,8 @@ public class ReelRemixSettingsActivity extends AppCompatActivity {
             allUpdates.put("allowDuet",               !"off".equals(duetLevel));
             allUpdates.put("allowStitchLevel",        stitchLevel);
             allUpdates.put("allowStitch",             !"off".equals(stitchLevel));
-            allUpdates.put("remix_settings/remix",    getSpinnerValue(spRemix));
+            int remixPos = spRemix.getSelectedItemPosition();
+            allUpdates.put("remix_settings/remix",    remixPos >= 0 && remixPos < REMIX_VALUES.length ? REMIX_VALUES[remixPos] : "everyone");
             allUpdates.put("remix_settings/audio",    getSpinnerValue(spAudio));
             allUpdates.put("remix_settings/show_views",  swShowViews.isChecked());
             allUpdates.put("remix_settings/show_likes",  swShowLikes.isChecked());

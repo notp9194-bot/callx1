@@ -406,6 +406,27 @@
                 android:foreground="?attr/selectableItemBackground"
                 android:visibility="gone"/>
 
+            <!-- v790 — "Collabs (N)  See All" (Remix & Collab upgrade). Hidden until the profile has collabs. -->
+            <LinearLayout android:id="@+id/row_collabs"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="8dp" android:paddingBottom="8dp"
+                android:background="?attr/selectableItemBackground"
+                android:visibility="gone">
+                <ImageView android:layout_width="18dp" android:layout_height="18dp"
+                    android:src="@drawable/rc_ic_collab_badge"
+                    android:background="@drawable/rc_bg_check_on" android:padding="3dp"/>
+                <TextView android:id="@+id/tv_collabs_title"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="10dp"
+                    android:textSize="14sp" android:textStyle="bold"
+                    android:textColor="?attr/colorOnSurface"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="See All ›" android:textSize="13sp"
+                    android:textColor="@color/rc_purple"/>
+            </LinearLayout>
+
             <!-- Mutual followers row — Instagram-style: overlapping avatars
                  (no border), bold names in text, better spacing -->
             <LinearLayout android:id="@+id/layout_mutual_followers"

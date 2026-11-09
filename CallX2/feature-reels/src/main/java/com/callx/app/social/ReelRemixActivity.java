@@ -70,6 +70,8 @@ public class ReelRemixActivity extends AppCompatActivity {
     public static final String EXTRA_VIDEO_URL  = "remixVideoUrl";
     public static final String EXTRA_THUMB_URL  = "remixThumbUrl";
     public static final String EXTRA_LAYOUT     = "remixLayout";
+    /** v790 — "remix" (default) | "collab" (set by RemixCollabFlow). */
+    public static final String EXTRA_MODE       = "remixMode";
 
     // ── Layout modes ──────────────────────────────────────────────────────────
     public static final String LAYOUT_SIDE_BY_SIDE = "side_by_side";
@@ -108,6 +110,7 @@ public class ReelRemixActivity extends AppCompatActivity {
     // ── Data ──────────────────────────────────────────────────────────────────
     private String originalReelId, ownerUid, ownerName, originalVideoUrl, originalThumbUrl;
     private String layoutMode;
+    private String flowMode = "remix";   // v790: "remix" | "collab"
     private File   outputFile;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -162,6 +165,8 @@ public class ReelRemixActivity extends AppCompatActivity {
         originalThumbUrl = i.getStringExtra(EXTRA_THUMB_URL);
         layoutMode       = i.getStringExtra(EXTRA_LAYOUT);
         if (layoutMode == null) layoutMode = LAYOUT_SIDE_BY_SIDE;
+        String fm = i.getStringExtra(EXTRA_MODE);
+        if ("collab".equals(fm)) flowMode = "collab";
     }
 
     private void bindViews() {
@@ -184,7 +189,7 @@ public class ReelRemixActivity extends AppCompatActivity {
         pbCompositing        = findViewById(R.id.pb_compositing);
         tvCompositingStatus  = findViewById(R.id.tv_compositing_status);
 
-        if (tvOwnerName != null) tvOwnerName.setText("Remixing @" + ownerName);
+        if (tvOwnerName != null) tvOwnerName.setText(("collab".equals(flowMode) ? "Collab with @" : "Remixing @") + ownerName);
         if (pbDuration  != null) { pbDuration.setMax(MAX_DURATION_SEC); pbDuration.setProgress(0); }
         if (layoutCompositing != null) layoutCompositing.setVisibility(View.GONE);
     }
@@ -219,6 +224,20 @@ public class ReelRemixActivity extends AppCompatActivity {
 
     private void setupButtons() {
         if (btnBack != null) btnBack.setOnClickListener(v -> onBackPressed());
+
+        // v790 — "Layout" tool: tap the layout label / icon to cycle Side by Side → React Cam → Green Screen → Overlay
+        View.OnClickListener cycle = v -> {
+            if (isRecording) return;   // layout is baked into the composite — don't change mid-take
+            switch (layoutMode) {
+                case LAYOUT_SIDE_BY_SIDE: layoutMode = LAYOUT_REACT_CAM;     break;
+                case LAYOUT_REACT_CAM:    layoutMode = LAYOUT_GREEN_SCREEN;  break;
+                case LAYOUT_GREEN_SCREEN: layoutMode = LAYOUT_OVERLAY;       break;
+                default:                  layoutMode = LAYOUT_SIDE_BY_SIDE;  break;
+            }
+            applyLayout();
+        };
+        if (tvLayoutLabel != null) tvLayoutLabel.setOnClickListener(cycle);
+        if (ivLayoutIcon  != null) ivLayoutIcon.setOnClickListener(cycle);
 
         if (btnFlip != null) btnFlip.setOnClickListener(v -> {
             frontCamera = !frontCamera;
@@ -454,6 +473,7 @@ public class ReelRemixActivity extends AppCompatActivity {
         intent.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH, true);
         // ── Remix metadata — passed through to ReelUploadActivity ──────────
         intent.putExtra("is_remix",               true);
+        intent.putExtra("remix_mode",             flowMode);   // v790: "remix" | "collab"
         intent.putExtra("remix_original_reel_id", originalReelId   != null ? originalReelId   : "");
         intent.putExtra("remix_original_uid",     ownerUid          != null ? ownerUid          : "");
         intent.putExtra("remix_original_name",    ownerName         != null ? ownerName         : "");

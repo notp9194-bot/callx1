@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v790 — Remix & Collab flow: clean white UI + purple accent (premium iOS look). Prefix rc_ = no clashes. -->
+<resources>
+    <color name="rc_purple">#6B46F6</color>
+    <color name="rc_purple_dark">#5632D8</color>
+    <color name="rc_purple_light">#F1EDFF</color>
+    <color name="rc_bg">#FFFFFF</color>
+    <color name="rc_text">#14141F</color>
+    <color name="rc_text_sub">#6E6E85</color>
+    <color name="rc_stroke">#E7E4F6</color>
+    <color name="rc_note_bg">#F4F1FF</color>
+    <color name="rc_green">#22A06B</color>
+    <color name="rc_red">#E5484D</color>
+    <color name="rc_amber">#E8A317</color>
+
+    <string name="rc_title">Remix &amp; Collab</string>
+    <string name="rc_choose_mode">Choose Your Mode</string>
+    <string name="rc_choose_mode_sub">Create something together ❤️</string>
+    <string name="rc_mode_remix">Remix</string>
+    <string name="rc_mode_remix_desc">Use this post with your own changes</string>
+    <string name="rc_mode_collab">Collab</string>
+    <string name="rc_mode_collab_desc">Create together with the original creator</string>
+    <string name="rc_note_notify">The original creator will get notified and can approve your collaboration.</string>
+    <string name="rc_next">Next</string>
+    <string name="rc_select_post">Select Post</string>
+    <string name="rc_search_hint">Search users or posts…</string>
+    <string name="rc_tab_for_you">For You</string>
+    <string name="rc_tab_following">Following</string>
+    <string name="rc_tab_trending">Trending</string>
+    <string name="rc_selected_one">Selected 1 post</string>
+    <string name="rc_selected_none">Select a post</string>
+    <string name="rc_no_posts">No posts available to remix right now</string>
+    <string name="rc_req_title">Request Permission</string>
+    <string name="rc_req_heading">Ask for Permission</string>
+    <string name="rc_req_send">Send Request</string>
+    <string name="rc_cancel">Cancel</string>
+    <string name="rc_req_note">You\'ll be notified when they respond. The request expires in 48 hours.</string>
+    <string name="rc_status_title">Request Status</string>
+    <string name="rc_inbox_title">Remix &amp; Collab Requests</string>
+    <string name="rc_tab_received">Received</string>
+    <string name="rc_tab_sent">Sent</string>
+    <string name="rc_approve">Approve</string>
+    <string name="rc_reject">Reject</string>
+    <string name="rc_revoke">Revoke</string>
+    <string name="rc_collabs_title">Collabs</string>
+    <string name="rc_credit_remix">Remix with @%1$s</string>
+    <string name="rc_credit_removed">Original removed by the creator</string>
+</resources>

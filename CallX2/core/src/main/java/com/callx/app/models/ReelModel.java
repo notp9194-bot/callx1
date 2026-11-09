@@ -587,6 +587,34 @@ public class ReelModel {
     public int    multiDuetSlot;
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ── Remix / Collab upgrade (v790) ─────────────────────────────────────────
+    /** True when this reel was created through the Remix flow (shows the "Remix with @owner" credit strip). */
+    public boolean isRemix = false;
+    /** reelId of the original reel this one remixes / collabs with ("" when none). */
+    public String  remixOf          = "";
+    public String  remixOfOwnerUid  = "";
+    public String  remixOfOwnerName = "";
+    public String  remixOfThumb     = "";
+    /** "side_by_side" | "react_cam" | "green_screen" | "overlay" */
+    public String  remixLayoutMode  = "";
+    /** "remix" | "collab" — which mode of the Remix & Collab flow created this reel. */
+    public String  remixMode        = "";
+    /**
+     * Creator-controlled remix settings node (reels/{id}/remix_settings): remix = everyone|followers|approval|off.
+     * Written by ReelRemixSettingsActivity and the upload screen.
+     */
+    public java.util.Map<String, Object> remix_settings;
+
+    /** Who may Remix / Collab with this reel: "everyone" (default, so old reels keep working) | "followers" | "approval" | "off". */
+    @com.google.firebase.database.Exclude
+    public String effectiveRemixLevel() {
+        if (remix_settings != null) {
+            Object v = remix_settings.get("remix");
+            if (v instanceof String && !((String) v).isEmpty()) return (String) v;
+        }
+        return "everyone";
+    }
+
     // ── Collab Repost fields ──────────────────────────────────────────────────
     // ══════════════════════════════════════════════════════════════════════════
 

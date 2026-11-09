@@ -303,6 +303,38 @@ public class ReelNotificationHelper {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // v790 — REMIX / COLLAB permission request (new request → owner; approved / declined → requester)
+    // ─────────────────────────────────────────────────────────────────────
+    public static void showRemixRequestNotification(Context ctx, String type, String name, String photo,
+                                                    String requestId, String mode) {
+        Executors.newSingleThreadExecutor().execute(() -> {
+            int net = getNetworkLevel(ctx);
+            Bitmap avatar = (net >= 2) ? downloadCircle(photo, 100) : null;
+            String what = "collab".equals(mode) ? "collab" : "remix";
+            String who  = (name == null || name.isEmpty()) ? "Someone" : name;
+            String title, body;
+            int color;
+            boolean sentTab = !"remix_request".equals(type);
+            if ("remix_approved".equals(type)) {
+                title = who + " approved your " + what; body = "Tap to start creating"; color = 0xFF22A06B;
+            } else if ("remix_rejected".equals(type)) {
+                title = who + " declined your " + what + " request"; body = ""; color = 0xFFE5484D;
+            } else {
+                title = who + " wants to " + what + " your post"; body = "Tap to approve or decline"; color = 0xFF6B46F6;
+            }
+            Intent i = new Intent(ctx, com.callx.app.social.RemixRequestsInboxActivity.class);
+            i.putExtra("open_sent", sentTab);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent pi = PendingIntent.getActivity(ctx, notifId("remixreq", requestId), i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            NotificationCompat.Builder b = base(ctx, ReelNotificationChannelManager.CHANNEL_REEL_COLLAB_ACCEPTED,
+                R.drawable.ic_reels, title, body, color).setContentIntent(pi);
+            if (avatar != null) b.setLargeIcon(avatar);
+            show(ctx, b, notifId("remixreq", requestId));
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // 13. GIFT RECEIVED
     // ─────────────────────────────────────────────────────────────────────
     public static void showGiftNotification(Context ctx, String gifterName, String gifterPhoto,

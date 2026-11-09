@@ -324,8 +324,21 @@ public class ReelShareController {
         ReelMoreBottomSheet sheet = ReelMoreBottomSheet.newInstance(
             isOwner, delegate.isSaved(), speedLabel,
             duetLevel, stitchLevel, delegate.isFollowing(), reel.seriesId,
-            delegate.isCinemaModeOn());
+            delegate.isCinemaModeOn(), reel.effectiveRemixLevel());
         sheet.show(delegate.getChildFragmentManager(), ReelMoreBottomSheet.TAG);
+    }
+
+    /** v790 — Remix & Collab flow entry (3-dot menu): Choose Mode → Select Post → permission → record. */
+    private void startRemixCollab(String mode) {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !delegate.isAdded() || delegate.getContext() == null) return;
+        com.callx.app.social.RemixCollabFlow.start(delegate.requireContext(), reel, mode);
+    }
+
+    private void openRemixRequests() {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+        delegate.getFragment().startActivity(new Intent(delegate.requireContext(),
+            com.callx.app.social.RemixRequestsInboxActivity.class));
     }
 
     // ── onMoreItemClick dispatcher ────────────────────────────────────────
@@ -362,7 +375,9 @@ public class ReelShareController {
             // v11 Duet Series
             case ReelMoreBottomSheet.ACTION_VIEW_SERIES:        delegate.openDuetSeries();        break;
             // Remix
-            case ReelMoreBottomSheet.ACTION_REMIX:              delegate.openRemix();             break;
+            case ReelMoreBottomSheet.ACTION_REMIX:              startRemixCollab(com.callx.app.social.RemixCollabTarget.MODE_REMIX);  break;
+            case ReelMoreBottomSheet.ACTION_COLLAB_WITH_FRIEND: startRemixCollab(com.callx.app.social.RemixCollabTarget.MODE_COLLAB); break;
+            case ReelMoreBottomSheet.ACTION_REMIX_REQUESTS:     openRemixRequests();              break;
             case ReelMoreBottomSheet.ACTION_VIEW_REMIXES:       delegate.openViewRemixes();       break;
             // Watch History
             case ReelMoreBottomSheet.ACTION_WATCH_HISTORY:      delegate.openWatchHistory();      break;

@@ -531,6 +531,28 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"/>
 
+        <!-- ── Remix & Collab upgrade (v790) ── -->
+        <activity android:name="com.callx.app.social.RemixCollabModeActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.NoActionBar"/>
+        <activity android:name="com.callx.app.social.RemixSelectPostActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.NoActionBar"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.social.RemixRequestActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.NoActionBar"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.social.RemixRequestStatusActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.NoActionBar"/>
+        <activity android:name="com.callx.app.social.RemixRequestsInboxActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.NoActionBar"/>
+        <activity android:name="com.callx.app.social.UserCollabsActivity"
+            android:exported="false" android:screenOrientation="portrait"
+            android:theme="@style/Theme.CallX.NoActionBar"/>
+
         <!-- ── Sequence System ── -->
         <activity android:name="com.callx.app.social.ReelSequenceActivity"
             android:exported="false"

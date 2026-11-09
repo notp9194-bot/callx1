@@ -45,6 +45,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_IS_FOLLOWING = "is_following";
     private static final String ARG_SERIES_ID   = "series_id";
     private static final String ARG_IS_CINEMA_MODE_ON = "is_cinema_mode_on";
+    private static final String ARG_REMIX_LEVEL = "remix_level";   // v790: everyone|followers|approval|off
 
     // Callback interface — caller handles all actions
     public interface OnItemClickListener {
@@ -87,6 +88,9 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
       // ── Remix (v12) ──
       public static final String ACTION_REMIX           = "remix";
       public static final String ACTION_VIEW_REMIXES    = "view_remixes";
+      // ── Remix & Collab upgrade (v790) ──
+      public static final String ACTION_COLLAB_WITH_FRIEND = "collab_with_friend";
+      public static final String ACTION_REMIX_REQUESTS     = "remix_requests";
       // ── Watch History ──
       public static final String ACTION_WATCH_HISTORY   = "watch_history";
       // ── Quality Settings ──
@@ -113,6 +117,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         int     textColor;      // 0 = default white
         boolean isDividerAfter;
         boolean disabled;       // grayed-out, non-tappable (followers-only lock)
+        String  badge;          // v790: small pill after the label (e.g. "New")
 
         MenuItem(String action, String label, int iconRes) {
             this(action, label, iconRes, 0, false, false);
@@ -150,6 +155,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     private boolean isFollowing;
     private String  seriesId;
     private boolean isCinemaModeOn;
+    private String  remixLevel = "everyone";
 
     // ─── Factory ─────────────────────────────────────────────────────────────
 
@@ -170,6 +176,16 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
                                                   String duetLevel, String stitchLevel,
                                                   boolean isFollowing, String seriesId,
                                                   boolean isCinemaModeOn) {
+        return newInstance(isOwner, isSaved, speedLabel, duetLevel, stitchLevel, isFollowing, seriesId,
+                           isCinemaModeOn, "everyone");
+    }
+
+    /** v790 — adds the creator's remix level ("everyone"|"followers"|"approval"|"off"). */
+    public static ReelMoreBottomSheet newInstance(boolean isOwner, boolean isSaved,
+                                                  String speedLabel,
+                                                  String duetLevel, String stitchLevel,
+                                                  boolean isFollowing, String seriesId,
+                                                  boolean isCinemaModeOn, String remixLevel) {
         ReelMoreBottomSheet sheet = new ReelMoreBottomSheet();
         Bundle args = new Bundle();
         args.putBoolean(ARG_IS_OWNER,     isOwner);
@@ -180,6 +196,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         args.putBoolean(ARG_IS_FOLLOWING, isFollowing);
         args.putString (ARG_SERIES_ID,    seriesId    != null ? seriesId    : "");
         args.putBoolean(ARG_IS_CINEMA_MODE_ON, isCinemaModeOn);
+        args.putString (ARG_REMIX_LEVEL, remixLevel != null ? remixLevel : "everyone");
         sheet.setArguments(args);
         return sheet;
     }
@@ -207,6 +224,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
             isFollowing = getArguments().getBoolean(ARG_IS_FOLLOWING, false);
             seriesId    = getArguments().getString (ARG_SERIES_ID,   "");
             isCinemaModeOn = getArguments().getBoolean(ARG_IS_CINEMA_MODE_ON, false);
+            remixLevel  = getArguments().getString (ARG_REMIX_LEVEL, "everyone");
         }
     }
 
@@ -281,6 +299,23 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
 
             row.addView(icon);
             row.addView(label);
+            if (item.badge != null && !item.disabled) {
+                TextView pill = new TextView(ctx);
+                LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                pp.setMarginStart(dpToPx(10));
+                pill.setLayoutParams(pp);
+                pill.setText(item.badge);
+                pill.setTextSize(10f);
+                pill.setTextColor(Color.WHITE);
+                pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                pill.setPadding(dpToPx(8), dpToPx(2), dpToPx(8), dpToPx(2));
+                android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+                bg.setColor(0xFF6B46F6);
+                bg.setCornerRadius(dpToPx(10));
+                pill.setBackground(bg);
+                row.addView(pill);
+            }
             container.addView(row);
 
             // Divider
@@ -359,7 +394,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         }
 
         // ── Remix (v12) ──
-        list.add(new MenuItem(ACTION_REMIX,         "🎬 Remix",          R.drawable.ic_reels,       CLR_PURPLE,  false, false));
+        addRemixCollabItems(list);
         list.add(new MenuItem(ACTION_VIEW_REMIXES,  "View Remixes",      R.drawable.ic_reels,       CLR_TEAL,    true,  false));
 
         list.add(new MenuItem(ACTION_VIDEO_REPLY,   "Video Reply",        R.drawable.ic_reply,       CLR_PURPLE,  false, false));
@@ -413,6 +448,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
 
         // ── Remix (v12 owner) ── View who remixed + manage allow_remix setting
         list.add(new MenuItem(ACTION_VIEW_REMIXES,   "View Remixes",      R.drawable.ic_reels,      CLR_TEAL,    false, false));
+        list.add(new MenuItem(ACTION_REMIX_REQUESTS, "Remix & Collab Requests", R.drawable.ic_group, CLR_PURPLE,  false, false));
 
         list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,   true,  false));
         list.add(new MenuItem(ACTION_COLLAB_REPOST,  "🤝 Collab Repost", R.drawable.ic_group,       CLR_COLLAB,  false, false));
@@ -449,6 +485,22 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
         boolean disabled = !canUse;
 
         list.add(new MenuItem(action, label, iconRes, color, dividerAfter, disabled));
+    }
+
+    /**
+     * v790 — "Remix This Post" (New) + "Collab with Friend", gated by the creator's remix level:
+     *   off → hidden · followers + not following → greyed "(followers only)" · everyone / approval → normal.
+     */
+    private void addRemixCollabItems(List<MenuItem> list) {
+        if ("off".equals(remixLevel)) return;
+        boolean locked = "followers".equals(remixLevel) && !isFollowing;
+        String suffix = locked ? " (followers only)" : "";
+        MenuItem remix = new MenuItem(ACTION_REMIX, "Remix This Post" + suffix, R.drawable.ic_reels,
+                locked ? CLR_DISABLED : CLR_PURPLE, false, locked);
+        remix.badge = "NEW";
+        list.add(remix);
+        list.add(new MenuItem(ACTION_COLLAB_WITH_FRIEND, "Collab with Friend" + suffix, R.drawable.ic_group,
+                locked ? CLR_DISABLED : CLR_PURPLE, false, locked));
     }
 
     // ─── Utility ─────────────────────────────────────────────────────────────
