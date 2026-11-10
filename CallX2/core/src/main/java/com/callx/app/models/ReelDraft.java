@@ -22,6 +22,16 @@ public class ReelDraft {
     public float  filterSaturation = 1f;
     public float  filterBeauty     = 0f;
     public String stickerJson      = "";
+    // v791 — Remix / Collab metadata, so a resumed draft still posts as a remix / collab
+    // (mirrors the is_remix / remix_* extras ReelRemixActivity hands to ReelEditorActivity).
+    public boolean isRemix            = false;
+    public String  remixMode          = "";
+    public String  remixOriginalReelId = "";
+    public String  remixOriginalUid   = "";
+    public String  remixOriginalName  = "";
+    public String  remixOriginalUrl   = "";
+    public String  remixOriginalThumb = "";
+    public String  remixLayoutMode    = "";
 
     public ReelDraft() {}
 

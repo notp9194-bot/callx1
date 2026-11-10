@@ -31,6 +31,11 @@
         android:title="🎮 Games"
         app:showAsAction="never"/>
 
+    <!-- v792: Voice Rooms (UI only) — Chats tab pe visible -->
+    <item android:id="@+id/action_open_voice_rooms"
+        android:title="🎙️ Voice Rooms"
+        app:showAsAction="never"/>
+
 
     <!-- Ultra Advanced Diagnostics — chat tab pe hi dikhega -->
     <item android:id="@+id/action_ultra_diagnostics"

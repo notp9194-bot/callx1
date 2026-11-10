@@ -8006,6 +8006,8 @@ public class HomeFragment extends Fragment
             captionSpannable = buildCaptionSpannable(captionText);
             if (reel.reelId != null) captionSpannableCache.put(reel.reelId, captionSpannable);
         }
+        // v791 — remix credit strip on the Home feed card (hidden for non-remix reels; recycled views are reset inside)
+        com.callx.app.social.RemixCreditBinder.bind(holder.tvRemixCredit, reel);
         tvCaption.setText(captionSpannable);
         if (captionSpannable.length() > 0) {
             tvCaption.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
@@ -10854,6 +10856,7 @@ public class HomeFragment extends Fragment
         TextView        btnPostFollow;
         ImageView       ivThumb;
         TextView        tvCaption;
+        TextView        tvRemixCredit;   // v791 — "Remix with @owner" strip
         TextView        tvLikedBy;
         TextView        tvCommentPreview;
         TextView        tvTranslate;
@@ -11077,6 +11080,7 @@ public class HomeFragment extends Fragment
             btnPostFollow         = itemView.findViewById(R.id.btn_post_follow);
             ivThumb               = itemView.findViewById(R.id.iv_post_thumb);
             tvCaption             = itemView.findViewById(R.id.tv_post_caption);
+            tvRemixCredit         = itemView.findViewById(R.id.tv_remix_credit);
             tvLikedBy             = itemView.findViewById(R.id.tv_post_liked_by);
             tvCommentPreview      = itemView.findViewById(R.id.tv_post_comment_preview);
             tvTranslate            = itemView.findViewById(R.id.tv_post_translate);

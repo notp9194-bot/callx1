@@ -527,6 +527,19 @@
         android:textColor="@color/text_secondary"
         android:textSize="11sp"/>
 
+    <!-- v791 — "Remix with @owner" credit strip (remix reels only; GONE otherwise — bound by RemixCreditBinder) -->
+    <TextView
+        android:id="@+id/tv_remix_credit"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:visibility="gone"/>
+
     <!-- Caption -->
     <TextView
         android:id="@+id/tv_post_caption"

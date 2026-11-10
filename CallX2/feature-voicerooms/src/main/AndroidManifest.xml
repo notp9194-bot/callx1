@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <!-- Voice Rooms home — live rooms list + "Start a room" -->
+        <activity
+            android:name="com.callx.app.voicerooms.VoiceRoomsHomeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.VoiceRoom"/>
+
+        <!-- Single voice room screen (speakers / audience / chat) -->
+        <activity
+            android:name="com.callx.app.voicerooms.VoiceRoomActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.VoiceRoom"/>
+
+    </application>
+</manifest>

@@ -144,6 +144,41 @@ public class ReelDraftsActivity extends AppCompatActivity
         if (draft.thumbUrl != null && !draft.thumbUrl.isEmpty()) {
             intent.putExtra(ReelEditorActivity.EXTRA_DRAFT_THUMB_URI, draft.thumbUrl);
         }
+        // v791 — a Remix / Collab draft goes back into the editor as a Remix / Collab (credit + remix record on post).
+        // The creator's permission may have changed since the draft was saved (revoked / turned off), so check again.
+        if (draft.isRemix && draft.remixOriginalReelId != null && !draft.remixOriginalReelId.isEmpty()
+                && draft.remixOriginalUid != null && !draft.remixOriginalUid.isEmpty()) {
+            final String mode = "collab".equals(draft.remixMode)
+                    ? com.callx.app.social.RemixCollabTarget.MODE_COLLAB
+                    : com.callx.app.social.RemixCollabTarget.MODE_REMIX;
+            com.callx.app.social.RemixCollabTarget t = new com.callx.app.social.RemixCollabTarget(
+                    draft.remixOriginalReelId, draft.remixOriginalUid, draft.remixOriginalName, "",
+                    draft.remixOriginalUrl, draft.remixOriginalThumb);
+            com.callx.app.social.RemixAccessHelper.check(t, mode, r -> {
+                if (isFinishing() || isDestroyed()) return;
+                switch (r.kind) {
+                    case ALLOWED:
+                        intent.putExtra("is_remix", true);
+                        intent.putExtra("remix_mode", mode);
+                        intent.putExtra("remix_original_reel_id", draft.remixOriginalReelId);
+                        intent.putExtra("remix_original_uid", draft.remixOriginalUid);
+                        intent.putExtra("remix_original_name", draft.remixOriginalName == null ? "" : draft.remixOriginalName);
+                        intent.putExtra("remix_original_url", draft.remixOriginalUrl == null ? "" : draft.remixOriginalUrl);
+                        intent.putExtra("remix_original_thumb", draft.remixOriginalThumb == null ? "" : draft.remixOriginalThumb);
+                        intent.putExtra("remix_layout_mode", draft.remixLayoutMode == null ? "" : draft.remixLayoutMode);
+                        startActivity(intent);
+                        break;
+                    case ERROR:
+                        Toast.makeText(this, "Couldn't check Remix permission. Please try again", Toast.LENGTH_SHORT).show();
+                        break;
+                    default:
+                        // creator turned it off / revoked it / followers-only: the draft can't be posted as a remix any more.
+                        Toast.makeText(this, "The creator no longer allows this " + mode
+                                + ". Delete this draft or record a new post.", Toast.LENGTH_LONG).show();
+                }
+            });
+            return;
+        }
         startActivity(intent);
     }
 

@@ -1965,6 +1965,9 @@ public class MainActivity extends AppCompatActivity
         if (openYoutube != null) openYoutube.setVisible(pos == TAB_CHATS);
         android.view.MenuItem openGames = menu.findItem(R.id.action_open_games);
         if (openGames != null) openGames.setVisible(pos == TAB_CHATS);
+        // v792: Voice Rooms entry — Games ki tarah sirf Chat tab pe
+        android.view.MenuItem openVoiceRooms = menu.findItem(R.id.action_open_voice_rooms);
+        if (openVoiceRooms != null) openVoiceRooms.setVisible(pos == TAB_CHATS);
         // "About" sirf Chat tab pe visible ho
         android.view.MenuItem about = menu.findItem(R.id.action_about);
         if (about != null) about.setVisible(pos == TAB_CHATS);
@@ -2010,6 +2013,18 @@ public class MainActivity extends AppCompatActivity
                 startActivity(new Intent(this, com.callx.app.home.YouTubeActivity.class));
             } catch (Exception e) {
                 android.widget.Toast.makeText(this, "YouTube not available",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
+
+        // v792: Voice Rooms home (UI only — demo data)
+        if (id == R.id.action_open_voice_rooms) {
+            try {
+                startActivity(new Intent(this,
+                    com.callx.app.voicerooms.VoiceRoomsHomeActivity.class));
+            } catch (Exception e) {
+                android.widget.Toast.makeText(this, "Voice Rooms coming soon!",
                     android.widget.Toast.LENGTH_SHORT).show();
             }
             return true;

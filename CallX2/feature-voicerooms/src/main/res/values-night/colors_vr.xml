@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="vr_bg">#0F0B1E</color>
+    <color name="vr_surface">#1B1530</color>
+    <color name="vr_surface_stroke">#2E2552</color>
+    <color name="vr_primary">#8B5CF6</color>
+    <color name="vr_primary_dark">#A78BFA</color>
+    <color name="vr_primary_soft">#2A2050</color>
+    <color name="vr_text">#F4F1FF</color>
+    <color name="vr_text_sub">#A59FC4</color>
+    <color name="vr_divider">#2A2348</color>
+    <color name="vr_ring_glow">#558B5CF6</color>
+</resources>

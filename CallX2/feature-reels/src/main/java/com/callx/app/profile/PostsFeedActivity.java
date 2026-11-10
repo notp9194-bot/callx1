@@ -1768,6 +1768,8 @@ public class PostsFeedActivity extends AppCompatActivity {
             }
             } // end legacy/solo fallback (else branch of isCollabStackDisplayPost)
 
+            // v791 — remix credit strip on the Posts feed (hidden for non-remix posts; recycled views are reset inside)
+            com.callx.app.social.RemixCreditBinder.bind(h.tvRemixCredit, r);
             h.tvCaption.setText(r.caption != null ? r.caption : "");
             h.tvCaption.setVisibility(r.caption != null && !r.caption.isEmpty() ? View.VISIBLE : View.GONE);
 
@@ -1998,6 +2000,7 @@ public class PostsFeedActivity extends AppCompatActivity {
             View      pvVideo; // PlayerView — only ever hidden on this screen
             ImageView ivThumb, ivAvatar, ivStoryRing, ivLikeAnim, ivVerified;
             TextView  tvOwner, tvCaption, tvLikes, tvComments, tvSuggested, tvAudio, btnFollow;
+            TextView  tvRemixCredit;   // v791 — "Remix with @owner" strip
             TextView  tvReposts, tvSends;
             TextView  btnReadMore;
             TextView  tvCarouselIndex;
@@ -2128,6 +2131,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 tvSuggested = itemView.findViewById(R.id.tv_post_suggested);
                 tvAudio     = itemView.findViewById(R.id.tv_post_audio);
                 tvCaption   = itemView.findViewById(R.id.tv_post_caption);
+                tvRemixCredit = itemView.findViewById(R.id.tv_remix_credit);
                 tvLikes     = itemView.findViewById(R.id.tv_post_likes);
                 tvComments  = itemView.findViewById(R.id.tv_post_comments);
                 btnLike     = itemView.findViewById(R.id.btn_post_like);

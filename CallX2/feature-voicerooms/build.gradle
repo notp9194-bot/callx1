@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.library'
+}
+
+// feature-voicerooms — Voice Rooms (Clubhouse / Spaces style) UI module.
+// v792: UI ONLY. Koi backend / WebRTC / Firebase logic abhi wired nahi hai —
+// saari screens VrDemoData pe chalti hain, taaki pehle design review ho sake.
+android {
+    namespace 'com.callx.app.voicerooms'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 23
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures { viewBinding true }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    // core => shared drawables (ic_mic, ic_search, ic_poll ...) + AlertDialogStyler
+    implementation project(':core')
+
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+
+    // Avatars (same lib the rest of the app uses)
+    implementation 'de.hdodenhof:circleimageview:3.1.0'
+}

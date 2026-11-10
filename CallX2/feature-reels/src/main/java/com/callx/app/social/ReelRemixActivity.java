@@ -81,6 +81,8 @@ public class ReelRemixActivity extends AppCompatActivity {
 
     private static final int  PERM_REQ        = 1201;
     private static final int  MAX_DURATION_SEC = 60;
+    /** v791 — give up merging after this long and offer Retry / raw video instead of hanging. */
+    private static final long COMPOSITE_TIMEOUT_MS = 3 * 60_000L;
 
     // ── Views ─────────────────────────────────────────────────────────────────
     private PlayerView   pvOriginal;
@@ -419,19 +421,39 @@ public class ReelRemixActivity extends AppCompatActivity {
         // Disable record button during compositing
         if (btnRecord != null) btnRecord.setEnabled(false);
 
-        File compositeFile = new File(getCacheDir(),
+        // v791 — the recorded file we wrote ourselves (the Uri path is the same file; prefer the File we know exists)
+        final String camPath = (outputFile != null && outputFile.exists())
+                ? outputFile.getAbsolutePath()
+                : (userCamUri != null ? userCamUri.getPath() : null);
+        final Uri rawUri = camPath != null ? Uri.fromFile(new File(camPath)) : userCamUri;
+
+        final File compositeFile = new File(getCacheDir(),
             "remix_composite_" + System.currentTimeMillis() + ".mp4");
+        final Handler main = new Handler(Looper.getMainLooper());
+
+        // v791 — exactly ONE outcome (done / failed / timed out). A hung codec can no longer leave the screen
+        // on "Compositing…" forever.
+        final java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final Runnable timeout = () -> {
+            if (finished.compareAndSet(false, true)) {
+                Log.e(TAG, "Compositing timed out");
+                onCompositeFailed(camPath, rawUri, "Merging took too long");
+            }
+        };
+        main.postDelayed(timeout, COMPOSITE_TIMEOUT_MS);
 
         ReelRemixVideoCompositor compositor = new ReelRemixVideoCompositor(
             this,
             originalVideoUrl,           // original reel URL (network) — compositor handles download
-            userCamUri.getPath(),       // user cam recording (local file)
+            camPath,                    // user cam recording (local file)
             compositeFile.getAbsolutePath(),
             layoutMode,
+            originalMuted ? 0f : 1f,    // "mute original" button also mutes it in the final mix
             new ReelRemixVideoCompositor.CompositionListener() {
                 @Override
                 public void onProgress(int percent) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
+                    main.post(() -> {
+                        if (finished.get() || isFinishing() || isDestroyed()) return;
                         if (pbCompositing != null) pbCompositing.setProgress(percent);
                         if (tvCompositingStatus != null)
                             tvCompositingStatus.setText("Compositing… " + percent + "%");
@@ -439,29 +461,50 @@ public class ReelRemixActivity extends AppCompatActivity {
                 }
 
                 @Override
-                public void onComplete(File outputFile) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
+                public void onComplete(File out) {
+                    main.post(() -> {
+                        if (!finished.compareAndSet(false, true)) return;
+                        main.removeCallbacks(timeout);
+                        if (isFinishing() || isDestroyed()) return;
                         if (layoutCompositing != null) layoutCompositing.setVisibility(View.GONE);
-                        goToEditor(Uri.fromFile(outputFile));
+                        goToEditor(Uri.fromFile(out));
                     });
                 }
 
                 @Override
                 public void onError(String message, Exception cause) {
                     Log.e(TAG, "Compositor error: " + message, cause);
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        if (layoutCompositing != null) layoutCompositing.setVisibility(View.GONE);
-                        Toast.makeText(ReelRemixActivity.this,
-                            "Compositing failed, using raw recording", Toast.LENGTH_SHORT).show();
-                        // Fall back: pass raw cam recording to editor
-                        goToEditor(userCamUri);
+                    main.post(() -> {
+                        if (!finished.compareAndSet(false, true)) return;
+                        main.removeCallbacks(timeout);
+                        if (isFinishing() || isDestroyed()) return;
+                        onCompositeFailed(camPath, rawUri, message);
                     });
                 }
             }
         );
 
         // Run compositor on background thread
-        Executors.newSingleThreadExecutor().execute(compositor::composite);
+        Thread t = new Thread(compositor::composite, "remix-compositor");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** v791 — merge failed / timed out: let the user retry, continue with their own video, or re-record. */
+    private void onCompositeFailed(final String camPath, final Uri rawUri, String reason) {
+        if (isFinishing() || isDestroyed()) return;
+        if (layoutCompositing != null) layoutCompositing.setVisibility(View.GONE);
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Could not merge the videos")
+            .setMessage((reason != null ? reason + ".\n\n" : "") + "What would you like to do?")
+            .setCancelable(false)
+            .setPositiveButton("Retry", (d, w) -> startCompositing(rawUri))
+            .setNeutralButton("Use my video only", (d, w) -> {
+                Toast.makeText(this, "Opening without the original video", Toast.LENGTH_SHORT).show();
+                goToEditor(rawUri);
+            })
+            .setNegativeButton("Record again", (d, w) -> resetRecordButton())
+            .show();
     }
 
     // ── Navigate to editor ────────────────────────────────────────────────────

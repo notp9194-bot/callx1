@@ -24,6 +24,12 @@ import com.google.firebase.database.ValueEventListener;
 public final class RemixCreditBinder {
     private RemixCreditBinder() {}
 
+    /** v791 — feeds rebind the same card many times while scrolling: remember the "blocked?" answer for a minute
+     *  so the strip does not fire one Firebase read per bind. key = original|remix → {blocked, readAtMs}. */
+    private static final long BLOCK_TTL_MS = 60_000L;
+    private static final java.util.concurrent.ConcurrentHashMap<String, long[]> BLOCK_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     public static void bind(@Nullable final TextView strip, @Nullable final ReelModel reel) {
         if (strip == null) return;
         if (reel == null || !reel.isRemix || reel.remixOf == null || reel.remixOf.isEmpty()) {
@@ -41,15 +47,26 @@ public final class RemixCreditBinder {
         strip.setOnClickListener(v -> open(ctx, reel.remixOf));
 
         // blocked by the original creator?
+        final String cacheKey = reel.remixOf + "|" + reel.reelId;
+        final long[] cached = BLOCK_CACHE.get(cacheKey);
+        if (cached != null && System.currentTimeMillis() - cached[1] < BLOCK_TTL_MS) {
+            if (cached[0] == 1L) showRemoved(strip);
+            return;
+        }
         FirebaseUtils.db().getReference("remixBlocks").child(reel.remixOf).child(String.valueOf(reel.reelId))
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        BLOCK_CACHE.put(cacheKey, new long[]{s.exists() ? 1L : 0L, System.currentTimeMillis()});
                         if (!key.equals(strip.getTag()) || !s.exists()) return;
-                        strip.setText(R.string.rc_credit_removed);
-                        strip.setOnClickListener(null);
+                        showRemoved(strip);
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {}
                 });
+    }
+
+    private static void showRemoved(@NonNull TextView strip) {
+        strip.setText(R.string.rc_credit_removed);
+        strip.setOnClickListener(null);
     }
 
     private static void open(Context ctx, String reelId) {

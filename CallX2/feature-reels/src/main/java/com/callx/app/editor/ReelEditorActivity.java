@@ -3338,6 +3338,20 @@ public class ReelEditorActivity extends AppCompatActivity {
                 draft.filterSaturation = finalFilterSaturation;
                 draft.filterBeauty     = finalFilterBeauty;
                 draft.stickerJson      = finalStickerJson;
+                // v791 — keep Remix / Collab info in the draft (was lost → resumed draft posted as a normal reel)
+                {
+                    Intent src = getIntent();
+                    if (src != null && src.getBooleanExtra("is_remix", false)) {
+                        draft.isRemix             = true;
+                        draft.remixMode           = nvl(src.getStringExtra("remix_mode"));
+                        draft.remixOriginalReelId = nvl(src.getStringExtra("remix_original_reel_id"));
+                        draft.remixOriginalUid    = nvl(src.getStringExtra("remix_original_uid"));
+                        draft.remixOriginalName   = nvl(src.getStringExtra("remix_original_name"));
+                        draft.remixOriginalUrl    = nvl(src.getStringExtra("remix_original_url"));
+                        draft.remixOriginalThumb  = nvl(src.getStringExtra("remix_original_thumb"));
+                        draft.remixLayoutMode     = nvl(src.getStringExtra("remix_layout_mode"));
+                    }
+                }
 
                 // Re-saving a draft that was resumed from Drafts updates that same
                 // record (and swaps out its old files) instead of piling up a duplicate.

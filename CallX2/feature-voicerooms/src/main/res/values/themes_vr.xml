@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Light: white status/nav bars with dark icons. -->
+    <style name="Theme.VoiceRoom" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/vr_primary</item>
+        <item name="colorPrimaryDark">@color/vr_bg</item>
+        <item name="colorAccent">@color/vr_primary</item>
+        <item name="colorOnPrimary">@color/vr_white</item>
+        <item name="android:windowBackground">@color/vr_bg</item>
+        <item name="android:statusBarColor">@color/vr_bg</item>
+        <item name="android:navigationBarColor">@color/vr_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
+        <item name="android:textColorPrimary">@color/vr_text</item>
+        <item name="android:textColorSecondary">@color/vr_text_sub</item>
+    </style>
+
+    <!-- Bottom sheets: transparent window background so our own rounded
+         vr_bg_sheet drawable (28dp top corners) is what the user sees. -->
+    <style name="Theme.VoiceRoom.BottomSheetDialog" parent="Theme.MaterialComponents.DayNight.BottomSheetDialog">
+        <item name="colorPrimary">@color/vr_primary</item>
+        <item name="bottomSheetStyle">@style/Widget.VoiceRoom.BottomSheet</item>
+        <item name="android:navigationBarColor">@color/vr_bg</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
+    </style>
+
+    <style name="Widget.VoiceRoom.BottomSheet" parent="Widget.MaterialComponents.BottomSheet.Modal">
+        <item name="android:background">@android:color/transparent</item>
+    </style>
+</resources>

@@ -633,6 +633,19 @@
             app:layout_constraintBottom_toBottomOf="parent"/>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
+    <!-- v791 — "Remix with @owner" credit strip (remix reels only; GONE otherwise — bound by RemixCreditBinder) -->
+    <TextView
+        android:id="@+id/tv_remix_credit"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:visibility="gone"/>
+
     <!-- Caption -->
     <!-- 🐛 FIX: caption now comes BEFORE the timestamp, to match Post feed's
          order (item_post_feed_photo.xml) — was time-then-caption here, which

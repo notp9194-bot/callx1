@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Audience grid cell: member avatar (+ online dot) / Invite / More -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <FrameLayout
+        android:layout_width="58dp"
+        android:layout_height="58dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/vr_au_avatar"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:scaleType="centerCrop"/>
+
+        <!-- Invite / More ke liye soft circle + icon -->
+        <ImageView
+            android:id="@+id/vr_au_icon"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:background="@drawable/vr_bg_circle_soft"
+            android:padding="16dp"
+            android:visibility="gone"
+            app:tint="@color/vr_primary"/>
+
+        <View
+            android:id="@+id/vr_au_online"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_gravity="bottom|end"
+            android:background="@drawable/vr_bg_online_dot"/>
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/vr_au_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:ellipsize="end"
+        android:maxEms="5"
+        android:singleLine="true"
+        android:textColor="@color/vr_text"
+        android:textSize="14sp"/>
+</LinearLayout>

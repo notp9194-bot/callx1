@@ -147,6 +147,13 @@ public class ReelNotificationActionReceiver extends BroadcastReceiver {
                         updates.put("reels/" + reelId + "/collabAcceptedAt", now);
                         updates.put("reelsByUser/" + myUid + "/" + reelId, true);
                         updates.put("userReels/" + myUid + "/" + reelId, true);
+                        // v791 — same writes as the full accept screen (CollabPostAcceptActivity): legacy
+                        // single-collaborator mirror + profile "Collabs" index for both co-creators.
+                        updates.put("reels/" + reelId + "/collabUid", myUid);
+                        updates.put("userCollabPosts/" + myUid + "/" + reelId, now);
+                        if (initiatorUid != null && !initiatorUid.isEmpty()) {
+                            updates.put("userCollabPosts/" + initiatorUid + "/" + reelId, now);
+                        }
 
                         root.updateChildren(updates, (error, ref) -> {
                             if (error != null) {

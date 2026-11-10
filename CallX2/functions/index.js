@@ -2784,3 +2784,73 @@ exports.onRemixRequestDecided = functions.database
       mode: v.mode,
     });
   });
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * v791 — Revoke cascade.
+ * The owner deletes remixApprovals/{reelId}/{requesterUid} ("Revoke" in the Remix & Collab Requests inbox).
+ * Until now that only stopped NEW publishes; everything the requester had already published stayed linked to the
+ * original. Now (server side, so it works even if the owner's app is closed and is not limited by client rules):
+ *   • every remix the requester published from this reel → remixBlocks/{reelId}/{remixReelId}
+ *       (the remix itself is NOT deleted — it is the requester's own post — its credit strip reads
+ *        "Original removed by the creator" and it disappears from the original's "Remixes" list for everybody else)
+ *   • every collab the requester published with this reel → the original creator is removed as co-creator
+ *       (collabMap/{owner}/status = "removed", his Collabs / profile indexes are cleaned, isCollabPost recomputed —
+ *        the exact same result as CollabControl.remove() in the app)
+ * Needs the `remixOf` index on /reels (firebase_rules_FINAL_v791.json).
+ * ─────────────────────────────────────────────────────────────────────────── */
+exports.onRemixApprovalRevoked = functions.database
+  .ref("/remixApprovals/{reelId}/{requesterUid}")
+  .onDelete(async (snap, context) => {
+    const { reelId, requesterUid } = context.params;
+    const db = getDatabase();
+    const now = Date.now();
+
+    const origSnap = await db.ref(`reels/${reelId}`).once("value");
+    const orig = origSnap.val() || {};
+    const ownerUid = orig.uid || "";
+
+    // every reel that was built on this original; keep only the revoked requester's own posts
+    const q = await db.ref("reels").orderByChild("remixOf").equalTo(reelId).once("value");
+    const updates = {};
+    const collabReels = [];
+    q.forEach((c) => {
+      const v = c.val() || {};
+      if (v.uid !== requesterUid) return;
+      const newId = c.key;
+      if (v.remixMode === "collab") {
+        if (!ownerUid) return;
+        const cm = (v.collabMap || {})[ownerUid];
+        if (cm && cm.status === "accepted") {
+          updates[`reels/${newId}/collabMap/${ownerUid}/status`] = "removed";
+          updates[`reels/${newId}/collabMap/${ownerUid}/removedAt`] = now;
+          updates[`userCollabPosts/${ownerUid}/${newId}`] = null;
+          updates[`reelsByUser/${ownerUid}/${newId}`] = null;
+          updates[`userReels/${ownerUid}/${newId}`] = null;
+          collabReels.push({ id: newId, collabMap: v.collabMap, ownerUid });
+        }
+      } else {
+        updates[`remixBlocks/${reelId}/${newId}`] = now;
+      }
+    });
+    if (!Object.keys(updates).length) return null;
+    await db.ref().update(updates);
+
+    // recompute isCollabPost for the collabs we just changed (same rule as the app's CollabControl.recomputeFlag)
+    for (const r of collabReels) {
+      let anyAccepted = false;
+      Object.keys(r.collabMap || {}).forEach((uid) => {
+        if (uid === r.ownerUid) return;                       // just removed
+        if ((r.collabMap[uid] || {}).status === "accepted") anyAccepted = true;
+      });
+      const f = { isCollabPost: anyAccepted };
+      if (!anyAccepted) {
+        f.collabUid = "";
+        f.collabDisplayName = "";
+        f.collabAvatarUrl = "";
+      }
+      await db.ref(`reels/${r.id}`).update(f);
+    }
+    console.log("onRemixApprovalRevoked", reelId, requesterUid,
+      "blocked/removed:", Object.keys(updates).length, "paths");
+    return null;
+  });

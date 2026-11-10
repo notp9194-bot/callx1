@@ -305,7 +305,8 @@ public class RemixRequestsInboxActivity extends AppCompatActivity {
                 .setTitle("Revoke permission?")
                 .setMessage("This person won't be able to publish a "
                         + ("collab".equals(r.mode) ? "collab" : "remix") + " of this post anymore. "
-                        + "Posts they already published stay until you remove them from the post's remixes list.")
+                        + "Posts they already published stay on their profile, but they are unlinked from yours: "
+                        + "remixes show \"Original removed by the creator\", and a collab removes you as co-creator.")
                 .setPositiveButton("Revoke", (d, w) -> RemixRequestHelper.revoke(r.reelId, r.requesterUid, ok -> {
                     if (isFinishing() || isDestroyed()) return;
                     approvalAlive.put(r.reelId + "/" + r.requesterUid, !ok);

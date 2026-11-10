@@ -65,6 +65,9 @@ public final class RemixPublishHelper {
             fan.put("userCollabPosts/" + ownerUid + "/" + newReelId, now);
             fan.put("reelsByUser/" + ownerUid + "/" + newReelId, true);
             fan.put("userReels/" + ownerUid + "/" + newReelId, true);
+            // a staged "invite more collaborators" write on the same reel may have set isCollabPost=false a moment
+            // earlier — the original creator already accepted, so the post is a live collab.
+            fan.put("reels/" + newReelId + "/isCollabPost", true);
             root.updateChildren(fan);
         });
     }

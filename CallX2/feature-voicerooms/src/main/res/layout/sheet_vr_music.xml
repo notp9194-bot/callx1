@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/vr_bg_sheet"
+    android:orientation="vertical"
+    android:paddingBottom="20dp">
+
+    <View
+        android:layout_width="40dp"
+        android:layout_height="5dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/vr_bg_handle"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="20dp"
+        android:text="Room music"
+        android:textColor="@color/vr_text"
+        android:textSize="20sp"
+        android:textStyle="bold"/>
+
+    <!-- Now playing -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="14dp"
+        android:layout_marginEnd="20dp"
+        android:background="@drawable/vr_bg_now_playing"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/vr_bg_circle_glass"
+                android:padding="15dp"
+                android:src="@drawable/ic_music_note"
+                app:tint="@color/vr_white"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:alpha="0.85"
+                    android:text="Now playing"
+                    android:textColor="@color/vr_white"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/vr_np_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="@color/vr_white"
+                    android:textSize="18sp"/>
+
+                <TextView
+                    android:id="@+id/vr_np_artist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:alpha="0.9"
+                    android:textColor="@color/vr_white"
+                    android:textSize="13sp"/>
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/vr_np_play"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/vr_bg_circle_glass"
+                android:padding="13dp"
+                android:src="@drawable/ic_pause"
+                app:tint="@color/vr_white"/>
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/vr_np_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:layout_marginTop="16dp"
+            android:max="100"
+            android:progress="35"
+            android:progressBackgroundTint="#44FFFFFF"
+            android:progressTint="@color/vr_white"/>
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingTop="16dp"
+        android:paddingEnd="20dp"
+        android:text="Up next"
+        android:textColor="@color/vr_text_sub"
+        android:textSize="13sp"/>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/vr_rv_tracks"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:nestedScrollingEnabled="false"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"/>
+
+    <TextView
+        android:id="@+id/vr_music_add"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="20dp"
+        android:background="@drawable/vr_bg_chip_off"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="center"
+        android:text="+ Add a song"
+        android:textColor="@color/vr_primary"
+        android:textSize="16sp"/>
+</LinearLayout>
