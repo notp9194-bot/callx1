@@ -1,11 +1,24 @@
+# Gradle / build
 .gradle/
 build/
 */build/
-.idea/
-*.apk
-*.aab
-local.properties
-*.log
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Local config
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Secrets (kabhi push mat karo)
+*.jks
+*.keystore
+keystore.properties
+
+# Build outputs / bade files
+*.apk
+*.aab
+*.zip
+*.log
