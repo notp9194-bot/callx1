@@ -3,6 +3,7 @@ package com.callx.app.voicerooms
 import android.content.Context
 import io.livekit.android.LiveKit
 import io.livekit.android.events.RoomEvent
+import io.livekit.android.events.collect
 import io.livekit.android.room.Room
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +65,8 @@ class VrAudio(context: Context) {
                     is RoomEvent.ParticipantPermissionsChanged -> {
                         if (ev.participant === r.localParticipant) {
                             listener?.onCanPublish(ev.newPermissions?.canPublish ?: false)
+                        } else {
+                            Unit
                         }
                     }
                     is RoomEvent.Reconnecting -> listener?.onReconnecting()

@@ -49,7 +49,7 @@
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
-# ── WebRTC (Stream) ─────────────────────────────────────────────
+# ── WebRTC (LiveKit webrtc-sdk) ──────────────────────────────────────────────────────────────────────────
 -keep class org.webrtc.** { *; }
 -dontwarn org.webrtc.**
 -keep class io.getstream.** { *; }
