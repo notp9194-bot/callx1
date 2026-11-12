@@ -4,17 +4,12 @@
   (banner, topic, speakers, audience, pinned, chat) → fixed bottom
   (input row + action bar).
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/vr_bg">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
-
+    android:background="@color/vr_bg"
+    android:orientation="vertical">
 
     <!-- ── Top bar (Home screen jaisa hi — consistent navigation) ── -->
     <LinearLayout
@@ -26,7 +21,6 @@
         android:paddingEnd="8dp">
 
         <ImageView
-        android:contentDescription="@string/vr_minimize_room"
             android:id="@+id/vr_btn_back"
             android:layout_width="44dp"
             android:layout_height="44dp"
@@ -40,13 +34,12 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:text="@string/vr_voice_rooms"
+            android:text="Voice Rooms"
             android:textColor="@color/vr_text"
             android:textSize="22sp"
             android:textStyle="bold"/>
 
         <ImageView
-        android:contentDescription="@string/vr_search_people"
             android:id="@+id/vr_btn_search"
             android:layout_width="44dp"
             android:layout_height="44dp"
@@ -56,7 +49,6 @@
             app:tint="@color/vr_text"/>
 
         <ImageView
-        android:contentDescription="@string/vr_more_options"
             android:id="@+id/vr_btn_more_top"
             android:layout_width="44dp"
             android:layout_height="44dp"
@@ -67,33 +59,24 @@
             app:tint="@color/vr_text"/>
     </LinearLayout>
 
-    <!-- ── Content: collapsible header + real chat list ── -->
-    <androidx.coordinatorlayout.widget.CoordinatorLayout
+    <!-- ── Scrollable content ── -->
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/vr_scroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:scrollbars="none">
 
-        <com.google.android.material.appbar.AppBarLayout
-            android:id="@+id/vr_appbar"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/vr_bg"
-            android:clipChildren="false"
-            android:stateListAnimator="@null"
-            app:elevation="0dp"
-            app:liftOnScroll="false">
-
-            <LinearLayout
-                android:id="@+id/vr_header"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:clipChildren="false"
-                android:orientation="vertical"
-                android:paddingStart="16dp"
-                android:paddingTop="4dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="4dp"
-                app:layout_scrollFlags="scroll">
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
 
             <!-- Banner -->
             <FrameLayout
@@ -103,13 +86,53 @@
                 android:background="@drawable/vr_bg_banner"
                 android:minHeight="156dp">
 
-                <!-- Premium mic illustration (Canvas) -->
-                <com.callx.app.voicerooms.VrMicView
-                    android:id="@+id/vr_banner_mic"
-                    android:layout_width="124dp"
-                    android:layout_height="130dp"
+                <!-- right visual: glow + mic + sparkles -->
+                <FrameLayout
+                    android:layout_width="132dp"
+                    android:layout_height="132dp"
                     android:layout_gravity="end|center_vertical"
-                    android:layout_marginEnd="12dp"/>
+                    android:layout_marginEnd="14dp">
+
+                    <View
+                        android:layout_width="132dp"
+                        android:layout_height="132dp"
+                        android:background="@drawable/vr_bg_glow"/>
+
+                    <View
+                        android:layout_width="92dp"
+                        android:layout_height="92dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/vr_bg_glow"/>
+
+                    <ImageView
+                        android:layout_width="68dp"
+                        android:layout_height="68dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_mic"
+                        app:tint="@color/vr_white"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top|start"
+                        android:layout_marginStart="10dp"
+                        android:layout_marginTop="22dp"
+                        android:alpha="0.9"
+                        android:text="✦"
+                        android:textColor="@color/vr_white"
+                        android:textSize="20sp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom|end"
+                        android:layout_marginEnd="4dp"
+                        android:layout_marginBottom="14dp"
+                        android:alpha="0.75"
+                        android:text="✦"
+                        android:textColor="@color/vr_white"
+                        android:textSize="14sp"/>
+                </FrameLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -144,7 +167,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="6dp"
                                 android:fontFamily="sans-serif-medium"
-                                android:text="@string/vr_live"
+                                android:text="Live"
                                 android:textColor="@color/vr_white"
                                 android:textSize="14sp"/>
                         </LinearLayout>
@@ -160,7 +183,6 @@
                             android:paddingEnd="12dp">
 
                             <ImageView
-        android:importantForAccessibility="no"
                                 android:layout_width="15dp"
                                 android:layout_height="15dp"
                                 android:src="@drawable/ic_group"
@@ -207,7 +229,6 @@
                         android:paddingEnd="12dp">
 
                         <ImageView
-        android:importantForAccessibility="no"
                             android:layout_width="18dp"
                             android:layout_height="18dp"
                             android:src="@drawable/ic_waveform_mini"
@@ -223,7 +244,6 @@
                             android:textSize="15sp"/>
 
                         <ImageView
-        android:contentDescription="@string/vr_verified"
                             android:id="@+id/vr_banner_verified"
                             android:layout_width="17dp"
                             android:layout_height="17dp"
@@ -233,7 +253,6 @@
                 </LinearLayout>
 
                 <ImageView
-        android:contentDescription="@string/vr_collapse_banner"
                     android:id="@+id/vr_banner_close"
                     android:layout_width="34dp"
                     android:layout_height="34dp"
@@ -260,7 +279,6 @@
                 android:paddingEnd="14dp">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:src="@drawable/ic_waveform_mini"
@@ -274,12 +292,11 @@
                     android:layout_weight="1"
                     android:ellipsize="end"
                     android:singleLine="true"
-                    android:text="@string/vr_let_s_talk_about"
+                    android:text="Let's talk about your favourite songs!"
                     android:textColor="@color/vr_text"
                     android:textSize="16sp"/>
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:src="@drawable/ic_chevron_right"
@@ -295,7 +312,6 @@
                 android:orientation="horizontal">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:src="@drawable/ic_waveform_mini"
@@ -324,12 +340,11 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:fontFamily="sans-serif-medium"
-                        android:text="@string/vr_see_all"
+                        android:text="See All"
                         android:textColor="@color/vr_primary"
                         android:textSize="15sp"/>
 
                     <ImageView
-        android:importantForAccessibility="no"
                         android:layout_width="18dp"
                         android:layout_height="18dp"
                         android:src="@drawable/ic_chevron_right"
@@ -342,7 +357,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:clipChildren="false"
                 android:clipToPadding="false"
                 android:overScrollMode="never"/>
 
@@ -355,7 +369,6 @@
                 android:orientation="horizontal">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:src="@drawable/ic_group"
@@ -378,28 +391,12 @@
                 android:layout_marginTop="8dp"
                 android:overScrollMode="never"/>
 
-            <TextView
-                android:id="@+id/vr_audience_empty"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:gravity="center"
-                android:text="@string/vr_no_listeners_yet_invite"
-                android:textColor="@color/vr_text_sub"
-                android:textSize="14sp"
-                android:visibility="gone"/>
-
-            </LinearLayout>
-
             <!-- Pinned message -->
             <LinearLayout
                 android:id="@+id/vr_pinned_bar"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="8dp"
-                android:layout_marginEnd="16dp"
-                android:layout_marginBottom="4dp"
+                android:layout_marginTop="12dp"
                 android:background="@drawable/vr_bg_pill_soft"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
@@ -407,7 +404,6 @@
                 android:paddingEnd="8dp">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="20dp"
                     android:layout_height="20dp"
                     android:src="@drawable/ic_pin"
@@ -436,12 +432,11 @@
                     android:layout_weight="1"
                     android:ellipsize="end"
                     android:singleLine="true"
-                    android:text="@string/vr_welcome_to_the_voice"
+                    android:text="Welcome to the voice room! 💜"
                     android:textColor="@color/vr_primary"
                     android:textSize="15sp"/>
 
                 <ImageView
-        android:contentDescription="@string/vr_dismiss_pinned_message"
                     android:id="@+id/vr_pinned_close"
                     android:layout_width="34dp"
                     android:layout_height="34dp"
@@ -451,104 +446,15 @@
                     app:tint="@color/vr_primary"/>
             </LinearLayout>
 
-            <!-- Live poll bar (host poll banata hai; tap => vote / results) -->
-            <LinearLayout
-                android:id="@+id/vr_poll_bar"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="4dp"
-                android:layout_marginEnd="16dp"
-                android:layout_marginBottom="4dp"
-                android:background="@drawable/vr_bg_pill_soft"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/vr_poll_text"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:fontFamily="sans-serif-medium"
-                    android:singleLine="true"
-                    android:textColor="@color/vr_text"
-                    android:textSize="15sp"/>
-
-                <TextView
-                    android:id="@+id/vr_poll_action"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:fontFamily="sans-serif-medium"
-                    android:textColor="@color/vr_primary"
-                    android:textSize="14sp"/>
-            </LinearLayout>
-            
-        </com.google.android.material.appbar.AppBarLayout>
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            app:layout_behavior="@string/appbar_scrolling_view_behavior">
-
+            <!-- Chat -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/vr_rv_chat"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:overScrollMode="never"
-                android:paddingStart="16dp"
-                android:paddingTop="4dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="8dp"/>
-
-            <!-- Chat empty state -->
-            <LinearLayout
-                android:id="@+id/vr_chat_empty"
-                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
-                android:orientation="vertical"
-                android:paddingTop="28dp"
-                android:visibility="gone">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="💬"
-                    android:textSize="36sp"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/vr_no_messages_yet_say"
-                    android:textColor="@color/vr_text_sub"
-                    android:textSize="15sp"/>
-            </LinearLayout>
-        </FrameLayout>
-
-        <!-- "New messages" pill -->
-        <TextView
-            android:id="@+id/vr_new_msgs"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="12dp"
-            android:background="@drawable/vr_bg_new_msgs"
-            android:elevation="6dp"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"
-            android:paddingStart="18dp"
-            android:paddingEnd="18dp"
-            android:textColor="@color/vr_white"
-            android:textSize="14sp"
-            android:visibility="gone"/>
-    </androidx.coordinatorlayout.widget.CoordinatorLayout>
+                android:layout_marginTop="8dp"
+                android:overScrollMode="never"/>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
 
     <!-- ── Fixed bottom: input row + action bar ── -->
     <LinearLayout
@@ -568,7 +474,6 @@
             android:orientation="horizontal">
 
             <ImageView
-        android:contentDescription="@string/vr_send_a_gift"
                 android:id="@+id/vr_btn_gift"
                 android:layout_width="50dp"
                 android:layout_height="50dp"
@@ -595,7 +500,7 @@
                     android:layout_height="match_parent"
                     android:layout_weight="1"
                     android:background="@null"
-                    android:hint="@string/vr_say_something"
+                    android:hint="Say something…"
                     android:imeOptions="actionSend"
                     android:inputType="textCapSentences"
                     android:maxLines="1"
@@ -604,7 +509,6 @@
                     android:textSize="16sp"/>
 
                 <ImageView
-        android:contentDescription="@string/vr_cd_emoji"
                     android:id="@+id/vr_btn_emoji_send"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
@@ -615,7 +519,6 @@
             </LinearLayout>
 
             <ImageView
-        android:contentDescription="@string/vr_cd_mic_mute"
                 android:id="@+id/vr_btn_mic"
                 android:layout_width="56dp"
                 android:layout_height="56dp"
@@ -649,13 +552,13 @@
                 android:paddingTop="10dp"
                 android:paddingBottom="10dp">
 
-                <ImageView
-        android:importantForAccessibility="no"
-                    android:id="@+id/vr_raise_icon"
+                <TextView
                     android:layout_width="26dp"
                     android:layout_height="26dp"
-                    android:src="@drawable/vr_ic_hand"
-                    app:tint="@color/vr_text"/>
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:text="✋"
+                    android:textSize="21sp"/>
 
                 <TextView
                     android:id="@+id/vr_raise_label"
@@ -664,7 +567,7 @@
                     android:layout_marginTop="4dp"
                     android:fontFamily="sans-serif-medium"
                     android:gravity="center"
-                    android:text="@string/vr_raise_nhand"
+                    android:text="Raise\nHand"
                     android:textColor="@color/vr_text"
                     android:textSize="12sp"/>
             </LinearLayout>
@@ -683,7 +586,6 @@
                 android:paddingBottom="10dp">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="26dp"
                     android:layout_height="26dp"
                     android:src="@drawable/ic_poll"
@@ -694,7 +596,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:fontFamily="sans-serif-medium"
-                    android:text="@string/vr_poll"
+                    android:text="Poll"
                     android:textColor="@color/vr_text"
                     android:textSize="12sp"/>
             </LinearLayout>
@@ -713,7 +615,6 @@
                 android:paddingBottom="10dp">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="26dp"
                     android:layout_height="26dp"
                     android:padding="2dp"
@@ -725,7 +626,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:fontFamily="sans-serif-medium"
-                    android:text="@string/vr_music"
+                    android:text="Music"
                     android:textColor="@color/vr_text"
                     android:textSize="12sp"/>
             </LinearLayout>
@@ -744,7 +645,6 @@
                 android:paddingBottom="10dp">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="26dp"
                     android:layout_height="26dp"
                     android:src="@drawable/ic_share_reel"
@@ -755,7 +655,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:fontFamily="sans-serif-medium"
-                    android:text="@string/vr_share"
+                    android:text="Share"
                     android:textColor="@color/vr_text"
                     android:textSize="12sp"/>
             </LinearLayout>
@@ -774,7 +674,6 @@
                 android:paddingBottom="10dp">
 
                 <ImageView
-        android:importantForAccessibility="no"
                     android:layout_width="26dp"
                     android:layout_height="26dp"
                     android:rotation="90"
@@ -786,20 +685,10 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:fontFamily="sans-serif-medium"
-                    android:text="@string/vr_more"
+                    android:text="More"
                     android:textColor="@color/vr_text"
                     android:textSize="12sp"/>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>
-
-    <!-- FX overlay: floating hearts / gift burst (touch nahi rokta) -->
-    <FrameLayout
-        android:id="@+id/vr_fx_layer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clickable="false"
-        android:focusable="false"
-        android:importantForAccessibility="no"/>
-</FrameLayout>

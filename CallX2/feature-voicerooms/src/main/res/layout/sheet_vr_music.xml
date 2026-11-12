@@ -20,7 +20,7 @@
         android:paddingStart="20dp"
         android:paddingTop="14dp"
         android:paddingEnd="20dp"
-        android:text="@string/vr_room_music"
+        android:text="Room music"
         android:textColor="@color/vr_text"
         android:textSize="20sp"
         android:textStyle="bold"/>
@@ -43,7 +43,6 @@
             android:orientation="horizontal">
 
             <ImageView
-        android:importantForAccessibility="no"
                 android:layout_width="52dp"
                 android:layout_height="52dp"
                 android:background="@drawable/vr_bg_circle_glass"
@@ -62,7 +61,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:alpha="0.85"
-                    android:text="@string/vr_now_playing"
+                    android:text="Now playing"
                     android:textColor="@color/vr_white"
                     android:textSize="12sp"/>
 
@@ -84,7 +83,6 @@
             </LinearLayout>
 
             <ImageView
-        android:contentDescription="@string/vr_play_or_pause"
                 android:id="@+id/vr_np_play"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
@@ -112,7 +110,7 @@
         android:paddingStart="20dp"
         android:paddingTop="16dp"
         android:paddingEnd="20dp"
-        android:text="@string/vr_up_next"
+        android:text="Up next"
         android:textColor="@color/vr_text_sub"
         android:textSize="13sp"/>
 
@@ -134,7 +132,7 @@
         android:background="@drawable/vr_bg_chip_off"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
-        android:text="@string/vr_add_a_song"
+        android:text="+ Add a song"
         android:textColor="@color/vr_primary"
         android:textSize="16sp"/>
 </LinearLayout>

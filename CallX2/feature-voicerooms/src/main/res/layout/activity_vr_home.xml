@@ -21,7 +21,6 @@
             android:paddingEnd="8dp">
 
             <ImageView
-        android:contentDescription="@string/vr_back"
                 android:id="@+id/vr_home_back"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
@@ -35,13 +34,12 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
-                android:text="@string/vr_voice_rooms"
+                android:text="Voice Rooms"
                 android:textColor="@color/vr_text"
                 android:textSize="22sp"
                 android:textStyle="bold"/>
 
             <ImageView
-        android:contentDescription="@string/vr_search_rooms"
                 android:id="@+id/vr_home_search"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
@@ -63,7 +61,7 @@
             android:drawableStart="@drawable/ic_search"
             android:drawablePadding="10dp"
             android:drawableTint="@color/vr_text_sub"
-            android:hint="@string/vr_search_rooms_or_hosts"
+            android:hint="Search rooms or hosts"
             android:imeOptions="actionSearch"
             android:inputType="text"
             android:maxLines="1"
@@ -99,7 +97,7 @@
             android:paddingTop="4dp"
             android:paddingEnd="20dp"
             android:paddingBottom="4dp"
-            android:text="@string/vr_live_now"
+            android:text="Live now"
             android:textColor="@color/vr_text"
             android:textSize="18sp"
             android:textStyle="bold"/>
@@ -109,135 +107,25 @@
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <!-- Empty state -->
-            <LinearLayout
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/vr_rv_rooms"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:overScrollMode="never"
+                android:paddingBottom="96dp"/>
+
+            <TextView
                 android:id="@+id/vr_empty"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:gravity="center_horizontal"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <com.callx.app.voicerooms.VrMicView
-                    android:layout_width="96dp"
-                    android:layout_height="100dp"
-                    android:alpha="0.9"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center"
-                    android:text="@string/vr_no_live_rooms_here"
-                    android:textColor="@color/vr_text_sub"
-                    android:textSize="15sp"/>
-            </LinearLayout>
-
-            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                android:id="@+id/vr_refresh"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/vr_rv_rooms"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:clipToPadding="false"
-                    android:overScrollMode="never"
-                    android:paddingBottom="96dp"/>
-            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
-            <!-- Loading skeleton -->
-            <LinearLayout
-                android:id="@+id/vr_skeleton"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@color/vr_bg"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <include layout="@layout/item_vr_skeleton"/>
-                <include layout="@layout/item_vr_skeleton"/>
-                <include layout="@layout/item_vr_skeleton"/>
-            </LinearLayout>
+                android:text="No live rooms here yet.\nStart one!"
+                android:gravity="center"
+                android:textColor="@color/vr_text_sub"
+                android:textSize="15sp"
+                android:visibility="gone"/>
         </FrameLayout>
-    </LinearLayout>
-
-    <!-- Mini player: room minimize karne par yahan dikhta hai -->
-    <LinearLayout
-        android:id="@+id/vr_mini"
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:layout_gravity="bottom"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="16dp"
-        android:background="@drawable/vr_bg_mini_player"
-        android:clickable="true"
-        android:elevation="10dp"
-        android:focusable="true"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="8dp"
-        android:visibility="gone">
-
-        <View
-            android:id="@+id/vr_mini_dot"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:background="@drawable/vr_bg_dot_white"
-            android:importantForAccessibility="no"/>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/vr_mini_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:fontFamily="sans-serif-medium"
-                android:singleLine="true"
-                android:textColor="@color/vr_white"
-                android:textSize="16sp"/>
-
-            <TextView
-                android:id="@+id/vr_mini_sub"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:alpha="0.85"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:textColor="@color/vr_white"
-                android:textSize="12sp"/>
-        </LinearLayout>
-
-        <ImageView
-        android:contentDescription="@string/vr_cd_mic_mute"
-            android:id="@+id/vr_mini_mic"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="@drawable/vr_bg_circle_glass"
-            android:padding="12dp"
-            android:src="@drawable/ic_mic"
-            app:tint="@color/vr_white"/>
-
-        <ImageView
-        android:contentDescription="@string/vr_leave_room"
-            android:id="@+id/vr_mini_leave"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_marginStart="6dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="12dp"
-            android:src="@drawable/ic_close"
-            app:tint="@color/vr_white"/>
     </LinearLayout>
 
     <!-- Start a room -->
@@ -257,7 +145,6 @@
         android:paddingEnd="26dp">
 
         <ImageView
-        android:importantForAccessibility="no"
             android:layout_width="22dp"
             android:layout_height="22dp"
             android:src="@drawable/ic_mic"
@@ -268,7 +155,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
             android:fontFamily="sans-serif-medium"
-            android:text="@string/vr_start_a_room"
+            android:text="Start a room"
             android:textColor="@color/vr_white"
             android:textSize="16sp"/>
     </LinearLayout>

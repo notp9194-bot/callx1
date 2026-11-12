@@ -411,10 +411,11 @@ exports.notifyExpiredCountdownStickers = functions.pubsub
  *     statusId), so leaving replies in place here is what makes highlighted
  *     comments keep showing up — no separate copy step needed.
  *
- * Only the `replies` child is removed, never the status doc itself — the
- * client's own expiresAt filtering already hides expired stories from the
- * feed, so this only needs to clean up the one thing that doesn't
- * self-hide (the public comment overlay data).
+ * UPDATED: the whole expired status record is now removed (replies included),
+ * not just `replies`. Expiry = expiresAt, else timestamp + 24h (matches the app's
+ * StatusItem.effectiveExpiry and the Firebase rules). Highlighted stories are kept.
+ * NOTE: media files (Cloudinary) are NOT deleted here — assets are shared via
+ * content-hash dedup / reshares, so URL-based deletion is unsafe.
  */
 exports.cleanupExpiredStatusReplies = functions.pubsub
   .schedule("every 30 minutes")
@@ -423,45 +424,309 @@ exports.cleanupExpiredStatusReplies = functions.pubsub
     const statusRootSnap = await db.ref("status").once("value");
     if (!statusRootSnap.exists()) return null;
 
-    // WhatsApp-style: one expiry rule everywhere = expiresAt, else timestamp + 24h.
+    // WhatsApp-style: ONE expiry rule everywhere = expiresAt, else timestamp + 24h.
     // A status with neither is treated as expired (never "lives forever").
-    // 1h grace so clients that still show the last seconds of a story never race the delete.
+    // 1h grace so a client still showing the last seconds of a story never races the delete.
     const DAY = 24 * 60 * 60 * 1000;
     const GRACE = 60 * 60 * 1000;
     const now = Date.now();
-    const updates = {};
-    let removed = 0;
+    const paths = [];
 
     statusRootSnap.forEach((ownerSnap) => {
       ownerSnap.forEach((statusSnap) => {
         const v = statusSnap.val() || {};
         if (v.scheduledAt && v.scheduledAt > now) return; // scheduled, not yet live
-        if (v.isHighlighted === true) return;             // highlights are permanent (comments kept too)
+        if (v.isHighlighted === true) return;             // highlights are permanent (replies kept too)
 
         let exp = Number(v.expiresAt) > 0 ? Number(v.expiresAt) : 0;
         if (!exp) exp = Number(v.timestamp) > 0 ? Number(v.timestamp) + DAY : 0;
         if (exp + GRACE >= now) return;                   // still live / inside grace
 
-        updates[`status/${ownerSnap.key}/${statusSnap.key}`] = null; // whole record incl. replies
-        // v752: template side-nodes of this status die with it (who-used list, owner switch, reports).
-        // savedTemplates/{uid} is NOT touched — saved snapshots are meant to outlive the 24h status.
-        updates[`statusTemplateUses/${ownerSnap.key}/${statusSnap.key}`] = null;
-        updates[`templateStats/${ownerSnap.key}/${statusSnap.key}`] = null; // v767
-        updates[`templateControl/${ownerSnap.key}/${statusSnap.key}`] = null;
-        updates[`templateReports/${ownerSnap.key}/${statusSnap.key}`] = null;
-        removed++;
+        paths.push(`status/${ownerSnap.key}/${statusSnap.key}`); // whole record incl. replies
       });
     });
 
-    const paths = Object.keys(updates);
     for (let i = 0; i < paths.length; i += 400) {
       const chunk = {};
-      paths.slice(i, i + 400).forEach((k) => { chunk[k] = null; });
+      paths.slice(i, i + 400).forEach((p) => { chunk[p] = null; });
       await db.ref().update(chunk);
     }
-    if (removed > 0) {
-      console.log(`Expired-status sweep: removed ${removed} expired, non-highlighted status record(s).`);
+    if (paths.length > 0) {
+      console.log(`Expired-status sweep: removed ${paths.length} expired, non-highlighted status record(s).`);
     }
+    return null;
+  });
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * 📡 STATUS FEED FAN-OUT  (v757)
+ * ════════════════════════════════════════════════════════════════════════════
+ * Problem: the app used to attach one status/{contactUid} listener per contact
+ * (x3 in some places) — 500 contacts = 500+ listeners, almost all on empty nodes.
+ *
+ * Fix: this server keeps a per-viewer INDEX of "who currently has a live status
+ * that I'm allowed to see":
+ *
+ *   statusFeed/{viewerUid}/{ownerUid} = {
+ *     n:   number of live statuses visible to this viewer,
+ *     ts:  timestamp of the newest one,          id: its statusId,
+ *     ty:  its type (text|image|video|...),      th: its thumbnail url,
+ *     mu:  its media url,                        tx: text snippet (<=120 chars),
+ *     exp: earliest effective expiry among live statuses (ms),
+ *     ids: { statusId: effectiveExpiryMs, ... }  (<= STATUS_FEED_MAX_IDS newest),
+ *     u:   server timestamp of this write
+ *   }
+ *   statusFeedMeta/{viewerUid} = { builtAt, v }   (written by rebuildViewerFeed)
+ *
+ * The app attaches ONE listener on statusFeed/{me} and only then listens to
+ * status/{owner} for owners that are in the feed.
+ *
+ * Audience of an owner = keys of contacts/{owner} (same rule /notify/status uses).
+ * Per-status privacy is applied here: privacy "only" / "except" / close-friends
+ * (privacyList) and blocks/{owner}/{viewer}.
+ *
+ * Writers (all Admin SDK; rules make statusFeed* read-only for clients):
+ *   - syncStatusFeed (callable → POST /status/feed/sync on Render): called by the
+ *     app when MY statuses change (post / delete / privacy / schedule publish) and
+ *     for a viewer-side rebuild.
+ *   - onStatusWriteSyncFeed (real Cloud Functions only; no-op on the Render bridge).
+ *   - reconcileStatusFeed (every 15 min): full rebuild — safety net for missed
+ *     calls, expiry, contacts added/removed. Also prunes expired feed entries.
+ */
+const STATUS_FEED_DAY = 24 * 60 * 60 * 1000;
+const STATUS_FEED_MAX_IDS = 40;
+const STATUS_FEED_VERSION = 1;
+const STATUS_FEED_VIEWER_REBUILD_MIN_GAP_MS = 10 * 60 * 1000;
+
+function statusFeedEffExpiry(v) {
+  const e = Number(v && v.expiresAt);
+  if (e > 0) return e;
+  const t = Number(v && v.timestamp);
+  return t > 0 ? t + STATUS_FEED_DAY : 0;
+}
+
+function statusFeedList(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
+  if (typeof raw === "object") return Object.values(raw).filter(Boolean).map(String);
+  return [];
+}
+
+/** Same audience rules as StatusViewerActivity#canIViewOriginal. */
+function statusFeedVisibleTo(v, viewerUid) {
+  const list = statusFeedList(v.privacyList);
+  if (v.privacy === "only") return list.includes(viewerUid);
+  if (v.privacy === "except") return !list.includes(viewerUid);
+  if (v.isCloseFriends === true) return list.includes(viewerUid);
+  return true;
+}
+
+/** A status is feed-eligible when it is live, published and not deleted. */
+function statusFeedIsLive(v, now) {
+  if (!v || v.deleted === true) return false;
+  if (Number(v.scheduledAt) > now) return false;
+  const exp = statusFeedEffExpiry(v);
+  return exp > now;
+}
+
+/** Collapse one owner's live statuses (already filtered for a viewer) into the feed summary. */
+function statusFeedSummarize(items) {
+  if (!items.length) return null;
+  items.sort((a, b) => (Number(a.v.timestamp) || 0) - (Number(b.v.timestamp) || 0));
+  const newest = items[items.length - 1];
+  let minExp = Infinity;
+  const ids = {};
+  items.slice(-STATUS_FEED_MAX_IDS).forEach((it) => {
+    ids[it.id] = it.exp;
+  });
+  items.forEach((it) => { if (it.exp < minExp) minExp = it.exp; });
+  const nv = newest.v;
+  const out = {
+    n: items.length,
+    ts: Number(nv.timestamp) || 0,
+    id: newest.id,
+    ty: String(nv.type || "text").slice(0, 20),
+    exp: minExp === Infinity ? 0 : minExp,
+    ids,
+    u: ServerValue.TIMESTAMP,
+  };
+  if (nv.thumbnailUrl) out.th = String(nv.thumbnailUrl).slice(0, 600);
+  if (nv.mediaUrl) out.mu = String(nv.mediaUrl).slice(0, 600);
+  const tx = nv.text || nv.caption;
+  if (tx) out.tx = String(tx).slice(0, 120);
+  return out;
+}
+
+/** Live status items of one owner snapshot value: [{id, v, exp}] */
+function statusFeedLiveItems(ownerVal, now) {
+  const items = [];
+  Object.keys(ownerVal || {}).forEach((id) => {
+    const v = ownerVal[id];
+    if (!v || typeof v !== "object") return;
+    if (!statusFeedIsLive(v, now)) return;
+    items.push({ id, v, exp: statusFeedEffExpiry(v) });
+  });
+  return items;
+}
+
+async function statusFeedWriteUpdates(db, updates) {
+  const keys = Object.keys(updates);
+  for (let i = 0; i < keys.length; i += 400) {
+    const chunk = {};
+    keys.slice(i, i + 400).forEach((k) => { chunk[k] = updates[k]; });
+    await db.ref().update(chunk);
+  }
+}
+
+/**
+ * Owner side: recompute what every contact of `ownerUid` should see and write it.
+ * Idempotent — always derives from the current status/{owner} + contacts/{owner}.
+ * Viewers that no longer qualify (deleted / expired / privacy / blocked) get null.
+ */
+async function syncStatusFeedForOwner(ownerUid) {
+  if (!ownerUid || typeof ownerUid !== "string") return { viewers: 0, written: 0 };
+  const db = getDatabase();
+  const now = Date.now();
+  const [statusSnap, contactsSnap, blocksSnap, oldFanSnap] = await Promise.all([
+    db.ref(`status/${ownerUid}`).once("value"),
+    db.ref(`contacts/${ownerUid}`).once("value"),
+    db.ref(`blocks/${ownerUid}`).once("value"),
+    db.ref(`statusFeedOwners/${ownerUid}`).once("value"),
+  ]);
+  const live = statusFeedLiveItems(statusSnap.val(), now);
+  const blocked = new Set(Object.keys(blocksSnap.val() || {}).filter((k) => (blocksSnap.val() || {})[k] === true));
+  const viewers = new Set(Object.keys(contactsSnap.val() || {}));
+  viewers.delete(ownerUid);
+  const previouslyFanned = Object.keys(oldFanSnap.val() || {});
+
+  const updates = {};
+  const nowFanned = {};
+  let written = 0;
+  viewers.forEach((viewerUid) => {
+    if (blocked.has(viewerUid)) return;
+    const visible = live.filter((it) => statusFeedVisibleTo(it.v, viewerUid));
+    const summary = statusFeedSummarize(visible);
+    if (summary) {
+      updates[`statusFeed/${viewerUid}/${ownerUid}`] = summary;
+      nowFanned[viewerUid] = true;
+      written++;
+    }
+  });
+  // Clear viewers we fanned out to before that no longer qualify (or were removed/blocked).
+  previouslyFanned.forEach((viewerUid) => {
+    if (!nowFanned[viewerUid]) updates[`statusFeed/${viewerUid}/${ownerUid}`] = null;
+  });
+  // Fan-out ledger so cleanup stays exact even after contacts change.
+  updates[`statusFeedOwners/${ownerUid}`] = Object.keys(nowFanned).length ? nowFanned : null;
+
+  await statusFeedWriteUpdates(db, updates);
+  return { viewers: viewers.size, written };
+}
+
+/**
+ * Viewer side: rebuild MY feed from my contacts (new install, contact added,
+ * first run after this feature ships). Throttled per viewer.
+ */
+async function rebuildStatusFeedForViewer(viewerUid, force) {
+  const db = getDatabase();
+  const now = Date.now();
+  const metaRef = db.ref(`statusFeedMeta/${viewerUid}`);
+  if (!force) {
+    const metaSnap = await metaRef.once("value");
+    const builtAt = Number((metaSnap.val() || {}).builtAt) || 0;
+    if (builtAt && now - builtAt < STATUS_FEED_VIEWER_REBUILD_MIN_GAP_MS) {
+      return { skipped: true, builtAt };
+    }
+  }
+  const contactsSnap = await db.ref(`contacts/${viewerUid}`).once("value");
+  const owners = Object.keys(contactsSnap.val() || {}).filter((u) => u !== viewerUid);
+  const updates = {};
+  // Reads run in small parallel batches (each is one small status/{owner} node).
+  for (let i = 0; i < owners.length; i += 25) {
+    const batch = owners.slice(i, i + 25);
+    const snaps = await Promise.all(batch.map((o) => Promise.all([
+      db.ref(`status/${o}`).once("value"),
+      db.ref(`blocks/${o}/${viewerUid}`).once("value"),
+    ])));
+    snaps.forEach(([sSnap, bSnap], idx) => {
+      const ownerUid = batch[idx];
+      if (bSnap.val() === true) return;
+      const live = statusFeedLiveItems(sSnap.val(), now)
+        .filter((it) => statusFeedVisibleTo(it.v, viewerUid));
+      const summary = statusFeedSummarize(live);
+      updates[`statusFeed/${viewerUid}/${ownerUid}`] = summary; // null clears a stale entry
+      updates[`statusFeedOwners/${ownerUid}/${viewerUid}`] = summary ? true : null;
+    });
+  }
+  // Drop feed rows for owners that are no longer contacts.
+  const existing = await db.ref(`statusFeed/${viewerUid}`).once("value");
+  Object.keys(existing.val() || {}).forEach((o) => {
+    if (!owners.includes(o)) {
+      updates[`statusFeed/${viewerUid}/${o}`] = null;
+      updates[`statusFeedOwners/${o}/${viewerUid}`] = null;
+    }
+  });
+  updates[`statusFeedMeta/${viewerUid}`] = { builtAt: ServerValue.TIMESTAMP, v: STATUS_FEED_VERSION };
+  await statusFeedWriteUpdates(db, updates);
+  return { skipped: false, owners: owners.length };
+}
+
+/**
+ * Callable. data.op:
+ *   "owner"  (default) → fan-out MY statuses to my contacts' feeds
+ *   "viewer"           → rebuild MY feed from my contacts (throttled; data.force skips throttle for first build)
+ * uid always comes from the verified auth context, never from the body.
+ */
+exports.syncStatusFeed = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Sign in required");
+  }
+  const uid = context.auth.uid;
+  const op = data && data.op === "viewer" ? "viewer" : "owner";
+  if (op === "viewer") {
+    return { ok: true, op, ...(await rebuildStatusFeedForViewer(uid, data && data.force === true)) };
+  }
+  return { ok: true, op, ...(await syncStatusFeedForOwner(uid)) };
+});
+
+/** Real Cloud Functions deployments get the realtime trigger; the Render bridge ignores it. */
+exports.onStatusWriteSyncFeed = functions.database
+  .ref("/status/{ownerUid}/{statusId}")
+  .onWrite(async (change, context) => {
+    const before = change.before && change.before.val ? change.before.val() : null;
+    const after = change.after && change.after.val ? change.after.val() : null;
+    // Counters (seenBy/viewCount/reactions/replies) churn constantly — ignore them.
+    const keyFields = ["deleted", "expiresAt", "timestamp", "privacy", "privacyList", "isCloseFriends", "thumbnailUrl", "scheduledAt"];
+    if (before && after && keyFields.every((k) => JSON.stringify(before[k]) === JSON.stringify(after[k]))) {
+      return null;
+    }
+    return syncStatusFeedForOwner(context.params.ownerUid);
+  });
+
+/**
+ * Safety net, every 15 min: rebuild every owner's fan-out from the status tree,
+ * which also (a) drops entries whose statuses expired, (b) catches posts/deletes
+ * whose app-side sync call never reached the server, (c) picks up new contacts.
+ * One `status` read — same cost class as the two existing sweeps.
+ */
+exports.reconcileStatusFeed = functions.pubsub
+  .schedule("every 15 minutes")
+  .onRun(async () => {
+    const db = getDatabase();
+    const statusRootSnap = await db.ref("status").once("value");
+    const owners = new Set();
+    statusRootSnap.forEach((ownerSnap) => { owners.add(ownerSnap.key); });
+    // Owners that still have fan-out rows but no longer any status node at all.
+    const ledgerSnap = await db.ref("statusFeedOwners").once("value");
+    ledgerSnap.forEach((ownerSnap) => { owners.add(ownerSnap.key); });
+    let done = 0;
+    const list = Array.from(owners);
+    for (let i = 0; i < list.length; i += 10) {
+      await Promise.all(list.slice(i, i + 10).map((o) =>
+        syncStatusFeedForOwner(o).then(() => { done++; })
+          .catch((e) => console.error(`[status-feed] reconcile ${o} failed:`, e.message))));
+    }
+    console.log(`[status-feed] reconcile: ${done}/${list.length} owner(s)`);
     return null;
   });
 
@@ -2075,6 +2340,73 @@ async function removeSoundReelUsage(db, soundId, reelId, ownerUid) {
   if (nowEmpty) await bumpSoundCounter(db, soundId, "user_count", -1);
 }
 
+// ── Audio fingerprint cleanup on sound delete ──────────────────────────────
+// sounds/{soundId} is deleted (sound removed / its only reel deleted) → drop
+// its audio_fingerprints/{soundId} record so a later raw upload of the same
+// audio can't be matched to a sound that no longer exists. Stale audio_hash_index
+// entries are purged lazily by the match server (findLiveMatch).
+// ── Reel deleted → clean up its sound links + orphan fingerprint ────────────
+// Covers EVERY delete path (reel menu, edit screen, profile bulk delete, admin)
+// without each client having to remember to call the match server.
+//   - removes sounds/{musicId}/reels/{reelId} (counters follow via
+//     onSoundReelOwnerWrite) and sounds/orig_{reelId}/reels/{reelId}
+//   - if the reel's OWN sound (orig_{reelId}) now has no reels and nobody saved
+//     it, the sound + its audio_fingerprints record are removed too
+exports.onReelDeletedAudioCleanup = functions.database
+  .ref("/reels/{reelId}")
+  .onDelete(async (snap, context) => {
+    const { reelId } = context.params;
+    const reel = snap.val();
+    if (!reel || typeof reel !== "object") return null;
+    if (!reel.uid && !reel.videoUrl && !reel.musicId) return null; // e.g. reels/handles
+    const db = getDatabase();
+    const ownSoundId = `orig_${reelId}`;
+    try {
+      const ids = new Set([ownSoundId]);
+      if (reel.musicId) ids.add(reel.musicId);
+      const updates = {};
+      for (const sid of ids) updates[`sounds/${sid}/reels/${reelId}`] = null;
+      // Don't resurrect a missing sound node with a partial write: only remove
+      // entries that actually exist.
+      const existing = {};
+      for (const sid of ids) {
+        const e = await db.ref(`sounds/${sid}/reels/${reelId}`).once("value");
+        if (e.exists()) existing[`sounds/${sid}/reels/${reelId}`] = null;
+      }
+      if (Object.keys(existing).length) await db.ref().update(existing);
+
+      const own = await db.ref(`sounds/${ownSoundId}`).once("value");
+      if (own.exists()) {
+        const v = own.val() || {};
+        const remaining = v.reels ? Object.keys(v.reels).length : 0;
+        const saves = Number(v.total_saves || 0);
+        if (remaining === 0 && saves === 0 && (!v.sourceReelId || v.sourceReelId === reelId)) {
+          await db.ref().update({
+            [`sounds/${ownSoundId}`]: null,
+            [`audio_fingerprints/${ownSoundId}`]: null
+          });
+        }
+      } else {
+        await db.ref(`audio_fingerprints/${ownSoundId}`).remove();
+      }
+    } catch (err) {
+      console.error(`[onReelDeletedAudioCleanup] ${reelId} failed:`, err);
+    }
+    return null;
+  });
+
+exports.onSoundAudioDeleted = functions.database
+  .ref("/sounds/{soundId}/audioUrl")
+  .onDelete(async (snap, context) => {
+    const { soundId } = context.params;
+    try {
+      await getDatabase().ref(`audio_fingerprints/${soundId}`).remove();
+    } catch (err) {
+      console.error(`[audioFingerprintCleanup] ${soundId} failed:`, err);
+    }
+    return null;
+  });
+
 exports.onSoundReelOwnerWrite = functions.database
   .ref("/sounds/{soundId}/reels/{reelId}/ownerUid")
   .onWrite(async (change, context) => {
@@ -2095,864 +2427,3 @@ exports.onSoundReelOwnerWrite = functions.database
     }
     return null;
   });
-
-/**
- * Status @mentions — server-side resolve + notify
- * ===============================================
- * On every new status (status/{ownerUid}/{statusId}) this collects the
- * mentioned usernames from text, caption and "mention" stickers
- * (stickersJson), resolves each one through usernames/{name} → uid (the
- * client can't be trusted to write other people's uids), then in ONE
- * multi-path update writes:
- *   - status/{owner}/{id}/mentionNames/{username} = uid   (viewer shows "mentioned you")
- *   - statusMentions/{uid}/{owner}_{id}                   (index; the mentioned user may delete it = "remove mention")
- *   - statusNotifications/{uid}/{pushId}                  (AllNotifications → Status tab)
- * and sends a data-only FCM push (type "status_mention") so it works when
- * the app is killed. Self-mentions, unknown usernames and users who blocked
- * the poster are skipped. Scheduled statuses fire this when they are
- * actually published (that's when the node is created).
- */
-const MENTION_RE = /@([a-z0-9_]{3,30})/gi;
-const MAX_STATUS_MENTIONS = 20;
-
-function extractStatusMentions(st) {
-  const names = new Set();
-  const scan = (txt) => {
-    if (typeof txt !== "string" || !txt) return;
-    let m;
-    MENTION_RE.lastIndex = 0;
-    while ((m = MENTION_RE.exec(txt)) !== null) names.add(m[1].toLowerCase());
-  };
-  scan(st.text);
-  scan(st.caption);
-  if (typeof st.stickersJson === "string" && st.stickersJson) {
-    try {
-      const stickers = JSON.parse(st.stickersJson);
-      if (Array.isArray(stickers)) {
-        stickers.forEach((s) => {
-          if (s && s.type === "mention" && typeof s.username === "string") {
-            const u = s.username.replace(/^@/, "").trim().toLowerCase();
-            if (/^[a-z0-9_]{3,30}$/.test(u)) names.add(u);
-          }
-        });
-      }
-    } catch (e) { /* malformed stickersJson — same tolerance as the client parser */ }
-  }
-  return Array.from(names).slice(0, MAX_STATUS_MENTIONS);
-}
-
-exports.onStatusCreatedMentions = functions.database
-  .ref("/status/{ownerUid}/{statusId}")
-  .onCreate(async (snapshot, context) => {
-    const { ownerUid, statusId } = context.params;
-    const st = snapshot.val() || {};
-    if (st.deleted === true) return null;
-    if (st.expiresAt && st.expiresAt < Date.now()) return null;
-
-    const names = extractStatusMentions(st);
-    if (names.length === 0) return null;
-
-    const db = getDatabase();
-    const resolved = await Promise.all(names.map(async (n) => {
-      const s = await db.ref("usernames").child(n).once("value");
-      return s.exists() ? { username: n, uid: s.val() } : null;
-    }));
-
-    const key = `${ownerUid}_${statusId}`;
-    const targets = [];
-    for (const r of resolved) {
-      if (!r || typeof r.uid !== "string" || r.uid === ownerUid) continue;
-      // Idempotent: a retried trigger must not notify the same person twice.
-      const already = await db.ref("statusMentions").child(r.uid).child(key).once("value");
-      if (already.exists()) continue;
-      const blocked = await db.ref("blocks").child(r.uid).child(ownerUid).once("value");
-      if (blocked.exists()) continue; // never revealed to the poster
-      // Mention privacy of the TARGET: users/{uid}/statusMentionPrivacy = "everyone" (default) | "followers" | "none".
-      // "followers" = the poster is in the target's contacts.
-      const privSnap = await db.ref("users").child(r.uid).child("statusMentionPrivacy").once("value");
-      const priv = privSnap.exists() ? privSnap.val() : "everyone";
-      if (priv === "none") continue;
-      if (priv === "followers") {
-        const rel = await db.ref("contacts").child(r.uid).child(ownerUid).once("value");
-        if (!rel.exists()) continue;
-      }
-      targets.push(r);
-    }
-    if (targets.length === 0) return null;
-
-    const now = Date.now();
-    const ownerName = st.ownerName || "Someone";
-    const ownerPhoto = st.ownerPhoto || "";
-    const thumb = st.thumbnailUrl || (st.type === "image" ? st.mediaUrl : "") || ownerPhoto;
-    const updates = {};
-    const pushJobs = [];
-
-    for (const t of targets) {
-      updates[`status/${ownerUid}/${statusId}/mentionNames/${t.username}`] = t.uid;
-      updates[`statusMentions/${t.uid}/${key}`] = {
-        ownerUid, statusId, username: t.username,
-        timestamp: now, expiresAt: st.expiresAt || null,
-      };
-      const nKey = `mention_${key}`; // deterministic → retries overwrite instead of duplicating
-      updates[`statusNotifications/${t.uid}/${nKey}`] = {
-        fromUid: ownerUid, fromName: ownerName, fromPhoto: ownerPhoto, fromThumb: thumb,
-        type: "status_mention", statusId,
-        body: "mentioned you in their story", timestamp: now, read: false,
-      };
-      pushJobs.push((async () => {
-        const tokSnap = await db.ref("users").child(t.uid).child("fcmToken").once("value");
-        if (!tokSnap.exists()) return;
-        try {
-          await getMessaging().send({
-            token: tokSnap.val(),
-            data: {
-              type: "status_mention", fromUid: ownerUid, fromName: ownerName,
-              fromPhoto: ownerPhoto, fromThumb: thumb, statusId,
-            },
-            android: { priority: "high" },
-          });
-        } catch (err) {
-          console.error(`status_mention push failed for ${t.uid}:`, err.message || err);
-        }
-      })());
-    }
-
-    await db.ref().update(updates);
-    await Promise.all(pushJobs);
-    console.log(`Status mentions: ${targets.length} user(s) notified for ${key}.`);
-    return null;
-  });
-
-/** Drops statusMentions index rows whose status has expired (rows are tiny; this just keeps the tree tidy). */
-exports.cleanupExpiredStatusMentions = functions.pubsub
-  .schedule("every 6 hours")
-  .onRun(async () => {
-    const db = getDatabase();
-    const now = Date.now();
-    const PAGE = 200; // users per page — never loads the whole tree at once
-    let lastKey = null;
-    for (;;) {
-      let q = db.ref("statusMentions").orderByKey().limitToFirst(PAGE + (lastKey ? 1 : 0));
-      if (lastKey) q = db.ref("statusMentions").orderByKey().startAt(lastKey).limitToFirst(PAGE + 1);
-      const page = await q.once("value");
-      if (!page.exists()) break;
-      const updates = {};
-      let count = 0;
-      let newLast = null;
-      page.forEach((userSnap) => {
-        newLast = userSnap.key;
-        if (userSnap.key === lastKey) return; // startAt is inclusive
-        count++;
-        userSnap.forEach((m) => {
-          const exp = m.child("expiresAt").val();
-          if (exp && exp < now) updates[`statusMentions/${userSnap.key}/${m.key}`] = null;
-        });
-      });
-      if (Object.keys(updates).length) await db.ref().update(updates);
-      if (count < PAGE || newLast === lastKey) break;
-      lastKey = newLast;
-    }
-    return null;
-  });
-
-/**
- * Story reshare → notify the ORIGINAL owner ("X shared your story").
- * Fires when a status_reshare of a status is created. Skips: self-reshare, original gone / deleted / expired,
- * original.allowSharing === false, and owners who blocked the resharer (never revealed). Idempotent via a
- * deterministic notification key. The push is data-only "status_mention" with a custom body; tapping it opens
- * the reshare itself.
- */
-exports.onStatusReshared = functions.database
-  .ref("/status/{ownerUid}/{statusId}")
-  .onCreate(async (snapshot, context) => {
-    const { ownerUid, statusId } = context.params;
-    const st = snapshot.val() || {};
-    if (st.type !== "status_reshare" || st.resharedFromType !== "status") return null;
-    const origOwner = st.resharedFromOwnerUid;
-    const origId = st.resharedFromId;
-    if (!origOwner || !origId || origOwner === ownerUid) return null;
-
-    const db = getDatabase();
-    const origSnap = await db.ref("status").child(origOwner).child(origId).once("value");
-    if (!origSnap.exists()) return null;
-    const orig = origSnap.val() || {};
-    if (orig.deleted === true || (orig.expiresAt && orig.expiresAt < Date.now())) return null;
-    if (orig.allowSharing === false) return null;
-    const blocked = await db.ref("blocks").child(origOwner).child(ownerUid).once("value");
-    if (blocked.exists()) return null;
-
-    const nKey = `reshare_${ownerUid}_${statusId}`;
-    const nRef = db.ref("statusNotifications").child(origOwner).child(nKey);
-    if ((await nRef.once("value")).exists()) return null; // retry-safe
-
-    const ownerName = st.ownerName || "Someone";
-    const ownerPhoto = st.ownerPhoto || "";
-    const thumb = st.resharedThumbnailUrl || st.thumbnailUrl || ownerPhoto;
-    await nRef.set({
-      fromUid: ownerUid, fromName: ownerName, fromPhoto: ownerPhoto, fromThumb: thumb,
-      type: "status_reshare", statusId, body: "shared your story",
-      timestamp: Date.now(), read: false,
-    });
-    const tokSnap = await db.ref("users").child(origOwner).child("fcmToken").once("value");
-    if (!tokSnap.exists()) return null;
-    try {
-      await getMessaging().send({
-        token: tokSnap.val(),
-        data: {
-          type: "status_mention", fromUid: ownerUid, fromName: ownerName,
-          fromPhoto: ownerPhoto, fromThumb: thumb, statusId, body: "shared your story",
-        },
-        android: { priority: "high" },
-      });
-    } catch (err) {
-      console.error(`status_reshare push failed for ${origOwner}:`, err.message || err);
-    }
-    return null;
-  });
-
-
-// ═════════════════════════════════════════════════════════════════════════════
-//  Add Yours chains (Instagram "Add Yours" template)  — v578, hardened in v579
-//
-//  The CLIENT only writes the status (its stickersJson carries { type:"addyours", chainId, prompt, ... }).
-//  Everything below is server-owned so counts/indexes can't be forged (rules: addYoursChains* are read-only):
-//    addYoursChains/{chainId}              = { prompt, originUid, originName, originStatusId, createdAt, count, legacy?, template?, lastJoinAt, lastPushAt }
-//    addYoursChainEntries/{chainId}/{uid}  = { statusId, ts, expiresAt, isOrigin, listed, + (only if listed) name, photo, thumb, type, bg, text }
-//    addYoursChainMembers/{chainId}/{uid}  = true   (server-only, NOT readable by clients: "has been counted once")
-//  • one entry per user per chain (key = uid); re-joining is only possible once the previous status has expired
-//  • count = people who joined (the chain starter is NOT counted); a person is counted once even if they re-join after
-//    expiry; deleting your status withdraws you (count - 1, and you may be counted again if you re-join)
-//  • "listed" = status privacy is "everyone". Unlisted entries carry NO name/photo/thumb/text (v579) because the
-//    entries tree is readable by every signed-in user — private stories stay private, they are only counted.
-//  • v579 anti-spoof: a NEW chain is always owned by the user whose status first carries its chainId. A joiner can't
-//    claim somebody else as chain starter (that would let them spam that person with "added yours" pushes).
-//    The only exception is pre-v578 "legacy" chains (id starts with "L_"): their chain doc is created by the first
-//    joiner on behalf of the sticker's origin, but they are flagged legacy:true and never notify anyone.
-// ═════════════════════════════════════════════════════════════════════════════
-const ADDYOURS_ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
-const ADDYOURS_UID_RE = /^[A-Za-z0-9_-]{1,128}$/;
-
-function extractAddYoursSticker(st) {
-  if (!st || typeof st.stickersJson !== "string" || !st.stickersJson) return null;
-  let arr;
-  try { arr = JSON.parse(st.stickersJson); } catch (e) { return null; }
-  if (!Array.isArray(arr)) return null;
-  for (const s of arr) {
-    if (s && s.type === "addyours" && typeof s.chainId === "string" && ADDYOURS_ID_RE.test(s.chainId)) return s;
-  }
-  return null;
-}
-
-const addYoursSleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/** The identity/media fields an entry may expose — only for stories whose privacy is "everyone". */
-const ADDYOURS_PUBLIC_KEYS = ["name", "photo", "thumb", "type", "bg", "text"];
-function addYoursPublicFields(st) {
-  return {
-    name: String(st.ownerName || "").slice(0, 60),
-    photo: st.ownerPhoto || "",
-    thumb: st.thumbnailUrl || (st.type === "image" ? st.mediaUrl : "") || "",
-    type: st.type || "",
-    bg: st.bgColor || "",
-    text: st.type === "text" ? String(st.text || "").slice(0, 60) : "",
-  };
-}
-
-exports.onStatusCreatedAddYours = functions.database
-  .ref("/status/{ownerUid}/{statusId}")
-  .onCreate(async (snapshot, context) => {
-    const { ownerUid, statusId } = context.params;
-    const st = snapshot.val() || {};
-    if (st.deleted === true) return null;
-    const now = Date.now();
-    if (st.expiresAt && st.expiresAt < now) return null;
-
-    const sticker = extractAddYoursSticker(st);
-    if (!sticker) return null;
-
-    const db = getDatabase();
-    const chainId = sticker.chainId;
-    const isLegacyId = chainId.startsWith("L_");
-    const claimedOrigin = (typeof sticker.originUid === "string" && ADDYOURS_UID_RE.test(sticker.originUid))
-      ? sticker.originUid : "";
-    const prompt = String(sticker.prompt || "Add Yours").slice(0, 80);
-    const chainRef = db.ref("addYoursChains").child(chainId);
-
-    // 1) Chain doc — created exactly once. Who may create it?
-    //    • the chain starter (no/own originUid)                         → origin = owner
-    //    • a joiner of a pre-v578 chain (id "L_…")                      → origin = claimed, flagged legacy (no notifications)
-    //    • a joiner of a v578+ chain whose doc isn't there yet (the starter's trigger is still running)
-    //      → wait a little for the real doc instead of letting the joiner claim the chain.
-    let chain = null;
-    const claimsOtherOrigin = claimedOrigin !== "" && claimedOrigin !== ownerUid;
-    if (claimsOtherOrigin && !isLegacyId) {
-      for (let i = 0; i < 4 && !chain; i++) {
-        const cur = await chainRef.once("value");
-        if (cur.exists()) chain = cur.val();
-        else await addYoursSleep(2000);
-      }
-      if (!chain) {
-        console.warn(`addyours: chain ${chainId} not found for joiner ${ownerUid}; origin claim ${claimedOrigin} ignored`);
-        return null; // never let a joiner become (or impersonate) the starter of a v578+ chain
-      }
-    } else {
-      const asLegacyJoin = claimsOtherOrigin && isLegacyId;
-      const fresh = {
-        prompt,
-        originUid: asLegacyJoin ? claimedOrigin : ownerUid,
-        originName: asLegacyJoin ? String(sticker.originName || "").slice(0, 60)
-                                 : String(st.ownerName || "").slice(0, 60),
-        originStatusId: asLegacyJoin ? "" : statusId,
-        createdAt: now,
-        count: 0,
-      };
-      if (asLegacyJoin) fresh.legacy = true;
-      if (sticker.template && typeof sticker.template === "object" && JSON.stringify(sticker.template).length <= 2000) {
-        fresh.template = sticker.template;
-      }
-      const chainTx = await chainRef.transaction((cur) => (cur ? cur : fresh));
-      chain = chainTx.snapshot.val() || fresh;
-    }
-
-    // 2) Entry (one per user per chain). A previous entry whose status already expired may be replaced.
-    const isOriginStatus = chain.originUid === ownerUid && (!chain.originStatusId || chain.originStatusId === statusId);
-    const listed = st.privacy === "everyone";
-    const thumb = st.thumbnailUrl || (st.type === "image" ? st.mediaUrl : "") || "";
-    const entry = {
-      statusId,
-      ts: st.timestamp || now,
-      expiresAt: st.expiresAt || null,
-      isOrigin: isOriginStatus,
-      listed,
-    };
-    if (listed) Object.assign(entry, addYoursPublicFields(st)); // only public stories expose identity/media (entries tree is world-readable)
-    const memberRef = db.ref("addYoursChainMembers").child(chainId).child(ownerUid);
-    const alreadyCounted = (await memberRef.once("value")).exists();
-    let hadEntry = false;
-    const entryRef = db.ref("addYoursChainEntries").child(chainId).child(ownerUid);
-    const entryTx = await entryRef.transaction((cur) => {
-      hadEntry = !!cur;
-      if (cur && !(cur.expiresAt && cur.expiresAt < now)) return undefined; // already joined, still live (or trigger retry)
-      return entry;
-    });
-    if (!entryTx.committed) return null;
-    await memberRef.set(true);
-
-    // 3) Count: only brand-new participants, never the chain starter.
-    if (isOriginStatus || hadEntry || alreadyCounted) return null;
-    await chainRef.child("count").transaction((c) => (typeof c === "number" ? c : 0) + 1);
-    await chainRef.child("lastJoinAt").set(now);
-
-    // 4) Tell the chain starter (in-app row + throttled push, max 1 push / 5 min / chain).
-    //    Legacy chains have an UNVERIFIED origin → never notify.
-    if (chain.legacy === true) return null;
-    const originUid = chain.originUid;
-    if (!originUid || originUid === ownerUid) return null;
-    const blocked = await db.ref("blocks").child(originUid).child(ownerUid).once("value");
-    if (blocked.exists()) return null;
-
-    const ownerName = st.ownerName || "Someone";
-    const ownerPhoto = st.ownerPhoto || "";
-    const body = `added yours to "${chain.prompt || prompt}"`;
-    await db.ref("statusNotifications").child(originUid).child(`addyours_${chainId}_${ownerUid}`).set({
-      fromUid: ownerUid, fromName: ownerName, fromPhoto: ownerPhoto, fromThumb: thumb || ownerPhoto,
-      type: "status_mention", // reuses the existing status-mention row + push (opens the exact status)
-      statusId, chainId, body, timestamp: now, read: false,
-    });
-
-    const push = await chainRef.child("lastPushAt").transaction((t) => (!t || now - t > 5 * 60 * 1000) ? now : undefined);
-    if (!push.committed) return null;
-    const tokSnap = await db.ref("users").child(originUid).child("fcmToken").once("value");
-    if (!tokSnap.exists()) return null;
-    try {
-      await getMessaging().send({
-        token: tokSnap.val(),
-        data: {
-          type: "status_mention", fromUid: ownerUid, fromName: ownerName,
-          fromPhoto: ownerPhoto, fromThumb: thumb || ownerPhoto, statusId, body,
-        },
-        android: { priority: "high" },
-      });
-    } catch (err) {
-      console.error(`addyours push failed for ${originUid}:`, err.message || err);
-    }
-    return null;
-  });
-
-/** Deleting your own status withdraws you from the chain (entry removed, count - 1). Expiry does NOT do this. */
-exports.onStatusDeletedAddYours = functions.database
-  .ref("/status/{ownerUid}/{statusId}")
-  .onDelete(async (snapshot, context) => {
-    const { ownerUid, statusId } = context.params;
-    const sticker = extractAddYoursSticker(snapshot.val() || {});
-    if (!sticker) return null;
-    const db = getDatabase();
-    const entryRef = db.ref("addYoursChainEntries").child(sticker.chainId).child(ownerUid);
-    const cur = await entryRef.once("value");
-    if (!cur.exists() || cur.val().statusId !== statusId) return null;
-    await entryRef.remove();
-    await db.ref("addYoursChainMembers").child(sticker.chainId).child(ownerUid).remove(); // withdrawn: may be counted again
-    if (cur.val().isOrigin !== true) {
-      await db.ref("addYoursChains").child(sticker.chainId).child("count")
-        .transaction((c) => Math.max(0, (typeof c === "number" ? c : 0) - 1));
-    }
-    return null;
-  });
-
-/**
- * v580 — the story's audience was changed AFTER posting: keep the chain entry's `listed` flag (and the public
- * name/photo/thumb fields) in sync. Public → private wipes the identity/media fields; private → public fills them.
- * Cheap early-return for every other update of the status node.
- */
-exports.onStatusPrivacyChangedAddYours = functions.database
-  .ref("/status/{ownerUid}/{statusId}")
-  .onUpdate(async (change, context) => {
-    const { ownerUid, statusId } = context.params;
-    const before = change.before.val() || {};
-    const after = change.after.val() || {};
-    if (before.privacy === after.privacy) return null;
-    if (after.deleted === true) return null;
-    const sticker = extractAddYoursSticker(after);
-    if (!sticker) return null;
-    const entryRef = getDatabase().ref("addYoursChainEntries").child(sticker.chainId).child(ownerUid);
-    const cur = await entryRef.once("value");
-    if (!cur.exists() || cur.val().statusId !== statusId) return null; // entry belongs to another (older/newer) story
-    const listed = after.privacy === "everyone";
-    if (cur.val().listed === listed) return null;
-    const upd = { listed };
-    if (listed) Object.assign(upd, addYoursPublicFields(after));
-    else for (const k of ADDYOURS_PUBLIC_KEYS) upd[k] = null;
-    await entryRef.update(upd);
-    return null;
-  });
-
-/**
- * v579 — keeps addYoursChainEntries tidy: drops entries whose story already expired (the chain screen would only
- * filter them out client-side anyway, and big chains would otherwise page through dead rows forever).
- * The chain's count and the server-only addYoursChainMembers rows are NOT touched, so a person who re-joins after
- * their story expired is still counted once. Walks chains in pages of 100; per chain only rows older than 24h are
- * queried (uses the existing ts index).
- */
-exports.cleanupExpiredAddYoursEntries = functions.pubsub
-  .schedule("every 6 hours")
-  .onRun(async () => {
-    const db = getDatabase();
-    const now = Date.now();
-    const PAGE = 100;
-    const AGE_MS = 24 * 60 * 60 * 1000;
-    let lastKey = null;
-    let removed = 0;
-    for (;;) {
-      const base = db.ref("addYoursChainEntries").orderByKey();
-      const page = await (lastKey ? base.startAt(lastKey).limitToFirst(PAGE + 1) : base.limitToFirst(PAGE)).once("value");
-      if (!page.exists()) break;
-      const keys = [];
-      page.forEach((c) => { if (c.key !== lastKey) keys.push(c.key); });
-      for (const chainId of keys) {
-        const old = await db.ref("addYoursChainEntries").child(chainId)
-          .orderByChild("ts").endAt(now - AGE_MS).limitToFirst(500).once("value");
-        if (!old.exists()) continue;
-        const updates = {};
-        old.forEach((e) => {
-          const exp = e.child("expiresAt").val();
-          const ts = e.child("ts").val();
-          const dead = exp ? exp < now : (ts && ts < now - 7 * AGE_MS); // no expiry stored → only drop very old rows
-          if (dead) updates[`addYoursChainEntries/${chainId}/${e.key}`] = null;
-        });
-        const n = Object.keys(updates).length;
-        if (n) { await db.ref().update(updates); removed += n; }
-      }
-      if (keys.length < PAGE) break;
-      lastKey = keys[keys.length - 1];
-    }
-    console.log(`Add Yours cleanup: removed ${removed} expired entr${removed === 1 ? "y" : "ies"}.`);
-    return null;
-  });
-
-/* ──────────────────────────────────────────────────────────────────────────
- * v788 — Template feed + owner-edit propagation (items 21 + 22)
- *
- *  templateLatest/{ownerUid}/{statusId} = { templateJson, stickersJson?, ownerName, ts }
- *      The newest version of a template. Mirrors status/…/templateJson on every write and is NOT swept with the
- *      24h status, so saved snapshots on other users' phones can refresh themselves from it (item 21).
- *  templateFeed/{ownerUid_statusId} = { ownerUid, statusId, ownerName, templateJson, stickersJson?, cat, ts, uses,
- *      score, hidden? }
- *      Server-side Discover (item 22): every PUBLIC original template, trending by `score`, newest by `ts`.
- *      Clients read it with orderByChild("score"/"ts").limitToLast(N); only the Admin SDK writes it.
- * ────────────────────────────────────────────────────────────────────────── */
-
-const TPL_MAX_JSON = 60000;
-const TPL_FEED_KEEP_MS = 45 * 24 * 60 * 60 * 1000;   // unused feed rows older than this are pruned
-
-function tplFeedKey(ownerUid, statusId) { return `${ownerUid}_${statusId}`; }
-
-function tplCategory(templateJson) {
-  try {
-    const c = JSON.parse(templateJson).cat;
-    return ["love", "travel", "birthday", "festival", "aesthetic"].includes(c) ? c : "";
-  } catch (e) { return ""; }
-}
-
-exports.onTemplateStatusWritten = functions.database
-  .ref("/status/{ownerUid}/{statusId}")
-  .onWrite(async (change, context) => {
-    const { ownerUid, statusId } = context.params;
-    const after = change.after.exists() ? (change.after.val() || {}) : null;
-    if (!after) return null;   // expiry sweep / delete: snapshots + feed rows are meant to outlive the 24h status
-
-    const json = typeof after.templateJson === "string" ? after.templateJson : "";
-    if (!json || json.length > TPL_MAX_JSON || after.deleted === true) return null;
-    // a repost only points at the original template; the original's own status feeds the nodes
-    if (after.templateFromUid && after.templateFromId) return null;
-
-    const before = change.before.exists() ? (change.before.val() || {}) : {};
-    const privacyChanged = before.privacy !== after.privacy;
-    if (before.templateJson === json && !privacyChanged && change.before.exists()) return null;
-
-    const db = getDatabase();
-    const ts = Number(after.timestamp) > 0 ? Number(after.timestamp) : Date.now();
-    const name = String(after.ownerName || "").slice(0, 120);
-    const stickers = typeof after.stickersJson === "string" && after.stickersJson.length <= TPL_MAX_JSON
-      ? after.stickersJson : null;
-
-    const updates = {};
-    // item 21 — newest version, whatever the privacy of the status
-    updates[`templateLatest/${ownerUid}/${statusId}`] = {
-      templateJson: json, stickersJson: stickers, ownerName: name, ts: Date.now(),
-    };
-
-    // item 22 — only public statuses are discoverable
-    const key = tplFeedKey(ownerUid, statusId);
-    if (after.privacy === "everyone") {
-      const ctrl = (await db.ref(`templateControl/${ownerUid}/${statusId}`).once("value")).val() || {};
-      const stats = (await db.ref(`templateStats/${ownerUid}/${statusId}/uses`).once("value")).val();
-      const uses = Number(stats) > 0 ? Number(stats) : 0;
-      const row = {
-        ownerUid, statusId, ownerName: name, templateJson: json, stickersJson: stickers,
-        cat: tplCategory(json), ts, uses, score: uses,
-      };
-      if (ctrl.off === true || ctrl.removed === true) row.hidden = true;
-      updates[`templateFeed/${key}`] = row;
-    } else {
-      updates[`templateFeed/${key}`] = null;   // went private
-    }
-    await db.ref().update(updates);
-    return null;
-  });
-
-/** 'N used' counter moved → keep the feed row's uses/score in step (trending order). */
-exports.onTemplateUsesChanged = functions.database
-  .ref("/templateStats/{ownerUid}/{statusId}/uses")
-  .onWrite(async (change, context) => {
-    const { ownerUid, statusId } = context.params;
-    if (!change.after.exists()) return null;
-    const uses = Number(change.after.val()) || 0;
-    const ref = getDatabase().ref(`templateFeed/${tplFeedKey(ownerUid, statusId)}`);
-    // transaction: only touch rows that exist (a private template has none)
-    await ref.transaction((cur) => (cur ? { ...cur, uses, score: uses } : cur));
-    return null;
-  });
-
-/** Owner switched reuse off / removed the template → hide (or un-hide) its feed row. */
-exports.onTemplateControlChanged = functions.database
-  .ref("/templateControl/{ownerUid}/{statusId}")
-  .onWrite(async (change, context) => {
-    const { ownerUid, statusId } = context.params;
-    const c = change.after.exists() ? (change.after.val() || {}) : {};
-    const hidden = c.off === true || c.removed === true;
-    const ref = getDatabase().ref(`templateFeed/${tplFeedKey(ownerUid, statusId)}`);
-    await ref.transaction((cur) => {
-      if (!cur) return cur;
-      const next = { ...cur };
-      if (hidden) next.hidden = true; else delete next.hidden;
-      return next;
-    });
-    return null;
-  });
-
-/** Daily: drop feed rows nobody used for 45 days and templateLatest rows whose feed/snapshots are long gone. */
-exports.pruneTemplateFeed = functions.pubsub
-  .schedule("every 24 hours")
-  .onRun(async () => {
-    const db = getDatabase();
-    const cutoff = Date.now() - TPL_FEED_KEEP_MS;
-    const old = await db.ref("templateFeed").orderByChild("ts").endAt(cutoff).limitToFirst(500).once("value");
-    const updates = {};
-    old.forEach((c) => {
-      const v = c.val() || {};
-      if ((Number(v.uses) || 0) === 0) updates[`templateFeed/${c.key}`] = null;
-    });
-    if (Object.keys(updates).length) await db.ref().update(updates);
-    return null;
-  });
-
-/* v789 — Remix/Collab permission requests: pending requests older than expiresAt (48h) become "expired". */
-exports.expireRemixRequests = functions.pubsub
-  .schedule("every 60 minutes")
-  .onRun(async () => {
-    const db = getDatabase();
-    const now = Date.now();
-    const owners = await db.ref("remixRequests").once("value");
-    const updates = {};
-    owners.forEach((o) => {
-      o.forEach((r) => {
-        const v = r.val() || {};
-        if (v.status === "pending" && Number(v.expiresAt) > 0 && Number(v.expiresAt) < now) {
-          updates[`remixRequests/${o.key}/${r.key}/status`] = "expired";
-          updates[`remixRequests/${o.key}/${r.key}/decidedAt`] = now;
-        }
-      });
-    });
-    if (Object.keys(updates).length) await db.ref().update(updates);
-    return null;
-  });
-
-/* ───────────────────────────────────────────────────────────────────────────
- * v790 — Remix / Collab permission-request push notifications
- *   • new request           → owner      (reel_notif_type = remix_request)
- *   • approved / rejected   → requester  (remix_approved / remix_rejected)
- * Payload keys match what ReelFCMNotificationHandler already reads.
- * ─────────────────────────────────────────────────────────────────────────── */
-async function sendRemixPush(toUid, type, data) {
-  if (!toUid) return null;
-  const db = getDatabase();
-  const tokSnap = await db.ref("users").child(toUid).child("fcmToken").once("value");
-  const token = tokSnap.exists() ? tokSnap.val() : null;
-  if (!token || typeof token !== "string") return null;
-  const payload = {
-    reel_notif_type: type,
-    sender_uid: String(data.senderUid || ""),
-    sender_name: String(data.senderName || ""),
-    sender_photo: String(data.senderPhoto || ""),
-    reel_id: String(data.reelId || ""),
-    reel_thumb: String(data.reelThumb || ""),
-    request_id: String(data.requestId || ""),
-    mode: String(data.mode || "remix"),
-  };
-  try {
-    await getMessaging().send({
-      token,
-      data: payload,
-      android: { priority: "high", ttl: 86400000 },
-    });
-  } catch (e) {
-    if (e && e.code === "messaging/registration-token-not-registered") {
-      await db.ref("users").child(toUid).child("fcmToken").remove();
-    } else {
-      console.warn("sendRemixPush failed", type, toUid, e && e.message);
-    }
-  }
-  return null;
-}
-
-exports.onRemixRequestCreated = functions.database
-  .ref("/remixRequests/{ownerUid}/{requestId}")
-  .onCreate(async (snap, context) => {
-    const v = snap.val() || {};
-    if (v.status !== "pending") return null;
-    return sendRemixPush(context.params.ownerUid, "remix_request", {
-      senderUid: v.requesterUid,
-      senderName: v.requesterName,
-      senderPhoto: v.requesterPhoto,
-      reelId: v.reelId,
-      reelThumb: v.thumbUrl,
-      requestId: context.params.requestId,
-      mode: v.mode,
-    });
-  });
-
-exports.onRemixRequestDecided = functions.database
-  .ref("/remixRequests/{ownerUid}/{requestId}/status")
-  .onUpdate(async (change, context) => {
-    const before = change.before.val();
-    const after = change.after.val();
-    if (before !== "pending" || (after !== "approved" && after !== "rejected")) return null;
-    const db = getDatabase();
-    const reqSnap = await db
-      .ref("remixRequests").child(context.params.ownerUid).child(context.params.requestId).once("value");
-    const v = reqSnap.val() || {};
-    if (!v.requesterUid) return null;
-    const ownerSnap = await db.ref("users").child(context.params.ownerUid).once("value");
-    const owner = ownerSnap.val() || {};
-    return sendRemixPush(v.requesterUid, after === "approved" ? "remix_approved" : "remix_rejected", {
-      senderUid: context.params.ownerUid,
-      senderName: owner.name || owner.username || owner.displayName || "",
-      senderPhoto: owner.thumbUrl || owner.photoUrl || "",
-      reelId: v.reelId,
-      reelThumb: v.thumbUrl,
-      requestId: context.params.requestId,
-      mode: v.mode,
-    });
-  });
-
-/* ───────────────────────────────────────────────────────────────────────────
- * v791 — Revoke cascade.
- * The owner deletes remixApprovals/{reelId}/{requesterUid} ("Revoke" in the Remix & Collab Requests inbox).
- * Until now that only stopped NEW publishes; everything the requester had already published stayed linked to the
- * original. Now (server side, so it works even if the owner's app is closed and is not limited by client rules):
- *   • every remix the requester published from this reel → remixBlocks/{reelId}/{remixReelId}
- *       (the remix itself is NOT deleted — it is the requester's own post — its credit strip reads
- *        "Original removed by the creator" and it disappears from the original's "Remixes" list for everybody else)
- *   • every collab the requester published with this reel → the original creator is removed as co-creator
- *       (collabMap/{owner}/status = "removed", his Collabs / profile indexes are cleaned, isCollabPost recomputed —
- *        the exact same result as CollabControl.remove() in the app)
- * Needs the `remixOf` index on /reels (firebase_rules_FINAL_v791.json).
- * ─────────────────────────────────────────────────────────────────────────── */
-exports.onRemixApprovalRevoked = functions.database
-  .ref("/remixApprovals/{reelId}/{requesterUid}")
-  .onDelete(async (snap, context) => {
-    const { reelId, requesterUid } = context.params;
-    const db = getDatabase();
-    const now = Date.now();
-
-    const origSnap = await db.ref(`reels/${reelId}`).once("value");
-    const orig = origSnap.val() || {};
-    const ownerUid = orig.uid || "";
-
-    // every reel that was built on this original; keep only the revoked requester's own posts
-    const q = await db.ref("reels").orderByChild("remixOf").equalTo(reelId).once("value");
-    const updates = {};
-    const collabReels = [];
-    q.forEach((c) => {
-      const v = c.val() || {};
-      if (v.uid !== requesterUid) return;
-      const newId = c.key;
-      if (v.remixMode === "collab") {
-        if (!ownerUid) return;
-        const cm = (v.collabMap || {})[ownerUid];
-        if (cm && cm.status === "accepted") {
-          updates[`reels/${newId}/collabMap/${ownerUid}/status`] = "removed";
-          updates[`reels/${newId}/collabMap/${ownerUid}/removedAt`] = now;
-          updates[`userCollabPosts/${ownerUid}/${newId}`] = null;
-          updates[`reelsByUser/${ownerUid}/${newId}`] = null;
-          updates[`userReels/${ownerUid}/${newId}`] = null;
-          collabReels.push({ id: newId, collabMap: v.collabMap, ownerUid });
-        }
-      } else {
-        updates[`remixBlocks/${reelId}/${newId}`] = now;
-      }
-    });
-    if (!Object.keys(updates).length) return null;
-    await db.ref().update(updates);
-
-    // recompute isCollabPost for the collabs we just changed (same rule as the app's CollabControl.recomputeFlag)
-    for (const r of collabReels) {
-      let anyAccepted = false;
-      Object.keys(r.collabMap || {}).forEach((uid) => {
-        if (uid === r.ownerUid) return;                       // just removed
-        if ((r.collabMap[uid] || {}).status === "accepted") anyAccepted = true;
-      });
-      const f = { isCollabPost: anyAccepted };
-      if (!anyAccepted) {
-        f.collabUid = "";
-        f.collabDisplayName = "";
-        f.collabAvatarUrl = "";
-      }
-      await db.ref(`reels/${r.id}`).update(f);
-    }
-    console.log("onRemixApprovalRevoked", reelId, requesterUid,
-      "blocked/removed:", Object.keys(updates).length, "paths");
-    return null;
-  });
-
-// ══════════════════════════════════════════════════════════════════════════════
-// v794 — Voice Rooms: gifts (server-side coin deduction)
-// ══════════════════════════════════════════════════════════════════════════════
-// App sirf { roomId, giftId, toUid? } bhejta hai. Price server ke catalog se aata hai
-// (app ka bheja hua price kabhi trust nahi hota). Coins `wallets/{uid}/coins` se
-// transaction me kat'te hain (rules: wallets write = false, sirf admin/server likhe).
-// NOTE: is block me `require()` mat use karna — Render server is file ko
-// `initializeApp();` ke baad se Function() me eval karta hai (sirf getDatabase /
-// ServerValue / functions / getMessaging milte hain).
-const VR_GIFT_CATALOG = {
-  rose:    { emoji: "\uD83C\uDF39", name: "Rose",    coins: 10 },
-  heart:   { emoji: "\uD83D\uDC9C", name: "Heart",   coins: 20 },
-  fire:    { emoji: "\uD83D\uDD25", name: "Fire",    coins: 30 },
-  gift:    { emoji: "\uD83C\uDF81", name: "Gift",    coins: 50 },
-  mic:     { emoji: "\uD83C\uDFA4", name: "Mic",     coins: 100 },
-  crown:   { emoji: "\uD83D\uDC51", name: "Crown",   coins: 500 },
-  rocket:  { emoji: "\uD83D\uDE80", name: "Rocket",  coins: 700 },
-  diamond: { emoji: "\uD83D\uDC8E", name: "Diamond", coins: 1000 },
-};
-
-exports.voiceRoomSendGift = functions.https.onCall(async (data, context) => {
-  const uid = context && context.auth && context.auth.uid;
-  if (!uid) throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
-  const payload = asObject(data && data.payload);
-  const roomId = String(payload.roomId || "");
-  const giftId = String(payload.giftId || "");
-  const gift = VR_GIFT_CATALOG[giftId];
-  if (!/^[A-Za-z0-9_-]{4,64}$/.test(roomId)) {
-    throw new functions.https.HttpsError("invalid-argument", "Invalid room.");
-  }
-  if (!gift) throw new functions.https.HttpsError("invalid-argument", "Unknown gift.");
-
-  const db = getDatabase();
-  const roomRef = db.ref(`voiceRooms/${roomId}`);
-  const [metaSnap, speakerSnap, audienceSnap, bannedSnap, meSnap] = await Promise.all([
-    roomRef.child("meta").once("value"),
-    roomRef.child(`speakers/${uid}`).once("value"),
-    roomRef.child(`audience/${uid}`).once("value"),
-    roomRef.child(`banned/${uid}`).once("value"),
-    db.ref(`users/${uid}`).once("value"),
-  ]);
-  const meta = metaSnap.val();
-  if (!meta || meta.status !== "live") {
-    throw new functions.https.HttpsError("failed-precondition", "This room is not live.");
-  }
-  if (bannedSnap.exists() || !(speakerSnap.exists() || audienceSnap.exists())) {
-    throw new functions.https.HttpsError("permission-denied", "Join the room first.");
-  }
-
-  // Recipient: chosen speaker, otherwise the host.
-  let toUid = String(payload.toUid || "");
-  if (toUid) {
-    const t = await roomRef.child(`speakers/${toUid}`).once("value");
-    if (!t.exists()) toUid = "";
-  }
-  if (!toUid) toUid = String(meta.hostUid || "");
-  if (!toUid) throw new functions.https.HttpsError("failed-precondition", "No recipient.");
-  if (toUid === uid) {
-    throw new functions.https.HttpsError("invalid-argument", "You can't gift yourself.");
-  }
-
-  // Atomic coin deduction (returning undefined aborts the transaction).
-  const walletRef = db.ref(`wallets/${uid}/coins`);
-  const tx = await walletRef.transaction((cur) => {
-    const have = Number(cur || 0);
-    if (have < gift.coins) return undefined;
-    return have - gift.coins;
-  });
-  if (!tx.committed) {
-    throw new functions.https.HttpsError("failed-precondition", "Not enough coins.");
-  }
-  const balance = Number(tx.snapshot.val() || 0);
-
-  try {
-    const me = meSnap.val() || {};
-    const toSnap = await db.ref(`users/${toUid}`).once("value");
-    const to = toSnap.val() || {};
-    await db.ref(`wallets/${toUid}/earned`).transaction((c) => Number(c || 0) + gift.coins);
-
-    const giftRef = roomRef.child("gifts").push();
-    await giftRef.set({
-      fromUid: uid, fromName: String(me.name || "User"),
-      toUid, toName: String(to.name || "Host"),
-      giftId, emoji: gift.emoji, name: gift.name, coins: gift.coins,
-      ts: ServerValue.TIMESTAMP,
-    });
-    await roomRef.child("chat").push().set({
-      uid, name: String(me.name || "User"), photoUrl: String(me.photoUrl || ""),
-      text: `sent a ${gift.emoji} ${gift.name} to ${String(to.name || "Host")}`,
-      ts: ServerValue.TIMESTAMP,
-      type: "gift", giftEmoji: gift.emoji, giftName: gift.name, coins: gift.coins, toUid,
-    });
-    await roomRef.child("meta/giftCoins").transaction((c) => Number(c || 0) + gift.coins);
-  } catch (e) {
-    // refund if recording failed
-    await walletRef.transaction((c) => Number(c || 0) + gift.coins);
-    console.error("[voiceRoomSendGift] failed, refunded:", e && e.message);
-    throw new functions.https.HttpsError("internal", "Gift failed. Coins refunded.");
-  }
-  return { ok: true, balance, emoji: gift.emoji, name: gift.name, coins: gift.coins };
-});

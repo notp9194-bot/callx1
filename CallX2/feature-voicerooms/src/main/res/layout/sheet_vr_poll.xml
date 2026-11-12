@@ -19,7 +19,7 @@
         android:paddingStart="20dp"
         android:paddingTop="14dp"
         android:paddingEnd="20dp"
-        android:text="@string/vr_start_a_poll"
+        android:text="Start a poll"
         android:textColor="@color/vr_text"
         android:textSize="20sp"
         android:textStyle="bold"/>
@@ -32,7 +32,7 @@
         android:layout_marginTop="14dp"
         android:layout_marginEnd="20dp"
         android:background="@drawable/vr_bg_edit"
-        android:hint="@string/vr_ask_a_question"
+        android:hint="Ask a question"
         android:inputType="textCapSentences|textMultiLine"
         android:maxLines="3"
         android:minHeight="52dp"
@@ -57,7 +57,7 @@
         android:background="?attr/selectableItemBackground"
         android:fontFamily="sans-serif-medium"
         android:padding="8dp"
-        android:text="@string/vr_add_option"
+        android:text="+ Add option"
         android:textColor="@color/vr_primary"
         android:textSize="15sp"/>
 
@@ -67,7 +67,7 @@
         android:paddingStart="20dp"
         android:paddingTop="6dp"
         android:paddingEnd="20dp"
-        android:text="@string/vr_duration"
+        android:text="Duration"
         android:textColor="@color/vr_text_sub"
         android:textSize="13sp"/>
 
@@ -90,7 +90,7 @@
         android:background="@drawable/vr_bg_btn_primary"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
-        android:text="@string/vr_start_poll"
+        android:text="Start poll"
         android:textColor="@color/vr_white"
         android:textSize="16sp"/>
 </LinearLayout>

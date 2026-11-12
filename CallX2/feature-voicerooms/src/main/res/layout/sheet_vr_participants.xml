@@ -21,7 +21,7 @@
         android:paddingStart="20dp"
         android:paddingTop="14dp"
         android:paddingEnd="20dp"
-        android:text="@string/vr_people_in_this_room"
+        android:text="People in this room"
         android:textColor="@color/vr_text"
         android:textSize="20sp"
         android:textStyle="bold"/>
@@ -67,7 +67,7 @@
         android:drawableStart="@drawable/ic_search"
         android:drawablePadding="10dp"
         android:drawableTint="@color/vr_text_sub"
-        android:hint="@string/vr_search_people"
+        android:hint="Search people"
         android:imeOptions="actionSearch"
         android:inputType="text"
         android:maxLines="1"

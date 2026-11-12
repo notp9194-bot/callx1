@@ -75,13 +75,6 @@ public class CallxMessagingService extends FirebaseMessagingService {
         logNotificationToPrefs(data);
         // ─────────────────────────────────────────────────────────────────────────
 
-        // ── Voice Rooms: "X ne room start kiya" (v794) ───────────────────────
-        if (data.containsKey("vr_notif_type")) {
-            com.callx.app.voicerooms.VrPushHandler.handle(this, data);
-            return;
-        }
-        // ────────────────────────────────────────────────────────────────────
-
         // ── Reel notification system (v5) ──────────────────────────────
         // If payload contains reel_notif_type, delegate entirely to
         // ReelFCMNotificationHandler and return — no further processing needed.

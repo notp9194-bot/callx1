@@ -53,7 +53,6 @@
                 android:textSize="16sp"/>
 
             <ImageView
-        android:importantForAccessibility="no"
                 android:id="@+id/vr_pp_verified"
                 android:layout_width="16dp"
                 android:layout_height="16dp"
@@ -72,7 +71,6 @@
     </LinearLayout>
 
     <ImageView
-        android:importantForAccessibility="no"
         android:id="@+id/vr_pp_mic"
         android:layout_width="34dp"
         android:layout_height="34dp"

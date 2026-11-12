@@ -29,7 +29,7 @@ include ':feature-status'
 include ':feature-x'
 include ':feature-youtube'
 include ':feature-games'
-include ':feature-voicerooms'   // v794: Voice Rooms (Firebase + LiveKit)
+include ':feature-voicerooms'   // v792: Voice Rooms (UI only)
 include ':feature-payments'
 
 // ── Performance: Macrobenchmark module ───────────────────────────────

@@ -24,7 +24,6 @@
 
         <!-- Invite / More ke liye soft circle + icon -->
         <ImageView
-        android:importantForAccessibility="no"
             android:id="@+id/vr_au_icon"
             android:layout_width="56dp"
             android:layout_height="56dp"
@@ -33,18 +32,6 @@
             android:padding="16dp"
             android:visibility="gone"
             app:tint="@color/vr_primary"/>
-
-        <TextView
-            android:id="@+id/vr_au_hand"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:layout_gravity="top|end"
-            android:background="@drawable/vr_bg_hand_badge"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:text="✋"
-            android:textSize="11sp"
-            android:visibility="gone"/>
 
         <View
             android:id="@+id/vr_au_online"

@@ -5,24 +5,13 @@
     android:layout_width="84dp"
     android:layout_height="wrap_content"
     android:gravity="center_horizontal"
-    android:clipChildren="false"
     android:orientation="vertical"
     android:clickable="true"
     android:focusable="true">
 
     <FrameLayout
         android:layout_width="80dp"
-        android:layout_height="80dp"
-        android:clipChildren="false">
-
-        <!-- speaking pulse (peeche phailta circle) -->
-        <View
-            android:id="@+id/vr_sp_pulse"
-            android:layout_width="80dp"
-            android:layout_height="80dp"
-            android:alpha="0"
-            android:background="@drawable/vr_bg_pulse"
-            android:visibility="invisible"/>
+        android:layout_height="80dp">
 
         <!-- ring (speaking => thicker + glow) -->
         <FrameLayout
@@ -50,13 +39,12 @@
             android:paddingTop="2dp"
             android:paddingEnd="10dp"
             android:paddingBottom="2dp"
-            android:text="@string/vr_host"
+            android:text="Host"
             android:textColor="@color/vr_white"
             android:textSize="12sp"
             android:visibility="gone"/>
 
         <ImageView
-        android:importantForAccessibility="no"
             android:id="@+id/vr_sp_mic"
             android:layout_width="28dp"
             android:layout_height="28dp"

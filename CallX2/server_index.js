@@ -720,7 +720,6 @@ app.post("/translate", (req, res) => {
           .noVideo()
           .audioChannels(1)
           .audioFrequency(SAMPLE_RATE)
-          .duration(AUDIO_MAX_DURATION_SEC)
           .outputOptions(["-f", "s16le", "-acodec", "pcm_s16le"])
           .on("end", () => {
             try {
@@ -844,98 +843,6 @@ app.post("/translate", (req, res) => {
       return out;
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    // v8: FINGERPRINT V2 — constellation hash WITH time-delta.
-    //
-    // Why: v1 hashed only a pair of band-peaks (no time info) → just ~20k
-    // possible hashes (in practice a 30s clip yields only ~280 DISTINCT ones),
-    // and the index kept only each hash's FIRST occurrence. So a clip cut from
-    // the MIDDLE of a sound (e.g. 5s out of a 30s video, trimmed on the phone)
-    // voted for the wrong offsets and never matched; only clips that kept the
-    // sound's start (in-app trim) happened to line up.
-    //
-    // v2: per frame keep the strongest PEAKS2 spectral peaks; pair every peak
-    // (anchor) with up to FAN2 strong peaks in the next ~1.4s; hash =
-    // (anchor bin, target bin, time delta between them). The delta makes the
-    // hash specific to a spot in the audio, so any slice of the sound matches
-    // wherever it was cut from. Measured on test audio: mid-clip 5s match
-    // 88% (v1: 13%), 3s@32kbps 61%, noisy 72%, unrelated audio ~1%.
-    // ════════════════════════════════════════════════════════════════════
-    const HOP2      = 256;   // 75% frame overlap → finer time resolution than v1
-    const PEAKS2    = 3;     // strongest peaks kept per frame
-    const FAN2      = 3;     // targets paired with each anchor
-    const MIN_DT2   = 2;     // frames
-    const MAX_DT2   = 60;    // frames (~1.4s)
-    const QF2       = 2;     // bin quantization (absorbs small re-encode drift)
-    const DQ2       = 2;     // time-delta quantization (frames)
-
-    function computeFingerprintHashesV2(pcmBuffer) {
-      const numSamples = Math.floor(pcmBuffer.length / 2);
-      if (numSamples < FFT_SIZE) return [];
-
-      const window = new Float64Array(FFT_SIZE);
-      for (let i = 0; i < FFT_SIZE; i++) {
-        window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (FFT_SIZE - 1));
-      }
-      const re = new Float64Array(FFT_SIZE);
-      const im = new Float64Array(FFT_SIZE);
-
-      const frames = []; // frames[t] = [{f, m}, ...] strongest peaks of that frame
-      for (let start = 0; start + FFT_SIZE <= numSamples; start += HOP2) {
-        let energy = 0;
-        for (let i = 0; i < FFT_SIZE; i++) {
-          const s = pcmBuffer.readInt16LE((start + i) * 2) / 32768;
-          energy += s * s;
-          re[i] = s * window[i];
-          im[i] = 0;
-        }
-        energy /= FFT_SIZE;
-        if (energy < MIN_FRAME_ENERGY) { frames.push([]); continue; }
-        fftRadix2(re, im);
-
-        const cands = [];
-        for (const [lo, hi] of BANDS) {
-          let maxMag = -1, maxBin = lo;
-          for (let b = lo; b <= hi && b < FFT_SIZE / 2; b++) {
-            const mag = re[b] * re[b] + im[b] * im[b];
-            if (mag > maxMag) { maxMag = mag; maxBin = b; }
-          }
-          cands.push({ f: maxBin, m: maxMag });
-        }
-        cands.sort((a, b) => b.m - a.m);
-        frames.push(cands.slice(0, PEAKS2));
-      }
-
-      const hashMap = new Map(); // hash -> anchor frame (first occurrence)
-      for (let t = 0; t < frames.length; t++) {
-        for (const a of frames[t]) {
-          // strongest FAN2 targets in the window (small partial selection)
-          const best = [];
-          for (let dt = MIN_DT2; dt <= MAX_DT2 && t + dt < frames.length; dt++) {
-            for (const b of frames[t + dt]) {
-              if (best.length < FAN2) { best.push({ dt, f: b.f, m: b.m }); }
-              else {
-                let minI = 0;
-                for (let k = 1; k < best.length; k++) if (best[k].m < best[minI].m) minI = k;
-                if (b.m > best[minI].m) best[minI] = { dt, f: b.f, m: b.m };
-              }
-            }
-          }
-          for (const b of best) {
-            const dq = Math.min(31, Math.floor(b.dt / DQ2));
-            const hash = (Math.floor(a.f / QF2) & 127)
-                       | ((Math.floor(b.f / QF2) & 127) << 7)
-                       | (dq << 14);
-            const key = String(hash >>> 0);
-            if (!hashMap.has(key)) hashMap.set(key, t);
-          }
-        }
-      }
-      const out = [];
-      for (const [h, t] of hashMap) out.push({ h, t });
-      return out;
-    }
-
     // ── Match against the inverted index, or register as new ───────────────
     // Tunable via env — no redeploy-code-change needed to adjust sensitivity,
     // just update the env var on Render and restart.
@@ -961,150 +868,9 @@ app.post("/translate", (req, res) => {
     const MATCH_QUERY_SAMPLE  = parseInt(process.env.AUDIO_MATCH_QUERY_SAMPLE, 10) || 90;
     const MATCH_THRESHOLD     = parseFloat(process.env.AUDIO_MATCH_THRESHOLD)     || 0.25;
     const MATCH_MIN_VOTES     = parseInt(process.env.AUDIO_MATCH_MIN_VOTES, 10)   || 10;
-    // v7: was 1000 (~first 8-10s only). ~130 hashes/s max, so 6000 covers a
-    // full ~45s clip; longer audio is EVENLY down-sampled (see capHashes),
-    // never truncated, so the whole timeline stays matchable.
-    const INDEX_HASH_CAP      = parseInt(process.env.AUDIO_INDEX_HASH_CAP, 10)    || 6000;
-    // Min query hashes that must fall inside the reference's time span for the
-    // overlap-based ratio to be trusted (else falls back to plain sample size).
-    const OVERLAP_MIN_SAMPLE  = parseInt(process.env.AUDIO_OVERLAP_MIN_SAMPLE, 10) || 20;
-
-    // Evenly down-sample to `cap` entries (keeps coverage of the WHOLE audio).
-    function capHashes(hashes, cap) {
-      if (!hashes || hashes.length <= cap) return hashes || [];
-      const out = [];
-      const step = hashes.length / cap;
-      for (let i = 0; i < cap; i++) out.push(hashes[Math.floor(i * step)]);
-      return out;
-    }
-    // Last frame index of the FULL audio — stored so a match can compute its
-    // ratio only over the part of the query that overlaps the reference.
-    function lastFrameOf(hashes) {
-      let m = 0;
-      for (const { t } of hashes) if (t > m) m = t;
-      return m;
-    }
-
-    // ── v7 SECURITY: auth, URL allow-list, limits ───────────────────────────
-    //   AUDIO_AUTH_REQUIRED       — "false" = temporary soft mode for old app
-    //                               versions that don't send an ID token yet
-    //   AUDIO_ALLOWED_HOSTS       — comma list of hosts audio_url may point to
-    //   AUDIO_MAX_DURATION_SEC    — ffmpeg only decodes this much audio
-    //   AUDIO_MAX_DOWNLOAD_BYTES  — hard cap for server-side downloads
-    //   AUDIO_MATCH_PER_HOUR / AUDIO_INDEX_PER_HOUR — per-uid rate limits
-    //   AUDIO_FP_QUEUE_MAX        — queued jobs beyond this get HTTP 503
-    const AUDIO_AUTH_REQUIRED      = (process.env.AUDIO_AUTH_REQUIRED || "true") !== "false";
-    const AUDIO_ALLOWED_HOSTS      = (process.env.AUDIO_ALLOWED_HOSTS || "res.cloudinary.com")
-      .split(",").map(h => h.trim().toLowerCase()).filter(Boolean);
-    const AUDIO_MAX_DURATION_SEC   = parseInt(process.env.AUDIO_MAX_DURATION_SEC, 10)   || 180;
-    const AUDIO_MAX_DOWNLOAD_BYTES = parseInt(process.env.AUDIO_MAX_DOWNLOAD_BYTES, 10) || 30 * 1024 * 1024;
-    const AUDIO_MATCH_PER_HOUR     = parseInt(process.env.AUDIO_MATCH_PER_HOUR, 10)     || 30;
-    const AUDIO_INDEX_PER_HOUR     = parseInt(process.env.AUDIO_INDEX_PER_HOUR, 10)     || 120;
-    const FP_QUEUE_MAX             = parseInt(process.env.AUDIO_FP_QUEUE_MAX, 10)       || 40;
-    const AUDIO_ID_RE              = /^[A-Za-z0-9_\-]{1,128}$/;
-
-    // uid always comes from the verified token (verifyFirebaseAuth sets req.uid)
-    function audioAuth(req, res, next) {
-      const hdr = req.headers.authorization || "";
-      if (!AUDIO_AUTH_REQUIRED && !hdr) { req.uid = null; return next(); } // legacy soft mode
-      return verifyFirebaseAuth(req, res, next);
-    }
-
-    const rateBuckets = new Map(); // `${bucket}:${uid}` -> [timestamps]
-    function audioRateLimit(bucket, max) {
-      return (req, res, next) => {
-        const key = bucket + ":" + (req.uid || req.ip || "anon");
-        const now = Date.now();
-        const arr = (rateBuckets.get(key) || []).filter(t => now - t < 3600 * 1000);
-        if (arr.length >= max) {
-          res.set("Retry-After", "600");
-          return res.status(429).json({ error: "rate limit exceeded" });
-        }
-        arr.push(now);
-        rateBuckets.set(key, arr);
-        next();
-      };
-    }
-    setInterval(() => {
-      const now = Date.now();
-      for (const [k, arr] of rateBuckets) {
-        const fresh = arr.filter(t => now - t < 3600 * 1000);
-        if (fresh.length) rateBuckets.set(k, fresh); else rateBuckets.delete(k);
-      }
-    }, 10 * 60 * 1000).unref();
-
-    // https only, no credentials/odd ports, host must be on the allow-list
-    // (blocks SSRF to internal addresses / metadata endpoints entirely).
-    function isAllowedAudioUrl(u) {
-      try {
-        const url = new URL(u);
-        if (url.protocol !== "https:") return false;
-        if (url.username || url.password) return false;
-        if (url.port && url.port !== "443") return false;
-        const host = url.hostname.toLowerCase();
-        return AUDIO_ALLOWED_HOSTS.some(h => host === h || host.endsWith("." + h));
-      } catch (_) { return false; }
-    }
-
-    // ── v7 ORPHAN FINGERPRINTS ─────────────────────────────────────────────
-    // audio_fingerprints/orig_X is minted at match time, but sounds/orig_X is
-    // created by the CLIENT afterwards. If the reel failed / was deleted /
-    // was blocked, the fingerprint stays and later uploads would link to a
-    // sound that doesn't exist. A fingerprint is "live" if its sound entity
-    // exists (sounds/ or musicLibrary/), or it is younger than the grace
-    // window (client hasn't had time to create it yet).
-    const ORPHAN_GRACE_MS = parseInt(process.env.AUDIO_ORPHAN_GRACE_MS, 10) || 10 * 60 * 1000;
-
-    async function isFingerprintLive(soundId, meta) {
-      const db = admin.database();
-      const created = meta && typeof meta.createdAt === "number" ? meta.createdAt : 0;
-      if (created && Date.now() - created < ORPHAN_GRACE_MS) return true;
-      const [a, b] = await Promise.all([
-        db.ref(`sounds/${soundId}/audioUrl`).once("value"),
-        db.ref(`musicLibrary/${soundId}`).once("value")
-      ]);
-      return a.exists() || b.exists();
-    }
-
-    async function purgeFingerprint(soundId, seenHashes, indexRoot = "audio_hash_index") {
-      const db = admin.database();
-      const updates = { [`audio_fingerprints/${soundId}`]: null };
-      for (const h of (seenHashes || [])) updates[`${indexRoot}/${h}/${soundId}`] = null;
-      try { await db.ref().update(updates); } catch (e) {
-        console.warn("[audio-orphan] purge failed:", e.message);
-      }
-    }
-
-    // findBestMatch + orphan filtering: a match whose fingerprint is stale/
-    // orphaned is purged and the search is retried (next best candidate, or
-    // none → caller registers a fresh original).
-    async function findLiveMatch(args) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const m = await findBestMatch(args);
-        if (!m) return null;
-        if (args.metaRoot !== "audio_fingerprints") return m;
-        const metaSnap = await admin.database().ref(`audio_fingerprints/${m.id}`).once("value");
-        const meta = metaSnap.val();
-        if (meta && await isFingerprintLive(m.id, meta)) return m;
-        console.log(`[audio-orphan] matched sound=${m.id} has no sound entity — purging and re-matching`);
-        await purgeFingerprint(m.id, m.hashesSeen, args.indexRoot);
-      }
-      return null;
-    }
+    const INDEX_HASH_CAP      = parseInt(process.env.AUDIO_INDEX_HASH_CAP, 10)    || 1000;
     const MIN_HASHES_REQUIRED = parseInt(process.env.AUDIO_MIN_HASHES, 10)        || 30;
     const DELTA_BIN_HOPS      = parseInt(process.env.AUDIO_DELTA_BIN_HOPS, 10)    || 2;
-
-    // v8: fingerprint "profiles". v1 = legacy (old sounds, licensed catalog);
-    // v2 = constellation+delta hash (all NEW user sounds). Each profile knows
-    // its own hash fn, frame hop, alignment-bin width, index tree and the
-    // audio_fingerprints field holding its last frame.
-    const FP_V1 = { ver: 1, compute: computeFingerprintHashes,   hop: HOP,  binHops: DELTA_BIN_HOPS,
-                    indexRoot: "audio_hash_index",    lastFrameKey: "lastFrame" };
-    const FP_V2 = { ver: 2, compute: computeFingerprintHashesV2, hop: HOP2, binHops: parseInt(process.env.AUDIO_DELTA_BIN_HOPS_V2, 10) || 4,
-                    indexRoot: "audio_hash_index_v2", lastFrameKey: "lastFrameV2" };
-    // Sounds indexed before v8 only exist in the v1 index. Keep matching
-    // against it until /admin/reindex-audio has migrated them (then set false).
-    const V1_FALLBACK = (process.env.AUDIO_V1_FALLBACK || "true") !== "false";
 
     // ✅ FIX (race condition): two users uploading byte-identical (or near-
     // identical) audio at nearly the same instant could both run
@@ -1149,9 +915,9 @@ app.post("/translate", (req, res) => {
     //                                   with somewhat fewer intact hashes.
     const SPEED_INVARIANT_ENABLED = (process.env.AUDIO_SPEED_INVARIANT_ENABLED || "true") !== "false";
     const SPEED_HYPOTHESES = (process.env.AUDIO_SPEED_HYPOTHESES
-        || "1.5,2.0,0.5,1.25,0.75,0.8,1.2,0.67")
+        || "0.75,1.25,0.8,1.2,0.67,1.5,0.5,2.0")
       .split(",").map(s => parseFloat(s.trim())).filter(f => f > 0 && Math.abs(f - 1) > 0.001);
-    const SPEED_MAX_HYPOTHESES     = parseInt(process.env.AUDIO_SPEED_MAX_HYPOTHESES, 10)     || 6; // v7: 1.5x/2x/0.5x (most common reel speeds) first, and now actually reached
+    const SPEED_MAX_HYPOTHESES     = parseInt(process.env.AUDIO_SPEED_MAX_HYPOTHESES, 10)     || 4;
     const SPEED_MATCH_QUERY_SAMPLE = parseInt(process.env.AUDIO_SPEED_MATCH_QUERY_SAMPLE, 10) || 60;
     const SPEED_MATCH_MIN_VOTES    = parseInt(process.env.AUDIO_SPEED_MATCH_MIN_VOTES, 10)    || 7;
 
@@ -1161,7 +927,7 @@ app.post("/translate", (req, res) => {
     // index (audio_hash_index) and the licensed-catalog index
     // (licensed_catalog_hash_index, see v6 copyright-detection below) —
     // it's the same landmark-hash format either way, just a different tree.
-    async function voteHashes(hashes, querySampleSize, indexRoot, metaRoot, fp = FP_V1) {
+    async function voteHashes(hashes, querySampleSize, indexRoot) {
       const db = admin.database();
       const step = Math.max(1, Math.floor(hashes.length / querySampleSize));
       const sample = [];
@@ -1170,7 +936,6 @@ app.post("/translate", (req, res) => {
       }
 
       const votes = {};
-      const seenById = {}; // id -> [hash,...] (so an orphaned id's index entries can be purged)
       await Promise.all(sample.map(async ({ h, t: queryT }) => {
         try {
           const snap = await db.ref(`${indexRoot}/${h}`).once("value");
@@ -1178,8 +943,7 @@ app.post("/translate", (req, res) => {
           const matches = snap.val(); // { id: refFrameIndex, ... }
           for (const [id, refT] of Object.entries(matches)) {
             if (typeof refT !== "number") continue; // guards old-format `true` entries pre-upgrade
-            (seenById[id] || (seenById[id] = [])).push(h);
-            const deltaBin = Math.round((refT - queryT) / fp.binHops);
+            const deltaBin = Math.round((refT - queryT) / DELTA_BIN_HOPS);
             const key = id + "|" + deltaBin;
             votes[key] = (votes[key] || 0) + 1;
           }
@@ -1198,30 +962,8 @@ app.post("/translate", (req, res) => {
         bestDeltaBin = parseInt(bestKey.slice(sep + 1), 10);
       }
 
-      // v7: ratio over the OVERLAP only. If the query is longer than the
-      // reference (e.g. reused sound + extra audio), hashes outside the
-      // reference's time span can never vote — counting them as misses
-      // wrongly sank genuine matches. Needs audio_fingerprints/{id}/lastFrame
-      // (older entries without it keep the old whole-sample ratio).
-      let denom = sample.length;
-      if (bestId && metaRoot) {
-        try {
-          const lfSnap = await db.ref(`${metaRoot}/${bestId}/${fp.lastFrameKey}`).once("value");
-          const lastFrame = lfSnap.val();
-          if (typeof lastFrame === "number" && lastFrame > 0) {
-            const shift = bestDeltaBin * fp.binHops;
-            let inside = 0;
-            for (const { t } of sample) {
-              const refT = t + shift;
-              if (refT >= -fp.binHops && refT <= lastFrame + fp.binHops) inside++;
-            }
-            denom = Math.max(inside, Math.min(sample.length, OVERLAP_MIN_SAMPLE));
-          }
-        } catch (_) { /* keep full-sample ratio */ }
-      }
-      const ratio = denom > 0 ? bestVotes / denom : 0;
-      return { bestId, bestVotes, bestDeltaBin, sampleSize: denom, ratio,
-               hashesSeen: bestId ? (seenById[bestId] || []) : [] };
+      const ratio = sample.length > 0 ? bestVotes / sample.length : 0;
+      return { bestId, bestVotes, bestDeltaBin, sampleSize: sample.length, ratio };
     }
 
     // Generic "match against an arbitrary hash index, with the same 1.0x +
@@ -1229,19 +971,19 @@ app.post("/translate", (req, res) => {
     // Both matchOrCreateSoundId (user-sound index) and matchLicensedCatalog
     // (v6, licensed-catalog index) are thin wrappers around this — same
     // matching quality, different tree + different sensitivity thresholds.
-    async function findBestMatch({ hashes, pcmBuffer, indexRoot, metaRoot,
+    async function findBestMatch({ hashes, pcmBuffer, indexRoot,
                                     matchThreshold, matchMinVotes,
-                                    querySample, speedQuerySample, speedMinVotes, fp = FP_V1 }) {
-      let vote = await voteHashes(hashes, querySample, indexRoot, metaRoot, fp);
+                                    querySample, speedQuerySample, speedMinVotes }) {
+      let vote = await voteHashes(hashes, querySample, indexRoot);
       let isMatch = !!vote.bestId && vote.bestVotes >= matchMinVotes && vote.ratio >= matchThreshold;
       let speedFactor = 1.0;
 
       if (!isMatch && SPEED_INVARIANT_ENABLED && pcmBuffer) {
         for (const f of SPEED_HYPOTHESES.slice(0, SPEED_MAX_HYPOTHESES)) {
           const resampled   = resamplePcmBySpeedFactor(pcmBuffer, f);
-          const speedHashes = fp.compute(resampled);
+          const speedHashes = computeFingerprintHashes(resampled);
           if (speedHashes.length < MIN_HASHES_REQUIRED) continue;
-          const speedVote = await voteHashes(speedHashes, speedQuerySample, indexRoot, metaRoot, fp);
+          const speedVote = await voteHashes(speedHashes, speedQuerySample, indexRoot);
           const speedIsMatch = !!speedVote.bestId
             && speedVote.bestVotes >= speedMinVotes
             && speedVote.ratio >= matchThreshold;
@@ -1255,57 +997,37 @@ app.post("/translate", (req, res) => {
       }
 
       if (!isMatch) return null;
-      const offsetSec = Math.max(0, (vote.bestDeltaBin * fp.binHops * fp.hop) / SAMPLE_RATE);
+      const offsetSec = Math.max(0, (vote.bestDeltaBin * DELTA_BIN_HOPS * HOP) / SAMPLE_RATE);
       return {
         id: vote.bestId, votes: vote.bestVotes, sampleSize: vote.sampleSize,
-        ratio: vote.ratio, offsetSec: Number(offsetSec.toFixed(2)), speedFactor,
-        hashesSeen: vote.hashesSeen || []
+        ratio: vote.ratio, offsetSec: Number(offsetSec.toFixed(2)), speedFactor
       };
-    }
-
-    // v8: user-sound match = v2 index first; if nothing and V1_FALLBACK, also the
-    // legacy v1 index (sounds registered before v2 existed). `hashes` passed in
-    // are the v1 hashes (also used by the licensed-catalog check); v2 hashes
-    // are computed here from the same PCM.
-    async function findUserSoundMatch({ hashesV1, hashesV2, pcmBuffer }) {
-      const base = {
-        pcmBuffer, metaRoot: "audio_fingerprints",
-        matchThreshold: MATCH_THRESHOLD, matchMinVotes: MATCH_MIN_VOTES,
-        querySample: MATCH_QUERY_SAMPLE, speedQuerySample: SPEED_MATCH_QUERY_SAMPLE,
-        speedMinVotes: SPEED_MATCH_MIN_VOTES
-      };
-      if (hashesV2.length >= MIN_HASHES_REQUIRED) {
-        const m2 = await findLiveMatch({ ...base, hashes: hashesV2, fp: FP_V2, indexRoot: FP_V2.indexRoot });
-        if (m2) { m2.fpVer = 2; return m2; }
-      }
-      if (V1_FALLBACK) {
-        const m1 = await findLiveMatch({ ...base, hashes: hashesV1, fp: FP_V1, indexRoot: FP_V1.indexRoot });
-        if (m1) { m1.fpVer = 1; return m1; }
-      }
-      return null;
     }
 
     async function matchOrCreateSoundId({ hashes, pcmBuffer, ownerUid, reelId, newSoundId }) {
       const db = admin.database();
-      const hashesV1 = hashes;
-      const hashesV2 = computeFingerprintHashesV2(pcmBuffer);
 
-      const match = await findUserSoundMatch({ hashesV1, hashesV2, pcmBuffer });
+      const match = await findBestMatch({
+        hashes, pcmBuffer, indexRoot: "audio_hash_index",
+        matchThreshold: MATCH_THRESHOLD, matchMinVotes: MATCH_MIN_VOTES,
+        querySample: MATCH_QUERY_SAMPLE, speedQuerySample: SPEED_MATCH_QUERY_SAMPLE,
+        speedMinVotes: SPEED_MATCH_MIN_VOTES
+      });
 
       if (match) {
         const metaSnap = await db.ref(`audio_fingerprints/${match.id}`).once("value");
         const meta = metaSnap.val() || {};
-        console.log(`[audio-match] MATCHED(v${match.fpVer}) sound=${match.id} votes=${match.votes}/${match.sampleSize} (${(match.ratio*100).toFixed(1)}%) offset=${match.offsetSec.toFixed(2)}s speed=${match.speedFactor}x`);
+        console.log(`[audio-match] MATCHED sound=${match.id} votes=${match.votes}/${match.sampleSize} (${(match.ratio*100).toFixed(1)}%) offset=${match.offsetSec.toFixed(2)}s speed=${match.speedFactor}x`);
         return {
           matched: true, sound_id: match.id, owner_uid: meta.ownerUid || "",
           offset_sec: match.offsetSec, speed_factor: match.speedFactor
         };
       }
 
-      console.log("[audio-match] no match in v2/v1 index (below threshold, speeds tried)");
+      console.log("[audio-match] no match in audio_hash_index (below threshold, speeds tried)");
 
       // ✅ FIX (race condition) — see pickClaimHash/CLAIM_TTL_MS comment above.
-      const claimHash = pickClaimHash(hashesV2.length ? hashesV2 : hashesV1);
+      const claimHash = pickClaimHash(hashes);
       const lockRef = db.ref(`audio_fingerprint_locks/${claimHash}`);
       let wonClaim = true;
       try {
@@ -1321,7 +1043,12 @@ app.post("/translate", (req, res) => {
       if (!wonClaim) {
         console.log(`[audio-match] lost claim race for hash=${claimHash} — waiting ${CLAIM_WAIT_MS}ms then re-checking index`);
         await new Promise(r => setTimeout(r, CLAIM_WAIT_MS));
-        const retryMatch = await findUserSoundMatch({ hashesV1, hashesV2, pcmBuffer });
+        const retryMatch = await findBestMatch({
+          hashes, pcmBuffer, indexRoot: "audio_hash_index",
+          matchThreshold: MATCH_THRESHOLD, matchMinVotes: MATCH_MIN_VOTES,
+          querySample: MATCH_QUERY_SAMPLE, speedQuerySample: SPEED_MATCH_QUERY_SAMPLE,
+          speedMinVotes: SPEED_MATCH_MIN_VOTES
+        });
         if (retryMatch) {
           const metaSnap = await db.ref(`audio_fingerprints/${retryMatch.id}`).once("value");
           const meta = metaSnap.val() || {};
@@ -1331,27 +1058,34 @@ app.post("/translate", (req, res) => {
             offset_sec: retryMatch.offsetSec, speed_factor: retryMatch.speedFactor
           };
         }
+        // Still nothing — rare double-miss (the other job's audio may have
+        // genuinely been different, or its write also failed). Fall through
+        // and create as normal rather than blocking this upload indefinitely.
         console.log("[audio-match] retry still found nothing — proceeding to create (rare double-miss)");
       }
 
-      // No match — this becomes the new original. Registered from the UNMODIFIED
-      // (1.0x) v2 hashes only, so the index stays a clean reference set.
+      // No match — this becomes the new original. Use the ID the app already
+      // intends to create in Firebase's sounds/ tree, so the two stay in sync.
+      // Always registered from the UNMODIFIED (1.0x) hashes — never from a
+      // resampled hypothesis — so the index stays a clean reference set.
       const soundId = newSoundId && newSoundId.trim() ? newSoundId : db.ref("audio_fingerprints").push().key;
 
       await db.ref(`audio_fingerprints/${soundId}`).set({
         ownerUid:  ownerUid || null,
         reelId:    reelId || null,
         createdAt: admin.database.ServerValue.TIMESTAMP,
-        hashCount: hashesV2.length,
-        fpVersion: 2,
-        lastFrameV2: lastFrameOf(hashesV2)
+        hashCount: hashes.length
       });
 
-      const capped = capHashes(hashesV2, INDEX_HASH_CAP);
+      // Store each hash's FRAME INDEX (not just `true`) — this is what a
+      // future upload's query needs to compute an alignment offset against.
+      const capped = hashes.slice(0, INDEX_HASH_CAP);
       const updates = {};
-      for (const { h, t } of capped) updates[`${FP_V2.indexRoot}/${h}/${soundId}`] = t;
+      for (const { h, t } of capped) updates[`audio_hash_index/${h}/${soundId}`] = t;
       if (Object.keys(updates).length) await db.ref().update(updates);
 
+      // Release the claim now that our write has landed — don't rely on the
+      // TTL for the common (non-racing) case.
       try { await lockRef.remove(); } catch (_) {}
 
       return { matched: false, sound_id: soundId, owner_uid: ownerUid || "", offset_sec: 0, speed_factor: 1.0 };
@@ -1747,34 +1481,6 @@ app.post("/translate", (req, res) => {
       pumpFingerprintQueue();
     }
 
-    // v7: the queue is in-memory, so a Render restart/sleep strands every
-    // queued/processing job (clients would wait out their timeout for nothing).
-    // On boot nothing can be running, so mark them all errored right away —
-    // clients get a fast "error" instead of a 25s silent wait.
-    if (firebaseReady) {
-      (async () => {
-        try {
-          const db = admin.database();
-          let marked = 0;
-          for (const st of ["queued", "processing"]) {
-            const snap = await db.ref("audio_match_jobs").orderByChild("status").equalTo(st).once("value");
-            if (!snap.exists()) continue;
-            const updates = {};
-            snap.forEach(ch => {
-              updates[`${ch.key}/status`] = "error";
-              updates[`${ch.key}/error`] = "server restarted before job ran";
-              updates[`${ch.key}/completedAt`] = admin.database.ServerValue.TIMESTAMP;
-              marked++;
-            });
-            await db.ref("audio_match_jobs").update(updates);
-          }
-          if (marked) console.log(`[audio-match] boot recovery: marked ${marked} stranded job(s) as error`);
-        } catch (e) {
-          console.warn("[audio-match] boot recovery failed (non-fatal):", e.message);
-        }
-      })();
-    }
-
     function pumpFingerprintQueue() {
       while (fpActive < FP_QUEUE_CONCURRENCY && fpQueue.length > 0) {
         const job = fpQueue.shift();
@@ -1831,10 +1537,6 @@ app.post("/translate", (req, res) => {
       const metaSnap = await db.ref(`audio_fingerprints/${cached.soundId}`).once("value");
       if (!metaSnap.exists()) return null; // stale — original sound was deleted since
       const meta = metaSnap.val() || {};
-      if (!(await isFingerprintLive(cached.soundId, meta))) {
-        await purgeFingerprint(cached.soundId, []); // sound entity never got created / was deleted
-        return null;
-      }
 
       return {
         matched: true,
@@ -1878,24 +1580,11 @@ app.post("/translate", (req, res) => {
       return new Date(ts).toISOString().slice(0, 10); // "YYYY-MM-DD"
     }
 
-    // v7: only REAL reuse counts, once per distinct user per day:
-    //   - unmatched (brand-new original) → not a reuse, skipped
-    //   - the sound's own creator reusing it → skipped
-    //   - copyright-blocked reels → skipped
-    // Dedup key lives in a separate tree (audio_match_seen/{day}/{sound}/{uid})
-    // so /audio/trending never has to download it.
-    async function recordAudioMatchStat(soundId, { uid, matched, ownerUid, blocked } = {}) {
-      if (!soundId || !matched || blocked) return;
-      if (uid && ownerUid && uid === ownerUid) return;
+    async function recordAudioMatchStat(soundId) {
+      if (!soundId) return;
       try {
-        const db = admin.database();
         const day = utcDateKey(Date.now());
-        if (uid) {
-          const seen = await db.ref(`audio_match_seen/${day}/${soundId}/${uid}`)
-            .transaction(cur => (cur ? undefined : true));
-          if (!seen.committed) return; // this user already counted for this sound today
-        }
-        await db.ref().update({
+        await admin.database().ref().update({
           [`audio_match_stats/${soundId}/total`]: admin.database.ServerValue.increment(1),
           [`audio_match_stats/${soundId}/daily/${day}`]: admin.database.ServerValue.increment(1),
           [`audio_match_stats/${soundId}/lastMatchedAt`]: admin.database.ServerValue.TIMESTAMP
@@ -1903,26 +1592,6 @@ app.post("/translate", (req, res) => {
       } catch (e) {
         console.warn("[audio-match] trending-stat write failed (non-fatal):", e.message);
       }
-    }
-
-    // v7: cached — computeTrendingSounds scans the whole stats tree.
-    const TRENDING_CACHE_MS = parseInt(process.env.AUDIO_TRENDING_CACHE_MS, 10) || 5 * 60 * 1000;
-    const trendingCache = new Map(); // `${days}:${limit}` -> { at, data, pending }
-    async function getTrendingCached(days, limit) {
-      const key = days + ":" + limit;
-      const hit = trendingCache.get(key);
-      if (hit && hit.data && Date.now() - hit.at < TRENDING_CACHE_MS) return hit.data;
-      if (hit && hit.pending) return hit.pending; // share one in-flight scan
-      const pending = computeTrendingSounds(days, limit).then(data => {
-        trendingCache.set(key, { at: Date.now(), data });
-        return data;
-      }).catch(err => {
-        trendingCache.delete(key);
-        if (hit && hit.data) return hit.data; // serve stale rather than fail
-        throw err;
-      });
-      trendingCache.set(key, { at: hit ? hit.at : 0, data: hit ? hit.data : null, pending });
-      return pending;
     }
 
     // Reads the whole audio_match_stats tree and sums each sound's daily
@@ -1980,68 +1649,6 @@ app.post("/translate", (req, res) => {
       return top;
     }
 
-    // v8: SERVER-SIDE copyright enforcement. Previously only the app applied the
-    // licensed-catalog policy (a killed app / hostile client could skip it).
-    // Now the server applies it itself the moment the job finishes:
-    //   block  → reel + indexes + sound links removed, owner notified
-    //   mute   → reel marked audioMuted + copyrightMatch
-    //   credit → copyrightMatch recorded
-    // The client still applies it too (instant UX) — every write here is idempotent.
-    async function enforceCopyrightPolicy({ uid, reelId, result }) {
-      const cm = result && result.copyright_match;
-      if (!cm || !cm.matched || !reelId || !uid) return { enforced: false };
-      const policy = cm.policy;
-      const db = admin.database();
-
-      // Only ever touch the caller's own reel.
-      const reelSnap = await db.ref(`reels/${reelId}`).once("value");
-      const reel = reelSnap.val();
-      const reelOwner = reel && (reel.uid || reel.ownerUid);
-      if (reelOwner && reelOwner !== uid) return { enforced: false };
-
-      const updates = {};
-      if (policy === "block") {
-        updates[`reels/${reelId}`] = null;
-        updates[`reelsByUser/${uid}/${reelId}`] = null;
-        updates[`userReels/${uid}/${reelId}`] = null;
-        const ownSoundId = "orig_" + reelId;
-        const soundIds = new Set([ownSoundId]);
-        if (result.sound_id) soundIds.add(result.sound_id);
-        for (const sid of soundIds) updates[`sounds/${sid}/reels/${reelId}`] = null;
-
-        // The blocked reel's own minted sound: drop it (and its fingerprint)
-        // unless some other reel already linked to it in the meantime.
-        const ownReels = await db.ref(`sounds/${ownSoundId}/reels`).once("value");
-        let othersLinked = false;
-        ownReels.forEach(ch => { if (ch.key !== reelId) othersLinked = true; });
-        if (!othersLinked) {
-          updates[`sounds/${ownSoundId}`] = null;
-          updates[`audio_fingerprints/${ownSoundId}`] = null;
-        }
-      } else if (policy === "mute" || policy === "credit") {
-        if (!reel) return { enforced: false };
-        updates[`reels/${reelId}/copyrightMatch`] = JSON.stringify(cm);
-        if (policy === "mute") updates[`reels/${reelId}/audioMuted`] = true;
-      } else {
-        return { enforced: false };
-      }
-      await db.ref().update(updates);
-
-      const title = cm.title || "a track";
-      const message = policy === "block"
-        ? `Your reel was removed — it used licensed audio ("${title}") without a license.`
-        : policy === "mute"
-          ? `Licensed audio detected in your reel ("${title}") — its sound was muted.`
-          : `Your reel's audio matched a licensed track ("${title}") and is now credited.`;
-      await db.ref("reel_notifications").child(uid).push({
-        type: "copyright_takedown", senderUid: "system", reel_id: reelId, message,
-        timestamp: admin.database.ServerValue.TIMESTAMP, read: false
-      }).catch((e) => console.warn("[copyright-enforce] notif failed (non-fatal):", e.message));
-
-      console.log(`[copyright-enforce] reel=${reelId} uid=${uid} policy=${policy} track=${cm.track_id || ""}`);
-      return { enforced: true, policy };
-    }
-
     async function runFingerprintJob({ jobId, inputPath, uid, reelId, newSoundId }) {
       const db = admin.database();
       const jobRef = db.ref(`audio_match_jobs/${jobId}`);
@@ -2093,22 +1700,10 @@ app.post("/translate", (req, res) => {
         // Trending analytics — one usage event per job, cache hit or not
         // (a cache hit is just as real a "this audio got used again" event
         // as a fresh FFT match, so it counts the same way).
-        await recordAudioMatchStat(result.sound_id, {
-          uid, matched: result.matched, ownerUid: result.owner_uid,
-          blocked: !!(result.copyright_match && result.copyright_match.policy === "block")
-        });
-
-        // v8: enforce the licensed-catalog policy on the server (block/mute/credit).
-        let enforcement = { enforced: false };
-        try {
-          enforcement = await enforceCopyrightPolicy({ uid, reelId, result });
-        } catch (e) {
-          console.warn("[copyright-enforce] failed (client will still apply policy):", e.message);
-        }
+        await recordAudioMatchStat(result.sound_id);
 
         await jobRef.update({
           status: "done",
-          server_enforced: !!enforcement.enforced,
           matched: result.matched,
           sound_id: result.sound_id,
           owner_uid: result.owner_uid,
@@ -2138,40 +1733,28 @@ app.post("/translate", (req, res) => {
     // (Cloudinary URLs don't normally redirect, but this is cheap insurance).
     function downloadUrlToFile(url, destPath, redirectsLeft = 3) {
       const https = require("https");
+      const http  = require("http");
       return new Promise((resolve, reject) => {
-        // v7 (SSRF): every hop — including redirect targets — must be an
-        // allow-listed https host. Size and total time are capped.
-        if (!isAllowedAudioUrl(url)) return reject(new Error("audio_url host not allowed"));
+        const client = url.startsWith("https:") ? https : http;
         const file = fs.createWriteStream(destPath);
-        const fail = (err) => { try { file.close(); } catch (_) {} fs.unlink(destPath, () => {}); reject(err); };
-        const req = https.get(url, (res) => {
+        client.get(url, (res) => {
           if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
-            res.resume();
             file.close();
             fs.unlink(destPath, () => {});
-            let next;
-            try { next = new URL(res.headers.location, url).toString(); } catch (e) { return reject(e); }
-            return resolve(downloadUrlToFile(next, destPath, redirectsLeft - 1));
+            return resolve(downloadUrlToFile(res.headers.location, destPath, redirectsLeft - 1));
           }
           if (res.statusCode !== 200) {
-            res.resume();
-            return fail(new Error(`download failed: HTTP ${res.statusCode}`));
+            file.close();
+            fs.unlink(destPath, () => {});
+            return reject(new Error(`download failed: HTTP ${res.statusCode}`));
           }
-          const declared = parseInt(res.headers["content-length"], 10);
-          if (declared && declared > AUDIO_MAX_DOWNLOAD_BYTES) {
-            res.resume();
-            return fail(new Error("audio file too large"));
-          }
-          let got = 0;
-          res.on("data", (c) => {
-            got += c.length;
-            if (got > AUDIO_MAX_DOWNLOAD_BYTES) { req.destroy(); fail(new Error("audio file too large")); }
-          });
           res.pipe(file);
           file.on("finish", () => file.close(() => resolve()));
+        }).on("error", (e) => {
+          file.close();
+          fs.unlink(destPath, () => {});
+          reject(e);
         });
-        req.setTimeout(30000, () => { req.destroy(); fail(new Error("download timed out")); });
-        req.on("error", fail);
       });
     }
 
@@ -2191,9 +1774,8 @@ app.post("/translate", (req, res) => {
         await jobRef.update({ status: "processing" });
 
         const existingSnap = await db.ref(`audio_fingerprints/${soundId}`).once("value");
-        const existingMeta = existingSnap.val() || null;
-        if (existingMeta && existingMeta.fpVersion === 2) {
-          console.log(`[audio-index-existing] sound=${soundId} already indexed (v2) — skipping`);
+        if (existingSnap.exists()) {
+          console.log(`[audio-index-existing] sound=${soundId} already indexed — skipping`);
           await jobRef.update({
             status: "done", indexed: false, already_indexed: true,
             sound_id: soundId, completedAt: admin.database.ServerValue.TIMESTAMP
@@ -2203,7 +1785,7 @@ app.post("/translate", (req, res) => {
 
         await downloadUrlToFile(audioUrl, tmpPath);
         const pcm = await extractPcmMono11025(tmpPath);
-        const hashes = computeFingerprintHashesV2(pcm);
+        const hashes = computeFingerprintHashes(pcm);
 
         if (hashes.length < MIN_HASHES_REQUIRED) {
           console.warn(`[audio-index-existing] sound=${soundId} too short/quiet to index (${hashes.length} hashes)`);
@@ -2214,27 +1796,17 @@ app.post("/translate", (req, res) => {
           return;
         }
 
-        // Keep an existing (v1) record's owner/reel/createdAt/lastFrame — the legacy
-        // index still uses lastFrame — and just add the v2 fields next to them.
-        const metaPatch = {
+        await db.ref(`audio_fingerprints/${soundId}`).set({
+          ownerUid:  ownerUid || null,
+          reelId:    reelId || null,
+          createdAt: admin.database.ServerValue.TIMESTAMP,
           hashCount: hashes.length,
-          fpVersion: 2,
-          lastFrameV2: lastFrameOf(hashes),
-          reindexedAt: admin.database.ServerValue.TIMESTAMP
-        };
-        if (!existingMeta) {
-          Object.assign(metaPatch, {
-            ownerUid:  ownerUid || null,
-            reelId:    reelId || null,
-            createdAt: admin.database.ServerValue.TIMESTAMP,
-            backfilled: true // "indexed after the fact" (debugging/analytics only)
-          });
-        }
-        await db.ref(`audio_fingerprints/${soundId}`).update(metaPatch);
+          backfilled: true // distinguishes "indexed after the fact" from a raw-upload original, for debugging/analytics only
+        });
 
-        const capped = capHashes(hashes, INDEX_HASH_CAP);
+        const capped = hashes.slice(0, INDEX_HASH_CAP);
         const updates = {};
-        for (const { h, t } of capped) updates[`${FP_V2.indexRoot}/${h}/${soundId}`] = t;
+        for (const { h, t } of capped) updates[`audio_hash_index/${h}/${soundId}`] = t;
         if (Object.keys(updates).length) await db.ref().update(updates);
 
         console.log(`[audio-index-existing] indexed sound=${soundId} (${hashes.length} hashes) from ${audioUrl}`);
@@ -2311,8 +1883,7 @@ app.post("/translate", (req, res) => {
     // POST /audio/match — now returns IMMEDIATELY with a job_id (202) instead
     // of blocking on FFT. Client listens on audio_match_jobs/{job_id} in
     // Firebase RTDB for the result (status: queued → processing → done/error).
-    app.post("/audio/match", audioAuth, audioRateLimit("match", AUDIO_MATCH_PER_HOUR),
-             matchUpload.single("file"), async (req, res) => {
+    app.post("/audio/match", matchUpload.single("file"), async (req, res) => {
       if (!firebaseReady) {
         return res.status(503).json({ error: "Firebase not configured" });
       }
@@ -2321,40 +1892,10 @@ app.post("/translate", (req, res) => {
       }
 
       const inputPath = req.file.path;
-      const cleanup = () => { try { if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath); } catch (_) {} };
-      // v7: uid comes from the verified ID token, never from the body.
-      const uid = req.uid || (AUDIO_AUTH_REQUIRED ? "" : String((req.body || {}).uid || ""));
-      const reel_id      = String((req.body || {}).reel_id || "");
-      const new_sound_id = String((req.body || {}).new_sound_id || "");
-
-      if (!uid) { cleanup(); return res.status(401).json({ error: "auth required" }); }
-      if ((reel_id && !AUDIO_ID_RE.test(reel_id)) ||
-          (new_sound_id && (!AUDIO_ID_RE.test(new_sound_id) || !new_sound_id.startsWith("orig_")))) {
-        cleanup();
-        return res.status(400).json({ error: "invalid reel_id / new_sound_id" });
-      }
-      if (fpQueue.length >= FP_QUEUE_MAX) {
-        cleanup();
-        res.set("Retry-After", "30");
-        return res.status(503).json({ error: "audio queue is full, try again shortly" });
-      }
+      const { uid = "", reel_id = "", new_sound_id = "" } = req.body;
 
       try {
         const db = admin.database();
-
-        // The reel must belong to the caller (if it already exists in RTDB).
-        if (reel_id) {
-          const reelSnap = await db.ref(`reels/${reel_id}`).once("value");
-          if (reelSnap.exists()) {
-            const r = reelSnap.val() || {};
-            const reelOwner = r.uid || r.ownerUid;
-            if (reelOwner && reelOwner !== uid) {
-              cleanup();
-              return res.status(403).json({ error: "reel does not belong to caller" });
-            }
-          }
-        }
-
         const jobRef = db.ref("audio_match_jobs").push();
         const jobId  = jobRef.key;
 
@@ -2369,89 +1910,61 @@ app.post("/translate", (req, res) => {
         res.status(202).json({ job_id: jobId, status: "queued" });
       } catch (err) {
         console.error("[/audio/match] enqueue failed:", err.message);
-        cleanup();
+        try { if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath); } catch (_) {}
         res.status(500).json({ error: err.message });
       }
     });
 
-    // GET /audio/match/status/:jobId — polling fallback. v7: auth required and
-    // only the job's own uid can read it.
-    app.get("/audio/match/status/:jobId", audioAuth, async (req, res) => {
+    // GET /audio/match/status/:jobId — polling fallback for clients that
+    // can't/don't want a live Firebase listener (e.g. a simple curl check).
+    app.get("/audio/match/status/:jobId", async (req, res) => {
       if (!firebaseReady) return res.status(503).json({ error: "Firebase not configured" });
       try {
         const snap = await admin.database().ref(`audio_match_jobs/${req.params.jobId}`).once("value");
         if (!snap.exists()) return res.status(404).json({ error: "job not found" });
-        const job = snap.val();
-        if (req.uid && job.uid && job.uid !== req.uid) return res.status(404).json({ error: "job not found" });
-        res.json(job);
+        res.json(snap.val());
       } catch (err) {
         res.status(500).json({ error: err.message });
       }
     });
 
-    // POST /audio/index-existing — body: { sound_id, audio_url, reel_id }
-    // v7: auth + rate limit; audio_url must be an allow-listed (Cloudinary) https
-    // URL; sound_id must be a REAL existing sound (sounds/ or musicLibrary/) —
-    // nobody can index junk under an arbitrary id — and, when the sound node
-    // records its audio URL, audio_url must be that URL.
-    app.post("/audio/index-existing", audioAuth, audioRateLimit("index", AUDIO_INDEX_PER_HOUR), async (req, res) => {
+    // POST /audio/index-existing — body: { sound_id, audio_url, uid, reel_id }
+    // ✅ FIX (gap #1 — existing/trending sound never fingerprinted): called
+    // by the client (see VideoUploader.indexExistingSoundIfNeeded /
+    // registerOrLinkSound) whenever a reel links to an ALREADY-EXISTING
+    // sound instead of raw-uploading its own audio. Idempotent — returns
+    // immediately if this sound_id is already in the fingerprint index, so
+    // repeat calls (many reels reusing one trending sound) are cheap after
+    // the first. Fire-and-forget from the client's point of view; the
+    // reel post itself never waits on this.
+    app.post("/audio/index-existing", async (req, res) => {
       if (!firebaseReady) return res.status(503).json({ error: "Firebase not configured" });
-      const body = req.body || {};
-      const sound_id  = String(body.sound_id || "").trim();
-      const audio_url = String(body.audio_url || "").trim();
-      const reel_id   = String(body.reel_id || "");
-      const callerUid = req.uid || (AUDIO_AUTH_REQUIRED ? "" : String(body.uid || ""));
-      if (!callerUid) return res.status(401).json({ error: "auth required" });
-      if (!sound_id || !audio_url) {
+      const { sound_id = "", audio_url = "", uid = "", reel_id = "" } = req.body || {};
+      if (!sound_id.trim() || !audio_url.trim()) {
         return res.status(400).json({ error: "sound_id and audio_url are required" });
-      }
-      if (!AUDIO_ID_RE.test(sound_id) || (reel_id && !AUDIO_ID_RE.test(reel_id))) {
-        return res.status(400).json({ error: "invalid id" });
-      }
-      if (!isAllowedAudioUrl(audio_url)) {
-        return res.status(400).json({ error: "audio_url host not allowed" });
-      }
-      if (fpQueue.length >= FP_QUEUE_MAX) {
-        res.set("Retry-After", "30");
-        return res.status(503).json({ error: "audio queue is full, try again shortly" });
       }
 
       try {
         const db = admin.database();
 
-        // Cheap short-circuit BEFORE queueing/downloading anything.
+        // Cheap short-circuit BEFORE queueing/downloading anything — avoids
+        // even a HEAD-weight cost on the common "already indexed" case.
         const existingSnap = await db.ref(`audio_fingerprints/${sound_id}`).once("value");
-        if (existingSnap.exists() && (existingSnap.val() || {}).fpVersion === 2) {
+        if (existingSnap.exists()) {
           return res.status(200).json({ already_indexed: true, sound_id });
         }
-
-        // The sound must really exist, and its audio must be the URL we were given.
-        const [soundSnap, libSnap] = await Promise.all([
-          db.ref(`sounds/${sound_id}`).once("value"),
-          db.ref(`musicLibrary/${sound_id}`).once("value")
-        ]);
-        if (!soundSnap.exists() && !libSnap.exists()) {
-          return res.status(404).json({ error: "unknown sound_id" });
-        }
-        const sv = soundSnap.val() || {};
-        const knownUrls = [sv.audioUrl, sv.previewAudioUrl].filter(Boolean);
-        if (knownUrls.length && !knownUrls.includes(audio_url)) {
-          return res.status(400).json({ error: "audio_url does not belong to this sound" });
-        }
-        // Credit the sound's real creator, not whoever happens to reuse it.
-        const ownerUid = sv.ownerUid || sv.creatorUid || callerUid;
 
         const jobRef = db.ref("audio_match_jobs").push();
         const jobId  = jobRef.key;
         await jobRef.set({
           status: "queued", type: "index_existing",
-          soundId: sound_id, uid: callerUid, reelId: reel_id,
+          soundId: sound_id, uid, reelId: reel_id,
           createdAt: admin.database.ServerValue.TIMESTAMP
         });
 
         enqueueFingerprintJob({
           type: "index_existing", jobId,
-          audioUrl: audio_url, soundId: sound_id, ownerUid, reelId: reel_id
+          audioUrl: audio_url, soundId: sound_id, ownerUid: uid, reelId: reel_id
         });
 
         res.status(202).json({ job_id: jobId, status: "queued" });
@@ -2461,109 +1974,8 @@ app.post("/translate", (req, res) => {
       }
     });
 
-    // POST /audio/forget — body: { sound_id }. Called when a sound/reel is
-    // deleted so its fingerprint doesn't linger as an orphan. Only the
-    // fingerprint's owner (or anyone, if the sound entity is already gone)
-    // may remove it. Stale index entries are purged lazily on the next match.
-    app.post("/audio/forget", audioAuth, audioRateLimit("forget", 60), async (req, res) => {
-      if (!firebaseReady) return res.status(503).json({ error: "Firebase not configured" });
-      const sound_id = String((req.body || {}).sound_id || "").trim();
-      const forgetReelId = String((req.body || {}).reel_id || "").trim();
-      if (!AUDIO_ID_RE.test(sound_id)) return res.status(400).json({ error: "invalid sound_id" });
-      try {
-        const db = admin.database();
-        // Another reel still uses this sound → keep its fingerprint.
-        const stillUsed = await db.ref(`sounds/${sound_id}/reels`).once("value");
-        let others = false;
-        stillUsed.forEach(ch => { if (ch.key !== forgetReelId) others = true; });
-        if (others) return res.json({ forgotten: false, reason: "sound still used by other reels" });
-        const fp = await db.ref(`audio_fingerprints/${sound_id}`).once("value");
-        if (!fp.exists()) return res.json({ forgotten: false });
-        const meta = fp.val() || {};
-        const live = await isFingerprintLive(sound_id, { createdAt: 0 });
-        if (live && meta.ownerUid && meta.ownerUid !== req.uid) {
-          return res.status(403).json({ error: "not allowed" });
-        }
-        await purgeFingerprint(sound_id, []);
-        res.json({ forgotten: true });
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
 
-    // POST /admin/reindex-audio  (x-admin-key) — body: { limit?: 40, cursor?: "" }
-    // v8 migration: re-fingerprints EXISTING sounds into the v2 index from their
-    // audioUrl (so old sounds become matchable from any slice, not just their
-    // start). Call repeatedly with the returned next_cursor until done=true.
-    // After it finishes you can set AUDIO_V1_FALLBACK=false to skip the legacy pass.
-    app.post("/admin/reindex-audio", async (req, res) => {
-      if (!requireAdminKey(req, res)) return;
-      if (!firebaseReady) return res.status(503).json({ error: "Firebase not configured" });
-      const limit  = Math.min(100, Math.max(1, parseInt((req.body || {}).limit, 10) || 40));
-      const cursor = String((req.body || {}).cursor || "");
-      try {
-        const db = admin.database();
-        let q = db.ref("sounds").orderByKey();
-        if (cursor) q = q.startAt(cursor);
-        const snap = await q.limitToFirst(limit + (cursor ? 1 : 0)).once("value");
-        let queued = 0, skipped = 0, already = 0, lastKey = cursor, stoppedFull = false, seen = 0;
-        const entries = [];
-        snap.forEach(ch => { if (ch.key !== cursor) entries.push([ch.key, ch.val() || {}]); });
-        for (const [id, v] of entries) {
-          seen++;
-          if (fpQueue.length >= FP_QUEUE_MAX) { stoppedFull = true; break; }
-          lastKey = id;
-          const url = v.audioUrl || v.previewAudioUrl;
-          if (!url || !AUDIO_ID_RE.test(id) || !isAllowedAudioUrl(url)) { skipped++; continue; }
-          const metaSnap = await db.ref(`audio_fingerprints/${id}`).once("value");
-          const meta = metaSnap.val() || null;
-          if (meta && meta.fpVersion === 2) { already++; continue; }
-          const jobRef = db.ref("audio_match_jobs").push();
-          await jobRef.set({
-            status: "queued", type: "index_existing", soundId: id, uid: "admin",
-            createdAt: admin.database.ServerValue.TIMESTAMP
-          });
-          enqueueFingerprintJob({
-            type: "index_existing", jobId: jobRef.key, audioUrl: url, soundId: id,
-            ownerUid: (meta && meta.ownerUid) || v.ownerUid || v.creatorUid || "", reelId: (meta && meta.reelId) || v.sourceReelId || ""
-          });
-          queued++;
-        }
-        res.json({
-          queued, skipped, already_v2: already, next_cursor: lastKey,
-          done: !stoppedFull && entries.length < limit,
-          note: stoppedFull ? "queue full — wait a bit and call again with next_cursor" : undefined
-        });
-      } catch (err) {
-        console.error("[/admin/reindex-audio] failed:", err.message);
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    // Housekeeping: fingerprints older than a day whose sound entity never
-    // appeared (or was deleted) are dropped. Their index entries are ignored
-    // (and purged lazily) because findLiveMatch finds no live fingerprint.
-    if (firebaseReady) {
-      setInterval(async () => {
-        try {
-          const db = admin.database();
-          const snap = await db.ref("audio_fingerprints").orderByChild("createdAt")
-            .endAt(Date.now() - 24 * 60 * 60 * 1000).limitToFirst(300).once("value");
-          if (!snap.exists()) return;
-          let removed = 0;
-          for (const [id, meta] of Object.entries(snap.val())) {
-            if (!(await isFingerprintLive(id, meta))) { await purgeFingerprint(id, []); removed++; }
-          }
-          if (removed) console.log(`[audio-orphan] sweeper removed ${removed} orphan fingerprint(s)`);
-        } catch (e) {
-          console.warn("[audio-orphan] sweeper failed:", e.message);
-        }
-      }, 6 * 60 * 60 * 1000).unref();
-    }
-
-    // GET /audio/trending — ranks sound_ids by distinct-user reuse count
-    // (see recordAudioMatchStat). Result is cached (AUDIO_TRENDING_CACHE_MS).
-    // v7: ranks sound_ids by usage-event count (see recordAudioMatchStat) over the requested
+    // by usage-event count (see recordAudioMatchStat) over the requested
     // trailing window. Response: { window_days, sounds: [ { sound_id,
     // owner_uid, reel_id, window_count, total_count, hash_count,
     // created_at, last_matched_at } ... ] }, sorted highest window_count
@@ -2573,7 +1985,7 @@ app.post("/translate", (req, res) => {
       const days  = Math.min(90, Math.max(1, parseInt(req.query.days, 10)  || 7));
       const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
       try {
-        const sounds = await getTrendingCached(days, limit);
+        const sounds = await computeTrendingSounds(days, limit);
         res.json({ window_days: days, sounds });
       } catch (err) {
         console.error("[/audio/trending] failed:", err.message);
@@ -2606,17 +2018,6 @@ app.post("/translate", (req, res) => {
             }
           }
           if (Object.keys(updates).length) await db.ref("audio_match_stats").update(updates);
-
-          // v7: drop old per-day "distinct user" dedup buckets too
-          const seenSnap = await db.ref("audio_match_seen").once("value").catch(() => null);
-          if (seenSnap && seenSnap.exists()) {
-            const seenUpdates = {};
-            for (const day of Object.keys(seenSnap.val())) {
-              const dayMs = Date.parse(day + "T00:00:00Z");
-              if (dayMs && now - dayMs > 3 * 24 * 60 * 60 * 1000) seenUpdates[day] = null;
-            }
-            if (Object.keys(seenUpdates).length) await db.ref("audio_match_seen").update(seenUpdates);
-          }
         } catch (e) {
           console.warn("[audio-match] stats cleanup failed:", e.message);
         }
@@ -4548,9 +3949,6 @@ function loadCallxFunctionHandlers() {
         onCreate: (handler) => handler,
         onUpdate: (handler) => handler,
         onWrite: (handler) => handler,
-        // v757: functions/index.js now has .onDelete triggers (audio cleanup); without this
-        // the whole bridge threw at load and every feature action returned 503.
-        onDelete: (handler) => handler,
       }),
     },
     pubsub: {
@@ -4628,435 +4026,6 @@ app.post("/milestone-earnings/action", verifyFirebaseAuth,
   (req, res) => runFeatureAction("milestoneEarningsAction", req, res));
 app.post("/admin/action", verifyFirebaseAuth,
   (req, res) => runFeatureAction("adminAction", req, res));
-// v757: Status feed fan-out. Body: { op: "owner" | "viewer", force?: bool }.
-// "owner" = my statuses changed -> refresh my contacts' statusFeed rows.
-// "viewer" = rebuild my own statusFeed from my contacts (first run / contacts changed).
-// Light per-uid throttle so a burst of status edits costs one fan-out, not ten.
-const statusFeedSyncLast = new Map();
-app.post("/status/feed/sync", verifyFirebaseAuth, (req, res) => {
-  const uid = req.user && req.user.uid;
-  const op = req.body && req.body.op === "viewer" ? "viewer" : "owner";
-  const key = uid + ":" + op;
-  const now = Date.now();
-  const minGap = op === "owner" ? 1500 : 30 * 1000;
-  if (uid && now - (statusFeedSyncLast.get(key) || 0) < minGap) {
-    return res.json({ ok: true, throttled: true });
-  }
-  if (uid) statusFeedSyncLast.set(key, now);
-  if (statusFeedSyncLast.size > 5000) {
-    for (const [k, t] of statusFeedSyncLast) if (now - t > 60 * 1000) statusFeedSyncLast.delete(k);
-  }
-  return runFeatureAction("syncStatusFeed", req, res);
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// v794 — VOICE ROOMS (LiveKit audio + Firebase room state)
-// ══════════════════════════════════════════════════════════════════════════════
-// ENV (Render → Environment): LIVEKIT_URL (wss://...livekit.cloud), LIVEKIT_API_KEY,
-// LIVEKIT_API_SECRET.  Secret kabhi app/zip me nahi jaata — sirf yahan se token banta hai.
-//
-// Routes (sab Firebase ID token maangte hain; uid hamesha token se aata hai):
-//   POST /voiceroom/token   { action:"token",  payload:{ roomId } }  -> { token, url, role }
-//   POST /voiceroom/action  { action, payload } with action =
-//        create | end | promote | demote | mute | unmute | kick | leave
-//   POST /voiceroom/gift    { action:"gift", payload:{ roomId, giftId, toUid? } } (Cloud Function logic)
-//   GET  /room/:roomId      deep-link page (callx://room/<id>)
-//
-// Data model: voiceRooms/{roomId}/{meta,speakers,audience,handRaises,chat,pinned,polls,banned,gifts}
-//             voiceRoomList/{roomId}  (lightweight Home-list row, only LIVE rooms)
-//             voiceRoomHost/{hostUid} (server-only: one live room per host)
-let livekitSdk = null;
-try { livekitSdk = require("livekit-server-sdk"); }
-catch (e) { console.warn("[WARN] livekit-server-sdk not installed:", e.message); }
-
-const VR_LIVEKIT_URL    = process.env.LIVEKIT_URL || "";
-const VR_LIVEKIT_KEY    = process.env.LIVEKIT_API_KEY || "";
-const VR_LIVEKIT_SECRET = process.env.LIVEKIT_API_SECRET || "";
-const VR_MAX_SPEAKERS   = 10;
-const VR_STALE_MS       = 6 * 60 * 1000;      // host heartbeat (meta/lastActive) older than this => room auto-ends
-const VR_ENDED_KEEP_MS  = 30 * 60 * 1000;     // ended room data deleted after this
-const VR_ID_RE          = /^[A-Za-z0-9_-]{4,64}$/;
-
-function vrLiveKitReady() {
-  return !!(livekitSdk && VR_LIVEKIT_URL && VR_LIVEKIT_KEY && VR_LIVEKIT_SECRET);
-}
-let vrRoomService = null;
-function vrSvc() {
-  if (!vrRoomService) {
-    const httpUrl = VR_LIVEKIT_URL.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-    vrRoomService = new livekitSdk.RoomServiceClient(httpUrl, VR_LIVEKIT_KEY, VR_LIVEKIT_SECRET);
-  }
-  return vrRoomService;
-}
-class VrError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-function vrIsNotFound(e) {
-  const m = String((e && e.message) || e || "").toLowerCase();
-  return m.includes("not found") || m.includes("404") || m.includes("does not exist");
-}
-function vrBody(req) {
-  const b = (req.body && typeof req.body === "object") ? req.body : {};
-  const p = (b.payload && typeof b.payload === "object") ? b.payload : {};
-  return { action: String(b.action || ""), payload: p };
-}
-function vrCleanStr(v, max) {
-  return String(v == null ? "" : v).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
-}
-
-/** LiveKit side-effects are best-effort: a participant who isn't connected yet is fine. */
-async function vrSetPublish(roomId, identity, canPublish) {
-  if (!vrLiveKitReady()) return;
-  const perm = { canSubscribe: true, canPublish, canPublishData: false, hidden: false, recorder: false };
-  try {
-    await vrSvc().updateParticipant(roomId, identity, undefined, perm);
-  } catch (e1) {
-    if (vrIsNotFound(e1)) return;
-    try { await vrSvc().updateParticipant(roomId, identity, { permission: perm }); }
-    catch (e2) { if (!vrIsNotFound(e2)) console.warn("[voiceroom] updateParticipant failed:", e2.message); }
-  }
-}
-async function vrMuteParticipant(roomId, identity) {
-  if (!vrLiveKitReady()) return;
-  try {
-    const p = await vrSvc().getParticipant(roomId, identity);
-    const tracks = (p && p.tracks) || [];
-    for (const t of tracks) {
-      const isAudio = t.type === 0 || String(t.type).toUpperCase() === "AUDIO";
-      if (isAudio && t.sid) await vrSvc().mutePublishedTrack(roomId, identity, t.sid, true);
-    }
-  } catch (e) { if (!vrIsNotFound(e)) console.warn("[voiceroom] mute failed:", e.message); }
-}
-async function vrRemoveParticipant(roomId, identity) {
-  if (!vrLiveKitReady()) return;
-  try { await vrSvc().removeParticipant(roomId, identity); }
-  catch (e) { if (!vrIsNotFound(e)) console.warn("[voiceroom] remove failed:", e.message); }
-}
-
-async function vrLoadRoom(roomId) {
-  if (!VR_ID_RE.test(String(roomId || ""))) throw new VrError(400, "Invalid room.");
-  const snap = await admin.database().ref(`voiceRooms/${roomId}/meta`).once("value");
-  const meta = snap.val();
-  if (!meta) throw new VrError(404, "Room not found.");
-  return meta;
-}
-function vrAssertLive(meta) {
-  if (meta.status !== "live") throw new VrError(410, "This room has ended.");
-}
-function vrAssertHost(meta, uid) {
-  if (meta.hostUid !== uid) throw new VrError(403, "Only the host can do this.");
-}
-function vrProfile(u) {
-  u = u || {};
-  return {
-    name: vrCleanStr(u.name || u.username || "User", 100),
-    photoUrl: vrCleanStr(u.photoUrl || u.photo || "", 600),
-    verified: !!(u.isVerified || u.verified || u.blueBadge),
-  };
-}
-
-/** Home-list row: speaker name preview + listener count. */
-async function vrRefreshListRow(roomId) {
-  const db = admin.database();
-  const [spk, aud] = await Promise.all([
-    db.ref(`voiceRooms/${roomId}/speakers`).once("value"),
-    db.ref(`voiceRooms/${roomId}/audience`).once("value"),
-  ]);
-  const names = [];
-  spk.forEach((c) => { if (names.length < 4) names.push(String((c.val() || {}).name || "")); });
-  const audienceCount = aud.numChildren();
-  const listeners = audienceCount + spk.numChildren();
-  const updates = {};
-  updates[`voiceRooms/${roomId}/meta/audienceCount`] = audienceCount;
-  const rowSnap = await db.ref(`voiceRoomList/${roomId}`).once("value");
-  if (rowSnap.exists()) {
-    updates[`voiceRoomList/${roomId}/listeners`] = listeners;
-    updates[`voiceRoomList/${roomId}/speakerNames`] = names;
-  }
-  await db.ref().update(updates);
-}
-
-async function vrEndRoom(roomId, reason) {
-  const db = admin.database();
-  const meta = (await db.ref(`voiceRooms/${roomId}/meta`).once("value")).val();
-  if (!meta) { await db.ref(`voiceRoomList/${roomId}`).remove(); return; }
-  const updates = {};
-  updates[`voiceRooms/${roomId}/meta/status`] = "ended";
-  updates[`voiceRooms/${roomId}/meta/endedAt`] = admin.database.ServerValue.TIMESTAMP;
-  updates[`voiceRooms/${roomId}/meta/endReason`] = reason || "host_ended";
-  updates[`voiceRoomList/${roomId}`] = null;
-  if (meta.hostUid) updates[`voiceRoomHost/${meta.hostUid}`] = null;
-  await db.ref().update(updates);
-  if (vrLiveKitReady()) {
-    try { await vrSvc().deleteRoom(roomId); }
-    catch (e) { if (!vrIsNotFound(e)) console.warn("[voiceroom] deleteRoom failed:", e.message); }
-  }
-}
-
-/** "Riya ne room start kiya" — followers ko data-push (app: VrPushHandler). Best-effort, fire-and-forget. */
-async function vrNotifyFollowers(hostUid, host, roomId, title) {
-  try {
-    const db = admin.database();
-    const fsnap = await db.ref(`followers/${hostUid}`).once("value");
-    const uids = [];
-    fsnap.forEach((c) => { if (uids.length < 300) uids.push(c.key); });
-    for (let i = 0; i < uids.length; i += 40) {
-      const batch = uids.slice(i, i + 40);
-      await Promise.all(batch.map(async (uid) => {
-        try {
-          const tk = (await db.ref(`users/${uid}/fcmToken`).once("value")).val();
-          if (!tk) return;
-          await admin.messaging().send({
-            token: tk,
-            data: {
-              vr_notif_type: "room_live",
-              roomId, title: vrCleanStr(title, 80),
-              hostUid, hostName: host.name, hostPhoto: host.photoUrl || "",
-            },
-            android: { priority: "high" },
-          });
-        } catch (e) {
-          const code = String((e && e.code) || "");
-          if (code.includes("registration-token-not-registered") || code.includes("invalid-argument")) {
-            try { await db.ref(`users/${uid}/fcmToken`).remove(); } catch (_) {}
-          }
-        }
-      }));
-    }
-  } catch (e) { console.warn("[voiceroom] follower push failed:", e.message); }
-}
-
-const vrCreateLast = new Map();
-
-async function vrHandleAction(uid, action, p) {
-  const db = admin.database();
-  switch (action) {
-    case "create": {
-      const now = Date.now();
-      if (now - (vrCreateLast.get(uid) || 0) < 8000) throw new VrError(429, "Please wait a few seconds.");
-      vrCreateLast.set(uid, now);
-      if (vrCreateLast.size > 5000) {
-        for (const [k, t] of vrCreateLast) if (now - t > 60000) vrCreateLast.delete(k);
-      }
-      const title = vrCleanStr(p.title, 60);
-      if (!title) throw new VrError(400, "Room title is required.");
-      const category = ["Music", "Talk", "Chill", "Gaming", "Learn"].includes(p.category) ? p.category : "Talk";
-      const topic = vrCleanStr(p.topic, 80) || category;
-      const description = vrCleanStr(p.description, 140);
-      const allowRequests = p.allowRequests !== false;
-
-      // one live room per host: end the previous one
-      const prev = (await db.ref(`voiceRoomHost/${uid}`).once("value")).val();
-      if (prev) await vrEndRoom(String(prev), "host_started_new");
-
-      const me = vrProfile((await db.ref(`users/${uid}`).once("value")).val());
-      const roomId = db.ref("voiceRooms").push().key;
-      const updates = {};
-      updates[`voiceRooms/${roomId}/meta`] = {
-        title, topic, description, category, allowRequests,
-        hostUid: uid, hostName: me.name, hostPhoto: me.photoUrl, hostVerified: me.verified,
-        status: "live", createdAt: admin.database.ServerValue.TIMESTAMP,
-        lastActive: now, audienceCount: 0, giftCoins: 0,
-      };
-      updates[`voiceRooms/${roomId}/speakers/${uid}`] = {
-        name: me.name, photoUrl: me.photoUrl, verified: me.verified, role: "host",
-        hostMuted: false, selfMuted: false, joinedAt: admin.database.ServerValue.TIMESTAMP,
-      };
-      updates[`voiceRoomList/${roomId}`] = {
-        title, topic, category, hostUid: uid, hostName: me.name, hostPhoto: me.photoUrl,
-        hostVerified: me.verified, listeners: 1, speakerNames: [me.name],
-        createdAt: admin.database.ServerValue.TIMESTAMP,
-      };
-      updates[`voiceRoomHost/${uid}`] = roomId;
-      await db.ref().update(updates);
-      vrNotifyFollowers(uid, me, roomId, title);  // no await
-      return { ok: true, roomId };
-    }
-
-    case "end": {
-      const meta = await vrLoadRoom(p.roomId);
-      vrAssertHost(meta, uid);
-      await vrEndRoom(p.roomId, "host_ended");
-      return { ok: true };
-    }
-
-    case "promote": {          // invite OR accept a raised hand
-      const roomId = p.roomId, target = String(p.targetUid || "");
-      const meta = await vrLoadRoom(roomId);
-      vrAssertLive(meta); vrAssertHost(meta, uid);
-      if (!target || target === uid) throw new VrError(400, "Invalid user.");
-      const [spkAll, aud, banned] = await Promise.all([
-        db.ref(`voiceRooms/${roomId}/speakers`).once("value"),
-        db.ref(`voiceRooms/${roomId}/audience/${target}`).once("value"),
-        db.ref(`voiceRooms/${roomId}/banned/${target}`).once("value"),
-      ]);
-      if (banned.exists()) throw new VrError(403, "This user was removed from the room.");
-      if (spkAll.hasChild(target)) return { ok: true, already: true };
-      if (spkAll.numChildren() >= VR_MAX_SPEAKERS) throw new VrError(412, "Speaker limit reached.");
-      let prof;
-      if (aud.exists()) prof = vrProfile(aud.val());
-      else prof = vrProfile((await db.ref(`users/${target}`).once("value")).val());
-      const updates = {};
-      updates[`voiceRooms/${roomId}/speakers/${target}`] = {
-        name: prof.name, photoUrl: prof.photoUrl, verified: prof.verified, role: "speaker",
-        hostMuted: false, selfMuted: true, joinedAt: admin.database.ServerValue.TIMESTAMP,
-      };
-      updates[`voiceRooms/${roomId}/audience/${target}`] = null;
-      updates[`voiceRooms/${roomId}/handRaises/${target}`] = null;
-      await db.ref().update(updates);
-      await vrSetPublish(roomId, target, true);
-      vrRefreshListRow(roomId).catch(() => {});
-      return { ok: true };
-    }
-
-    case "demote": {
-      const roomId = p.roomId, target = String(p.targetUid || "");
-      const meta = await vrLoadRoom(roomId);
-      vrAssertHost(meta, uid);
-      if (!target || target === meta.hostUid) throw new VrError(400, "Can't move the host.");
-      const spk = await db.ref(`voiceRooms/${roomId}/speakers/${target}`).once("value");
-      if (!spk.exists()) return { ok: true, already: true };
-      const prof = vrProfile(spk.val());
-      const updates = {};
-      updates[`voiceRooms/${roomId}/speakers/${target}`] = null;
-      updates[`voiceRooms/${roomId}/audience/${target}`] = {
-        name: prof.name, photoUrl: prof.photoUrl, verified: prof.verified,
-        ts: admin.database.ServerValue.TIMESTAMP,
-      };
-      await db.ref().update(updates);
-      await vrSetPublish(roomId, target, false);
-      vrRefreshListRow(roomId).catch(() => {});
-      return { ok: true };
-    }
-
-    case "mute":
-    case "unmute": {
-      const roomId = p.roomId, target = String(p.targetUid || "");
-      const meta = await vrLoadRoom(roomId);
-      vrAssertHost(meta, uid);
-      const spk = await db.ref(`voiceRooms/${roomId}/speakers/${target}`).once("value");
-      if (!spk.exists()) throw new VrError(404, "Not a speaker.");
-      if (target === meta.hostUid && action === "mute") throw new VrError(400, "Can't mute the host.");
-      await db.ref(`voiceRooms/${roomId}/speakers/${target}/hostMuted`).set(action === "mute");
-      if (action === "mute") await vrMuteParticipant(roomId, target);
-      return { ok: true };
-    }
-
-    case "kick": {
-      const roomId = p.roomId, target = String(p.targetUid || "");
-      const meta = await vrLoadRoom(roomId);
-      vrAssertHost(meta, uid);
-      if (!target || target === meta.hostUid) throw new VrError(400, "Can't remove the host.");
-      const updates = {};
-      updates[`voiceRooms/${roomId}/speakers/${target}`] = null;
-      updates[`voiceRooms/${roomId}/audience/${target}`] = null;
-      updates[`voiceRooms/${roomId}/handRaises/${target}`] = null;
-      updates[`voiceRooms/${roomId}/banned/${target}`] = true;
-      await db.ref().update(updates);
-      await vrRemoveParticipant(roomId, target);
-      vrRefreshListRow(roomId).catch(() => {});
-      return { ok: true };
-    }
-
-    case "leave": {            // speaker/host-side cleanup (audience deletes its own row directly)
-      const roomId = p.roomId;
-      const meta = await vrLoadRoom(roomId);
-      if (meta.hostUid === uid) return { ok: true, host: true };   // host uses "end"
-      const updates = {};
-      updates[`voiceRooms/${roomId}/speakers/${uid}`] = null;
-      updates[`voiceRooms/${roomId}/audience/${uid}`] = null;
-      updates[`voiceRooms/${roomId}/handRaises/${uid}`] = null;
-      await db.ref().update(updates);
-      vrRefreshListRow(roomId).catch(() => {});
-      return { ok: true };
-    }
-
-    default:
-      throw new VrError(400, "Unknown action.");
-  }
-}
-
-app.post("/voiceroom/action", verifyFirebaseAuth, async (req, res) => {
-  try {
-    const { action, payload } = vrBody(req);
-    const out = await vrHandleAction(req.user.uid, action, payload);
-    res.json(out);
-  } catch (e) {
-    const status = e instanceof VrError ? e.status : 500;
-    if (status === 500) console.error("[voiceroom/action]", e);
-    res.status(status).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/voiceroom/token", verifyFirebaseAuth, async (req, res) => {
-  try {
-    if (!vrLiveKitReady()) throw new VrError(503, "Voice server is not configured.");
-    const uid = req.user.uid;
-    const { payload } = vrBody(req);
-    const roomId = String(payload.roomId || "");
-    const meta = await vrLoadRoom(roomId);
-    vrAssertLive(meta);
-    const db = admin.database();
-    const [spk, banned] = await Promise.all([
-      db.ref(`voiceRooms/${roomId}/speakers/${uid}`).once("value"),
-      db.ref(`voiceRooms/${roomId}/banned/${uid}`).once("value"),
-    ]);
-    if (banned.exists()) throw new VrError(403, "You were removed from this room.");
-    const role = meta.hostUid === uid ? "host" : (spk.exists() ? "speaker" : "listener");
-    const at = new livekitSdk.AccessToken(VR_LIVEKIT_KEY, VR_LIVEKIT_SECRET, {
-      identity: uid, name: uid, ttl: 6 * 3600,
-    });
-    at.addGrant({
-      roomJoin: true, room: roomId,
-      canSubscribe: true, canPublish: role !== "listener", canPublishData: false,
-    });
-    const token = await at.toJwt();
-    res.json({ token, url: VR_LIVEKIT_URL, role });
-  } catch (e) {
-    const status = e instanceof VrError ? e.status : 500;
-    if (status === 500) console.error("[voiceroom/token]", e);
-    res.status(status).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/voiceroom/gift", verifyFirebaseAuth,
-  (req, res) => runFeatureAction("voiceRoomSendGift", req, res));
-
-app.get("/room/:roomId", (req, res) => res.send(deepLinkPage(
-  `callx://room/${req.params.roomId}`, "", "Voice Room", "Ye live voice room CallX mein join karein")));
-
-// Housekeeping: listener counts, stale/ended rooms.
-async function vrHousekeeping() {
-  if (!firebaseReady) return;
-  const db = admin.database();
-  const now = Date.now();
-  const list = await db.ref("voiceRoomList").once("value");
-  const ids = [];
-  list.forEach((c) => { ids.push(c.key); });
-  for (const roomId of ids) {
-    try {
-      const meta = (await db.ref(`voiceRooms/${roomId}/meta`).once("value")).val();
-      if (!meta || meta.status !== "live") { await vrEndRoom(roomId, "orphan"); continue; }
-      if (now - Number(meta.lastActive || meta.createdAt || 0) > VR_STALE_MS) {
-        await vrEndRoom(roomId, "host_inactive"); continue;
-      }
-      await vrRefreshListRow(roomId);
-    } catch (e) { console.warn("[voiceroom] housekeeping", roomId, e.message); }
-  }
-  // delete data of rooms that ended a while ago
-  const all = await db.ref("voiceRooms").orderByChild("meta/endedAt").startAt(1).endAt(now - VR_ENDED_KEEP_MS).once("value");
-  const kill = {};
-  all.forEach((c) => {
-    const m = (c.val() || {}).meta || {};
-    if (m.status === "ended" && Number(m.endedAt) > 0) kill[`voiceRooms/${c.key}`] = null;
-  });
-  if (Object.keys(kill).length) await db.ref().update(kill);
-}
-if (firebaseReady) {
-  setInterval(() => vrHousekeeping().catch((e) => console.error("[voiceroom] housekeeping failed:", e.message)),
-    30 * 1000);
-  console.log("[OK] Voice rooms routes attached (LiveKit " + (vrLiveKitReady() ? "ready" : "NOT configured") + ")");
-}
 
 async function runPairingApprovalPoll() {
   const db = admin.database();
@@ -5198,13 +4167,6 @@ function startServerFeatureJobs() {
   setInterval(() => runScheduledFeature("cleanupExpiredStatusReplies")
     .catch((e) => console.error("[status-replies-cleanup] failed:", e.message)),
   30 * 60 * 1000);
-  // v757: status feed safety-net rebuild (expiry, missed syncs, contact changes).
-  setInterval(() => runScheduledFeature("reconcileStatusFeed")
-    .catch((e) => console.error("[status-feed-reconcile] failed:", e.message)),
-  15 * 60 * 1000);
-  setTimeout(() => runScheduledFeature("reconcileStatusFeed")
-    .catch((e) => console.error("[status-feed-reconcile] initial failed:", e.message)),
-  45 * 1000);
   console.log("[OK] Render action routes and polling jobs attached");
 }
 

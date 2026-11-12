@@ -36,12 +36,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-messaging'
 
-    // v794: LiveKit ka WebRTC (org.webrtc.*) — voice rooms ke saath ek hi WebRTC.
-    implementation 'io.livekit:livekit-android:2.23.2'
-    // LiveKit apna WebRTC (io.github.webrtc-sdk) sirf runtime pe deta hai, compile classpath pe nahi —
-    // isliye CallActivity/GroupCallActivity (org.webrtc.*) ke liye explicit declare zaroori hai.
-    // Same artifact => LiveKit ke saath duplicate-class conflict nahi (Gradle ek hi version resolve karta hai).
-    implementation 'io.github.webrtc-sdk:android:137.7151.05'
+    implementation 'io.getstream:stream-webrtc-android:1.1.2'
     implementation 'de.hdodenhof:circleimageview:3.1.0'
     implementation 'com.github.bumptech.glide:glide:4.16.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'

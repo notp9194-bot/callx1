@@ -242,7 +242,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-messaging'
     implementation 'com.google.android.gms:play-services-auth:21.0.0'
 
-    // v794: stream-webrtc-android hata diya — org.webrtc LiveKit (feature-voicerooms / feature-calls) se aata hai.
+    implementation 'io.getstream:stream-webrtc-android:1.1.2'
 
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
