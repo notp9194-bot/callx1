@@ -119,3 +119,12 @@
 # ── Debug info (keep line numbers for crash reports) ─────────────
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# ── v794 Voice Rooms: LiveKit ───────────────────────────────────────────
+-keep class io.livekit.** { *; }
+-dontwarn io.livekit.**
+-keep class livekit.** { *; }
+-dontwarn livekit.**
+-keep class com.google.protobuf.** { *; }
+-dontwarn com.google.protobuf.**
+-dontwarn io.github.webrtc_sdk.**

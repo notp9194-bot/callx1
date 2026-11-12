@@ -2854,3 +2854,105 @@ exports.onRemixApprovalRevoked = functions.database
       "blocked/removed:", Object.keys(updates).length, "paths");
     return null;
   });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// v794 — Voice Rooms: gifts (server-side coin deduction)
+// ══════════════════════════════════════════════════════════════════════════════
+// App sirf { roomId, giftId, toUid? } bhejta hai. Price server ke catalog se aata hai
+// (app ka bheja hua price kabhi trust nahi hota). Coins `wallets/{uid}/coins` se
+// transaction me kat'te hain (rules: wallets write = false, sirf admin/server likhe).
+// NOTE: is block me `require()` mat use karna — Render server is file ko
+// `initializeApp();` ke baad se Function() me eval karta hai (sirf getDatabase /
+// ServerValue / functions / getMessaging milte hain).
+const VR_GIFT_CATALOG = {
+  rose:    { emoji: "\uD83C\uDF39", name: "Rose",    coins: 10 },
+  heart:   { emoji: "\uD83D\uDC9C", name: "Heart",   coins: 20 },
+  fire:    { emoji: "\uD83D\uDD25", name: "Fire",    coins: 30 },
+  gift:    { emoji: "\uD83C\uDF81", name: "Gift",    coins: 50 },
+  mic:     { emoji: "\uD83C\uDFA4", name: "Mic",     coins: 100 },
+  crown:   { emoji: "\uD83D\uDC51", name: "Crown",   coins: 500 },
+  rocket:  { emoji: "\uD83D\uDE80", name: "Rocket",  coins: 700 },
+  diamond: { emoji: "\uD83D\uDC8E", name: "Diamond", coins: 1000 },
+};
+
+exports.voiceRoomSendGift = functions.https.onCall(async (data, context) => {
+  const uid = context && context.auth && context.auth.uid;
+  if (!uid) throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
+  const payload = asObject(data && data.payload);
+  const roomId = String(payload.roomId || "");
+  const giftId = String(payload.giftId || "");
+  const gift = VR_GIFT_CATALOG[giftId];
+  if (!/^[A-Za-z0-9_-]{4,64}$/.test(roomId)) {
+    throw new functions.https.HttpsError("invalid-argument", "Invalid room.");
+  }
+  if (!gift) throw new functions.https.HttpsError("invalid-argument", "Unknown gift.");
+
+  const db = getDatabase();
+  const roomRef = db.ref(`voiceRooms/${roomId}`);
+  const [metaSnap, speakerSnap, audienceSnap, bannedSnap, meSnap] = await Promise.all([
+    roomRef.child("meta").once("value"),
+    roomRef.child(`speakers/${uid}`).once("value"),
+    roomRef.child(`audience/${uid}`).once("value"),
+    roomRef.child(`banned/${uid}`).once("value"),
+    db.ref(`users/${uid}`).once("value"),
+  ]);
+  const meta = metaSnap.val();
+  if (!meta || meta.status !== "live") {
+    throw new functions.https.HttpsError("failed-precondition", "This room is not live.");
+  }
+  if (bannedSnap.exists() || !(speakerSnap.exists() || audienceSnap.exists())) {
+    throw new functions.https.HttpsError("permission-denied", "Join the room first.");
+  }
+
+  // Recipient: chosen speaker, otherwise the host.
+  let toUid = String(payload.toUid || "");
+  if (toUid) {
+    const t = await roomRef.child(`speakers/${toUid}`).once("value");
+    if (!t.exists()) toUid = "";
+  }
+  if (!toUid) toUid = String(meta.hostUid || "");
+  if (!toUid) throw new functions.https.HttpsError("failed-precondition", "No recipient.");
+  if (toUid === uid) {
+    throw new functions.https.HttpsError("invalid-argument", "You can't gift yourself.");
+  }
+
+  // Atomic coin deduction (returning undefined aborts the transaction).
+  const walletRef = db.ref(`wallets/${uid}/coins`);
+  const tx = await walletRef.transaction((cur) => {
+    const have = Number(cur || 0);
+    if (have < gift.coins) return undefined;
+    return have - gift.coins;
+  });
+  if (!tx.committed) {
+    throw new functions.https.HttpsError("failed-precondition", "Not enough coins.");
+  }
+  const balance = Number(tx.snapshot.val() || 0);
+
+  try {
+    const me = meSnap.val() || {};
+    const toSnap = await db.ref(`users/${toUid}`).once("value");
+    const to = toSnap.val() || {};
+    await db.ref(`wallets/${toUid}/earned`).transaction((c) => Number(c || 0) + gift.coins);
+
+    const giftRef = roomRef.child("gifts").push();
+    await giftRef.set({
+      fromUid: uid, fromName: String(me.name || "User"),
+      toUid, toName: String(to.name || "Host"),
+      giftId, emoji: gift.emoji, name: gift.name, coins: gift.coins,
+      ts: ServerValue.TIMESTAMP,
+    });
+    await roomRef.child("chat").push().set({
+      uid, name: String(me.name || "User"), photoUrl: String(me.photoUrl || ""),
+      text: `sent a ${gift.emoji} ${gift.name} to ${String(to.name || "Host")}`,
+      ts: ServerValue.TIMESTAMP,
+      type: "gift", giftEmoji: gift.emoji, giftName: gift.name, coins: gift.coins, toUid,
+    });
+    await roomRef.child("meta/giftCoins").transaction((c) => Number(c || 0) + gift.coins);
+  } catch (e) {
+    // refund if recording failed
+    await walletRef.transaction((c) => Number(c || 0) + gift.coins);
+    console.error("[voiceRoomSendGift] failed, refunded:", e && e.message);
+    throw new functions.https.HttpsError("internal", "Gift failed. Coins refunded.");
+  }
+  return { ok: true, balance, emoji: gift.emoji, name: gift.name, coins: gift.coins };
+});

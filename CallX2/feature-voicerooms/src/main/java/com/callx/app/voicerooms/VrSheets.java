@@ -32,8 +32,8 @@ import java.util.Locale;
 
 /**
  * VrSheets — Voice Room ke saare bottom sheets (People, Gift, Poll, Music,
- * More, Create room). Sab UI-only: callbacks sirf screen ko batate hain,
- * koi network / Firebase call nahi hai.
+ * More, Create room). Sheets sirf UI hain: callbacks screen ko batate hain,
+ * network / Firebase kaam Activity (VrRepo / VrApi) karti hai.
  */
 final class VrSheets {
     private VrSheets() {}
@@ -128,24 +128,30 @@ final class VrSheets {
     // ───────────────────────── Gift ─────────────────────────
     interface GiftSent { void onGiftSent(Gift g); }
 
-    static void showGifts(Activity act, String toLabel, GiftSent cb) {
+    static void showGifts(Activity act, String toLabel, long coinBalance, GiftSent cb) {
         View v = LayoutInflater.from(act).inflate(R.layout.sheet_vr_gift, null, false);
         BottomSheetDialog d = sheet(act);
         d.setContentView(v);
 
-        ((TextView) v.findViewById(R.id.vr_gift_to)).setText("To: " + toLabel);
+        ((TextView) v.findViewById(R.id.vr_gift_to)).setText(
+                "To: " + toLabel + "   \u2022   Balance: " + coinBalance + " coins");
         TextView send = v.findViewById(R.id.vr_gift_send);
         RecyclerView rv = v.findViewById(R.id.vr_rv_gifts);
         final Gift[] picked = {null};
 
         rv.setLayoutManager(new GridLayoutManager(act, 4));
-        rv.setAdapter(new VrAdapters.GiftAdapter(VrDemoData.gifts(), g -> {
+        rv.setAdapter(new VrAdapters.GiftAdapter(VrCatalog.gifts(), g -> {
             picked[0] = g;
             send.setText("Send " + g.emoji + " " + g.name + "  \u2022  " + g.coins + " coins");
         }));
         send.setOnClickListener(x -> {
             if (picked[0] == null) {
-                Toast.makeText(act, "Pick a gift first", Toast.LENGTH_SHORT).show();
+                Toast.makeText(act, act.getString(R.string.vr_pick_a_gift_first), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (picked[0].coins > coinBalance) {
+                Toast.makeText(act, "Not enough coins (" + coinBalance + " available)",
+                        Toast.LENGTH_SHORT).show();
                 return;
             }
             d.dismiss();
@@ -173,7 +179,7 @@ final class VrSheets {
         addOptionField(act, options, "Option 2");
         addOption.setOnClickListener(x -> {
             if (options.getChildCount() >= 4) {
-                Toast.makeText(act, "Max 4 options", Toast.LENGTH_SHORT).show();
+                Toast.makeText(act, act.getString(R.string.vr_max_4_options), Toast.LENGTH_SHORT).show();
                 return;
             }
             addOptionField(act, options, "Option " + (options.getChildCount() + 1));
@@ -236,7 +242,7 @@ final class VrSheets {
         BottomSheetDialog d = sheet(act);
         d.setContentView(v);
 
-        List<Track> tracks = VrDemoData.tracks();
+        List<Track> tracks = VrCatalog.tracks();
         TextView title = v.findViewById(R.id.vr_np_title);
         TextView artist = v.findViewById(R.id.vr_np_artist);
         ImageView play = v.findViewById(R.id.vr_np_play);
@@ -272,20 +278,139 @@ final class VrSheets {
     interface MoreActions {
         void onPeople();
         void onShare();
-        void onMuteAudio();
         void onLeave();
     }
 
-    static void showMore(Activity act, String roomTitle, MoreActions a) {
+    static void showMore(Activity act, String roomTitle, boolean isHost, MoreActions a) {
         View v = LayoutInflater.from(act).inflate(R.layout.sheet_vr_more, null, false);
         BottomSheetDialog d = sheet(act);
         d.setContentView(v);
         ((TextView) v.findViewById(R.id.vr_more_title)).setText(roomTitle);
+        ((TextView) v.findViewById(R.id.vr_more_leave_text)).setText(act.getString(
+                isHost ? R.string.vr_end_room : R.string.vr_leave_quietly));
 
         v.findViewById(R.id.vr_more_people).setOnClickListener(x -> { d.dismiss(); a.onPeople(); });
         v.findViewById(R.id.vr_more_share).setOnClickListener(x -> { d.dismiss(); a.onShare(); });
-        v.findViewById(R.id.vr_more_mute).setOnClickListener(x -> { d.dismiss(); a.onMuteAudio(); });
+        // v794: "Preview as host/listener" (demo) aur "Mute room audio" (abhi wired nahi) hata diye
+        v.findViewById(R.id.vr_more_mute).setVisibility(View.GONE);
+        v.findViewById(R.id.vr_more_role).setVisibility(View.GONE);
         v.findViewById(R.id.vr_more_leave).setOnClickListener(x -> { d.dismiss(); a.onLeave(); });
+        d.show();
+        expand(d);
+    }
+
+    // ───────────────────────── Emoji picker ─────────────────────────
+    interface EmojiPicked { void onPicked(String emoji); }
+
+    static void showEmoji(Activity act, EmojiPicked cb) {
+        View v = LayoutInflater.from(act).inflate(R.layout.sheet_vr_emoji, null, false);
+        BottomSheetDialog d = sheet(act);
+        d.setContentView(v);
+        RecyclerView rv = v.findViewById(R.id.vr_rv_emoji);
+        rv.setLayoutManager(new GridLayoutManager(act, 7));
+        // Sheet khula rehta hai taaki ek saath kai emoji daale ja sakein.
+        rv.setAdapter(new VrAdapters.EmojiAdapter(VrCatalog.emojis(), e -> {
+            if (cb != null) cb.onPicked(e);
+        }));
+        d.show();
+        expand(d);
+    }
+
+    // ───────────────────────── Member actions ─────────────────────────
+    interface MemberActions {
+        void onToggleMute(Member m);
+        void onMoveToAudience(Member m);
+        void onInviteToSpeak(Member m);
+        void onRemove(Member m);
+        void onProfile(Member m);
+    }
+
+    private static void addRow(Activity act, LinearLayout parent, BottomSheetDialog d,
+                               int iconRes, String label, boolean danger, Runnable action) {
+        View row = LayoutInflater.from(act).inflate(R.layout.item_vr_action_row, parent, false);
+        ImageView icon = row.findViewById(R.id.vr_ar_icon);
+        TextView tv = row.findViewById(R.id.vr_ar_label);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(act.getColor(danger ? R.color.vr_danger : R.color.vr_primary));
+        tv.setText(label);
+        tv.setTextColor(act.getColor(danger ? R.color.vr_danger : R.color.vr_text));
+        row.setOnClickListener(x -> { d.dismiss(); action.run(); });
+        parent.addView(row);
+    }
+
+    static void showMember(Activity act, Member m, boolean viewerIsHost, MemberActions cb) {
+        View v = LayoutInflater.from(act).inflate(R.layout.sheet_vr_member, null, false);
+        BottomSheetDialog d = sheet(act);
+        d.setContentView(v);
+
+        VrAdapters.bindAvatar(v.findViewById(R.id.vr_mem_avatar), m);
+        ((TextView) v.findViewById(R.id.vr_mem_name)).setText(m.name);
+        v.findViewById(R.id.vr_mem_verified).setVisibility(m.verified ? View.VISIBLE : View.GONE);
+        boolean host = VrModel.ROLE_HOST.equals(m.role);
+        boolean speaker = VrModel.ROLE_SPEAKER.equals(m.role);
+        ((TextView) v.findViewById(R.id.vr_mem_role)).setText(
+                host ? "Host" : speaker ? "Speaker"
+                        : (m.handRaised ? "\u270B Wants to speak" : "Listener"));
+
+        LinearLayout actions = v.findViewById(R.id.vr_mem_actions);
+        if (viewerIsHost && !host) {
+            if (speaker) {
+                addRow(act, actions, d, m.hostMuted ? R.drawable.ic_mic : R.drawable.ic_mic_off,
+                        m.hostMuted ? "Allow speaker to unmute" : "Mute speaker", false,
+                        () -> cb.onToggleMute(m));
+                addRow(act, actions, d, R.drawable.ic_group, "Move to audience", false,
+                        () -> cb.onMoveToAudience(m));
+            } else {
+                addRow(act, actions, d, R.drawable.ic_mic,
+                        m.handRaised ? "Accept request to speak" : "Invite to speak", false,
+                        () -> cb.onInviteToSpeak(m));
+            }
+        }
+        addRow(act, actions, d, R.drawable.ic_person, "View profile", false, () -> cb.onProfile(m));
+        if (viewerIsHost && !host) {
+            addRow(act, actions, d, R.drawable.ic_close, "Remove from room", true, () -> cb.onRemove(m));
+        }
+        d.show();
+        expand(d);
+    }
+
+    // ───────────────────────── Speaker requests (host) ─────────────────────────
+    interface RequestsCb {
+        void onAccept(Member m);
+        void onDecline(Member m);
+    }
+
+    static void showRequests(Activity act, List<Member> requests, RequestsCb cb) {
+        View v = LayoutInflater.from(act).inflate(R.layout.sheet_vr_requests, null, false);
+        BottomSheetDialog d = sheet(act);
+        d.setContentView(v);
+
+        TextView title = v.findViewById(R.id.vr_req_title);
+        RecyclerView rv = v.findViewById(R.id.vr_rv_requests);
+        View empty = v.findViewById(R.id.vr_req_empty);
+
+        final VrAdapters.RequestAdapter[] adapter = new VrAdapters.RequestAdapter[1];
+        Runnable refresh = () -> {
+            title.setText("Speaker requests (" + requests.size() + ")");
+            empty.setVisibility(requests.isEmpty() ? View.VISIBLE : View.GONE);
+            rv.setVisibility(requests.isEmpty() ? View.GONE : View.VISIBLE);
+            adapter[0].notifyDataSetChanged();
+        };
+        adapter[0] = new VrAdapters.RequestAdapter(requests, new VrAdapters.RequestAdapter.Actions() {
+            @Override public void onAccept(Member m) {
+                requests.remove(m);
+                cb.onAccept(m);
+                refresh.run();
+            }
+            @Override public void onDecline(Member m) {
+                requests.remove(m);
+                cb.onDecline(m);
+                refresh.run();
+            }
+        });
+        rv.setLayoutManager(new LinearLayoutManager(act));
+        rv.setAdapter(adapter[0]);
+        refresh.run();
         d.show();
         expand(d);
     }
@@ -308,7 +433,7 @@ final class VrSheets {
 
         // "All" sirf filter ke liye hai — room banate waqt category chahiye.
         final List<String> cats = new ArrayList<>();
-        for (String c : VrDemoData.CATEGORIES) if (!"All".equals(c)) cats.add(c);
+        for (String c : VrCatalog.CATEGORIES) if (!"All".equals(c)) cats.add(c);
         final int[] sel = {0};
         final List<TextView> chips = new ArrayList<>();
         for (int i = 0; i < cats.size(); i++) {
@@ -325,7 +450,7 @@ final class VrSheets {
         v.findViewById(R.id.vr_create_start).setOnClickListener(x -> {
             String t = title.getText().toString().trim();
             if (t.isEmpty()) {
-                Toast.makeText(act, "Give your room a name", Toast.LENGTH_SHORT).show();
+                Toast.makeText(act, act.getString(R.string.vr_give_your_room_a), Toast.LENGTH_SHORT).show();
                 return;
             }
             String tp = topic.getText().toString().trim();

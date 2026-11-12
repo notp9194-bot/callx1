@@ -1,10 +1,10 @@
 plugins {
     id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'   // VrAudio.kt (LiveKit wrapper)
 }
 
 // feature-voicerooms — Voice Rooms (Clubhouse / Spaces style) UI module.
-// v792: UI ONLY. Koi backend / WebRTC / Firebase logic abhi wired nahi hai —
-// saari screens VrDemoData pe chalti hain, taaki pehle design review ho sake.
+// v794: asli backend — Firebase room data + LiveKit audio (token Render server se).
 android {
     namespace 'com.callx.app.voicerooms'
     compileSdk 34
@@ -17,6 +17,8 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    kotlinOptions { jvmTarget = '17' }
 
     buildFeatures { viewBinding true }
 
@@ -35,6 +37,14 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'androidx.coordinatorlayout:coordinatorlayout:1.2.0'
+
+    // v794: LiveKit audio. NOTE: LiveKit apna WebRTC (io.github.webrtc-sdk) laata hai, isliye
+    // stream-webrtc-android app + feature-calls se hata diya gaya (dono saath => duplicate org.webrtc classes).
+    implementation 'io.livekit:livekit-android:2.23.2'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 
     // Avatars (same lib the rest of the app uses)
     implementation 'de.hdodenhof:circleimageview:3.1.0'

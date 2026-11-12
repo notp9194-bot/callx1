@@ -26,7 +26,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Send a gift"
+            android:text="@string/vr_send_a_gift"
             android:textColor="@color/vr_text"
             android:textSize="20sp"
             android:textStyle="bold"/>
@@ -74,7 +74,7 @@
         android:background="@drawable/vr_bg_btn_primary"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
-        android:text="Select a gift"
+        android:text="@string/vr_select_a_gift"
         android:textColor="@color/vr_white"
         android:textSize="16sp"/>
 </LinearLayout>

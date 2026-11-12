@@ -37,6 +37,7 @@
         android:paddingEnd="20dp">
 
         <ImageView
+        android:importantForAccessibility="no"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@drawable/vr_bg_circle_soft"
@@ -49,7 +50,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="14dp"
             android:layout_weight="1"
-            android:text="People in this room"
+            android:text="@string/vr_people_in_this_room"
             android:textColor="@color/vr_text"
             android:textSize="16sp"/>
     </LinearLayout>
@@ -65,6 +66,7 @@
         android:paddingEnd="20dp">
 
         <ImageView
+        android:importantForAccessibility="no"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@drawable/vr_bg_circle_soft"
@@ -77,7 +79,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="14dp"
             android:layout_weight="1"
-            android:text="Share room link"
+            android:text="@string/vr_share_room_link"
             android:textColor="@color/vr_text"
             android:textSize="16sp"/>
     </LinearLayout>
@@ -93,6 +95,7 @@
         android:paddingEnd="20dp">
 
         <ImageView
+        android:importantForAccessibility="no"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@drawable/vr_bg_circle_soft"
@@ -105,7 +108,36 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="14dp"
             android:layout_weight="1"
-            android:text="Mute room audio"
+            android:text="@string/vr_mute_room_audio"
+            android:textColor="@color/vr_text"
+            android:textSize="16sp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/vr_more_role"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/vr_bg_circle_soft"
+            android:importantForAccessibility="no"
+            android:padding="10dp"
+            android:src="@drawable/ic_person"
+            app:tint="@color/vr_primary"/>
+
+        <TextView
+            android:id="@+id/vr_more_role_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="14dp"
+            android:layout_weight="1"
             android:textColor="@color/vr_text"
             android:textSize="16sp"/>
     </LinearLayout>
@@ -121,6 +153,7 @@
         android:paddingEnd="20dp">
 
         <ImageView
+        android:importantForAccessibility="no"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@drawable/vr_bg_circle_soft"
@@ -129,11 +162,12 @@
             app:tint="@color/vr_danger"/>
 
         <TextView
+            android:id="@+id/vr_more_leave_text"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="14dp"
             android:layout_weight="1"
-            android:text="Leave quietly"
+            android:text="@string/vr_leave_quietly"
             android:textColor="@color/vr_danger"
             android:textSize="16sp"/>
     </LinearLayout>

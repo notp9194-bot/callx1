@@ -3,9 +3,11 @@ package com.callx.app.voicerooms;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 
 import androidx.annotation.NonNull;
@@ -23,19 +25,23 @@ import java.util.Locale;
 public class InitialsDrawable extends Drawable {
 
     private static final int SIZE = 256;
-    private static final int[] PALETTE = {
-        0xFF8B5CF6, 0xFFEC4899, 0xFFF59E0B, 0xFF10B981,
-        0xFF3B82F6, 0xFFEF4444, 0xFF14B8A6, 0xFFA855F7
+    // (start, end) gradient pairs — har naam ko hash se ek pair milta hai
+    private static final int[][] PALETTE = {
+        {0xFFA78BFA, 0xFF6D3BF6}, {0xFFF472B6, 0xFFDB2777}, {0xFFFBBF24, 0xFFEA580C},
+        {0xFF34D399, 0xFF059669}, {0xFF60A5FA, 0xFF2563EB}, {0xFFF87171, 0xFFDC2626},
+        {0xFF2DD4BF, 0xFF0D9488}, {0xFFC084FC, 0xFF9333EA}
     };
 
     private final Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint tx = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final String letter;
+    private final int[] pair;
 
     public InitialsDrawable(String name) {
         String n = name == null ? "" : name.trim();
         letter = n.isEmpty() ? "?" : n.substring(0, 1).toUpperCase(Locale.ROOT);
-        bg.setColor(PALETTE[Math.abs(n.hashCode()) % PALETTE.length]);
+        pair = PALETTE[Math.abs(n.hashCode()) % PALETTE.length];
+        bg.setColor(pair[1]);
         tx.setColor(Color.WHITE);
         tx.setTextAlign(Paint.Align.CENTER);
         tx.setFakeBoldText(true);
@@ -50,6 +56,12 @@ public class InitialsDrawable extends Drawable {
         tx.setTextSize(r * 0.95f);
         float y = cy - (tx.descent() + tx.ascent()) / 2f;
         canvas.drawText(letter, cx, y, tx);
+    }
+
+    @Override protected void onBoundsChange(Rect b) {
+        super.onBoundsChange(b);
+        bg.setShader(new LinearGradient(b.left, b.top, b.right, b.bottom,
+                pair[0], pair[1], Shader.TileMode.CLAMP));
     }
 
     @Override public int getIntrinsicWidth() { return SIZE; }

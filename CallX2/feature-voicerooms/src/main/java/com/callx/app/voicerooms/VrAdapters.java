@@ -1,5 +1,7 @@
 package com.callx.app.voicerooms;
 
+import android.animation.ValueAnimator;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -12,6 +14,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.bumptech.glide.Glide;
 import com.callx.app.voicerooms.VrModel.Gift;
 import com.callx.app.voicerooms.VrModel.Member;
 import com.callx.app.voicerooms.VrModel.Msg;
@@ -25,15 +28,36 @@ import java.util.List;
 
 /**
  * VrAdapters — Voice Rooms ke saare RecyclerView adapters ek jagah.
- * Sab adapters sirf UI dikhate hain; data ka source baad mein Firebase hoga.
+ * Sab adapters sirf dikhate hain; data VrRepo (Firebase) se aata hai.
  */
 final class VrAdapters {
     private VrAdapters() {}
 
     /** Avatar bind: photoUrl null => initials. (Backend ke baad yahan Glide.) */
     static void bindAvatar(ImageView iv, Member m) {
-        // TODO(backend): if (m.photoUrl != null) GlideLoader.load(iv, m.photoUrl, placeholder)
-        iv.setImageDrawable(new InitialsDrawable(m.name));
+        Drawable fallback = new InitialsDrawable(m.name);
+        if (m.photoUrl != null && !m.photoUrl.isEmpty()) {
+            // Real photo (backend ke baad): Glide, initials placeholder/error ke roop me
+            Glide.with(iv).load(m.photoUrl)
+                    .placeholder(fallback).error(new InitialsDrawable(m.name))
+                    .centerCrop().dontAnimate().into(iv);
+        } else {
+            Glide.with(iv).clear(iv);
+            iv.setImageDrawable(fallback);
+        }
+    }
+
+    /** Name + optional photo URL (chat rows). */
+    static void bindPhoto(ImageView iv, String name, String photoUrl) {
+        Drawable fallback = new InitialsDrawable(name);
+        if (photoUrl != null && !photoUrl.isEmpty()) {
+            Glide.with(iv).load(photoUrl)
+                    .placeholder(fallback).error(new InitialsDrawable(name))
+                    .centerCrop().dontAnimate().into(iv);
+        } else {
+            Glide.with(iv).clear(iv);
+            iv.setImageDrawable(fallback);
+        }
     }
 
     // ───────────────────────────── Speakers ─────────────────────────────
@@ -42,34 +66,47 @@ final class VrAdapters {
 
         private final List<Member> items;
         private final OnClick click;
-        private String speakingUid;
+        private java.util.Set<String> speakingUids = java.util.Collections.emptySet();
 
         SpeakerAdapter(List<Member> items, OnClick click) {
             this.items = items;
             this.click = click;
         }
 
-        /** Demo: jis speaker ki ring "bol raha hai" wali state mein ho. */
-        void setSpeaking(String uid) {
-            String old = speakingUid;
-            speakingUid = uid;
+        /** LiveKit ActiveSpeakers: jin uids ki ring "bol raha hai" state me ho. */
+        void setSpeakingSet(java.util.Set<String> uids) {
+            java.util.Set<String> old = speakingUids;
+            speakingUids = uids == null ? java.util.Collections.emptySet() : uids;
             for (int i = 0; i < items.size(); i++) {
                 String id = items.get(i).uid;
-                if (id.equals(old) || id.equals(uid)) notifyItemChanged(i);
+                if (old.contains(id) != speakingUids.contains(id)) notifyItemChanged(i);
             }
         }
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup p, int vt) {
-            return new VH(LayoutInflater.from(p.getContext())
-                    .inflate(R.layout.item_vr_speaker, p, false));
+            View v = LayoutInflater.from(p.getContext())
+                    .inflate(R.layout.item_vr_speaker, p, false);
+            // Polish: hamesha 4 speakers screen-width me fit hon (360dp phone pe bhi).
+            int pw = p.getWidth() > 0 ? p.getWidth()
+                    : p.getResources().getDisplayMetrics().widthPixels - VrUtil.dp(p.getContext(), 32);
+            v.setLayoutParams(new RecyclerView.LayoutParams(pw / 4,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+            return new VH(v);
+        }
+
+        @Override
+        public void onViewRecycled(@NonNull VH h) {
+            super.onViewRecycled(h);
+            VrFx.stopPulse(h.anim, h.pulse);
+            h.anim = null;
         }
 
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
             Member m = items.get(pos);
             boolean host = VrModel.ROLE_HOST.equals(m.role);
-            boolean speaking = m.uid.equals(speakingUid) && !m.muted;
+            boolean speaking = speakingUids.contains(m.uid) && !m.muted;
 
             h.name.setText(m.name);
             h.crown.setVisibility(host ? View.VISIBLE : View.GONE);
@@ -80,6 +117,12 @@ final class VrAdapters {
                     ? R.drawable.vr_bg_ring_active : R.drawable.vr_bg_ring);
             float s = speaking ? 1.07f : 1f;
             h.ring.animate().scaleX(s).scaleY(s).setDuration(220).start();
+            if (speaking) {
+                if (h.anim == null) h.anim = VrFx.pulse(h.pulse);
+            } else {
+                VrFx.stopPulse(h.anim, h.pulse);
+                h.anim = null;
+            }
             h.itemView.setOnClickListener(v -> { if (click != null) click.onClick(m); });
         }
 
@@ -87,12 +130,15 @@ final class VrAdapters {
 
         static class VH extends RecyclerView.ViewHolder {
             final FrameLayout ring;
+            final View pulse;
+            ValueAnimator anim;
             final CircleImageView avatar;
             final TextView name, crown, hostPill;
             final ImageView mic;
 
             VH(@NonNull View v) {
                 super(v);
+                pulse = v.findViewById(R.id.vr_sp_pulse);
                 ring = v.findViewById(R.id.vr_sp_ring);
                 avatar = v.findViewById(R.id.vr_sp_avatar);
                 name = v.findViewById(R.id.vr_sp_name);
@@ -114,14 +160,28 @@ final class VrAdapters {
 
         private static final int T_INVITE = 0, T_MEMBER = 1, T_MORE = 2;
 
-        private final List<Member> shown;
-        private final boolean showMore;
+        private List<Member> shown;
+        private boolean showMore;
+        private boolean showHands;
         private final Callbacks cb;
 
         AudienceAdapter(List<Member> shown, boolean showMore, Callbacks cb) {
             this.shown = shown;
             this.showMore = showMore;
             this.cb = cb;
+        }
+
+        /** Audience badli (promote/remove) => grid dubara bharo. */
+        void submit(List<Member> shown, boolean showMore) {
+            this.shown = shown;
+            this.showMore = showMore;
+            notifyDataSetChanged();
+        }
+
+        /** Host view me raised-hand badge dikhao. */
+        void setShowHands(boolean on) {
+            showHands = on;
+            notifyDataSetChanged();
         }
 
         @Override public int getItemViewType(int position) {
@@ -145,6 +205,7 @@ final class VrAdapters {
                 h.icon.setVisibility(View.GONE);
                 bindAvatar(h.avatar, m);
                 h.online.setVisibility(m.online ? View.VISIBLE : View.GONE);
+                h.hand.setVisibility(showHands && m.handRaised ? View.VISIBLE : View.GONE);
                 h.name.setText(m.name);
                 h.name.setTextColor(h.itemView.getContext().getColor(R.color.vr_text));
                 h.itemView.setOnClickListener(v -> { if (cb != null) cb.onMember(m); });
@@ -154,7 +215,9 @@ final class VrAdapters {
                 h.icon.setVisibility(View.VISIBLE);
                 h.icon.setImageResource(invite ? R.drawable.ic_add : R.drawable.ic_chevron_down);
                 h.online.setVisibility(View.GONE);
-                h.name.setText(invite ? "Invite" : "More");
+                h.hand.setVisibility(View.GONE);
+                h.name.setText(h.itemView.getContext().getString(
+                        invite ? R.string.vr_invite : R.string.vr_more));
                 h.name.setTextColor(h.itemView.getContext().getColor(
                         invite ? R.color.vr_primary : R.color.vr_text_sub));
                 h.itemView.setOnClickListener(v -> {
@@ -170,10 +233,11 @@ final class VrAdapters {
             final CircleImageView avatar;
             final ImageView icon;
             final View online;
-            final TextView name;
+            final TextView name, hand;
 
             VH(@NonNull View v) {
                 super(v);
+                hand = v.findViewById(R.id.vr_au_hand);
                 avatar = v.findViewById(R.id.vr_au_avatar);
                 icon = v.findViewById(R.id.vr_au_icon);
                 online = v.findViewById(R.id.vr_au_online);
@@ -184,9 +248,25 @@ final class VrAdapters {
 
     // ───────────────────────────── Chat ─────────────────────────────
     static class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.VH> {
-        private final List<Msg> items;
+        /** Reaction (like) lagne par — screen heart-burst chalati hai. */
+        interface OnReact { void onReact(View chip, Msg m); }
+        /** Like toggle hua (Firebase likes/{uid} likhne ke liye). */
+        interface OnLike { void onLike(Msg m, boolean liked); }
+        /** Message par long-press (host: pin / delete). */
+        interface OnLong { void onLong(Msg m); }
 
-        ChatAdapter(List<Msg> items) { this.items = items; }
+        private final List<Msg> items;
+        private final OnReact onReact;
+        private OnLike onLike;
+        private OnLong onLong;
+
+        void setOnLike(OnLike l) { onLike = l; }
+        void setOnLong(OnLong l) { onLong = l; }
+
+        ChatAdapter(List<Msg> items, OnReact onReact) {
+            this.items = items;
+            this.onReact = onReact;
+        }
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup p, int vt) {
@@ -197,7 +277,7 @@ final class VrAdapters {
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
             Msg m = items.get(pos);
-            h.avatar.setImageDrawable(new InitialsDrawable(m.name));
+            bindPhoto(h.avatar, m.name, m.photoUrl);
             h.name.setText(m.name + " \u2022");
             h.time.setText(m.time);
             h.text.setText(m.text);
@@ -205,11 +285,18 @@ final class VrAdapters {
             h.hearts.setTextColor(h.itemView.getContext().getColor(
                     m.liked ? R.color.vr_primary : R.color.vr_text));
             h.react.setOnClickListener(v -> {
-                // UI demo: local toggle. Backend: transaction on reactions counter.
+                // Optimistic local toggle; asli count Firebase likes/{uid} se wapas aata hai.
                 m.liked = !m.liked;
-                m.hearts += m.liked ? 1 : -1;
+                m.hearts = Math.max(0, m.hearts + (m.liked ? 1 : -1));
+                if (m.liked && onReact != null) onReact.onReact(h.react, m);
+                if (onLike != null) onLike.onLike(m, m.liked);
                 int p = h.getBindingAdapterPosition();
                 if (p != RecyclerView.NO_POSITION) notifyItemChanged(p);
+            });
+            h.itemView.setOnLongClickListener(v -> {
+                if (onLong == null) return false;
+                onLong.onLong(m);
+                return true;
             });
         }
 
@@ -337,7 +424,9 @@ final class VrAdapters {
             h.online.setVisibility(m.online ? View.VISIBLE : View.GONE);
             boolean speaker = !VrModel.ROLE_LISTENER.equals(m.role);
             h.role.setText(VrModel.ROLE_HOST.equals(m.role) ? "Host"
-                    : speaker ? "Speaker" : (m.online ? "Listening" : "Away"));
+                    : speaker ? "Speaker"
+                    : m.handRaised ? "\u270B Wants to speak"
+                    : (m.online ? "Listening" : "Away"));
             h.mic.setVisibility(speaker ? View.VISIBLE : View.GONE);
         }
 
@@ -450,6 +539,87 @@ final class VrAdapters {
                 title = v.findViewById(R.id.vr_tr_title);
                 artist = v.findViewById(R.id.vr_tr_artist);
                 duration = v.findViewById(R.id.vr_tr_duration);
+            }
+        }
+    }
+
+    // ───────────────────────────── Speaker requests (host) ─────────────────────────────
+    static class RequestAdapter extends RecyclerView.Adapter<RequestAdapter.VH> {
+        interface Actions { void onAccept(Member m); void onDecline(Member m); }
+
+        private final List<Member> items;
+        private final Actions actions;
+
+        RequestAdapter(List<Member> items, Actions actions) {
+            this.items = items;
+            this.actions = actions;
+        }
+
+        @NonNull @Override
+        public VH onCreateViewHolder(@NonNull ViewGroup p, int vt) {
+            return new VH(LayoutInflater.from(p.getContext())
+                    .inflate(R.layout.item_vr_request, p, false));
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull VH h, int pos) {
+            Member m = items.get(pos);
+            bindAvatar(h.avatar, m);
+            h.name.setText(m.name);
+            h.accept.setOnClickListener(v -> { if (actions != null) actions.onAccept(m); });
+            h.decline.setOnClickListener(v -> { if (actions != null) actions.onDecline(m); });
+        }
+
+        @Override public int getItemCount() { return items.size(); }
+
+        static class VH extends RecyclerView.ViewHolder {
+            final CircleImageView avatar;
+            final TextView name;
+            final ImageView accept, decline;
+
+            VH(@NonNull View v) {
+                super(v);
+                avatar = v.findViewById(R.id.vr_rq_avatar);
+                name = v.findViewById(R.id.vr_rq_name);
+                accept = v.findViewById(R.id.vr_rq_accept);
+                decline = v.findViewById(R.id.vr_rq_decline);
+            }
+        }
+    }
+
+    // ───────────────────────────── Emoji grid ─────────────────────────────
+    static class EmojiAdapter extends RecyclerView.Adapter<EmojiAdapter.VH> {
+        interface OnPick { void onPick(String emoji); }
+
+        private final List<String> items;
+        private final OnPick cb;
+
+        EmojiAdapter(List<String> items, OnPick cb) {
+            this.items = items;
+            this.cb = cb;
+        }
+
+        @NonNull @Override
+        public VH onCreateViewHolder(@NonNull ViewGroup p, int vt) {
+            return new VH(LayoutInflater.from(p.getContext())
+                    .inflate(R.layout.item_vr_emoji, p, false));
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull VH h, int pos) {
+            String e = items.get(pos);
+            h.tv.setText(e);
+            h.tv.setOnClickListener(v -> { if (cb != null) cb.onPick(e); });
+        }
+
+        @Override public int getItemCount() { return items.size(); }
+
+        static class VH extends RecyclerView.ViewHolder {
+            final TextView tv;
+
+            VH(@NonNull View v) {
+                super(v);
+                tv = (TextView) v;
             }
         }
     }
