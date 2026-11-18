@@ -1758,6 +1758,8 @@ public class MessageBubbleCanvasView extends View {
     final TextPaint replyTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final Rect replyThumbSrcRect = new Rect();
     final RectF replyThumbDstRect = new RectF();
+    final android.graphics.Path replyThumbClipPath = new android.graphics.Path();
+    final Paint replyThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
 
     // ── Big story/reel-reaction emoji badge (Instagram-style) ─────────
     // Set via setBigReactionEmoji() whenever this bubble is a "You
@@ -8457,9 +8459,20 @@ public class MessageBubbleCanvasView extends View {
             int thumbMargin = Math.round(REPLY_THUMB_MARGIN_DP * density);
             float thumbLeft = replyBoxRect.right - thumbMargin - thumbSize;
             float thumbTop = replyBoxRect.top + (replyBoxRect.height() - thumbSize) / 2f;
-            replyThumbSrcRect.set(0, 0, replyThumb.getWidth(), replyThumb.getHeight());
+            // Center-crop to a square so non-square bitmaps are not stretched.
+            int bw = replyThumb.getWidth(), bh = replyThumb.getHeight();
+            int side = Math.min(bw, bh);
+            int sx = (bw - side) / 2, sy = (bh - side) / 2;
+            replyThumbSrcRect.set(sx, sy, sx + side, sy + side);
             replyThumbDstRect.set(thumbLeft, thumbTop, thumbLeft + thumbSize, thumbTop + thumbSize);
-            canvas.drawBitmap(replyThumb, replyThumbSrcRect, replyThumbDstRect, null);
+            // Rounded corners (matches the quote box radius) — was a plain square blit.
+            float tr = REPLY_CORNER_RADIUS_DP * density;
+            replyThumbClipPath.rewind();
+            replyThumbClipPath.addRoundRect(replyThumbDstRect, tr, tr, android.graphics.Path.Direction.CW);
+            int thumbSave = canvas.save();
+            canvas.clipPath(replyThumbClipPath);
+            canvas.drawBitmap(replyThumb, replyThumbSrcRect, replyThumbDstRect, replyThumbPaint);
+            canvas.restoreToCount(thumbSave);
 
             if (bigReactionBadge && bigReactionEmoji != null && bigReactionEmojiPaint != null) {
                 drawBigReactionBadge(canvas);
