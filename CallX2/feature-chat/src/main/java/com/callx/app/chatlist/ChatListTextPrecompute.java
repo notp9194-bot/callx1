@@ -291,11 +291,30 @@ public final class ChatListTextPrecompute {
             float textW = sBadgePaint.measureText(label);
             badgeWidthPx = Math.max(BADGE_MIN_DP * density, textW + BADGE_PAD_H_DP * 2 * density);
         }
-        float callBtnWidthPx = isSelecting ? 0f : CALL_BTN_WIDTH_DP * density;
+        float callBtnWidthPx = (isSelecting || u.isGroup) ? 0f : CALL_BTN_WIDTH_DP * density;
         float metaWidthPx = Math.max(badgeWidthPx, callBtnWidthPx);
 
         float reservedPx = ROW_FIXED_RESERVED_DP * density + metaWidthPx;
         return (int) (dm.widthPixels - reservedPx);
+    }
+
+    /**
+     * Single source of truth for a row's preview string, shared by the
+     * adapter bind and this precompute so the ellipsize cache keys match.
+     * Groups get the WhatsApp-style "Sender: message" prefix.
+     */
+    public static String previewFor(User u) {
+        if (u.isGroup) {
+            String preview = ChatListPreviewUtil.buildPreview(
+                    u.lastMessageType, u.lastMessage, u.memberCount + " members");
+            if (u.lastSenderName != null && !u.lastSenderName.isEmpty()
+                    && u.lastMessage != null && !u.lastMessage.isEmpty()) {
+                preview = u.lastSenderName + ": " + preview;
+            }
+            return preview;
+        }
+        return ChatListPreviewUtil.buildPreview(
+                u.lastMessageType, u.lastMessage, "Tap karke chat karo");
     }
 
     private static void precomputeOne(User u, String myUid, DisplayMetrics dm, boolean isSelecting) {
@@ -326,13 +345,13 @@ public final class ChatListTextPrecompute {
         // Pinned rows draw a pin icon at the right of the message row and
         // reserve its width (ChatRowContentView.setPinned) — mirror that here.
         float pinReservedPx = u.localPinned ? (PIN_SIZE_DP + PIN_GAP_DP) * density : 0f;
-        if (u.uid != null && sMutedUids.contains(u.uid)) {
+        if (u.isGroup ? u.localMuted : (u.uid != null && sMutedUids.contains(u.uid))) {
             pinReservedPx += (MUTE_SIZE_DP + MUTE_GAP_DP) * density;
         }
         int msgWidthPx = (int) Math.max(0f, rowWidthPx - tickReservedPx - pinReservedPx);
 
         // ── Name ──────────────────────────────────────────────────────────────
-        String name    = u.name != null ? u.name : "User";
+        String name    = u.name != null ? u.name : (u.isGroup ? "Group" : "User");
         String nameKey = name + KEY_SEP + nameWidthPx;
         if (sNameCache.get(nameKey) == null) {
             CharSequence el = TextUtils.ellipsize(
@@ -342,8 +361,7 @@ public final class ChatListTextPrecompute {
         }
 
         // ── Last-message preview ───────────────────────────────────────────────
-        String preview = ChatListPreviewUtil.buildPreview(
-                u.lastMessageType, u.lastMessage, "Tap karke chat karo");
+        String preview = previewFor(u);
         String msgKey  = preview + KEY_SEP + msgWidthPx;
         if (sMsgCache.get(msgKey) == null) {
             CharSequence el = TextUtils.ellipsize(

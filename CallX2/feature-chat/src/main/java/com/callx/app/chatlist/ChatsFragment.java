@@ -62,6 +62,16 @@ import com.callx.app.repository.ChatRepository;
 public class ChatsFragment extends Fragment implements ChatListAdapter.SelectionListener {
 
     private final List<User> contacts = new ArrayList<>();
+
+    // ── Unified Chats list: groups live here now (the Groups tab is gone) ──
+    // `contacts` stays 1:1-only so Room/delta-sync/pagination are untouched;
+    // group rows are merged in at display time (see buildDisplayList()).
+    private final List<User> groupRows = new ArrayList<>();
+    private GroupChatListSource groupSource;
+    private static final int FILTER_ALL = 0, FILTER_UNREAD = 1,
+            FILTER_GROUPS = 2, FILTER_ARCHIVED = 3;
+    private int chatFilterMode = FILTER_ALL;
+    private LinearLayout llChatFilters;
     private ChatListAdapter adapter;
     // v95: background pre-inflation pool for item_chat rows — see ChatRowPrewarmPool.
     private final ChatRowPrewarmPool prewarmPool = new ChatRowPrewarmPool();
@@ -379,7 +389,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 int total = adapter.getItemCount();
                 if (lastVisible < 0 || total == 0) return;
 
-                if (dy > 0 && selectedFolderId == -1 && lastVisible >= total - 5) {
+                if (dy > 0 && selectedFolderId == -1
+                        && chatFilterMode != FILTER_GROUPS && chatFilterMode != FILTER_ARCHIVED
+                        && lastVisible >= total - 5) {
                     loadMoreOlderContacts();
                 }
 
@@ -401,7 +413,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 if (myUid != null && !myUid.isEmpty()) {
                     for (int p = firstWarm; p <= lastWarm; p++) {
                         User u = adapter.getCurrentList().get(p);
-                        if (u != null && u.uid != null) {
+                        if (u != null && u.isGroup && u.groupId != null) {
+                            warmChatIds.add(u.groupId);
+                        } else if (u != null && u.uid != null) {
                             warmChatIds.add(FirebaseUtils.getChatId(myUid, u.uid));
                         }
                     }
@@ -478,6 +492,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Feature 1: Chat Folders — setup folder chip row
         hsvFolders   = v.findViewById(R.id.hsv_folders);
         llFolderTabs = v.findViewById(R.id.ll_folder_tabs);
+
+        // Unified list: filter chips + group-aware selection actions
+        setupChatFilterChips(v);
+        View btnMute = v.findViewById(R.id.btn_mute_selected_chats);
+        if (btnMute != null) btnMute.setOnClickListener(x -> muteSelectedGroups());
+        View btnArchive = v.findViewById(R.id.btn_archive_selected_chats);
+        if (btnArchive != null) btnArchive.setOnClickListener(x -> archiveSelectedGroups());
         viewModel    = new ViewModelProvider(requireActivity()).get(ChatListViewModel.class);
         viewModel.folders.observe(getViewLifecycleOwner(), folders -> setupFolderTabs(folders));
 
@@ -559,6 +580,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // never re-subscribes its chat-list sync just because you switched
         // tabs and came back; only a genuine screen exit tears it down. See
         // ensureLiveListenersAttached()'s doc for the full before/after.
+        // Groups arrived while the View was gone (or before first paint) —
+        // make sure the fresh adapter shows them.
+        if (!groupRows.isEmpty()) applyChatSearch();
         ensureLiveListenersAttached();
         return v;
     }
@@ -622,9 +646,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             return;
         }
 
+        List<User> base = buildDisplayList();
+        final boolean narrowed = chatFilterMode != FILTER_ALL;
+
         if (chatSearchQuery.isEmpty()) {
-            adapter.submitList(new ArrayList<>(contacts));
-            updateChatSearchEmptyState(false);
+            adapter.submitList(base);
+            updateChatSearchEmptyState(narrowed && base.isEmpty());
             lastAppliedSearchQuery = chatSearchQuery;
             lastAppliedSearchDataVersion = chatSearchDataVersion;
             return;
@@ -632,13 +659,144 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         String query = chatSearchQuery.toLowerCase(Locale.ROOT);
         List<User> filtered = new ArrayList<>();
-        for (User user : contacts) {
+        for (User user : base) {
             if (matchesChatSearch(user, query)) filtered.add(user);
         }
         adapter.submitList(filtered);
         updateChatSearchEmptyState(filtered.isEmpty());
         lastAppliedSearchQuery = chatSearchQuery;
         lastAppliedSearchDataVersion = chatSearchDataVersion;
+    }
+
+    /** True when there is anything at all to show (1:1 chats or groups). */
+    private boolean hasAnyRows() {
+        return !contacts.isEmpty() || !groupRows.isEmpty();
+    }
+
+    /**
+     * Merges 1:1 chats and group rows according to the active filter chip.
+     * Display-only: neither source list is mutated, so pagination, delta sync
+     * and Room hydration of `contacts` keep working exactly as before.
+     * Pin tier → special requests → latest activity, same ordering rules the
+     * separate lists used.
+     */
+    private List<User> buildDisplayList() {
+        List<User> out = new ArrayList<>(contacts.size() + groupRows.size());
+        final boolean folderActive = selectedFolderId != -1;
+        switch (chatFilterMode) {
+            case FILTER_GROUPS:
+                addGroupRows(out, false, false);
+                break;
+            case FILTER_ARCHIVED:
+                addGroupRows(out, true, false);
+                break;
+            case FILTER_UNREAD:
+                for (User u : contacts) if (u.unread != null && u.unread > 0) out.add(u);
+                if (!folderActive) addGroupRows(out, false, true);
+                break;
+            default:
+                out.addAll(contacts);
+                // A folder holds 1:1 chats only — hide groups while one is open.
+                if (!folderActive) addGroupRows(out, false, false);
+                break;
+        }
+        if (!groupRows.isEmpty() && chatFilterMode != FILTER_ARCHIVED) sortMergedRows(out);
+        return out;
+    }
+
+    private void addGroupRows(List<User> out, boolean archivedOnly, boolean unreadOnly) {
+        for (User g : groupRows) {
+            boolean archived = groupSource != null && groupSource.isArchived(g.groupId);
+            if (archived != archivedOnly) continue;
+            if (unreadOnly && (g.unread == null || g.unread <= 0)) continue;
+            out.add(g);
+        }
+    }
+
+    /** Same tiers as sortContactsList() but trusts each row's own localPinned
+     *  (contacts: set by sortContactsList; groups: set by GroupChatListSource). */
+    private void sortMergedRows(List<User> list) {
+        Collections.sort(list, (a, b) -> {
+            if (a.localPinned != b.localPinned) return a.localPinned ? -1 : 1;
+            boolean aS = !a.isGroup && a.uid != null && specialRequestUids.contains(a.uid);
+            boolean bS = !b.isGroup && b.uid != null && specialRequestUids.contains(b.uid);
+            if (aS != bS) return aS ? -1 : 1;
+            int time = Long.compare(effTs(b), effTs(a));
+            if (time != 0) return time;
+            String an = a.name == null ? "" : a.name;
+            String bn = b.name == null ? "" : b.name;
+            return an.compareToIgnoreCase(bn);
+        });
+    }
+
+    // ── Filter chips (All / Unread / Groups / Archived) ───────────────────
+
+    private void setupChatFilterChips(View root) {
+        llChatFilters = root.findViewById(R.id.ll_chat_filters);
+        if (llChatFilters == null) return;
+        llChatFilters.removeAllViews();
+        addChatFilterChip("All", FILTER_ALL);
+        addChatFilterChip("Unread", FILTER_UNREAD);
+        addChatFilterChip("Groups", FILTER_GROUPS);
+        addChatFilterChip("Archived", FILTER_ARCHIVED);
+        refreshChatFilterChips();
+    }
+
+    private void addChatFilterChip(String label, int mode) {
+        View chip = LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_folder_tab, llChatFilters, false);
+        View emoji = chip.findViewById(R.id.tv_folder_emoji);
+        if (emoji != null) emoji.setVisibility(View.GONE);
+        ((TextView) chip.findViewById(R.id.tv_folder_name)).setText(label);
+        chip.setTag(mode);
+        chip.setOnClickListener(x -> onChatFilterTapped(mode));
+        llChatFilters.addView(chip);
+    }
+
+    private void onChatFilterTapped(int mode) {
+        if (mode == chatFilterMode) return;
+        chatFilterMode = mode;
+        chatSearchDataVersion++;
+        refreshChatFilterChips();
+        applyChatSearch();
+        if (rvChats != null) rvChats.scrollToPosition(0);
+    }
+
+    /** Selected-state styling + "Archived" chip only exists while something is archived. */
+    private void refreshChatFilterChips() {
+        if (llChatFilters == null) return;
+        boolean hasArchived = groupSource != null && groupSource.archivedCount() > 0;
+        if (!hasArchived && chatFilterMode == FILTER_ARCHIVED) {
+            chatFilterMode = FILTER_ALL;
+            chatSearchDataVersion++;
+        }
+        Context ctx = requireContext();
+        for (int i = 0; i < llChatFilters.getChildCount(); i++) {
+            View child = llChatFilters.getChildAt(i);
+            Object tag = child.getTag();
+            if (!(tag instanceof Integer)) continue;
+            int mode = (Integer) tag;
+            if (mode == FILTER_ARCHIVED) {
+                child.setVisibility(hasArchived ? View.VISIBLE : View.GONE);
+            }
+            boolean sel = mode == chatFilterMode;
+            child.setBackgroundResource(sel
+                    ? R.drawable.bg_folder_tab_selected
+                    : R.drawable.bg_folder_tab_unselected);
+            TextView tv = child.findViewById(R.id.tv_folder_name);
+            if (tv != null) tv.setTextColor(sel
+                    ? ctx.getResources().getColor(android.R.color.white)
+                    : ctx.getResources().getColor(R.color.text_primary));
+        }
+    }
+
+    /** Called (main thread) by GroupChatListSource whenever any group row changes. */
+    private void onGroupRowsChanged(@NonNull List<User> rows) {
+        groupRows.clear();
+        groupRows.addAll(rows);
+        chatSearchDataVersion++;
+        if (isAdded() && llChatFilters != null) refreshChatFilterChips();
+        if (adapter != null) applyChatSearch();
     }
 
     private boolean matchesChatSearch(User user, String query) {
@@ -685,7 +843,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
         if (emptyState != null) {
             emptyState.setVisibility(show ? View.GONE
-                    : (contacts.isEmpty() ? View.VISIBLE : View.GONE));
+                    : (!hasAnyRows() ? View.VISIBLE : View.GONE));
         }
     }
 
@@ -941,7 +1099,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         diffUpdateContacts(roomUsers);
                         showingInstantSnapshotOnly = false;
                         if (emptyState != null)
-                            emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+                            emptyState.setVisibility(!hasAnyRows() ? View.VISIBLE : View.GONE);
                         // Only adopt this cursor if "load more" hasn't already
                         // advanced it (e.g. a fast scroll during this async load).
                         if (roomCursorTimestamp == null) {
@@ -1561,6 +1719,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         loadContacts();
         loadSpecialRequests();
         loadMutedChats();
+        if (groupSource == null) {
+            groupSource = new GroupChatListSource(
+                    requireContext().getApplicationContext(), this::onGroupRowsChanged);
+        }
+        groupSource.start();
         liveListenersAttached = true;
     }
 
@@ -1590,6 +1753,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
         armAnimatorRunnable = null;
         rvChats = null;
+        llChatFilters = null;
 
         // v387: Firebase listener detach + pending-delta cleanup MOVED to
         // onDestroy() below — a tab switch only tears down the View, not
@@ -1644,6 +1808,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
         pendingChildUpserts.clear();
         pendingChildRemovals.clear();
+        if (groupSource != null) { groupSource.stop(); groupSource = null; }
+        groupRows.clear();
         liveListenersAttached = false;
         super.onDestroy();
     }
@@ -1716,7 +1882,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void updateSelectionCount() {
         int count = adapter == null ? 0 : adapter.getSelectedCount();
-        int total = contacts.size();
+        int total = adapter == null ? contacts.size() : adapter.getItemCount();
         if (tvSelectedCount != null)
             tvSelectedCount.setText(count + " / " + total + " selected");
     }
@@ -1738,13 +1904,18 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // "pin all / unpin all" toggle behavior for a mixed selection).
         boolean allPinned = true;
         for (User u : selected) {
-            if (u.uid == null || !pinnedChatUids.contains(u.uid)) { allPinned = false; break; }
+            boolean pinnedNow = u.isGroup ? u.localPinned
+                    : (u.uid != null && pinnedChatUids.contains(u.uid));
+            if (!pinnedNow) { allPinned = false; break; }
         }
+        List<String> groupIds = new ArrayList<>();
         for (User u : selected) {
+            if (u.isGroup) { if (u.groupId != null) groupIds.add(u.groupId); continue; }
             if (u.uid == null) continue;
             if (allPinned) pinnedChatUids.remove(u.uid);
             else pinnedChatUids.add(u.uid);
         }
+        if (groupSource != null) groupSource.setPinned(groupIds, !allPinned);
         if (chatListPrefs != null) {
             chatListPrefs.edit().putStringSet(KEY_PINNED_CHATS, new HashSet<>(pinnedChatUids)).apply();
         }
@@ -1762,10 +1933,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             Toast.makeText(getContext(), "Koi bhi select nahi kiya", Toast.LENGTH_SHORT).show();
             return;
         }
+        boolean hasGroup = false;
+        for (User u : adapter.getSelectedItems()) if (u.isGroup) { hasGroup = true; break; }
         com.callx.app.utils.AlertDialogStyler.showReusableConfirm(requireContext(),
-                "delete_selected_chats", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
+                hasGroup ? "delete_selected_chats_with_groups" : "delete_selected_chats",
+                com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
                 "Delete " + count + " chat" + (count > 1 ? "s" : "") + "?",
-                "Selected conversations aapki chat list se remove ho jayenge.",
+                hasGroup
+                        ? "Selected conversations list se remove ho jayenge. Selected groups aap leave karoge."
+                        : "Selected conversations aapki chat list se remove ho jayenge.",
                 "Delete", this::deleteSelected,
                 null, null,
                 "Cancel");
@@ -1777,9 +1953,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         List<User> selected = adapter.getSelectedItems();
         if (selected.isEmpty()) return;
 
+        // Groups are left through the group source; only 1:1 rows touch contacts/Room.
+        List<String> groupIds = new ArrayList<>();
+        for (User u : selected) if (u.isGroup && u.groupId != null) groupIds.add(u.groupId);
+        if (groupSource != null && !groupIds.isEmpty()) groupSource.leave(groupIds);
+
         // Firebase se remove
         for (User u : selected) {
-            if (u.uid != null) {
+            if (u.uid != null && !u.isGroup) {
                 FirebaseUtils.getContactsRef(myUid).child(u.uid).removeValue();
             }
         }
@@ -1789,7 +1970,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             AppDatabase db = AppDatabase.getInstance(getContext());
             AppBgExecutor.execute(() -> {
                 for (User u : selected) {
-                    if (u.uid != null) {
+                    if (u.uid != null && !u.isGroup) {
                         db.chatDao().deleteByPartnerUid(u.uid);
                     }
                 }
@@ -1804,12 +1985,52 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
         if (emptyState != null)
-            emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+            emptyState.setVisibility(!hasAnyRows() ? View.VISIBLE : View.GONE);
 
         int cnt = selected.size();
         Toast.makeText(getContext(),
             cnt + " chat" + (cnt > 1 ? "s" : "") + " delete ho gaye",
             Toast.LENGTH_SHORT).show();
+    }
+
+    // ── Group-only selection actions (mute / archive) ──────────────────────
+
+    private List<String> selectedGroupIds() {
+        List<String> ids = new ArrayList<>();
+        if (adapter == null) return ids;
+        for (User u : adapter.getSelectedItems()) {
+            if (u.isGroup && u.groupId != null) ids.add(u.groupId);
+        }
+        return ids;
+    }
+
+    private void finishSelectionAction() {
+        if (adapter != null) adapter.clearSelection();
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+    }
+
+    private void muteSelectedGroups() {
+        List<String> ids = selectedGroupIds();
+        if (ids.isEmpty() || groupSource == null) {
+            Toast.makeText(getContext(), "Mute sirf groups ke liye hai", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        boolean muted = groupSource.toggleMuted(ids);
+        finishSelectionAction();
+        Toast.makeText(getContext(), muted ? "Group muted" : "Group unmuted",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void archiveSelectedGroups() {
+        List<String> ids = selectedGroupIds();
+        if (ids.isEmpty() || groupSource == null) {
+            Toast.makeText(getContext(), "Archive sirf groups ke liye hai", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        boolean archived = groupSource.toggleArchived(ids);
+        finishSelectionAction();
+        Toast.makeText(getContext(), archived ? "Group archived" : "Group unarchived",
+                Toast.LENGTH_SHORT).show();
     }
 
     // ── v21 DELETE ALL ─────────────────────────────────────────────────────
@@ -1826,7 +2047,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         com.callx.app.utils.AlertDialogStyler.showReusableConfirm(requireContext(),
                 "delete_all_chats", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
                 "Delete All Chats?",
-                "Aapki saari " + contacts.size() + " conversations chat list se remove ho jayengi.\n\nYe action undo nahi ho sakti.",
+                "Aapki saari " + contacts.size() + " conversations chat list se remove ho jayengi (groups safe rahenge).\n\nYe action undo nahi ho sakti.",
                 "Delete All", this::deleteAllChats,
                 null, null,
                 "Cancel");

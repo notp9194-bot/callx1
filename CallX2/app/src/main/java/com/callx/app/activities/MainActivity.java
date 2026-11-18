@@ -206,8 +206,8 @@ public class MainActivity extends AppCompatActivity
     private static final int TAB_CHATS  = 0;
     private static final int TAB_REELS  = 1;
     private static final int TAB_STATUS = 2;
-    private static final int TAB_GROUPS = 3;
-    private static final int TAB_CALLS  = 4;
+    // Groups tab removed — groups now live inside the Chats list (filter chip "Groups").
+    private static final int TAB_CALLS  = 3;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -384,7 +384,6 @@ public class MainActivity extends AppCompatActivity
                     R.id.nav_chats,
                     R.id.nav_reels,
                     R.id.nav_status,
-                    R.id.nav_groups,
                     R.id.nav_calls
                 };
                 if (position >= 0 && position < ids.length)
@@ -422,10 +421,6 @@ public class MainActivity extends AppCompatActivity
                 notifStatusUnread = 0;
                 updateNotifBadge();
             }
-            else if (id == R.id.nav_groups) {
-                binding.viewPager.setCurrentItem(TAB_GROUPS, false);
-                clearBadge(R.id.nav_groups);
-            }
             else if (id == R.id.nav_reels)  {
                 binding.viewPager.setCurrentItem(TAB_REELS, false);
                 clearBadge(R.id.nav_reels);
@@ -444,7 +439,6 @@ public class MainActivity extends AppCompatActivity
             int pos = binding.viewPager.getCurrentItem();
             if      (pos == TAB_CHATS)  startActivity(new Intent(this, SearchActivity.class));
             else if (pos == TAB_STATUS) startActivity(new Intent(this, NewStatusActivity.class));
-            else if (pos == TAB_GROUPS) startActivity(new Intent(this, NewGroupActivity.class));
             else if (pos == TAB_REELS)  startActivity(new Intent(this, ReelUploadActivity.class));
             else                        startActivity(new Intent(this, SearchActivity.class));
         });
@@ -503,7 +497,7 @@ public class MainActivity extends AppCompatActivity
             case "chats":        binding.viewPager.setCurrentItem(TAB_CHATS,  false); break;
             case "reels":        binding.viewPager.setCurrentItem(TAB_REELS,  false); break;
             case "status":       binding.viewPager.setCurrentItem(TAB_STATUS, false); break;
-            case "groups":       binding.viewPager.setCurrentItem(TAB_GROUPS, false); break;
+            case "groups":       binding.viewPager.setCurrentItem(TAB_CHATS,  false); break; // groups live in Chats now
             case "calls":        binding.viewPager.setCurrentItem(TAB_CALLS,  false); break;
         }
     }
@@ -988,7 +982,6 @@ public class MainActivity extends AppCompatActivity
         switch (position) {
             case TAB_CHATS:  binding.fabAction.setImageResource(R.drawable.ic_status_add); break;
             case TAB_STATUS: binding.fabAction.setImageResource(R.drawable.ic_camera);     break;
-            case TAB_GROUPS: binding.fabAction.setImageResource(R.drawable.ic_group);      break;
             case TAB_REELS:  binding.fabAction.setImageResource(R.drawable.ic_add_reels);  break;
             case TAB_CALLS:  binding.fabAction.setImageResource(R.drawable.ic_phone);      break;
         }
@@ -1065,7 +1058,8 @@ public class MainActivity extends AppCompatActivity
                         threads++;
                     }
                 }
-                setBadge(R.id.nav_chats, (int) total);
+                chatBadgeUnread = (int) total;
+                refreshChatsNavBadge();
                 notifChatUnread = threads;
                 updateNotifBadge();
                 lastContactsSnapForStatus = snap;
@@ -1134,7 +1128,7 @@ public class MainActivity extends AppCompatActivity
         };
         FirebaseUtils.getStatusSeenRef(uid).addValueEventListener(unseenStatusListener);
 
-        // 4. Unread group messages → nav_groups badge (index shifted — was #4, now after 4b)
+        // 4. Unread group messages → folded into the nav_chats badge (Groups tab removed)
         unreadGroupsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 int unread = 0;
@@ -1146,7 +1140,8 @@ public class MainActivity extends AppCompatActivity
                         threads++;
                     }
                 }
-                setBadge(R.id.nav_groups, unread);
+                groupBadgeUnread = unread;
+                refreshChatsNavBadge();
                 notifGroupUnread = threads;
                 updateNotifBadge();
             }
@@ -1438,6 +1433,14 @@ public class MainActivity extends AppCompatActivity
             lastNotificationBadgeText = null;
             if (badge.getVisibility() != View.GONE) badge.setVisibility(View.GONE);
         }
+    }
+
+    // Chats nav badge = unread 1:1 messages + unread group messages
+    // (groups no longer have their own tab/badge).
+    private int chatBadgeUnread  = 0;
+    private int groupBadgeUnread = 0;
+    private void refreshChatsNavBadge() {
+        setBadge(R.id.nav_chats, chatBadgeUnread + groupBadgeUnread);
     }
 
     private void setBadge(int navItemId, int count) {
@@ -1948,6 +1951,8 @@ public class MainActivity extends AppCompatActivity
         // "Delete All Chats" sirf Chat tab pe visible ho
         android.view.MenuItem deleteAll = menu.findItem(R.id.action_delete_all_chats);
         if (deleteAll != null) deleteAll.setVisible(pos == TAB_CHATS);
+        android.view.MenuItem newGroup = menu.findItem(R.id.action_new_group);
+        if (newGroup != null) newGroup.setVisible(pos == TAB_CHATS);
         // "Broadcast List" sirf Chat tab pe visible ho
         android.view.MenuItem broadcast = menu.findItem(R.id.action_broadcast_list);
         if (broadcast != null) broadcast.setVisible(pos == TAB_CHATS);
@@ -1977,6 +1982,12 @@ public class MainActivity extends AppCompatActivity
     @Override
     public boolean onOptionsItemSelected(android.view.MenuItem item) {
         int id = item.getItemId();
+
+        // ── New Group (entry point moved here with the Groups tab merge) ────
+        if (id == R.id.action_new_group) {
+            startActivity(new Intent(this, NewGroupActivity.class));
+            return true;
+        }
 
         // ── Broadcast List entry point ──────────────────────────────────────
         if (id == R.id.action_broadcast_list) {

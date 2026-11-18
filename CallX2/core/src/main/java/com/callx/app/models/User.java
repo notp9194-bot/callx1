@@ -52,5 +52,13 @@ public class User {
     // WhatsApp-level pin-to-top for the Chats tab (mirrors Group.localPinned).
     // Local-only — never written to/read from Firebase.
     @Exclude public boolean localPinned;
+    // ── Unified Chats list: a group is shown as a User-shaped row ─────────
+    // (uid = "g:" + groupId so it can never collide with a real user uid).
+    // All of these are local/view-only — never read from or written to Firebase.
+    @Exclude public boolean isGroup;
+    @Exclude public String groupId;
+    @Exclude public boolean localMuted;      // group mute (viewer's mutedBy entry)
+    @Exclude public String lastSenderName;   // group: "who sent the last message"
+    @Exclude public int memberCount;         // group: for the empty-preview fallback
     public User() {}
 }

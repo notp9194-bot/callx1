@@ -106,7 +106,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 && safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)
                 && longEq(a.lastMessageAt, b.lastMessageAt)
                 && longEq(a.unread, b.unread)
-                && a.localPinned == b.localPinned;
+                && a.localPinned == b.localPinned
+                && a.localMuted == b.localMuted
+                && a.memberCount == b.memberCount
+                && safeEq(a.lastSenderName, b.lastSenderName);
         }
 
         /**
@@ -124,7 +127,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             if (!safeEq(a.lastMessage, b.lastMessage)
                     || !safeEq(a.lastMessageType, b.lastMessageType)
                     || !safeEq(a.lastMessageStatus, b.lastMessageStatus)
-                    || !safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)) flags |= CHANGE_LAST_MSG;
+                    || !safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)
+                    || !safeEq(a.lastSenderName, b.lastSenderName)
+                    || a.localMuted != b.localMuted
+                    || a.memberCount != b.memberCount) flags |= CHANGE_LAST_MSG;
             if (!longEq(a.unread, b.unread))                     flags |= CHANGE_UNREAD;
             if (!longEq(a.lastMessageAt, b.lastMessageAt))       flags |= CHANGE_TIME;
             return flags == 0 ? null : flags;
@@ -187,7 +193,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // Batch-warm the verified-badge cache for this page of chats before
         // rows bind — avoids one Firebase read per row on a fast fling.
         List<String> uids = new ArrayList<>(safe.size());
-        for (User u : safe) if (u.uid != null) uids.add(u.uid);
+        for (User u : safe) if (u.uid != null && !u.isGroup) uids.add(u.uid);
         com.callx.app.utils.VerifiedBadgeUtils.prefetch(uids);
         // Precompute runs on a background thread — main thread returns immediately.
         // By the time the diff result dispatches onBindViewHolder, most entries
@@ -221,7 +227,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     private void preloadChatIfDue(Context ctx, User u) {
         if (u == null || u.uid == null || myUid == null) return;
-        String chatId = FirebaseUtils.getChatId(myUid, u.uid);
+        String chatId = u.isGroup ? u.groupId : FirebaseUtils.getChatId(myUid, u.uid);
+        if (chatId == null) return;
         long now = System.currentTimeMillis();
         Long last = sLastPreloadAt.get(chatId);
         if (last != null && (now - last) < PRELOAD_COOLDOWN_MS) return;
@@ -572,13 +579,14 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // is now a cheap field write instead of 6-7 allocations.
         h.boundUser = u;
 
-        h.nameTimeView.setName(u.name == null ? "User" : u.name);
+        h.nameTimeView.setName(u.name == null ? (u.isGroup ? "Group" : "User") : u.name);
         // Pin is now a canvas icon at the right of the message row (was a "📌 "
         // emoji prefix — ate name width, varied per device, and also made the
         // name ChatListTextPrecompute key miss for every pinned chat).
         ensureColorsResolved(h.itemView.getContext());
         h.nameTimeView.setPinned(u.localPinned, colorTextMuted);
-        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.nameTimeView, h.nameTimeView::setVerified, u.uid);
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.nameTimeView, h.nameTimeView::setVerified,
+                u.isGroup ? null : u.uid);
 
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
         // v85: ChatListTimeCache — LruCache keyed by minute, avoids SimpleDateFormat per bind
@@ -615,7 +623,22 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // screen (their profile open, a reel/status of theirs), this row's next
         // bind picks up the fresh version -- same fallback StatusListAdapter's
         // resolveAvatarVersion() uses for its own carousel/list rows.
-        ChatAvatarBinder.bind(ctx, h.ivAvatar, u.thumbUrl, resolveAvatarVersion(ctx, u.uid, u.avatarVersion), R.drawable.ic_person);
+        if (u.isGroup) {
+            // Group icon: same optimized binder the old Groups tab used, so the
+            // cache entries are shared with the group's own toolbar/header icon.
+            if (u.photoUrl != null && !u.photoUrl.isEmpty()) {
+                com.callx.app.cache.GroupAvatarBinder.bind(ctx, h.ivAvatar, u.photoUrl,
+                        com.callx.app.cache.GroupAvatarBinder.TIER_LIST_ROW, R.drawable.ic_group);
+                h.ivAvatar.setPadding(0, 0, 0, 0);
+            } else {
+                h.ivAvatar.setImageResource(R.drawable.ic_group);
+                int pad = (int) (ctx.getResources().getDisplayMetrics().density * 12);
+                h.ivAvatar.setPadding(pad, pad, pad, pad);
+            }
+        } else {
+            h.ivAvatar.setPadding(0, 0, 0, 0);
+            ChatAvatarBinder.bind(ctx, h.ivAvatar, u.thumbUrl, resolveAvatarVersion(ctx, u.uid, u.avatarVersion), R.drawable.ic_person);
+        }
         // v85: pre-warm Glide decode for next contact — DEFERRED below along
         // with the typing listener (see BIND_SETTLE_DELAY_MS comment) instead
         // of firing synchronously on every bind. Building a second Glide
@@ -625,7 +648,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // the user actually settles on do.
 
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
-        boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
+        boolean hasStory = !u.isGroup && u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
         h.hasStoryNow = hasStory; // read by the story-ring listener installed once in onCreateViewHolder
 
         h.isTypingNow = false;
@@ -685,6 +708,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 if (u == null || u.uid == null) return;
                 Context ctx = h.itemView.getContext();
                 if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                if (u.isGroup) { openGroupChat(ctx, u); return; }
                 // Story ring click always opens story/status if available, else bottom sheet
                 if (h.hasStoryNow) {
                     openStatusOrChat(ctx, u);
@@ -740,7 +764,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
             // Story-first behavior: if user has active story/status, open it (Instagram style).
             // Only show contact bottom sheet when no story is available.
-            if (h.hasStoryNow) {
+            if (u.isGroup) {
+                openGroupChat(ctx, u);
+            } else if (h.hasStoryNow) {
                 openStatusOrChat(ctx, u);
             } else if (avatarClickListener != null) {
                 avatarClickListener.onAvatarClick(u);
@@ -788,7 +814,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // Mute: icon at the right of the message row + dimmed unread pill.
         // Lives here (not in the full-bind-only block) so the PAYLOAD_MUTED
         // partial bind and the full bind both pick it up.
-        final boolean isMutedChat = u.uid != null && mutedUids.contains(u.uid);
+        final boolean isMutedChat = u.isGroup ? u.localMuted
+                : (u.uid != null && mutedUids.contains(u.uid));
         h.nameTimeView.setMuted(isMutedChat, colorTextMuted);
         h.unreadBadgeView.setMutedStyle(isMutedChat);
 
@@ -815,8 +842,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             if (isSpecial && !isSelecting) {
                 h.lastMessageView.setMessageText("⭐ Special unblock request", 0xFFFF8F00, false);
             } else {
-                String preview = ChatListPreviewUtil.buildPreview(
-                        u.lastMessageType, u.lastMessage, "Tap karke chat karo");
+                String preview = ChatListTextPrecompute.previewFor(u);
                 // … and the preview turns bold (read rows stay regular).
                 h.lastMessageView.setMessageText(preview, lastMsgColor, false, hasUnread);
             }
@@ -824,7 +850,15 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         updateReadStatusTicks(h, u, isSelecting, isSpecial);
 
-        if (h.storyRingView != null && u.uid != null) {
+        if (h.storyRingView != null && u.isGroup) {
+            // Groups never have a story ring. Re-register a plain "no ring"
+            // callback so a recycled ring view that last belonged to a user row
+            // can't get repainted by StoryRingRegistry with that old uid's state.
+            h.hasStoryNow = false;
+            h.storyRingView.setState(ChatListStoryRingView.STATE_NONE);
+            StoryRingRegistry.register(ctx, h.storyRingView,
+                    () -> h.storyRingView.setState(ChatListStoryRingView.STATE_NONE));
+        } else if (h.storyRingView != null && u.uid != null) {
             final String ringUid = u.uid;
             final boolean ringSelecting = isSelecting;
             // Instagram-style instant propagation: this Runnable is the
@@ -861,7 +895,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         }
 
         if (h.callButtonsView != null) {
-            h.callButtonsView.setVisibility(isSelecting ? View.GONE : View.VISIBLE);
+            h.callButtonsView.setVisibility((isSelecting || u.isGroup) ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -915,6 +949,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
      * mismatched cache keys for the same row.
      */
     private void preloadAdjacentAvatar(Context ctx, User adj) {
+        if (adj != null && adj.isGroup) return;
         if (adj == null) return;
         String url = ChatAvatarBinder.url(ctx, adj.thumbUrl, resolveAvatarVersion(ctx, adj.uid, adj.avatarVersion));
         if (url == null || url.isEmpty()) return;
@@ -972,6 +1007,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             // point every avatar list in the app uses (see
             // FollowAvatarBinder#cancel for the reels equivalent).
             ChatAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+            if (h.boundUser != null && h.boundUser.isGroup) {
+                com.callx.app.cache.GroupAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+            }
         }
         // Row never settled long enough to attach in the first place —
         // drop the pending work instead of letting it fire against a VH
@@ -979,6 +1017,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         cancelPendingBindWork(h);
         detachTypingListener(h);
         h.isTypingNow = false;
+        h.typingLabel = null;
         // v92: drop the stale user ref so a click that races the recycle
         // (view detached but tap already in flight) becomes a safe no-op
         // instead of acting on the wrong contact.
@@ -1024,6 +1063,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     private void attachTypingListener(VH h, User u) {
         detachTypingListener(h);
+        if (u == null) return;
+        if (u.isGroup) { attachGroupTypingListener(h, u); return; }
         if (u.uid == null || myUid == null) return;
         String chatId = FirebaseUtils.getChatId(myUid, u.uid);
         DatabaseReference ref = FirebaseUtils.db().getReference("typing")
@@ -1037,6 +1078,43 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 if (!u.uid.equals(current.get(adapterPos).uid)) return;
                 applyTypingRow(h, current.get(adapterPos),
                         Boolean.TRUE.equals(snap.getValue(Boolean.class)));
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
+        };
+        ref.addValueEventListener(listener);
+        h.typingRef = ref;
+        h.typingListener = listener;
+        sActiveTypingListeners.incrementAndGet();
+        sTotalTypingAttaches.incrementAndGet();
+    }
+
+    /** Group typing: groupTyping/{groupId}/{uid} = name, same node the old Groups tab watched. */
+    private void attachGroupTypingListener(VH h, User u) {
+        if (u.groupId == null) return;
+        DatabaseReference ref = FirebaseUtils.getGroupTypingRef(u.groupId);
+        ValueEventListener listener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                int adapterPos = h.getAdapterPosition();
+                if (adapterPos == RecyclerView.NO_POSITION) return;
+                List<User> current = differ.getCurrentList();
+                if (adapterPos >= current.size()) return;
+                User cur = current.get(adapterPos);
+                if (!u.uid.equals(cur.uid)) return;
+                int count = 0;
+                String first = null;
+                for (DataSnapshot child : snap.getChildren()) {
+                    if (myUid != null && myUid.equals(child.getKey())) continue;
+                    if (first == null) first = child.getValue(String.class);
+                    count++;
+                }
+                if (count > 0) {
+                    h.typingLabel = (first == null || first.isEmpty() ? "Someone" : first)
+                            + (count > 1 ? " +" + (count - 1) : "") + " typing...";
+                    applyTypingRow(h, cur, true);
+                } else {
+                    h.typingLabel = null;
+                    applyTypingRow(h, cur, false);
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError error) {}
         };
@@ -1066,7 +1144,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             // has happened yet for this adapter instance (colorsResolved
             // guard makes this a no-op in the normal case).
             ensureColorsResolved(h.itemView.getContext());
-            h.lastMessageView.setMessageText("typing...", colorStatusTyping, true);
+            h.lastMessageView.setMessageText(
+                    h.typingLabel != null ? h.typingLabel : "typing...", colorStatusTyping, true);
             h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
         } else {
             applySelectionVisuals(h, u);
@@ -1088,7 +1167,17 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         return (ctx instanceof android.app.Activity) ? (android.app.Activity) ctx : null;
     }
 
+    private void openGroupChat(Context ctx, User u) {
+        if (u.groupId == null) return;
+        Intent i = new Intent(ctx, com.callx.app.group.GroupChatActivity.class);
+        i.putExtra("groupId", u.groupId);
+        i.putExtra("groupName", u.name);
+        if (unwrapActivity(ctx) == null) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(i);
+    }
+
     private void openChat(Context ctx, User u) {
+        if (u.isGroup) { openGroupChat(ctx, u); return; }
         String chatId = (myUid != null && u.uid != null)
                 ? FirebaseUtils.getChatId(myUid, u.uid) : null;
         Runnable navigate = () -> {
@@ -1132,7 +1221,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     }
 
     private void openStatusOrChat(Context ctx, User u) {
-        if (u.uid == null) { openChat(ctx, u); return; }
+        if (u.isGroup || u.uid == null) { openChat(ctx, u); return; }
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         if (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid)) {
             Intent si = new Intent().setClassName(ctx.getPackageName(),
@@ -1225,6 +1314,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // v92: current row state, read by listeners installed ONCE in
         // installStaticListeners() instead of being re-captured every bind.
         User boundUser;
+        String typingLabel; // group rows: "Name +2 typing..."
         boolean hasStoryNow = false;
         // WhatsApp-level fix: the row after this one, read by
         // pendingBindRunnable at fire time instead of being captured fresh

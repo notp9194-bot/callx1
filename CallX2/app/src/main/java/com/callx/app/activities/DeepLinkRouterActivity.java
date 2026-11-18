@@ -44,7 +44,7 @@ import com.callx.app.viewer.StatusViewerActivity;
  *   /chats                  → MainActivity TAB_CHATS
  *   /calls                  → MainActivity TAB_CALLS
  *   /reels                  → MainActivity TAB_REELS
- *   /groups                 → MainActivity TAB_GROUPS
+ *   /groups                 → MainActivity TAB_CHATS (groups live in the Chats list)
  *
  * MISC
  *   /search?q={query}       → SearchActivity

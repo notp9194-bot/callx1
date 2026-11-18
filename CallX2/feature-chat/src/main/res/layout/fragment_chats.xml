@@ -80,6 +80,36 @@
                 android:clickable="true"
                 android:focusable="true"/>
 
+            <!-- Mute/unmute selected groups -->
+            <TextView
+                android:id="@+id/btn_mute_selected_chats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Mute"
+                android:textColor="@color/white"
+                android:textSize="13sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <!-- Archive/unarchive selected groups -->
+            <TextView
+                android:id="@+id/btn_archive_selected_chats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Archive"
+                android:textColor="@color/white"
+                android:textSize="13sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:clickable="true"
+                android:focusable="true"/>
+
             <!-- Delete selected -->
             <ImageView
                 android:id="@+id/btn_delete_selected_chats"
@@ -209,6 +239,30 @@
              removed — moved to 3-dot overflow menu (MainActivity, X/YouTube/
              Games only; Add Story and My Status dropped per user request).
              See setupQuickAccessHeader() removal in ChatsFragment.java. -->
+
+        <!-- Unified list filter chips: All / Unread / Groups / Archived.
+             Groups used to be a separate tab — they now live in this list
+             and this row is how the user narrows to just groups.
+             Built in ChatsFragment.setupChatFilterChips(). -->
+        <HorizontalScrollView
+            android:id="@+id/hsv_chat_filters"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingTop="6dp"
+            android:paddingBottom="2dp"
+            android:overScrollMode="never">
+
+            <LinearLayout
+                android:id="@+id/ll_chat_filters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:gravity="center_vertical"/>
+
+        </HorizontalScrollView>
 
         <!-- Feature 1: Chat Folders horizontal chip row.
              Shown only when the user has at least one folder (gone by default).

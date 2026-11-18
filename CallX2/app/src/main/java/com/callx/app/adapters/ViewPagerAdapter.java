@@ -5,7 +5,6 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import com.callx.app.history.CallsFragment;
 import com.callx.app.chatlist.ChatsFragment;
-import com.callx.app.group.GroupsFragment;
 import com.callx.app.feed.ReelsFragment;
 import com.callx.app.feed.StatusFragment;
 
@@ -16,10 +15,18 @@ public class ViewPagerAdapter extends FragmentStateAdapter {
         switch (position) {
             case 1: return new ReelsFragment();
             case 2: return new StatusFragment();
-            case 3: return new GroupsFragment();
-            case 4: return new CallsFragment();
+            case 3: return new CallsFragment();
             default: return new ChatsFragment();
         }
     }
-    @Override public int getItemCount() { return 5; }
+    @Override public int getItemCount() { return 4; }
+
+    // Groups moved into the Chats list (tab removed). Calls keeps its old stable
+    // fragment id (4) so any fragment state saved by the previous 5-tab build can
+    // never be re-attached to the wrong tab; the old id 3 (Groups) is simply
+    // not contained anymore and gets dropped by FragmentStateAdapter.
+    @Override public long getItemId(int position) { return position == 3 ? 4L : position; }
+    @Override public boolean containsItem(long itemId) {
+        return itemId == 0L || itemId == 1L || itemId == 2L || itemId == 4L;
+    }
 }
