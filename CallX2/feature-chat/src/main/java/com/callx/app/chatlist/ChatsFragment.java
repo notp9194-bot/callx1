@@ -115,6 +115,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // the group list's pin state; not synced through Firebase.
     private static final String CHAT_LIST_PREFS = "chat_list_settings";
     private static final String KEY_PINNED_CHATS = "pinned_chats";
+    private static final String KEY_ARCHIVED_CHATS = "archived_chats";
+    /** Max pinned conversations (1:1 + groups combined), WhatsApp-style. */
+    private static final int MAX_PINNED = 3;
+    private final Set<String> archivedChatUids = ConcurrentHashMap.newKeySet();
     private SharedPreferences chatListPrefs;
     private final Set<String> pinnedChatUids = ConcurrentHashMap.newKeySet();
 
@@ -276,6 +280,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         chatListPrefs = requireContext().getSharedPreferences(CHAT_LIST_PREFS, Context.MODE_PRIVATE);
         pinnedChatUids.clear();
         pinnedChatUids.addAll(chatListPrefs.getStringSet(KEY_PINNED_CHATS, Collections.emptySet()));
+        archivedChatUids.clear();
+        archivedChatUids.addAll(chatListPrefs.getStringSet(KEY_ARCHIVED_CHATS, Collections.emptySet()));
 
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
@@ -688,20 +694,42 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 addGroupRows(out, false, false);
                 break;
             case FILTER_ARCHIVED:
+                for (User u : contacts) if (isChatArchived(u)) out.add(u);
                 addGroupRows(out, true, false);
                 break;
             case FILTER_UNREAD:
-                for (User u : contacts) if (u.unread != null && u.unread > 0) out.add(u);
+                for (User u : contacts) {
+                    if (!isChatArchived(u) && u.unread != null && u.unread > 0) out.add(u);
+                }
                 if (!folderActive) addGroupRows(out, false, true);
                 break;
             default:
-                out.addAll(contacts);
+                for (User u : contacts) if (!isChatArchived(u)) out.add(u);
                 // A folder holds 1:1 chats only — hide groups while one is open.
                 if (!folderActive) addGroupRows(out, false, false);
                 break;
         }
-        if (!groupRows.isEmpty() && chatFilterMode != FILTER_ARCHIVED) sortMergedRows(out);
+        if (!groupRows.isEmpty() || !archivedChatUids.isEmpty()) sortMergedRows(out);
         return out;
+    }
+
+    private boolean isChatArchived(User u) {
+        return u != null && !u.isGroup && u.uid != null && archivedChatUids.contains(u.uid);
+    }
+
+    private int archivedChatCount() {
+        int n = 0;
+        for (User u : contacts) if (isChatArchived(u)) n++;
+        return n;
+    }
+
+    private long archivedUnreadTotal() {
+        long n = groupSource == null ? 0L : groupSource.archivedUnreadCount();
+        for (User u : contacts) {
+            if (isChatArchived(u) && u.unread != null && u.unread > 0
+                    && !mutedChatUids.contains(u.uid)) n += u.unread;
+        }
+        return n;
     }
 
     private void addGroupRows(List<User> out, boolean archivedOnly, boolean unreadOnly) {
@@ -765,7 +793,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     /** Selected-state styling + "Archived" chip only exists while something is archived. */
     private void refreshChatFilterChips() {
         if (llChatFilters == null) return;
-        boolean hasArchived = groupSource != null && groupSource.archivedCount() > 0;
+        boolean hasArchived = (groupSource != null && groupSource.archivedCount() > 0)
+                || archivedChatCount() > 0;
         if (!hasArchived && chatFilterMode == FILTER_ARCHIVED) {
             chatFilterMode = FILTER_ALL;
             chatSearchDataVersion++;
@@ -778,6 +807,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             int mode = (Integer) tag;
             if (mode == FILTER_ARCHIVED) {
                 child.setVisibility(hasArchived ? View.VISIBLE : View.GONE);
+                TextView lbl = child.findViewById(R.id.tv_folder_name);
+                long au = hasArchived ? archivedUnreadTotal() : 0L;
+                if (lbl != null) lbl.setText(au > 0
+                        ? getString(R.string.chat_filter_archived_unread, au > 99 ? "99+" : String.valueOf(au))
+                        : getString(R.string.chat_filter_archived));
             }
             boolean sel = mode == chatFilterMode;
             child.setBackgroundResource(sel
@@ -839,6 +873,28 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void updateChatSearchEmptyState(boolean show) {
         if (searchEmptyState != null) {
+            boolean searching = chatSearchQuery != null && !chatSearchQuery.isEmpty();
+            int msg = R.string.chat_search_empty;
+            boolean createGroupCta = false;
+            if (!searching) {
+                switch (chatFilterMode) {
+                    case FILTER_GROUPS:
+                        msg = R.string.chat_empty_groups;
+                        createGroupCta = true;
+                        break;
+                    case FILTER_UNREAD:   msg = R.string.chat_empty_unread; break;
+                    case FILTER_ARCHIVED: msg = R.string.chat_empty_archived; break;
+                    default: break;
+                }
+            }
+            searchEmptyState.setText(msg);
+            if (createGroupCta && show) {
+                searchEmptyState.setOnClickListener(x -> startActivity(new Intent(
+                        requireContext(), com.callx.app.group.NewGroupActivity.class)));
+            } else {
+                searchEmptyState.setOnClickListener(null);
+                searchEmptyState.setClickable(false);
+            }
             searchEmptyState.setVisibility(show ? View.VISIBLE : View.GONE);
         }
         if (emptyState != null) {
@@ -1908,6 +1964,21 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     : (u.uid != null && pinnedChatUids.contains(u.uid));
             if (!pinnedNow) { allPinned = false; break; }
         }
+        if (!allPinned) {
+            int already = groupSource == null ? 0 : groupSource.pinnedCount();
+            for (String id : pinnedChatUids) already++;
+            int adding = 0;
+            for (User u : selected) {
+                boolean pinnedNow = u.isGroup ? u.localPinned
+                        : (u.uid != null && pinnedChatUids.contains(u.uid));
+                if (!pinnedNow) adding++;
+            }
+            if (already + adding > MAX_PINNED && adding > 0) {
+                Toast.makeText(getContext(),
+                        getString(R.string.chat_pin_limit, MAX_PINNED), Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
         List<String> groupIds = new ArrayList<>();
         for (User u : selected) {
             if (u.isGroup) { if (u.groupId != null) groupIds.add(u.groupId); continue; }
@@ -1940,7 +2011,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
                 "Delete " + count + " chat" + (count > 1 ? "s" : "") + "?",
                 hasGroup
-                        ? "Selected conversations list se remove ho jayenge. Selected groups aap leave karoge."
+                        ? "Selected conversations list se remove ho jayenge. Selected groups aap leave karoge: aap members se hat jaoge aur group me \"left\" message jayega."
                         : "Selected conversations aapki chat list se remove ho jayenge.",
                 "Delete", this::deleteSelected,
                 null, null,
@@ -2009,28 +2080,70 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
     }
 
+    /** Mute/unmute everything selected — groups (mutedBy) and 1:1 chats (muted/{me}). */
     private void muteSelectedGroups() {
-        List<String> ids = selectedGroupIds();
-        if (ids.isEmpty() || groupSource == null) {
-            Toast.makeText(getContext(), "Mute sirf groups ke liye hai", Toast.LENGTH_SHORT).show();
+        if (adapter == null) return;
+        List<User> selected = adapter.getSelectedItems();
+        String me = FirebaseUtils.getCurrentUid();
+        if (selected.isEmpty() || me == null) {
+            Toast.makeText(getContext(), R.string.chat_nothing_selected, Toast.LENGTH_SHORT).show();
             return;
         }
-        boolean muted = groupSource.toggleMuted(ids);
+        List<String> groupIds = selectedGroupIds();
+        boolean mute = false;
+        for (User u : selected) {
+            boolean muted = u.isGroup ? u.localMuted
+                    : (u.uid != null && mutedChatUids.contains(u.uid));
+            if (!muted) { mute = true; break; }
+        }
+        if (!groupIds.isEmpty() && groupSource != null) {
+            // Group source toggles by its own state; force the shared decision.
+            boolean groupMuteNow = groupSource.toggleMuted(groupIds);
+            if (groupMuteNow != mute) groupSource.toggleMuted(groupIds);
+        }
+        for (User u : selected) {
+            if (u.isGroup || u.uid == null) continue;
+            DatabaseReference ref = FirebaseUtils.db().getReference("muted").child(me).child(u.uid);
+            if (mute) ref.setValue(true); else ref.removeValue();
+        }
         finishSelectionAction();
-        Toast.makeText(getContext(), muted ? "Group muted" : "Group unmuted",
-                Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(),
+                mute ? R.string.chat_muted : R.string.chat_unmuted, Toast.LENGTH_SHORT).show();
     }
 
+    /** Archive/unarchive everything selected — groups and 1:1 chats. */
     private void archiveSelectedGroups() {
-        List<String> ids = selectedGroupIds();
-        if (ids.isEmpty() || groupSource == null) {
-            Toast.makeText(getContext(), "Archive sirf groups ke liye hai", Toast.LENGTH_SHORT).show();
+        if (adapter == null) return;
+        List<User> selected = adapter.getSelectedItems();
+        if (selected.isEmpty()) {
+            Toast.makeText(getContext(), R.string.chat_nothing_selected, Toast.LENGTH_SHORT).show();
             return;
         }
-        boolean archived = groupSource.toggleArchived(ids);
+        boolean archive = false;
+        for (User u : selected) {
+            boolean archivedNow = u.isGroup
+                    ? (groupSource != null && groupSource.isArchived(u.groupId))
+                    : (u.uid != null && archivedChatUids.contains(u.uid));
+            if (!archivedNow) { archive = true; break; }
+        }
+        List<String> groupIds = selectedGroupIds();
+        if (!groupIds.isEmpty() && groupSource != null) {
+            boolean groupArchiveNow = groupSource.toggleArchived(groupIds);
+            if (groupArchiveNow != archive) groupSource.toggleArchived(groupIds);
+        }
+        for (User u : selected) {
+            if (u.isGroup || u.uid == null) continue;
+            if (archive) archivedChatUids.add(u.uid); else archivedChatUids.remove(u.uid);
+        }
+        if (chatListPrefs != null) {
+            chatListPrefs.edit().putStringSet(KEY_ARCHIVED_CHATS, new HashSet<>(archivedChatUids)).apply();
+        }
+        chatSearchDataVersion++;
+        refreshChatFilterChips();
         finishSelectionAction();
-        Toast.makeText(getContext(), archived ? "Group archived" : "Group unarchived",
-                Toast.LENGTH_SHORT).show();
+        applyChatSearch();
+        Toast.makeText(getContext(),
+                archive ? R.string.chat_archived : R.string.chat_unarchived, Toast.LENGTH_SHORT).show();
     }
 
     // ── v21 DELETE ALL ─────────────────────────────────────────────────────

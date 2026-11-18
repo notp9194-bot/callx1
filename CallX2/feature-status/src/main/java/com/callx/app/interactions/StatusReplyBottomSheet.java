@@ -319,6 +319,12 @@ public class StatusReplyBottomSheet {
      */
     public static void sendPrivateReply(String myUid, String ownerUid, String ownerName,
                                         StatusItem item, String message) {
+        sendPrivateReply(null, myUid, ownerUid, ownerName, item, message);
+    }
+
+    /** Same as above; with a Context the bubble also appears instantly in the chat (Room + outbox). */
+    public static void sendPrivateReply(Context ctx, String myUid, String ownerUid, String ownerName,
+                                        StatusItem item, String message) {
         if (item == null || myUid == null || ownerUid == null || message == null) return;
         String chatId = myUid.compareTo(ownerUid) < 0
                 ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
@@ -335,11 +341,15 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         getPreviewText(item));
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
+        insertOptimisticReply(ctx, chatId, msgId, myUid, message, item, getPreviewText(item), ownerName);
+        embedReplyThumbnail(item, msg, chatId, msgId, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
-            .addOnSuccessListener(u ->
-                withMyProfile(myUid, (name, photo) -> notifyOwner(ownerUid, myUid, name, photo, message, chatId))));
+            .addOnSuccessListener(u -> {
+                markReplyStatus(ctx, msgId, "sent");
+                withMyProfile(myUid, (name, photo) -> notifyOwner(ownerUid, myUid, name, photo, message, chatId));
+            })
+            .addOnFailureListener(err -> markReplyStatus(ctx, msgId, "failed")));
     }
 
     /**
@@ -481,19 +491,66 @@ public class StatusReplyBottomSheet {
      * {@code thenSend} — which does the actual message setValue()/notify —
      * once the message map is ready, whether or not the embed succeeded.
      */
-    private static void embedReplyThumbnail(StatusItem item, Map<String, Object> msg, Runnable thenSend) {
+    private static void embedReplyThumbnail(StatusItem item, Map<String, Object> msg,
+                                            String chatId, String msgId, Runnable thenSend) {
         String url = item.thumbnailUrl != null ? item.thumbnailUrl
                 : ("image".equals(item.type) && item.mediaUrl != null ? item.mediaUrl : null);
-        if (url == null || url.isEmpty()) {
-            thenSend.run();
-            return;
+        if (url != null && !url.isEmpty()) {
+            msg.put("replyToMediaUrl", url); // shown immediately; base64 patch below makes it self-contained
         }
-        msg.put("replyToMediaUrl", url); // fallback / older clients, or if the embed below fails
-        // Download/crop/compress logic lives in the shared ThumbnailEmbedder
-        // (core) — also used by StatusSeenTracker and ReelSeenTracker now.
+        // SPEED FIX: send FIRST. The download/crop/compress below used to run
+        // before the Firebase write (up to ~12s on a slow link), so the reply
+        // bubble only appeared after it finished. Now the message goes out at
+        // once and the embedded thumbnail is patched in as a single child write.
+        thenSend.run();
+        if (url == null || url.isEmpty() || chatId == null || msgId == null) return;
         com.callx.app.utils.ThumbnailEmbedder.embed(url, base64 -> {
-            if (base64 != null) msg.put("replyToThumbBase64", base64);
-            thenSend.run();
+            if (base64 == null) return;
+            FirebaseUtils.db().getReference("messages").child(chatId).child(msgId)
+                    .child("replyToThumbBase64").setValue(base64);
+        });
+    }
+
+    /**
+     * Optimistic local bubble for a status reply: Room "pending" row + durable
+     * outbox entry (same pair ChatMessageSender writes), so the bubble shows
+     * instantly and the reply survives offline / process death.
+     */
+    private static void insertOptimisticReply(Context ctx, String chatId, String msgId,
+                                              String myUid, String text, StatusItem item,
+                                              String replyText, String ownerName) {
+        if (ctx == null) return;
+        final Context app = ctx.getApplicationContext();
+        final com.callx.app.db.entity.MessageEntity e = new com.callx.app.db.entity.MessageEntity();
+        e.id = msgId;
+        e.chatId = chatId;
+        e.senderId = myUid;
+        e.text = text;
+        e.type = "text";
+        e.timestamp = System.currentTimeMillis();
+        e.status = "pending";
+        e.replyToType = item.type != null ? item.type : "text";
+        e.replyToText = replyText;
+        e.replyToSenderName = statusReplyLabel(ownerName);
+        e.replyToId = "status_" + (item.id != null ? item.id : "unknown");
+        e.replyToMediaUrl = item.thumbnailUrl != null ? item.thumbnailUrl
+                : ("image".equals(item.type) ? item.mediaUrl : null);
+        e.isGroup = false;
+        e.syncedAt = e.timestamp;
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            try {
+                com.callx.app.db.AppDatabase.getInstance(app).messageDao().insertMessage(e);
+                com.callx.app.sync.OfflineOutbox.enqueueSend(app, e);
+            } catch (Exception ignored) { }
+        });
+    }
+
+    private static void markReplyStatus(Context ctx, String msgId, String status) {
+        if (ctx == null) return;
+        final Context app = ctx.getApplicationContext();
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            try { com.callx.app.db.AppDatabase.getInstance(app).messageDao().updateStatus(msgId, status); }
+            catch (Exception ignored) { }
         });
     }
 
@@ -561,7 +618,7 @@ public class StatusReplyBottomSheet {
         sendBtn.setOnClickListener(v -> {
             String answer = et.getText() != null ? et.getText().toString().trim() : "";
             if (answer.isEmpty()) { et.setError("Type an answer"); return; }
-            sendQuestionReply(myUid, ownerUid, ownerName, item, prompt, answer);
+            sendQuestionReply(ctx, myUid, ownerUid, ownerName, item, prompt, answer);
             if (listener != null) listener.onSent(answer);
             Toast.makeText(ctx, "Answer sent ✓", Toast.LENGTH_SHORT).show();
             sheet.dismiss();
@@ -582,7 +639,7 @@ public class StatusReplyBottomSheet {
         sheet.show();
     }
 
-    private static void sendQuestionReply(String myUid, String ownerUid, String ownerName,
+    private static void sendQuestionReply(Context ctx, String myUid, String ownerUid, String ownerName,
                                            StatusItem item, String questionPrompt, String answer) {
         String chatId = myUid.compareTo(ownerUid) < 0
                 ? myUid + "_" + ownerUid : ownerUid + "_" + myUid;
@@ -604,13 +661,17 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83D\uDCAC " + questionPrompt); // 💬
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
+        insertOptimisticReply(ctx, chatId, msgId, myUid, answer, item,
+                "\uD83D\uDCAC " + questionPrompt, ownerName);
+        embedReplyThumbnail(item, msg, chatId, msgId, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
+            .addOnFailureListener(err -> markReplyStatus(ctx, msgId, "failed"))
             .addOnSuccessListener(u ->
                 FirebaseUtils.db().getReference("users").child(myUid)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(DataSnapshot snap) {
+                            markReplyStatus(ctx, msgId, "sent");
                             String name  = snap.child("name").getValue(String.class);
                             String photo = snap.child("thumbUrl").getValue(String.class);
                             if (photo == null) photo = snap.child("photoUrl").getValue(String.class);
@@ -667,7 +728,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83E\uDDE0 " + question); // 🧠
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, chatId, msgId, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -730,7 +791,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\u23F0 " + label); // ⏰
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, chatId, msgId, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -789,7 +850,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83D\uDDF3\uFE0F " + question);
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, chatId, msgId, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -848,7 +909,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83C\uDF9A\uFE0F " + question);
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, chatId, msgId, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->

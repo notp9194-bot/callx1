@@ -162,6 +162,31 @@ public class MainActivity extends AppCompatActivity
     private final java.util.Map<String, ValueEventListener> statusBadgeListeners = new java.util.HashMap<>();
     private final java.util.Map<String, DataSnapshot> statusBadgeSnaps = new java.util.HashMap<>();
     private ValueEventListener unreadGroupsListener;
+    // Raw per-group unread from userGroups/{me}; badge excludes muted/archived
+    // groups (those lists are kept in "group_list_settings" prefs by
+    // GroupChatListSource), so it is recomputed when either changes.
+    private final java.util.Map<String, Long> groupUnreadById = new java.util.HashMap<>();
+    private android.content.SharedPreferences groupListPrefs;
+    private android.content.SharedPreferences.OnSharedPreferenceChangeListener groupPrefsListener;
+
+    private void recomputeGroupBadge() {
+        java.util.Set<String> muted = groupListPrefs == null ? java.util.Collections.<String>emptySet()
+                : groupListPrefs.getStringSet("muted_ids", java.util.Collections.<String>emptySet());
+        java.util.Set<String> archived = groupListPrefs == null ? java.util.Collections.<String>emptySet()
+                : groupListPrefs.getStringSet("archived", java.util.Collections.<String>emptySet());
+        int unread = 0;
+        int threads = 0;
+        for (java.util.Map.Entry<String, Long> e : groupUnreadById.entrySet()) {
+            long u = e.getValue() == null ? 0L : e.getValue();
+            if (u <= 0 || muted.contains(e.getKey()) || archived.contains(e.getKey())) continue;
+            unread += u;
+            threads++;
+        }
+        groupBadgeUnread = unread;
+        refreshChatsNavBadge();
+        notifGroupUnread = threads;
+        updateNotifBadge();
+    }
     private ValueEventListener unreadReelNotifsListener;
     private final java.util.Map<DatabaseReference, ChildEventListener>
             storyStatusListeners = new java.util.HashMap<>();
@@ -1129,21 +1154,19 @@ public class MainActivity extends AppCompatActivity
         FirebaseUtils.getStatusSeenRef(uid).addValueEventListener(unseenStatusListener);
 
         // 4. Unread group messages → folded into the nav_chats badge (Groups tab removed)
+        groupListPrefs = getSharedPreferences("group_list_settings", MODE_PRIVATE);
+        groupPrefsListener = (sp, key) -> {
+            if ("muted_ids".equals(key) || "archived".equals(key)) recomputeGroupBadge();
+        };
+        groupListPrefs.registerOnSharedPreferenceChangeListener(groupPrefsListener);
         unreadGroupsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
-                int unread = 0;
-                int threads = 0;
+                groupUnreadById.clear();
                 for (DataSnapshot g : snap.getChildren()) {
                     Long u = g.child("unread").getValue(Long.class);
-                    if (u != null && u > 0) {
-                        unread += u;
-                        threads++;
-                    }
+                    if (g.getKey() != null && u != null && u > 0) groupUnreadById.put(g.getKey(), u);
                 }
-                groupBadgeUnread = unread;
-                refreshChatsNavBadge();
-                notifGroupUnread = threads;
-                updateNotifBadge();
+                recomputeGroupBadge();
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
@@ -1332,6 +1355,10 @@ public class MainActivity extends AppCompatActivity
         missedCallsListener = null;
         unseenStatusListener = null;
         unreadGroupsListener = null;
+        if (groupListPrefs != null && groupPrefsListener != null) {
+            groupListPrefs.unregisterOnSharedPreferenceChangeListener(groupPrefsListener);
+        }
+        groupPrefsListener = null;
         unreadReelNotifsListener = null;
         badgeListenersAttached = false;
         badgeListenersUid = null;

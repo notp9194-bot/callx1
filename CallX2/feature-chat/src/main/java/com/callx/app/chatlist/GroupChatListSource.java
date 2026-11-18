@@ -18,6 +18,7 @@ import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
+import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
@@ -59,6 +60,8 @@ public final class GroupChatListSource {
     private static final String PREFS = "group_list_settings";
     private static final String KEY_PINNED = "pinned";
     private static final String KEY_ARCHIVED = "archived";
+    /** Muted group ids — read by MainActivity so the Chats badge skips them. */
+    private static final String KEY_MUTED_IDS = "muted_ids";
 
     private final Context appContext;
     private final Listener listener;
@@ -166,8 +169,21 @@ public final class GroupChatListSource {
         });
     }
 
+    // Last persisted signature per group — skips redundant Room writes when a
+    // Firebase event carries nothing the list row actually stores.
+    private final Map<String, String> savedSig = new HashMap<>();
+
     private void saveGroup(Group g) {
         if (g == null || g.id == null) return;
+        String sigUid = FirebaseUtils.getCurrentUid();
+        Long sigUnread = (g.unread == null || sigUid == null) ? null : g.unread.get(sigUid);
+        String sig = g.name + '\u0001' + g.description + '\u0001' + g.iconUrl + '\u0001'
+                + g.lastMessage + '\u0001' + g.lastSenderName + '\u0001' + g.lastMessageAt
+                + '\u0001' + g.lastMessageType + '\u0001' + g.lastMessageStatus
+                + '\u0001' + g.lastMessageSenderUid + '\u0001' + g.lastMessageId
+                + '\u0001' + sigUnread + '\u0001' + g.localMuted;
+        if (sig.equals(savedSig.get(g.id))) return;
+        savedSig.put(g.id, sig);
         final GroupEntity e = new GroupEntity();
         e.id = g.id;
         e.name = g.name;
@@ -250,6 +266,12 @@ public final class GroupChatListSource {
                 String me = FirebaseUtils.getCurrentUid();
                 g.localMuted = me != null && g.mutedBy != null
                         && Boolean.TRUE.equals(g.mutedBy.get(me));
+                // New unread message in an archived (unmuted) group → bring it
+                // back to the main list so the message is not missed.
+                if (!g.localMuted && isArchived(g.id)
+                        && unreadOf(g, me) > unreadOf(groups.get(g.id), me)) {
+                    setArchivedInternal(g.id, false);
+                }
                 groups.put(g.id, g);
                 saveGroup(g);
                 scheduleEmit();
@@ -269,6 +291,7 @@ public final class GroupChatListSource {
 
     private void removeLocal(String id, boolean deleteFromRoom) {
         groups.remove(id);
+        savedSig.remove(id);
         if (deleteFromRoom) {
             AppBgExecutor.execute(() -> {
                 try { AppDatabase.getInstance(appContext).groupDao().deleteGroup(id); }
@@ -298,7 +321,16 @@ public final class GroupChatListSource {
     /** Current rows without waiting for the debounce. */
     public List<User> snapshotRows() { return buildRows(); }
 
+    private void persistMutedIds() {
+        Set<String> muted = new HashSet<>();
+        for (Group g : groups.values()) if (g != null && g.id != null && g.localMuted) muted.add(g.id);
+        if (!muted.equals(prefs.getStringSet(KEY_MUTED_IDS, Collections.emptySet()))) {
+            prefs.edit().putStringSet(KEY_MUTED_IDS, muted).apply();
+        }
+    }
+
     private List<User> buildRows() {
+        persistMutedIds();
         Set<String> pinned = prefs.getStringSet(KEY_PINNED, Collections.emptySet());
         Set<String> archived = prefs.getStringSet(KEY_ARCHIVED, Collections.emptySet());
         String me = FirebaseUtils.getCurrentUid();
@@ -346,6 +378,39 @@ public final class GroupChatListSource {
         Set<String> archived = prefs.getStringSet(KEY_ARCHIVED, Collections.emptySet());
         int n = 0;
         for (String id : archived) if (groups.containsKey(id)) n++;
+        return n;
+    }
+
+    private static long unreadOf(@Nullable Group g, @Nullable String me) {
+        if (g == null || g.unread == null || me == null) return 0L;
+        Long u = g.unread.get(me);
+        return u == null ? 0L : Math.max(0L, u);
+    }
+
+    private void setArchivedInternal(String groupId, boolean archive) {
+        Set<String> archived = new HashSet<>(prefs.getStringSet(KEY_ARCHIVED, Collections.emptySet()));
+        if (archive ? archived.add(groupId) : archived.remove(groupId)) {
+            prefs.edit().putStringSet(KEY_ARCHIVED, archived).apply();
+        }
+    }
+
+    /** Total unread messages sitting in archived, unmuted groups (Archived chip dot). */
+    public long archivedUnreadCount() {
+        Set<String> archived = prefs.getStringSet(KEY_ARCHIVED, Collections.emptySet());
+        String me = FirebaseUtils.getCurrentUid();
+        long n = 0;
+        for (String id : archived) {
+            Group g = groups.get(id);
+            if (g != null && !g.localMuted) n += unreadOf(g, me);
+        }
+        return n;
+    }
+
+    /** Number of pinned groups that still exist (for the shared pin limit). */
+    public int pinnedCount() {
+        Set<String> pinned = prefs.getStringSet(KEY_PINNED, Collections.emptySet());
+        int n = 0;
+        for (String id : pinned) if (groups.containsKey(id)) n++;
         return n;
     }
 
@@ -409,17 +474,45 @@ public final class GroupChatListSource {
         return mute;
     }
 
-    /** Leave + remove from list (same effect as the old Groups tab's delete). */
+    /**
+     * Real leave (same writes as GroupInfoActivity#doLeaveGroup): removes us
+     * from members/admins/mutedBy/unread, drops the userGroups entry, posts
+     * the "left the group" system message and asks remaining members to
+     * rotate the sender key. Then clears all local state for the group.
+     */
     public void leave(Collection<String> groupIds) {
         String me = FirebaseUtils.getCurrentUid();
         if (me == null || groupIds.isEmpty()) return;
+        String myName = FirebaseUtils.getCurrentName();
+        String myPhoto = FirebaseUtils.getCurrentPhotoUrl();
         Set<String> pinned = new HashSet<>(prefs.getStringSet(KEY_PINNED, Collections.emptySet()));
         Set<String> archived = new HashSet<>(prefs.getStringSet(KEY_ARCHIVED, Collections.emptySet()));
         for (String id : groupIds) {
-            FirebaseUtils.getUserGroupsRef(me).child(id).removeValue();
+            Map<String, Object> upd = new HashMap<>();
+            upd.put("groups/" + id + "/members/" + me, null);
+            upd.put("groups/" + id + "/admins/" + me, null);
+            upd.put("groups/" + id + "/mutedBy/" + me, null);
+            upd.put("groups/" + id + "/unread/" + me, null);
+            upd.put("userGroups/" + me + "/" + id, null);
+            FirebaseUtils.db().getReference().updateChildren(upd);
+
+            DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(id).push();
+            Map<String, Object> sys = new HashMap<>();
+            sys.put("id", sysRef.getKey());
+            sys.put("senderId", "system");
+            sys.put("senderName", "System");
+            sys.put("text", (myName == null ? "Someone" : myName) + " left the group");
+            sys.put("type", "system");
+            sys.put("timestamp", System.currentTimeMillis());
+            sys.put("eventUid", me);
+            if (myPhoto != null && !myPhoto.isEmpty()) sys.put("eventPhoto", myPhoto);
+            sysRef.setValue(sys);
+            PushNotify.notifyGroupKeyRotate(id, me);
+
             activeGroupIds.remove(id);
             detachGroup(id);
             groups.remove(id);
+            savedSig.remove(id);
             pinned.remove(id);
             archived.remove(id);
             AppBgExecutor.execute(() -> {

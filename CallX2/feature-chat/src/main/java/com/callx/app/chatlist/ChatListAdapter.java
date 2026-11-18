@@ -109,7 +109,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 && a.localPinned == b.localPinned
                 && a.localMuted == b.localMuted
                 && a.memberCount == b.memberCount
-                && safeEq(a.lastSenderName, b.lastSenderName);
+                && safeEq(a.lastSenderName, b.lastSenderName)
+                && safeEq(a.lastMessageId, b.lastMessageId);
         }
 
         /**

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_filter_archived">Archived</string>
+    <string name="chat_filter_archived_unread">Archived · %1$s</string>
+    <string name="chat_search_empty">Koi chat ya message nahi mila</string>
+    <string name="chat_empty_groups">Abhi koi group nahi hai.\nNaya group banane ke liye yahan tap karo</string>
+    <string name="chat_empty_unread">Koi unread chat nahi</string>
+    <string name="chat_empty_archived">Archive me kuch nahi hai</string>
+    <string name="chat_nothing_selected">Koi bhi select nahi kiya</string>
+    <string name="chat_muted">Muted</string>
+    <string name="chat_unmuted">Unmuted</string>
+    <string name="chat_archived">Archived</string>
+    <string name="chat_unarchived">Unarchived</string>
+    <string name="chat_pin_limit">Sirf %1$d chats pin kar sakte ho</string>
+</resources>

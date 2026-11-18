@@ -5212,7 +5212,7 @@ import com.callx.app.utils.AlertDialogStyler;
               if (myUid == null || ownerUid == null) return;
               StatusItem current = idx < items.size() ? items.get(idx) : null;
               if (current == null) return;
-              StatusReplyBottomSheet.sendPrivateReply(myUid, ownerUid, ownerName, current, msg);
+              StatusReplyBottomSheet.sendPrivateReply(this, myUid, ownerUid, ownerName, current, msg);
               binding.etReply.clearFocus();   // first: focus listener hides the grid, so setText("") can't re-show it
               binding.etReply.setText("");
               android.view.inputmethod.InputMethodManager sentImm =

@@ -387,7 +387,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // a short window and flush them all in ONE Room transaction — see
     // MessageDao#applyBufferedChanges(). One transaction = one invalidation
     // = one single-pass render.
-    private static final long WRITE_FLUSH_DEBOUNCE_MS = 80;
+    private static final long WRITE_FLUSH_DEBOUNCE_MS = 30;
     private final java.util.Map<String, Message> pendingUpserts = new java.util.LinkedHashMap<>();
     private final java.util.LinkedHashSet<String> pendingRemovals = new java.util.LinkedHashSet<>();
     private final java.util.LinkedHashSet<String> pendingReadIds = new java.util.LinkedHashSet<>();
@@ -464,7 +464,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // (Firebase initial replay). Refresh the live PagingSource once per burst,
     // not once per write, so the differ's anchor cannot be repeatedly reset.
     private Runnable pendingPagingRefreshRunnable = null;
-    private static final long PAGING_REFRESH_DEBOUNCE_MS = 180L;
+    private static final long PAGING_REFRESH_DEBOUNCE_MS = 50L;
+    // Set right before WE send a message: the very next Paging refresh runs with
+    // no debounce so our own bubble shows up as soon as the Room insert commits.
+    private volatile boolean fastNextPagingRefresh;
     // Material "standard decelerate" bezier — fast start, gentle settle.
     // Matches the motion feel WhatsApp/Telegram use for their own list
     // reveal instead of RecyclerView's default (linear-ish) scroller curve.
@@ -1877,6 +1880,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // HIDE real content from chat list — replace preview with generic label.
             previewText = "🔒 View Once";
         }
+        fastNextPagingRefresh = true;
         messageSender.pushMessage(m, previewText);
 
         // TELEGRAM-STYLE SEND ANIMATION: messageSender.pushMessage() sets
@@ -3504,8 +3508,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             };
         }
         binding.rvMessages.removeCallbacks(pendingPagingRefreshRunnable);
+        final boolean fast = fastNextPagingRefresh;
+        fastNextPagingRefresh = false;
         binding.rvMessages.postDelayed(
-                pendingPagingRefreshRunnable, PAGING_REFRESH_DEBOUNCE_MS);
+                pendingPagingRefreshRunnable, fast ? 0L : PAGING_REFRESH_DEBOUNCE_MS);
     }
 
     @Override

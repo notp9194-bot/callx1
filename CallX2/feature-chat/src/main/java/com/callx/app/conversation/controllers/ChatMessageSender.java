@@ -27,6 +27,13 @@ import java.util.Map;
  */
 public class ChatMessageSender {
 
+    private static final java.util.concurrent.ExecutorService SEND_IO =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "chat-send-io");
+                t.setPriority(Thread.NORM_PRIORITY + 1);
+                return t;
+            });
+
     private final ChatActivityDelegate delegate;
 
     public ChatMessageSender(ChatActivityDelegate delegate) {
@@ -97,7 +104,9 @@ public class ChatMessageSender {
         // message still triggers the old top-jump bug even though
         // receiving is now fixed. See ChatActivity#severPagingIfAtBottom().
         boolean willReanchor = delegate.severPagingIfAtBottom();
-        AppBgExecutor.execute(() -> {
+        // Dedicated single thread: the optimistic bubble's Room insert no longer
+        // queues behind unrelated work on the shared 3-thread AppBgExecutor pool.
+        SEND_IO.execute(() -> {
             AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
             if (willReanchor) delegate.reanchorPagingToBottom();
         });
