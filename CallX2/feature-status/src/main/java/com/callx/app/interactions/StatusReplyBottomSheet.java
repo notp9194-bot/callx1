@@ -497,6 +497,18 @@ public class StatusReplyBottomSheet {
                 : ("image".equals(item.type) && item.mediaUrl != null ? item.mediaUrl : null);
         if (url != null && !url.isEmpty()) {
             msg.put("replyToMediaUrl", url); // shown immediately; base64 patch below makes it self-contained
+        } else if ("text".equals(item.type)) {
+            // Text statuses have no image: render their gradient card as the thumbnail. Built OFF the main
+            // thread (and memoized per status), then patched in like the downloaded thumbnail — the send
+            // itself is never delayed by it.
+            thenSend.run();
+            if (chatId == null || msgId == null) return;
+            com.callx.app.utils.AppBgExecutor.execute(() -> {
+                String card = textStatusThumbBase64(item);
+                if (card != null) FirebaseUtils.db().getReference("messages").child(chatId).child(msgId)
+                        .child("replyToThumbBase64").setValue(card);
+            });
+            return;
         }
         // SPEED FIX: send FIRST. The download/crop/compress below used to run
         // before the Firebase write (up to ~12s on a slow link), so the reply
@@ -509,6 +521,72 @@ public class StatusReplyBottomSheet {
             FirebaseUtils.db().getReference("messages").child(chatId).child(msgId)
                     .child("replyToThumbBase64").setValue(base64);
         });
+    }
+
+    /** 176px gradient card with the status text (first lines), JPEG→base64; null on any failure. */
+    private static final android.util.LruCache<String, String> TEXT_THUMB_CACHE =
+            new android.util.LruCache<>(16);
+
+    @androidx.annotation.Nullable
+    static String textStatusThumbBase64(StatusItem item) {
+        // Same status → same card: replying twice (or optimistic row + Firebase patch) renders it once.
+        final String cacheKey = (item.id != null ? item.id : "") + '|'
+                + (item.text != null ? item.text.hashCode() : 0) + '|' + item.bgColor + '|' + item.bgColor2;
+        String cached = TEXT_THUMB_CACHE.get(cacheKey);
+        if (cached != null) return cached;
+        String made = renderTextStatusThumb(item);
+        if (made != null) TEXT_THUMB_CACHE.put(cacheKey, made);
+        return made;
+    }
+
+    @androidx.annotation.Nullable
+    private static String renderTextStatusThumb(StatusItem item) {
+        try {
+            final int sz = 176;
+            int c1 = parseColorOr(item.bgColor, 0xFF6200EE);
+            int c2 = item.bgColor2 != null ? parseColorOr(item.bgColor2, c1) : c1;
+            int[] colors = {c1, c2};
+            if (item.gradientColors != null && item.gradientColors.size() >= 2) {
+                colors = new int[item.gradientColors.size()];
+                for (int i = 0; i < colors.length; i++) colors[i] = parseColorOr(item.gradientColors.get(i), c1);
+            }
+            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(sz, sz, android.graphics.Bitmap.Config.RGB_565);
+            android.graphics.Canvas cv = new android.graphics.Canvas(bmp);
+            android.graphics.Paint bg = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            bg.setShader(new android.graphics.LinearGradient(0, 0, sz, sz, colors, null,
+                    android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(0, 0, sz, sz, bg);
+            String t = item.text != null && !item.text.trim().isEmpty() ? item.text.trim()
+                    : (item.caption != null ? item.caption.trim() : "");
+            if (!t.isEmpty()) {
+                android.text.TextPaint tp = new android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                tp.setColor(parseColorOr(item.textColor, 0xFFFFFFFF));
+                tp.setTextSize(26f);
+                tp.setFakeBoldText(true);
+                int w = sz - 24;
+                android.text.StaticLayout sl = android.text.StaticLayout.Builder
+                        .obtain(t, 0, Math.min(t.length(), 60), tp, w)
+                        .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
+                        .setMaxLines(4)
+                        .setEllipsize(android.text.TextUtils.TruncateAt.END)
+                        .build();
+                cv.save();
+                cv.translate(12, (sz - sl.getHeight()) / 2f);
+                sl.draw(cv);
+                cv.restore();
+            }
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, bos);
+            bmp.recycle();
+            return android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static int parseColorOr(@androidx.annotation.Nullable String hex, int fallback) {
+        if (hex == null || hex.isEmpty()) return fallback;
+        try { return Color.parseColor(hex); } catch (Exception e) { return fallback; }
     }
 
     /**
@@ -537,8 +615,10 @@ public class StatusReplyBottomSheet {
                 : ("image".equals(item.type) ? item.mediaUrl : null);
         e.isGroup = false;
         e.syncedAt = e.timestamp;
+        final boolean needsCard = e.replyToMediaUrl == null && "text".equals(item.type);
         com.callx.app.utils.AppBgExecutor.execute(() -> {
             try {
+                if (needsCard) e.replyToThumbBase64 = textStatusThumbBase64(item); // memoized, background thread
                 com.callx.app.db.AppDatabase.getInstance(app).messageDao().insertMessage(e);
                 com.callx.app.sync.OfflineOutbox.enqueueSend(app, e);
             } catch (Exception ignored) { }

@@ -1759,6 +1759,28 @@ public class MessageBubbleCanvasView extends View {
     final Rect replyThumbSrcRect = new Rect();
     final RectF replyThumbDstRect = new RectF();
     final android.graphics.Path replyThumbClipPath = new android.graphics.Path();
+    // ── Reply decorations (status-reply polish) ──
+    /** Reserve the 44dp thumbnail slot even before the bitmap has decoded (no layout jump on arrival). */
+    boolean replyReserveSlot = false;
+    boolean replyVideo = false;
+    @Nullable String replyExpiredLabel = null;
+    boolean replyPressed = false;
+    float replyThumbAlpha = 1f;
+    @Nullable android.animation.ValueAnimator replyFadeAnim;
+    float bigReactionScale = 1f;
+    @Nullable android.animation.ValueAnimator bigReactionPopAnim;
+    final android.graphics.Path replyPlayPath = new android.graphics.Path();
+    private float geomL = -1f, geomT = -1f, geomS = -1f, geomR = -1f;
+    private boolean replyPlayPathValid = false;
+    private float expiredBaselineDy = 0f;
+    Paint replyPlaceholderPaint;
+    Paint replyPressedPaint;
+    Paint replyScrimPaint;
+    Paint replyPlayBgPaint;
+    Paint replyPlayFgPaint;
+    TextPaint replyExpiredPaint;
+
+    private boolean hasThumbSlot() { return replyThumb != null || replyReserveSlot; }
     final Paint replyThumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
 
     // ── Big story/reel-reaction emoji badge (Instagram-style) ─────────
@@ -2975,6 +2997,9 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onDetachedFromWindow() {
         setPressed(false);
+        cancelReplyThumbFade();
+        if (bigReactionPopAnim != null && bigReactionPopAnim.isRunning()) bigReactionPopAnim.cancel();
+        replyPressed = false;
         super.onDetachedFromWindow();
         SpinnerClock.unregister(this);
         indeterminateDrawnSinceTick = false;
@@ -5423,10 +5448,13 @@ public class MessageBubbleCanvasView extends View {
                 && this.replyText.equals(tx) && this.replyThumb == thumb) {
             return;
         }
+        final boolean fadeIn = this.hasReply && this.replyThumb == null && thumb != null
+                && this.replyReserveSlot && isAttachedToWindow();
         this.hasReply = true;
         this.replySenderName = sn;
         this.replyText = tx;
         this.replyThumb = thumb;
+        if (fadeIn) startReplyThumbFade(); else cancelReplyThumbFade();
         resolveReplyColors(getContext());
         // Bubble corner treatment doesn't actually depend on hasReply in this
         // view (unlike the legacy bg_reply_preview backgrounds, the outer
@@ -5439,6 +5467,74 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
+    /**
+     * Status-reply polish: call BEFORE setReply() on every bind.
+     * @param reserveSlot keep the thumbnail slot reserved while the bitmap decodes
+     * @param video       draw a ▶ chip over the thumbnail
+     * @param expiredLabel non-null → dim the thumbnail and print this label on it
+     */
+    public void setReplyDecor(boolean reserveSlot, boolean video, @Nullable String expiredLabel) {
+        boolean slotChanged = this.replyReserveSlot != reserveSlot;
+        boolean visualChanged = this.replyVideo != video
+                || !java.util.Objects.equals(this.replyExpiredLabel, expiredLabel);
+        if (!slotChanged && !visualChanged) return;
+        this.replyReserveSlot = reserveSlot;
+        this.replyVideo = video;
+        this.replyExpiredLabel = expiredLabel;
+        if (slotChanged && hasReply) {
+            if (requestLayoutIfSizeChanged()) {
+                replySenderLayout = null;
+                replyTextLayout = null;
+            }
+        }
+        if (hasReply) invalidate();
+    }
+
+    // Animators are created lazily ONCE per view and reused (no per-bind allocation).
+    private static final android.view.animation.Interpolator POP_INTERPOLATOR =
+            new android.view.animation.OvershootInterpolator(2.2f);
+
+    private void startReplyThumbFade() {
+        if (replyFadeAnim == null) {
+            android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
+            a.setDuration(160);
+            a.addUpdateListener(an -> { replyThumbAlpha = (float) an.getAnimatedValue(); invalidate(); });
+            replyFadeAnim = a;
+        } else if (replyFadeAnim.isRunning()) {
+            replyFadeAnim.cancel();
+        }
+        replyThumbAlpha = 0f;
+        replyFadeAnim.start();
+    }
+
+    private void cancelReplyThumbFade() {
+        if (replyFadeAnim != null && replyFadeAnim.isRunning()) replyFadeAnim.cancel();
+        replyThumbAlpha = 1f;
+    }
+
+    /** One-shot pop (scale-in with overshoot) of the big story-reaction emoji — call for fresh messages only. */
+    public void playBigReactionPop() {
+        if (!bigReactionBadge || !isAttachedToWindow()) return;
+        if (bigReactionPopAnim == null) {
+            android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
+            a.setDuration(420);
+            a.setInterpolator(POP_INTERPOLATOR);
+            a.addUpdateListener(an -> {
+                bigReactionScale = (float) an.getAnimatedValue();
+                invalidateBigReactionBadgeRegion();
+            });
+            a.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(android.animation.Animator an) { bigReactionScale = 1f; }
+                @Override public void onAnimationCancel(android.animation.Animator an) { bigReactionScale = 1f; }
+            });
+            bigReactionPopAnim = a;
+        } else if (bigReactionPopAnim.isRunning()) {
+            bigReactionPopAnim.cancel();
+        }
+        bigReactionScale = 0f;
+        bigReactionPopAnim.start();
+    }
+
     /** Call when a message has no reply — clears any previous reply-strip state so a recycled view doesn't show stale data. */
     public void clearReply() {
         // PERF: same no-op guard as setReply() above — the vast majority of
@@ -5448,6 +5544,13 @@ public class MessageBubbleCanvasView extends View {
         // send/receive (clearReply() is called unconditionally on every
         // rebind of a no-reply row — see the adapter's else-branch).
         if (!this.hasReply && !this.bigReactionBadge) return;
+        cancelReplyThumbFade();
+        if (bigReactionPopAnim != null && bigReactionPopAnim.isRunning()) bigReactionPopAnim.cancel();
+        bigReactionScale = 1f;
+        replyReserveSlot = false;
+        replyVideo = false;
+        replyExpiredLabel = null;
+        replyPressed = false;
         this.hasReply = false;
         this.replySenderName = "";
         this.replyText = "";
@@ -6382,8 +6485,8 @@ public class MessageBubbleCanvasView extends View {
             int replyBar = Math.round(REPLY_BAR_WIDTH_DP * density);
             int replyPadH = Math.round(REPLY_PADDING_H_DP * density);
             int replyPadV = Math.round(REPLY_PADDING_V_DP * density);
-            int replyThumbSize = replyThumb != null ? Math.round(REPLY_THUMB_SIZE_DP * density) : 0;
-            int replyThumbMargin = replyThumb != null ? Math.round(REPLY_THUMB_MARGIN_DP * density) : 0;
+            int replyThumbSize = hasThumbSlot() ? Math.round(REPLY_THUMB_SIZE_DP * density) : 0;
+            int replyThumbMargin = hasThumbSlot() ? Math.round(REPLY_THUMB_MARGIN_DP * density) : 0;
 
             int replyTextColMaxWidth = Math.max(1, maxTextWidth - replyBar - replyPadH * 2
                     - replyThumbSize - replyThumbMargin * 2);
@@ -6432,7 +6535,7 @@ public class MessageBubbleCanvasView extends View {
             int replyInnerHeight = Math.max(replyTextColHeight + replyPadV * 2, replyThumbSize);
             replyBoxHeight = Math.max(Math.round(REPLY_MIN_HEIGHT_DP * density), replyInnerHeight) + replyMargin * 2;
             replyBoxContentWidth = replyBar + replyTextColWidth + replyPadH * 2
-                    + (replyThumb != null ? replyThumbSize + replyThumbMargin * 2 : 0);
+                    + (hasThumbSlot() ? replyThumbSize + replyThumbMargin * 2 : 0);
         } else {
             replyBoxHeight = 0;
         }
@@ -8219,7 +8322,7 @@ public class MessageBubbleCanvasView extends View {
         if (hasForwarded) sb.append("|F").append(forwardedText);
         if (hasReply) {
             sb.append("|R").append(replySenderName).append('\u0001').append(replyText)
-                    .append('\u0001').append(replyThumb != null ? '1' : '0');
+                    .append('\u0001').append(hasThumbSlot() ? '1' : '0');
         }
         sb.append("|fr").append(Math.round(footerReserve));
         // Reaction badge floats past the bubble's bottom edge and grows
@@ -8423,6 +8526,13 @@ public class MessageBubbleCanvasView extends View {
     private void drawReplyPreview(Canvas canvas) {
         float r = REPLY_CORNER_RADIUS_DP * density;
         canvas.drawRoundRect(replyBoxRect, r, r, replyBgPaint);
+        if (replyPressed) {
+            if (replyPressedPaint == null) {
+                replyPressedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                replyPressedPaint.setColor(0x24000000);
+            }
+            canvas.drawRoundRect(replyBoxRect, r, r, replyPressedPaint);
+        }
 
         int replyBar = Math.round(REPLY_BAR_WIDTH_DP * density);
         canvas.drawRect(replyBoxRect.left, replyBoxRect.top,
@@ -8454,30 +8564,93 @@ public class MessageBubbleCanvasView extends View {
         }
         canvas.restore();
 
-        if (replyThumb != null) {
+        if (hasThumbSlot()) {
             int thumbSize = Math.round(REPLY_THUMB_SIZE_DP * density);
             int thumbMargin = Math.round(REPLY_THUMB_MARGIN_DP * density);
             float thumbLeft = replyBoxRect.right - thumbMargin - thumbSize;
             float thumbTop = replyBoxRect.top + (replyBoxRect.height() - thumbSize) / 2f;
-            // Center-crop to a square so non-square bitmaps are not stretched.
-            int bw = replyThumb.getWidth(), bh = replyThumb.getHeight();
-            int side = Math.min(bw, bh);
-            int sx = (bw - side) / 2, sy = (bh - side) / 2;
-            replyThumbSrcRect.set(sx, sy, sx + side, sy + side);
-            replyThumbDstRect.set(thumbLeft, thumbTop, thumbLeft + thumbSize, thumbTop + thumbSize);
-            // Rounded corners (matches the quote box radius) — was a plain square blit.
             float tr = REPLY_CORNER_RADIUS_DP * density;
-            replyThumbClipPath.rewind();
-            replyThumbClipPath.addRoundRect(replyThumbDstRect, tr, tr, android.graphics.Path.Direction.CW);
-            int thumbSave = canvas.save();
-            canvas.clipPath(replyThumbClipPath);
-            canvas.drawBitmap(replyThumb, replyThumbSrcRect, replyThumbDstRect, replyThumbPaint);
-            canvas.restoreToCount(thumbSave);
+            // Geometry-derived objects (dst rect, clip path, play-chip path) are rebuilt ONLY when the
+            // slot actually moved/resized — not on every draw pass.
+            if (thumbLeft != geomL || thumbTop != geomT || thumbSize != geomS || tr != geomR) {
+                geomL = thumbLeft; geomT = thumbTop; geomS = thumbSize; geomR = tr;
+                replyThumbDstRect.set(thumbLeft, thumbTop, thumbLeft + thumbSize, thumbTop + thumbSize);
+                replyThumbClipPath.rewind();
+                replyThumbClipPath.addRoundRect(replyThumbDstRect, tr, tr, android.graphics.Path.Direction.CW);
+                replyPlayPathValid = false;
+            }
+            if (replyThumb != null) {
+                // Center-crop to a square so non-square bitmaps are not stretched.
+                int bw = replyThumb.getWidth(), bh = replyThumb.getHeight();
+                int side = Math.min(bw, bh);
+                int sx = (bw - side) / 2, sy = (bh - side) / 2;
+                replyThumbSrcRect.set(sx, sy, sx + side, sy + side);
+                int thumbSave = canvas.save();
+                canvas.clipPath(replyThumbClipPath);
+                final boolean fading = replyThumbAlpha < 1f;
+                if (fading) replyThumbPaint.setAlpha(Math.round(255f * replyThumbAlpha));
+                canvas.drawBitmap(replyThumb, replyThumbSrcRect, replyThumbDstRect, replyThumbPaint);
+                if (fading) replyThumbPaint.setAlpha(255);
+                if (replyExpiredLabel != null) {
+                    if (replyScrimPaint == null) {
+                        replyScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                        replyScrimPaint.setColor(0x99000000);
+                    }
+                    canvas.drawRect(replyThumbDstRect, replyScrimPaint);
+                }
+                canvas.restoreToCount(thumbSave);
+            } else {
+                // Placeholder while the bitmap decodes — keeps the slot (and bubble size) stable.
+                if (replyPlaceholderPaint == null) {
+                    replyPlaceholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    replyPlaceholderPaint.setColor(0x22808080);
+                }
+                canvas.drawRoundRect(replyThumbDstRect, tr, tr, replyPlaceholderPaint);
+            }
+            if (replyVideo && replyExpiredLabel == null) drawReplyPlayChip(canvas);
+            if (replyExpiredLabel != null && replyThumb != null) drawReplyExpiredLabel(canvas);
 
             if (bigReactionBadge && bigReactionEmoji != null && bigReactionEmojiPaint != null) {
                 drawBigReactionBadge(canvas);
             }
         }
+    }
+
+    private void drawReplyPlayChip(Canvas canvas) {
+        if (replyPlayBgPaint == null) {
+            replyPlayBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            replyPlayBgPaint.setColor(0x99000000);
+            replyPlayFgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            replyPlayFgPaint.setColor(0xFFFFFFFF);
+        }
+        float cx = replyThumbDstRect.centerX(), cy = replyThumbDstRect.centerY();
+        float r = 10f * density;
+        canvas.drawCircle(cx, cy, r, replyPlayBgPaint);
+        if (!replyPlayPathValid) {
+            float t = r * 0.5f;
+            replyPlayPath.rewind();
+            replyPlayPath.moveTo(cx - t * 0.55f, cy - t);
+            replyPlayPath.lineTo(cx - t * 0.55f, cy + t);
+            replyPlayPath.lineTo(cx + t * 0.9f, cy);
+            replyPlayPath.close();
+            replyPlayPathValid = true;
+        }
+        canvas.drawPath(replyPlayPath, replyPlayFgPaint);
+    }
+
+    private void drawReplyExpiredLabel(Canvas canvas) {
+        if (replyExpiredPaint == null) {
+            replyExpiredPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            replyExpiredPaint.setColor(0xFFFFFFFF);
+            replyExpiredPaint.setTextAlign(Paint.Align.CENTER);
+            replyExpiredPaint.setFakeBoldText(true);
+            // Text size and baseline offset are constants for this view — computed once, not per draw.
+            replyExpiredPaint.setTextSize(9f * getResources().getDisplayMetrics().scaledDensity);
+            replyExpiredPaint.getFontMetrics(bigReactionFmScratch);
+            expiredBaselineDy = -(bigReactionFmScratch.ascent + bigReactionFmScratch.descent) / 2f;
+        }
+        canvas.drawText(replyExpiredLabel, replyThumbDstRect.centerX(),
+                replyThumbDstRect.centerY() + expiredBaselineDy, replyExpiredPaint);
     }
 
     /**
@@ -8491,7 +8664,7 @@ public class MessageBubbleCanvasView extends View {
         float cx = replyThumbDstRect.left;
         float cy = replyThumbDstRect.bottom;
         // Circle background removed per user request — only the emoji itself is drawn now.
-        bigReactionEmojiPaint.setTextSize(badgeR * 1.15f);
+        bigReactionEmojiPaint.setTextSize(Math.max(1f, badgeR * 1.15f * bigReactionScale));
         // PERF: was bigReactionEmojiPaint.getFontMetrics() — fresh alloc
         // every draw for every bubble carrying a big reaction badge.
         bigReactionEmojiPaint.getFontMetrics(bigReactionFmScratch);
@@ -8774,6 +8947,19 @@ public class MessageBubbleCanvasView extends View {
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
             // New touch sequence — clear last sequence's long-press flag.
             reelPeekConsumedThisTouch = false;
+        }
+        if (hasReply) {
+            int ra = event.getActionMasked();
+            if (ra == MotionEvent.ACTION_DOWN) {
+                if (replyBoxRect.contains(event.getX(), event.getY())) { replyPressed = true; invalidate(); }
+            } else if (replyPressed) {   // only pressed state pays for any further work
+                if (ra == MotionEvent.ACTION_UP || ra == MotionEvent.ACTION_CANCEL
+                        || (ra == MotionEvent.ACTION_MOVE
+                            && !replyBoxRect.contains(event.getX(), event.getY()))) {
+                    replyPressed = false;
+                    invalidate();
+                }
+            }
         }
         if (showForwardBtn && event.getActionMasked() == MotionEvent.ACTION_UP
                 && forwardBtnRect.contains(event.getX(), event.getY())) {

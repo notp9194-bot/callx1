@@ -12,4 +12,8 @@
     <string name="chat_archived">Archived</string>
     <string name="chat_unarchived">Unarchived</string>
     <string name="chat_pin_limit">Sirf %1$d chats pin kar sakte ho</string>
+    <string name="status_reply_expired">Expired</string>
+    <string name="status_reply_yours">Your status</string>
+    <string name="status_reply_reacted_yours">Reacted to your status</string>
+    <string name="status_reply_you_reacted_to">You reacted to %1$s</string>
 </resources>

@@ -4095,6 +4095,7 @@ public class MessagePagingAdapter
         if ("date_separator".equals(m.type) || "security_event".equals(m.type)) {
             if (h.dateSeparatorView != null) {
                 h.dateSeparatorView.setLabel(m.text);
+                h.dateSeparatorView.setShowRules("date_separator".equals(m.type)); // rules on date rows only
                 h.dateSeparatorView.setAvatar(null); // no avatar on these — clears any stale recycled bitmap
             }
             return;
@@ -4104,6 +4105,7 @@ public class MessagePagingAdapter
         if ("system".equals(m.type)) {
             if (h.dateSeparatorView != null) {
                 h.dateSeparatorView.setLabel(m.text);
+                h.dateSeparatorView.setShowRules(false);
                 String photo = (m.eventUid != null && !m.eventUid.isEmpty()) ? m.eventPhoto : null;
                 // v446: L2 hit → set the avatar inline (no stale-clear pass, no tag String concat, no lambda).
                 // Tag reset to null so an older in-flight async load for a previous row is ignored.
@@ -7151,6 +7153,26 @@ public class MessagePagingAdapter
         if (m.replyToId != null && !m.replyToId.isEmpty()) {
             final String replyThumbUrl = m.replyToMediaUrl;
             final String replyThumbB64 = m.replyToThumbBase64;
+            final boolean replyHasThumbSrc = (replyThumbB64 != null && !replyThumbB64.isEmpty())
+                    || (replyThumbUrl != null && !replyThumbUrl.isEmpty());
+            final boolean replyIsStatus = m.replyToId.startsWith("status_");
+            // Label/key/type are resolved ONCE per message (LruCache) — a rebind is just a map hit.
+            final StatusReplyUi sui = replyIsStatus ? statusUi(ctx, m) : null;
+            final String replyLabel = sui != null ? sui.label : m.replyToSenderName;
+            final boolean replyVideo = sui != null ? sui.video : "video".equals(m.replyToType);
+            final boolean replyExpiredKnown = sui != null && sui.key != null && isStatusExpiredKnown(sui.key);
+            cv.setReplyDecor(replyHasThumbSrc, replyVideo,
+                    replyExpiredKnown ? ctx.getString(R.string.status_reply_expired) : null);
+            // The callback lambda is only allocated when a lookup is actually due.
+            if (sui != null && !replyExpiredKnown && sui.key != null
+                    && statusExpiryCheckDue(sui.key, m.timestamp)) {
+                checkStatusExpiredAsync(ctx, sui.key, expired -> {
+                    if (!expired || h.canvasBindToken != myToken) return;
+                    String tag = ctx.getString(R.string.status_reply_expired);
+                    cv.setReplyDecor(replyHasThumbSrc, replyVideo, tag);
+                    if (!replyHasThumbSrc) cv.setReply(replyLabel + " \u00B7 " + tag, m.replyToText, null);
+                });
+            }
             if (replyThumbB64 != null && !replyThumbB64.isEmpty()) {
                 // WhatsApp-level: this message carries its own copy of the thumbnail
                 // (embedded at send time — see StatusReplyBottomSheet#embedReplyThumbnail),
@@ -7158,18 +7180,18 @@ public class MessagePagingAdapter
                 // completely unaffected by the original status later expiring, being
                 // deleted, or being moved into a Highlight. Same in-memory pool as the
                 // URL path below so repeat rebinds don't re-decode the same JPEG.
-                String b64PoolKey = poolKey("b64:" + replyThumbB64.hashCode(), 88, 88);
-                cv.setReply(m.replyToSenderName, m.replyToText, null);
+                String b64PoolKey = poolKey("b64r:" + m.id + ':' + replyThumbB64.length(), 88, 88);
+                cv.setReply(replyLabel, m.replyToText, null);
                 decodeB64ThumbAsync(replyThumbB64, b64PoolKey, REPLY_THUMB_BITMAP_CACHE, decoded -> {
                     if (h.canvasBindToken != myToken) return;
-                    cv.setReply(m.replyToSenderName, m.replyToText, decoded);
+                    cv.setReply(replyLabel, m.replyToText, decoded);
                 });
             } else if (replyThumbUrl != null && !replyThumbUrl.isEmpty()) {
                 android.graphics.Bitmap replyPoolHit = REPLY_THUMB_BITMAP_CACHE.get(poolKey(replyThumbUrl, 88, 88));
                 if (replyPoolHit != null && !replyPoolHit.isRecycled()) {
-                    cv.setReply(m.replyToSenderName, m.replyToText, replyPoolHit);
+                    cv.setReply(replyLabel, m.replyToText, replyPoolHit);
                 } else {
-                    cv.setReply(m.replyToSenderName, m.replyToText, null);
+                    cv.setReply(replyLabel, m.replyToText, null);
                     glide(ctx).asBitmap()
                             .load(replyThumbUrl)
                             .apply(THUMB_RGB565)
@@ -7179,12 +7201,12 @@ public class MessagePagingAdapter
                                 @Override public void onReady(@NonNull Bitmap resource) {
                                     putBitmapSafely(REPLY_THUMB_BITMAP_CACHE, poolKey(replyThumbUrl, 88, 88), resource);
                                     if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
-                                    cv.setReply(m.replyToSenderName, m.replyToText, resource);
+                                    cv.setReply(replyLabel, m.replyToText, resource);
                                 }
                             }, null));
                 }
             } else {
-                cv.setReply(m.replyToSenderName, m.replyToText, null);
+                cv.setReply(replyLabel, m.replyToText, null);
             }
         } else {
             cv.clearReply();
@@ -7195,7 +7217,12 @@ public class MessagePagingAdapter
         // see StatusViewerActivity#sendReactionToChat. Every other reply
         // (normal text/media replies, and reactions whose text isn't a
         // lone emoji) keeps the plain small quote-box text as before.
-        cv.setBigReactionEmoji(isStoryReactionEmojiMessage(m) ? m.text : null);
+        final boolean storyReaction = isStoryReactionEmojiMessage(m);
+        cv.setBigReactionEmoji(storyReaction ? m.text : null);
+        if (storyReaction && m.id != null && m.timestamp != null
+                && System.currentTimeMillis() - m.timestamp < 3000L && markPopped(m.id)) {
+            cv.playBigReactionPop();
+        }
 
         // ── Reaction badge ──
         final ReactionBound rxb = reactionBoundFor(m); // v444: memoized text + reactor strip
@@ -10712,6 +10739,149 @@ public class MessagePagingAdapter
      * A change in readBy count triggers PAYLOAD_READ_BY so only the
      * "Seen by" strip is redrawn instead of a full rebind.
      */
+    // ── Status-reply bubble polish helpers ───────────────────────────────────
+    private static final java.util.Set<String> POPPED_REACTIONS = new java.util.HashSet<>();
+    /** True the first time this message id is seen — the pop animation plays once per message. */
+    private static boolean markPopped(String id) {
+        synchronized (POPPED_REACTIONS) {
+            if (POPPED_REACTIONS.size() > 64) POPPED_REACTIONS.clear();
+            return POPPED_REACTIONS.add(id);
+        }
+    }
+
+    /** Immutable per-message display data for a status reply/reaction quote box. */
+    private static final class StatusReplyUi {
+        final String label;
+        @Nullable final String key;   // "ownerUid/statusId" (null until owner is known)
+        final boolean video;
+        StatusReplyUi(String label, @Nullable String key, boolean video) {
+            this.label = label; this.key = key; this.video = video;
+        }
+    }
+    private final android.util.LruCache<String, StatusReplyUi> statusUiCache =
+            new android.util.LruCache<>(96);
+
+    private StatusReplyUi statusUi(Context ctx, Message m) {
+        final String id = m.id;
+        if (id != null) {
+            StatusReplyUi hit = statusUiCache.get(id);
+            if (hit != null) return hit;
+        }
+        ensureExpiryLoaded(ctx);
+        String owner = (currentUid != null && currentUid.equals(m.senderId)) ? partnerUid : currentUid;
+        String key = (owner == null || owner.isEmpty() || m.replyToId == null) ? null
+                : owner + "/" + m.replyToId.substring("status_".length());
+        StatusReplyUi ui = new StatusReplyUi(statusReplyDisplayLabel(ctx, m), key,
+                "video".equals(m.replyToType));
+        // Only memoize once the owner is resolvable — partnerUid can be set after the first bind.
+        if (id != null && key != null) statusUiCache.put(id, ui);
+        return ui;
+    }
+
+    // ── Expiry knowledge: monotone ("gone stays gone"), persisted so reopening a chat never re-asks ──
+    private interface ExpiredCb { void onResult(boolean expired); }
+    private static final String EXPIRY_PREFS = "status_reply_expiry";
+    private static final long EXPIRED_MARK = -1L;
+    private static final long ALIVE_RECHECK_MS = 30L * 60L * 1000L;
+    /** Statuses younger than this (since the reply was sent) are assumed live — no lookup. */
+    private static final long STATUS_EXPIRY_CHECK_AFTER_MS = 55L * 60L * 1000L;
+    private static final int MAX_CONCURRENT_EXPIRY_LOOKUPS = 6;
+    private static final int MAX_EXPIRY_ENTRIES = 400;
+    /** statusKey -> EXPIRED_MARK, or the epoch-ms of the last "still alive" check. */
+    private static final java.util.Map<String, Long> STATUS_EXPIRY =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.Set<String> STATUS_EXPIRY_PENDING =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final java.util.concurrent.atomic.AtomicBoolean EXPIRY_LOADED =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static volatile android.content.SharedPreferences expiryPrefs;
+
+    private static void ensureExpiryLoaded(Context ctx) {
+        if (EXPIRY_LOADED.get()) return;
+        if (!EXPIRY_LOADED.compareAndSet(false, true)) return;
+        try {
+            android.content.SharedPreferences sp = ctx.getApplicationContext()
+                    .getSharedPreferences(EXPIRY_PREFS, Context.MODE_PRIVATE);
+            expiryPrefs = sp;
+            for (java.util.Map.Entry<String, ?> e : sp.getAll().entrySet()) {
+                if (e.getValue() instanceof Long) STATUS_EXPIRY.put(e.getKey(), (Long) e.getValue());
+            }
+        } catch (Exception ignored) { }
+    }
+
+    private static boolean isStatusExpiredKnown(String key) {
+        Long v = STATUS_EXPIRY.get(key);
+        return v != null && v == EXPIRED_MARK;
+    }
+
+    private static boolean statusExpiryCheckDue(String key, @Nullable Long replySentAt) {
+        if (replySentAt == null) return false;
+        long now = System.currentTimeMillis();
+        if (now - replySentAt < STATUS_EXPIRY_CHECK_AFTER_MS) return false;
+        Long v = STATUS_EXPIRY.get(key);
+        if (v != null && (v == EXPIRED_MARK || now - v < ALIVE_RECHECK_MS)) return false;
+        // Burst guard: opening a chat full of old status replies must not fire dozens of reads at once;
+        // skipped rows are retried by their next bind.
+        return STATUS_EXPIRY_PENDING.size() < MAX_CONCURRENT_EXPIRY_LOOKUPS
+                && !STATUS_EXPIRY_PENDING.contains(key);
+    }
+
+    private static void rememberExpiry(String key, long value) {
+        STATUS_EXPIRY.put(key, value);
+        android.content.SharedPreferences sp = expiryPrefs;
+        if (sp == null) return;
+        android.content.SharedPreferences.Editor ed = sp.edit();
+        if (STATUS_EXPIRY.size() > MAX_EXPIRY_ENTRIES) {
+            // Trim only the cheap-to-relearn "alive" entries; "expired" marks are permanent knowledge.
+            for (java.util.Iterator<java.util.Map.Entry<String, Long>> it = STATUS_EXPIRY.entrySet().iterator();
+                 it.hasNext(); ) {
+                java.util.Map.Entry<String, Long> e = it.next();
+                if (e.getValue() != EXPIRED_MARK) { ed.remove(e.getKey()); it.remove(); }
+            }
+        }
+        ed.putLong(key, value).apply();
+    }
+
+    private void checkStatusExpiredAsync(Context ctx, String key, ExpiredCb cb) {
+        ensureExpiryLoaded(ctx);
+        if (!STATUS_EXPIRY_PENDING.add(key)) return; // one lookup per status
+        final int slash = key.indexOf('/');
+        // Read ONE tiny child ("type" always exists on a live status) instead of the whole node.
+        com.callx.app.utils.FirebaseUtils.getUserStatusRef(key.substring(0, slash))
+                .child(key.substring(slash + 1)).child("type")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                        STATUS_EXPIRY_PENDING.remove(key);
+                        boolean gone = !snap.exists();
+                        rememberExpiry(key, gone ? EXPIRED_MARK : System.currentTimeMillis());
+                        if (gone) new android.os.Handler(android.os.Looper.getMainLooper())
+                                .post(() -> cb.onResult(true));
+                    }
+                    @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                        STATUS_EXPIRY_PENDING.remove(key);
+                    }
+                });
+    }
+
+    /**
+     * Quote-box title for status replies/reactions (built once per message — see statusUi()):
+     * partner → my status = "Your status"; type icon (📷/🎬/📝); and story
+     * reactions read "Reacted to your status" / "You reacted to X's status".
+     */
+    private String statusReplyDisplayLabel(Context ctx, Message m) {
+        String stored = m.replyToSenderName != null ? m.replyToSenderName : "";
+        boolean mine = currentUid != null && currentUid.equals(m.senderId);
+        boolean reaction = isStoryReactionEmojiMessage(m);
+        String rest = stored.startsWith("\uD83D\uDCF7 ") ? stored.substring(3) : stored;
+        if (reaction) {
+            return mine ? ctx.getString(R.string.status_reply_you_reacted_to, rest)
+                        : ctx.getString(R.string.status_reply_reacted_yours);
+        }
+        String icon = "video".equals(m.replyToType) ? "\uD83C\uDFAC"
+                : "text".equals(m.replyToType) ? "\uD83D\uDCDD" : "\uD83D\uDCF7";
+        return icon + " " + (mine ? rest : ctx.getString(R.string.status_reply_yours));
+    }
+
     /**
      * True for a "You reacted 😍 to their story/reel" message: a plain text
      * message whose replyToId points at a status/reel-as-status
