@@ -1805,9 +1805,9 @@ public class GroupChatActivity extends AppCompatActivity
         // GAP FIX (#1 — true server cursor): see ChatActivity#attachFirebaseListener
         // for the full reasoning; same seq-preferred/timestamp-fallback logic.
         Query query;
-        if (cursor != null && cursor.hasSeq()) {
-            query = groupMessagesRef.orderByChild("seq").startAt((double) cursor.seq);
-        } else if (cursor != null) {
+        // LIVE-DELIVERY FIX: live listener never depends on server seq (see
+        // ChatActivity#attachFirebaseListener). seq only filters in isAfterSyncCursor.
+        if (cursor != null) {
             query = groupMessagesRef.orderByChild("timestamp").startAt((double) cursor.timestamp);
         } else {
             query = groupMessagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
@@ -1855,8 +1855,9 @@ public class GroupChatActivity extends AppCompatActivity
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
                     chatUiEventBatcher.postForMessage(m.id, () -> {
                         if (isFinishing() || isDestroyed()) return;
-                        pagingAdapterApplyRealtime(m);
-                        queueRoomWrite(m, false);
+                        boolean visibleNow = pagingAdapter != null
+                                && pagingAdapter.applyRealtimeUpdate(m);
+                        queueRoomWrite(m, !visibleNow && isBeyondLoadedTail(m));
                     });
                 });
             }
@@ -2078,17 +2079,29 @@ public class GroupChatActivity extends AppCompatActivity
         });
     }
 
+    /** True when m is not older than the newest row currently loaded in the adapter. */
+    private boolean isBeyondLoadedTail(Message m) {
+        if (pagingAdapter == null || m == null || m.timestamp == null) return true;
+        int n = pagingAdapter.getItemCount();
+        if (n == 0) return true;
+        Message last = pagingAdapter.peek(n - 1);
+        if (last == null || last.timestamp == null) return true;
+        return m.timestamp >= last.timestamp;
+    }
+
     private static boolean isAfterSyncCursor(Message message, MessageCursor cursor) {
         if (message == null || message.id == null || message.timestamp == null || cursor == null) {
             return false;
         }
-        // GAP FIX (#1): see ChatActivity#isAfterSyncCursor for full reasoning.
-        if (cursor.hasSeq()) {
-            return message.seq != null && message.seq > cursor.seq;
+        // seq is a gap-check only. Message has a seq and cursor has one: trust seq.
+        if (message.seq != null && cursor.hasSeq()) {
+            return message.seq > cursor.seq;
         }
+        // No seq yet (server hasn't assigned it) -> never drop; fall back to
+        // timestamp. Room upsert is id-idempotent, so a replay is harmless.
         return message.timestamp > cursor.timestamp
                 || (message.timestamp == cursor.timestamp
-                && message.id.compareTo(cursor.id) > 0);
+                && !message.id.equals(cursor.id));
     }
 
     // ─────────────────────────────────────────────────────────────────────

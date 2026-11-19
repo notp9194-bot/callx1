@@ -285,6 +285,11 @@ public class ChatRepository {
             }
 
             final boolean seqAnchored = cursor != null && cursor.hasSeq();
+            // LIVE-DELIVERY FIX: the seq query above can never see messages the
+            // server hasn't stamped with a seq yet (null sorts outside startAt(n)).
+            // Pull that seq-less tail by timestamp once per sync so nothing is
+            // left waiting for the server poll.
+            if (seqAnchored && pass == 0) syncSeqlessTail(chatId, cursor);
 
             query.addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
@@ -368,6 +373,41 @@ public class ChatRepository {
                 }
             });
         });
+    }
+
+    /** Fetches messages newer than the cursor that have no server seq yet and merges them into Room. */
+    private void syncSeqlessTail(final String chatId, final MessageCursor cursor) {
+        mFirebase.getReference("messages")
+                .child(chatId)
+                .orderByChild("timestamp")
+                .startAt((double) cursor.timestamp)
+                .limitToFirst(PAGE_SIZE)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(DataSnapshot snapshot) {
+                        final List<MessageEntity> tail = new ArrayList<>();
+                        for (DataSnapshot child : snapshot.getChildren()) {
+                            Message m = child.getValue(Message.class);
+                            if (m == null) continue;
+                            if (m.id == null) m.id = child.getKey();
+                            if (m.id == null || m.timestamp == null || m.seq != null) continue;
+                            if (isAfter(m.timestamp, m.id, cursor) || m.timestamp == cursor.timestamp) {
+                                tail.add(toEntity(m, chatId));
+                            }
+                        }
+                        if (tail.isEmpty()) return;
+                        mExecutor.execute(() -> {
+                            mDb.messageDao().mergeIncomingMessages(tail);
+                            mCache.invalidateMessages(chatId);
+                            Log.d(TAG, "Seq-less tail sync: merged " + tail.size() + " for " + chatId);
+                        });
+                    }
+
+                    @Override
+                    public void onCancelled(DatabaseError error) {
+                        Log.w(TAG, "Seq-less tail sync cancelled: " + error.getMessage());
+                    }
+                });
     }
 
     private static boolean isAfterSeq(Message m, MessageCursor cursor) {

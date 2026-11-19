@@ -57,8 +57,11 @@ public class DateSeparatorCanvasView extends View {
     // white pill + muted slate text, like WhatsApp's light system chips.
     private static final int CHIP_COLOR_DARK = 0xFF3A3A4A;
     private static final int TEXT_COLOR_DARK = Color.WHITE;
-    private static final int CHIP_COLOR_LIGHT = 0xF2FFFFFF;
-    private static final int TEXT_COLOR_LIGHT = 0xFF54656F;
+    // Light theme: the old near-white fill vanished on a white/light wallpaper. Now a soft slate
+    // tint + hairline border + darker text so the pill is clearly visible on any light background.
+    private static final int CHIP_COLOR_LIGHT = 0xFFE4EAEE;
+    private static final int CHIP_BORDER_LIGHT = 0x33455A64;
+    private static final int TEXT_COLOR_LIGHT = 0xFF37474F;
     // Long system lines wrap onto extra lines; the chip never grows wider than this share of the row.
     private static final float MAX_CHIP_WIDTH_FRACTION = 0.85f;
     private static final float AVATAR_DIAMETER_DP = 16f;
@@ -79,6 +82,7 @@ public class DateSeparatorCanvasView extends View {
     private static final TextPaint TEXT = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private static final Paint CHIP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private static final Paint RULE = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static final Paint CHIP_BORDER = new Paint(Paint.ANTI_ALIAS_FLAG);
     private static final Paint AVATAR = new Paint(Paint.ANTI_ALIAS_FLAG);
     private static final RectF SCRATCH = new RectF();
     private static final Paint.FontMetrics FM = new Paint.FontMetrics();
@@ -114,6 +118,8 @@ public class DateSeparatorCanvasView extends View {
         sRuleInset = Math.round(RULE_EDGE_INSET_DP * d);
         sRuleGap = Math.round(RULE_GAP_DP * d);
         CHIP.setStyle(Paint.Style.FILL);
+        CHIP_BORDER.setStyle(Paint.Style.STROKE);
+        CHIP_BORDER.setStrokeWidth(Math.max(1f, d));
         AVATAR.setStyle(Paint.Style.FILL);
         RULE.setStyle(Paint.Style.STROKE);
         RULE.setStrokeWidth(Math.max(1f, RULE_STROKE_DP * d));
@@ -135,6 +141,7 @@ public class DateSeparatorCanvasView extends View {
         sThemeDark = dark;
         int text = dark ? TEXT_COLOR_DARK : TEXT_COLOR_LIGHT;
         CHIP.setColor(dark ? CHIP_COLOR_DARK : CHIP_COLOR_LIGHT);
+        CHIP_BORDER.setColor(CHIP_BORDER_LIGHT);
         TEXT.setColor(text);
         RULE.setColor((text & 0x00FFFFFF) | (RULE_ALPHA << 24));
     }
@@ -293,10 +300,16 @@ public class DateSeparatorCanvasView extends View {
         }
         if (showRules) {
             ruleY = (chipT + chipB) / 2f;
-            ruleLeftX1 = sRuleInset;
-            ruleLeftX2 = chipL - sRuleGap;
-            ruleRightX1 = chipR + sRuleGap;
-            ruleRightX2 = viewWidth - sRuleInset;
+            // Each side rule keeps only the half nearest the pill: the outer half
+            // (left rule: midpoint -> left edge, right rule: midpoint -> right edge) is removed.
+            float leftFull1 = sRuleInset;
+            float leftFull2 = chipL - sRuleGap;
+            float rightFull1 = chipR + sRuleGap;
+            float rightFull2 = viewWidth - sRuleInset;
+            ruleLeftX1 = (leftFull1 + leftFull2) / 2f;
+            ruleLeftX2 = leftFull2;
+            ruleRightX1 = rightFull1;
+            ruleRightX2 = (rightFull1 + rightFull2) / 2f;
             drawRuleLeft = ruleLeftX2 > ruleLeftX1;
             drawRuleRight = ruleRightX2 > ruleRightX1;
         } else {
@@ -325,6 +338,11 @@ public class DateSeparatorCanvasView extends View {
 
         SCRATCH.set(chipL, chipT, chipR, chipB);
         canvas.drawRoundRect(SCRATCH, chipRadius, chipRadius, CHIP);
+        if (!sThemeDark) {
+            float inset = CHIP_BORDER.getStrokeWidth() / 2f;
+            SCRATCH.inset(inset, inset);
+            canvas.drawRoundRect(SCRATCH, Math.max(0f, chipRadius - inset), Math.max(0f, chipRadius - inset), CHIP_BORDER);
+        }
 
         if (avatarBitmap != null) drawAvatar(canvas);
 

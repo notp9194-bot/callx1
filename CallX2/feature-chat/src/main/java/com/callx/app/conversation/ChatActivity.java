@@ -3564,9 +3564,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // synced a seq-bearing message yet (pre-migration history, or a chat
         // whose most recent message hasn't had assignMessageSeq catch up to
         // it yet — see that function's "brief window" note).
-        if (cursor != null && cursor.hasSeq()) {
-            messageQuery = messagesRef.orderByChild("seq").startAt((double) cursor.seq);
-        } else if (cursor != null) {
+        // LIVE-DELIVERY FIX: the live listener must NOT depend on server `seq`.
+        // `seq` is assigned later by the server (poll/trigger); a message with
+        // no seq yet sorts as null, i.e. OUTSIDE orderByChild("seq").startAt(n),
+        // so it never fired onChildAdded until reopen. Live = timestamp query;
+        // seq is only used as a gap-check filter (isAfterSyncCursor).
+        if (cursor != null) {
             messageQuery = messagesRef.orderByChild("timestamp").startAt((double) cursor.timestamp);
         } else {
             messageQuery = messagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
@@ -3661,8 +3664,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         // A changed row is not a structural insert. If it is
                         // outside the loaded window, Room keeps it ready for
                         // the next history load without rebuilding the pager.
-                        pagingAdapterApplyRealtime(m);
-                        queueRoomWrite(m, false);
+                        boolean visibleNow = pagingAdapter != null
+                                && pagingAdapter.applyRealtimeUpdate(m);
+                        // A message that was first seen with no seq / outside the
+                        // loaded window and is newer than the loaded tail must
+                        // trigger a real Paging refresh, else it only shows on reopen.
+                        queueRoomWrite(m, !visibleNow && isBeyondLoadedTail(m));
                         if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
                             attachPendingStatusListener(m.id);
                         } else if ("read".equals(m.status)) {
@@ -4201,6 +4208,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         scheduleWriteFlush();
     }
 
+    /** True when m is not older than the newest row currently loaded in the adapter. */
+    private boolean isBeyondLoadedTail(Message m) {
+        if (pagingAdapter == null || m == null || m.timestamp == null) return true;
+        int n = pagingAdapter.getItemCount();
+        if (n == 0) return true;
+        Message last = pagingAdapter.peek(n - 1);
+        if (last == null || last.timestamp == null) return true;
+        return m.timestamp >= last.timestamp;
+    }
+
     private void pagingAdapterApplyRealtime(Message m) {
         if (pagingAdapter != null) pagingAdapter.applyRealtimeUpdate(m);
     }
@@ -4284,17 +4301,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (message == null || message.id == null || message.timestamp == null || cursor == null) {
             return false;
         }
-        // GAP FIX (#1): once the cursor has a real server seq, compare by
-        // seq alone — a message that hasn't been assigned a seq yet (see
-        // Message#seq's "brief window" note) is treated as not-yet-past-cursor
-        // rather than guessed at via timestamp, since the two orderings can
-        // legitimately disagree and seq is the one we trust.
-        if (cursor.hasSeq()) {
-            return message.seq != null && message.seq > cursor.seq;
+        // seq is a gap-check only. Message has a seq and cursor has one: trust seq.
+        if (message.seq != null && cursor.hasSeq()) {
+            return message.seq > cursor.seq;
         }
+        // No seq yet (server hasn't assigned it) -> never drop; fall back to
+        // timestamp. Room upsert is id-idempotent, so a replay is harmless.
         return message.timestamp > cursor.timestamp
                 || (message.timestamp == cursor.timestamp
-                && message.id.compareTo(cursor.id) > 0);
+                && !message.id.equals(cursor.id));
     }
 
     // ─────────────────────────────────────────────────────────────────────
