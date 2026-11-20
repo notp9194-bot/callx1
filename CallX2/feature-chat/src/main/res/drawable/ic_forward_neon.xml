@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Neon share/forward glyph (legacy View path of the quick-forward button).
+     Canvas path draws the same look + animation in ForwardNeonButton. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="36dp"
+    android:viewportWidth="36"
+    android:viewportHeight="36">
+    <path
+        android:pathData="M18,6.5 A11.5,11.5 0 1,1 17.99,6.5 Z"
+        android:fillColor="#F2090514"
+        android:strokeColor="#B87CFF"
+        android:strokeWidth="2" />
+    <group
+        android:translateX="9.42"
+        android:translateY="9.06"
+        android:scaleX="0.715"
+        android:scaleY="0.715">
+        <path
+            android:pathData="M14,9 L14,5 L21,12 L14,19 L14,14.9 C9,14.9 5.5,16.5 3,20 C4,15 7,10 14,9 Z"
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#FFFFFF"
+            android:strokeLineJoin="round"
+            android:strokeWidth="0.8" />
+    </group>
+</vector>

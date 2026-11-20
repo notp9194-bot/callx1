@@ -7544,7 +7544,18 @@ public class MessagePagingAdapter
             if (showFwd) {
                 final Message fwdMsg = m;
                 h.btnQuickForward.setOnClickListener(v -> {
-                    if (actionListener != null) actionListener.onForward(fwdMsg);
+                    // Neon tap animation first, then the real forward action
+                    // (same flow as the canvas bubble's ForwardNeonButton).
+                    if (v.getTag(R.id.btn_quick_forward) != null) return;
+                    v.setTag(R.id.btn_quick_forward, Boolean.TRUE);
+                    v.animate().cancel();
+                    v.animate().scaleX(0.82f).scaleY(0.82f).setDuration(120).withEndAction(() ->
+                            v.animate().scaleX(1.12f).scaleY(1.12f).rotation(360f).setDuration(380)
+                                    .withEndAction(() -> {
+                                        v.setScaleX(1f); v.setScaleY(1f); v.setRotation(0f);
+                                        v.setTag(R.id.btn_quick_forward, null);
+                                        if (actionListener != null) actionListener.onForward(fwdMsg);
+                                    }).start()).start();
                 });
             }
         }

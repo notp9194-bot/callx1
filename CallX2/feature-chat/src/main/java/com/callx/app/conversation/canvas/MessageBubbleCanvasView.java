@@ -2367,8 +2367,33 @@ public class MessageBubbleCanvasView extends View {
     // pass from bubbleRect/bubbleLeft, same as every other overlay here. ──
     boolean showForwardBtn = false;
     final RectF forwardBtnRect = new RectF();
-    static final float FORWARD_BTN_SIZE_DP   = 30f;
-    static final float FORWARD_BTN_MARGIN_DP = 2f;
+    static final float FORWARD_BTN_SIZE_DP   = 38f;
+    static final float FORWARD_BTN_MARGIN_DP = 0f;
+    // Neon tap animation (ForwardNeonButton): tap -> 1.6s animation, the real
+    // forward action fires at ForwardNeonButton.ACTION_AT_MS. fwdAnimStart<0 = idle.
+    private ForwardNeonButton fwdNeon;
+    private long fwdAnimStart = -1L;
+    private final Runnable fwdFireRunnable = new Runnable() {
+        @Override public void run() {
+            if (fwdAnimStart < 0) return;          // cancelled (recycled / detached)
+            if (clickListener != null) clickListener.onForwardClick();
+        }
+    };
+
+    private void startForwardAnim() {
+        if (fwdAnimStart >= 0) return;             // already running - ignore extra taps
+        fwdAnimStart = android.os.SystemClock.uptimeMillis();
+        removeCallbacks(fwdFireRunnable);
+        postDelayed(fwdFireRunnable, ForwardNeonButton.ACTION_AT_MS);
+        performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+        postInvalidateOnAnimation();
+    }
+
+    private void cancelForwardAnim() {
+        removeCallbacks(fwdFireRunnable);
+        if (fwdAnimStart >= 0) { fwdAnimStart = -1L; invalidate(); }
+    }
+
     // forwardBtnBgPaint/forwardBtnIconPaint retired — the circle+chevron
     // glyph they drew is now pre-rendered once per size into
     // FORWARD_BTN_BITMAP_CACHE (see getForwardButtonBitmap()) and blitted,
@@ -2997,6 +3022,7 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onDetachedFromWindow() {
         setPressed(false);
+        cancelForwardAnim();
         cancelReplyThumbFade();
         if (bigReactionPopAnim != null && bigReactionPopAnim.isRunning()) bigReactionPopAnim.cancel();
         replyPressed = false;
@@ -5019,6 +5045,7 @@ public class MessageBubbleCanvasView extends View {
     // next bind. Call from onViewRecycled(), alongside resetGif()/
     // resetSticker()/clearFileBubble().
     public void clearRecycledBitmaps() {
+        cancelForwardAnim();
         replyThumb        = null;
         groupBitmaps      = new Bitmap[0];
         reelThumbBitmap   = null;
@@ -7836,10 +7863,6 @@ public class MessageBubbleCanvasView extends View {
             drawForwardedLabel(canvas);
         }
 
-        if (showForwardBtn) {
-            drawForwardButton(canvas);
-        }
-
         int hPad = Math.round(H_PADDING_DP * density);
         int vPad = Math.round(V_PADDING_DP * density);
 
@@ -7912,6 +7935,9 @@ public class MessageBubbleCanvasView extends View {
      * Picture/RenderNode.
      */
     private void drawDynamicOverlayLayer(Canvas canvas) {
+        if (showForwardBtn) {
+            drawForwardButton(canvas);   // outside static cache so tap animation can run
+        }
         if (hasReactions) {
             drawReactionsBadge(canvas);
         }
@@ -8160,8 +8186,19 @@ public class MessageBubbleCanvasView extends View {
         // forwardBtnRect's POSITION varies per bind (sent vs received
         // side). Blit the pre-rendered bitmap instead of re-issuing
         // drawCircle()+drawPath() every frame — see FORWARD_BTN_BITMAP_CACHE.
-        Bitmap fwdBmp = getForwardButtonBitmap(btnSize);
-        canvas.drawBitmap(fwdBmp, forwardBtnRect.left, forwardBtnRect.top, null);
+        if (fwdAnimStart >= 0) {
+            long el = android.os.SystemClock.uptimeMillis() - fwdAnimStart;
+            if (el >= ForwardNeonButton.DURATION_MS) {
+                fwdAnimStart = -1L;
+            } else {
+                if (fwdNeon == null) fwdNeon = new ForwardNeonButton();
+                fwdNeon.draw(canvas, forwardBtnRect.left, forwardBtnRect.top, btnSize, el);
+                postInvalidateOnAnimation();
+                return;
+            }
+        }
+        canvas.drawBitmap(ForwardNeonButton.staticBitmap(btnSize),
+                forwardBtnRect.left, forwardBtnRect.top, null);
     }
 
     // ── PERF: pre-rendered group-avatar placeholder (same pattern as
@@ -8964,7 +9001,7 @@ public class MessageBubbleCanvasView extends View {
         if (showForwardBtn && event.getActionMasked() == MotionEvent.ACTION_UP
                 && forwardBtnRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
-            if (clickListener != null) clickListener.onForwardClick();
+            startForwardAnim();
             return true;
         }
         if (isEdited && event.getActionMasked() == MotionEvent.ACTION_UP
