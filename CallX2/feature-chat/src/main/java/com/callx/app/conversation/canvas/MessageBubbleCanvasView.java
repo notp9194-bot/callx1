@@ -2373,6 +2373,11 @@ public class MessageBubbleCanvasView extends View {
     // forward action fires at ForwardNeonButton.ACTION_AT_MS. fwdAnimStart<0 = idle.
     private ForwardNeonButton fwdNeon;
     private long fwdAnimStart = -1L;
+    // Pressed feedback (scale-down while the finger is on the button) and a
+    // larger touch target than the 38dp drawn button (outer side + top/bottom).
+    private boolean fwdPressed = false;
+    private final RectF forwardHitRect = new RectF();
+    private static final float FORWARD_BTN_HIT_SLOP_DP = 5f;
     private final Runnable fwdFireRunnable = new Runnable() {
         @Override public void run() {
             if (fwdAnimStart < 0) return;          // cancelled (recycled / detached)
@@ -2382,6 +2387,12 @@ public class MessageBubbleCanvasView extends View {
 
     private void startForwardAnim() {
         if (fwdAnimStart >= 0) return;             // already running - ignore extra taps
+        if (ForwardNeonButton.motionReduced(getContext())) {
+            // System animations are off: skip the animation, act right away.
+            performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+            if (clickListener != null) clickListener.onForwardClick();
+            return;
+        }
         fwdAnimStart = android.os.SystemClock.uptimeMillis();
         removeCallbacks(fwdFireRunnable);
         postDelayed(fwdFireRunnable, ForwardNeonButton.ACTION_AT_MS);
@@ -2391,6 +2402,7 @@ public class MessageBubbleCanvasView extends View {
 
     private void cancelForwardAnim() {
         removeCallbacks(fwdFireRunnable);
+        fwdPressed = false;
         if (fwdAnimStart >= 0) { fwdAnimStart = -1L; invalidate(); }
     }
 
@@ -8180,25 +8192,45 @@ public class MessageBubbleCanvasView extends View {
             float left = bubbleRect.right + btnMargin;
             forwardBtnRect.set(left, cy - btnSize / 2f, left + btnSize, cy + btnSize / 2f);
         }
+        // Touch target: +slop on top/bottom and on the outer side only
+        // (never toward the bubble, so bubble taps are not stolen).
+        final float slop = FORWARD_BTN_HIT_SLOP_DP * density;
+        forwardHitRect.set(forwardBtnRect.left - (sent ? slop : 0f),
+                forwardBtnRect.top - slop,
+                forwardBtnRect.right + (sent ? 0f : slop),
+                forwardBtnRect.bottom + slop);
 
         // PERF: circle bg + double-chevron glyph are a fixed shape/color
         // (forwardBtnBgPaint/forwardBtnIconPaint never change) — only
         // forwardBtnRect's POSITION varies per bind (sent vs received
         // side). Blit the pre-rendered bitmap instead of re-issuing
         // drawCircle()+drawPath() every frame — see FORWARD_BTN_BITMAP_CACHE.
+        final boolean fwdDark = ChatThemeManager.isDarkMode(getContext());
         if (fwdAnimStart >= 0) {
             long el = android.os.SystemClock.uptimeMillis() - fwdAnimStart;
             if (el >= ForwardNeonButton.DURATION_MS) {
                 fwdAnimStart = -1L;
             } else {
                 if (fwdNeon == null) fwdNeon = new ForwardNeonButton();
-                fwdNeon.draw(canvas, forwardBtnRect.left, forwardBtnRect.top, btnSize, el);
-                postInvalidateOnAnimation();
+                fwdNeon.draw(canvas, forwardBtnRect.left, forwardBtnRect.top, btnSize, el, fwdDark);
+                // Only the button (+ glow/sparkle/trail overflow) needs redrawing,
+                // not the whole media bubble.
+                final float m = btnSize * 0.4f;
+                postInvalidateOnAnimation((int) (forwardBtnRect.left - m), (int) (forwardBtnRect.top - m),
+                        (int) Math.ceil(forwardBtnRect.right + m), (int) Math.ceil(forwardBtnRect.bottom + m));
                 return;
             }
         }
-        canvas.drawBitmap(ForwardNeonButton.staticBitmap(btnSize),
-                forwardBtnRect.left, forwardBtnRect.top, null);
+        if (fwdPressed) {
+            canvas.save();
+            canvas.scale(0.88f, 0.88f, forwardBtnRect.centerX(), forwardBtnRect.centerY());
+            canvas.drawBitmap(ForwardNeonButton.staticBitmap(btnSize, fwdDark),
+                    forwardBtnRect.left, forwardBtnRect.top, null);
+            canvas.restore();
+        } else {
+            canvas.drawBitmap(ForwardNeonButton.staticBitmap(btnSize, fwdDark),
+                    forwardBtnRect.left, forwardBtnRect.top, null);
+        }
     }
 
     // ── PERF: pre-rendered group-avatar placeholder (same pattern as
@@ -8972,6 +9004,32 @@ public class MessageBubbleCanvasView extends View {
         performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
     }
 
+    private void invalidateForwardBtn() {
+        final float m = forwardBtnRect.width() * 0.2f;
+        invalidate((int) (forwardBtnRect.left - m), (int) (forwardBtnRect.top - m),
+                (int) Math.ceil(forwardBtnRect.right + m), (int) Math.ceil(forwardBtnRect.bottom + m));
+    }
+
+    /** TalkBack: expose the quick-forward button as a custom "Forward" action. */
+    @Override
+    public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (showForwardBtn) {
+            info.addAction(new android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                    com.callx.app.chat.R.id.btn_quick_forward, "Forward"));
+        }
+    }
+
+    @Override
+    public boolean performAccessibilityAction(int action, android.os.Bundle arguments) {
+        if (showForwardBtn && action == com.callx.app.chat.R.id.btn_quick_forward) {
+            // Screen-reader users don't need the animation: forward immediately.
+            if (clickListener != null) clickListener.onForwardClick();
+            return true;
+        }
+        return super.performAccessibilityAction(action, arguments);
+    }
+
     /** TalkBack explore-by-touch for poll option rows (see PollAccessibilityHelper). */
     @Override
     public boolean dispatchHoverEvent(MotionEvent event) {
@@ -8998,11 +9056,22 @@ public class MessageBubbleCanvasView extends View {
                 }
             }
         }
-        if (showForwardBtn && event.getActionMasked() == MotionEvent.ACTION_UP
-                && forwardBtnRect.contains(event.getX(), event.getY())) {
-            cancelPendingLongPress(event);
-            startForwardAnim();
-            return true;
+        if (showForwardBtn) {
+            final int fa = event.getActionMasked();
+            final boolean inFwd = forwardHitRect.contains(event.getX(), event.getY());
+            if (fa == MotionEvent.ACTION_DOWN) {
+                if (inFwd && fwdAnimStart < 0) { fwdPressed = true; invalidateForwardBtn(); }
+            } else if (fwdPressed && (fa == MotionEvent.ACTION_CANCEL
+                    || (fa == MotionEvent.ACTION_MOVE && !inFwd)
+                    || fa == MotionEvent.ACTION_UP)) {
+                fwdPressed = false;
+                invalidateForwardBtn();
+            }
+            if (fa == MotionEvent.ACTION_UP && inFwd) {
+                cancelPendingLongPress(event);
+                startForwardAnim();
+                return true;
+            }
         }
         if (isEdited && event.getActionMasked() == MotionEvent.ACTION_UP
                 && footerTextRect.contains(event.getX(), event.getY())) {

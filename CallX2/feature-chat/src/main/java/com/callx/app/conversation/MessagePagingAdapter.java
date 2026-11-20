@@ -7534,6 +7534,7 @@ public class MessagePagingAdapter
 
         // ── Quick Forward Button — media/link messages pe dikhao ──────────
         if (h.btnQuickForward != null) {
+            h.btnQuickForward.cancel();   // rebind: drop any animation/pending forward of the previous message
             String mt = m.type != null ? m.type : "text";
             boolean showFwd = mt.equals("image") || mt.equals("video") || mt.equals("audio")
                     || mt.equals("file") || mt.equals("reel_share") || mt.equals("reel_link")
@@ -7544,18 +7545,11 @@ public class MessagePagingAdapter
             if (showFwd) {
                 final Message fwdMsg = m;
                 h.btnQuickForward.setOnClickListener(v -> {
-                    // Neon tap animation first, then the real forward action
-                    // (same flow as the canvas bubble's ForwardNeonButton).
-                    if (v.getTag(R.id.btn_quick_forward) != null) return;
-                    v.setTag(R.id.btn_quick_forward, Boolean.TRUE);
-                    v.animate().cancel();
-                    v.animate().scaleX(0.82f).scaleY(0.82f).setDuration(120).withEndAction(() ->
-                            v.animate().scaleX(1.12f).scaleY(1.12f).rotation(360f).setDuration(380)
-                                    .withEndAction(() -> {
-                                        v.setScaleX(1f); v.setScaleY(1f); v.setRotation(0f);
-                                        v.setTag(R.id.btn_quick_forward, null);
-                                        if (actionListener != null) actionListener.onForward(fwdMsg);
-                                    }).start()).start();
+                    // Same neon animation as the canvas bubble (ForwardNeonView reuses
+                    // ForwardNeonButton); the real forward fires at ACTION_AT_MS.
+                    h.btnQuickForward.play(() -> {
+                        if (actionListener != null) actionListener.onForward(fwdMsg);
+                    });
                 });
             }
         }
@@ -11727,7 +11721,7 @@ public class MessagePagingAdapter
         // ── Multi-image grouping (WhatsApp-style grid) ──
         LinearLayout llMediaGroup;
         // ── Quick Forward Button ──
-        android.widget.ImageButton btnQuickForward;
+        com.callx.app.conversation.canvas.ForwardNeonView btnQuickForward;
         // ── Forwarded label ("↪ Forwarded from X") ──
         TextView tvForwarded;
 

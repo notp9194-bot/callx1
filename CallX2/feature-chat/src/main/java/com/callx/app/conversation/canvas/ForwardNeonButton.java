@@ -11,6 +11,9 @@ import android.graphics.RectF;
 /**
  * Neon "share/forward" button used beside media bubbles (quick-forward).
  *
+ * The real forward action fires at {@link #ACTION_AT_MS} (mid-animation, so the
+ * UI never feels laggy); the animation keeps playing to the end.
+ *
  * Static look  : dark disc + glowing violet ring + white curved-arrow.
  * Tap animation: 9-frame timeline (0.0s … 1.6s) —
  *   0.0  solid glowing ring
@@ -20,7 +23,7 @@ import android.graphics.RectF;
  *   0.8  fully dotted ring
  *   1.0  sparkle particles burst outward
  *   1.2  arrow dashes right with motion trail + speed lines
- *   1.4  arrow touches ring edge, spark flare  (== ACTION_AT_MS, click fires here)
+ *   1.4  arrow touches ring edge, spark flare
  *   1.6  solid glowing ring, arrow back at centre
  *
  * Zero allocation in {@link #draw}. One painter per canvas view (lazy);
@@ -30,13 +33,42 @@ final class ForwardNeonButton {
 
     /** Whole animation length. */
     static final long DURATION_MS  = 1600L;
-    /** Moment (ms) the real forward action is fired — arrow "launch" frame. */
-    static final long ACTION_AT_MS = 1400L;
+    /** Moment (ms) the real forward action is fired (dotted ring + sparkle burst
+     *  phase). Lower = snappier, higher = more of the animation is seen first. */
+    static final long ACTION_AT_MS = 950L;
 
-    private static final int RING_COLOR  = 0xFFB87CFF;
-    private static final int GLOW_COLOR  = 0xFF7A2BFF;
-    private static final int DISC_COLOR  = 0xF2090514;
-    private static final int TRAIL_COLOR = 0xFFC9A0FF;
+    /** True when the user turned system animations off (animator scale 0):
+     *  callers skip the animation and act immediately. */
+    static boolean motionReduced(android.content.Context c) {
+        try {
+            return android.provider.Settings.Global.getFloat(c.getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    // ── DARK palette (original neon look) ───────────────────────────
+    private static final int D_RING  = 0xFFB87CFF;
+    private static final int D_GLOW  = 0xFF7A2BFF;
+    private static final int D_DISC  = 0xF2090514;
+    private static final int D_TRAIL = 0xFFC9A0FF;
+    private static final int D_ARROW = 0xFFFFFFFF;
+    private static final int D_HEAD  = 0xFFFFFFFF;
+    // ── LIGHT palette: light disc + deeper, saturated violet so the ring,
+    //    glow, sparks, trail and arrow keep contrast on light wallpapers ──
+    private static final int L_RING  = 0xFF7A2BFF;
+    private static final int L_GLOW  = 0xFF7A2BFF;
+    private static final int L_DISC  = 0xF5F4ECFF;
+    private static final int L_TRAIL = 0xFF8B4DFF;
+    private static final int L_ARROW = 0xFF5A14D6;
+    private static final int L_HEAD  = 0xFF3A0CA3;
+
+    private int ringC = D_RING, glowC = D_GLOW, discC = D_DISC,
+                trailC = D_TRAIL, arrowC = D_ARROW, headC = D_HEAD;
+    private float glowBoost = 1f;
+    private float sparkScale = 1f;
+    private boolean themeDark = true;
 
     private static final int DOTS = 28;
     private static final int SPARKS = 12;
@@ -58,26 +90,26 @@ final class ForwardNeonButton {
 
     ForwardNeonButton() {
         disc.setStyle(Paint.Style.FILL);
-        disc.setColor(DISC_COLOR);
+        disc.setColor(discC);
 
         glow.setStyle(Paint.Style.STROKE);
-        glow.setColor(GLOW_COLOR);
+        glow.setColor(glowC);
 
         ring.setStyle(Paint.Style.STROKE);
-        ring.setColor(RING_COLOR);
+        ring.setColor(ringC);
         ring.setStrokeCap(Paint.Cap.ROUND);
 
         dotted.setStyle(Paint.Style.STROKE);
-        dotted.setColor(RING_COLOR);
+        dotted.setColor(ringC);
         dotted.setStrokeCap(Paint.Cap.ROUND);
 
         fill.setStyle(Paint.Style.FILL);
-        fill.setColor(0xFFFFFFFF);
+        fill.setColor(arrowC);
         fill.setPathEffect(new CornerPathEffect(1.4f));
 
         line.setStyle(Paint.Style.STROKE);
         line.setStrokeCap(Paint.Cap.ROUND);
-        line.setColor(TRAIL_COLOR);
+        line.setColor(trailC);
 
         // Material "reply" glyph mirrored → curved forward/share arrow (24-unit box).
         arrow.moveTo(14f, 9f);
@@ -90,8 +122,29 @@ final class ForwardNeonButton {
         arrow.close();
     }
 
+    /** Switch palette (cheap no-op when the mode did not change). */
+    private void applyTheme(boolean dark) {
+        if (dark == themeDark) return;
+        themeDark = dark;
+        ringC  = dark ? D_RING  : L_RING;
+        glowC  = dark ? D_GLOW  : L_GLOW;
+        discC  = dark ? D_DISC  : L_DISC;
+        trailC = dark ? D_TRAIL : L_TRAIL;
+        arrowC = dark ? D_ARROW : L_ARROW;
+        headC  = dark ? D_HEAD  : L_HEAD;
+        glowBoost = dark ? 1f : 1.7f;
+        sparkScale = dark ? 1f : 1.35f;
+        disc.setColor(discC);
+        glow.setColor(glowC);
+        ring.setColor(ringC);
+        dotted.setColor(ringC);
+        fill.setColor(arrowC);
+        line.setColor(trailC);
+    }
+
     /** ms < 0 or >= DURATION → idle (static) look. */
-    void draw(Canvas c, float left, float top, float size, long ms) {
+    void draw(Canvas c, float left, float top, float size, long ms, boolean dark) {
+        applyTheme(dark);
         final float cx = left + size / 2f, cy = top + size / 2f;
         final float R  = size * 0.32f;               // ring radius
         final float sw = Math.max(1.2f, size * 0.055f);
@@ -109,8 +162,8 @@ final class ForwardNeonButton {
 
         final boolean idle = ms < 0 || ms >= DURATION_MS;
 
-        // disc (dark interior so the white arrow reads on light wallpapers too)
-        disc.setAlpha(0xF2);
+        // disc: dark interior in dark mode, light lavender in light mode
+        disc.setAlpha(dark ? 0xF2 : 0xF5);
         c.drawCircle(cx, cy, R + sw * 0.4f, disc);
 
         if (idle) {
@@ -153,28 +206,28 @@ final class ForwardNeonButton {
         // ── shock-wave ring (frame 2) ────────────────────────────────
         if (ms >= 60 && ms < 420) {
             float p = (ms - 60) / 360f;
-            line.setColor(GLOW_COLOR);
+            line.setColor(glowC);
             line.setStrokeWidth(sw * 0.6f);
             line.setAlpha((int) (140 * (1f - p)));
             c.drawCircle(cx, cy, R * (1f + 0.45f * p), line);
-            line.setColor(TRAIL_COLOR);
+            line.setColor(trailC);
         }
 
         // ── sparkle burst (frame 6) ──────────────────────────────────
         if (ms >= 800 && ms < 1250) {
             float pp = (ms - 800) / 450f;
             float a = (float) Math.sin(Math.PI * pp);
-            fill.setColor(TRAIL_COLOR);
+            fill.setColor(trailC);
             for (int i = 0; i < SPARKS; i++) {
                 float ang = (float) Math.toRadians(i * 30f + (i % 3) * 7f);
                 float base = R * (1.12f + 0.28f * (((i * 37) % 10) / 10f));
                 float rad = base + R * 0.5f * pp;
-                float s = sw * (0.45f + 0.55f * (((i * 13) % 5) / 5f));
+                float s = sparkScale * sw * (0.45f + 0.55f * (((i * 13) % 5) / 5f));
                 fill.setAlpha((int) (230 * a));
                 c.drawCircle(cx + (float) Math.cos(ang) * rad,
                              cy + (float) Math.sin(ang) * rad, s, fill);
             }
-            fill.setColor(0xFFFFFFFF);
+            fill.setColor(arrowC);
         }
 
         // ── travelling spark head ────────────────────────────────────
@@ -192,8 +245,10 @@ final class ForwardNeonButton {
             glow.setAlpha((int) (110 * a));
             c.drawCircle(sx, sy, sw * 2.6f * flare, glow);
             glow.setStyle(Paint.Style.STROKE);
+            fill.setColor(headC);
             fill.setAlpha((int) (255 * a));
             c.drawCircle(sx, sy, sw * 1.05f * flare, fill);
+            fill.setColor(arrowC);
             fill.setAlpha(255);
         }
 
@@ -227,7 +282,7 @@ final class ForwardNeonButton {
         final int[] al = GLOW_A;
         for (int i = 0; i < 3; i++) {
             glow.setStrokeWidth(sw * (1f + k[i]));
-            glow.setAlpha(Math.min(255, (int) (al[i] * mul)));
+            glow.setAlpha(Math.min(255, (int) (al[i] * mul * glowBoost)));
             c.drawCircle(oval.centerX(), oval.centerY(), oval.width() / 2f, glow);
         }
     }
@@ -254,12 +309,12 @@ final class ForwardNeonButton {
             c.translate(cx + off - k * gap, cy);
             c.scale(s, s);
             c.translate(-12f, -12.5f);
-            fill.setColor(TRAIL_COLOR);
+            fill.setColor(trailC);
             fill.setAlpha((int) (110f * amt / k));
             c.drawPath(arrow, fill);
             c.restore();
         }
-        fill.setColor(0xFFFFFFFF);
+        fill.setColor(arrowC);
         fill.setAlpha(255);
         // speed lines
         line.setStrokeWidth(sw * 0.55f);
@@ -267,7 +322,7 @@ final class ForwardNeonButton {
         final float[] ys = LINE_Y;
         final float[] len = LINE_LEN;
         for (int i = 0; i < 3; i++) {
-            line.setAlpha((int) (150 * amt));
+            line.setAlpha((int) ((themeDark ? 150 : 210) * amt));
             float y = cy + ys[i] * R;
             c.drawLine(x1 - len[i] * R, y, x1, y, line);
         }
@@ -285,16 +340,16 @@ final class ForwardNeonButton {
 
     // ── idle bitmap (cached) ─────────────────────────────────────────
 
-    private static final android.util.SparseArray<Bitmap> IDLE_CACHE = new android.util.SparseArray<>(2);
+    private static final android.util.SparseArray<Bitmap> IDLE_CACHE = new android.util.SparseArray<>(4);
 
-    static synchronized Bitmap staticBitmap(float size) {
-        int key = Math.round(size * 10f);
+    static synchronized Bitmap staticBitmap(float size, boolean dark) {
+        int key = Math.round(size * 10f) * 2 + (dark ? 1 : 0);
         Bitmap cached = IDLE_CACHE.get(key);
         if (cached != null && !cached.isRecycled()) return cached;
         int w = Math.max(1, Math.round(size));
         Bitmap bmp = Bitmap.createBitmap(w, w, Bitmap.Config.ARGB_8888);
         bmp.setDensity(Bitmap.DENSITY_NONE);
-        new ForwardNeonButton().draw(new Canvas(bmp), 0f, 0f, w, -1L);
+        new ForwardNeonButton().draw(new Canvas(bmp), 0f, 0f, w, -1L, dark);
         IDLE_CACHE.put(key, bmp);
         return bmp;
     }
