@@ -398,7 +398,22 @@ public class UnifiedVideoCacheManager {
     public static boolean isInitialized()        { return sInitialized; }
 
     private static void ensureInit() {
+        // v803: the app now defers cache init until after first paint. If a caller
+        // (Reels/Status/X/Chat video) gets here first, self-initialise using the
+        // application context registered in Application.onCreate instead of crashing.
+        if (!sInitialized && sAppContext != null) init(sAppContext);
         if (!sInitialized) throw new IllegalStateException("UnifiedVideoCacheManager.init() pehle call karo!");
+    }
+
+    /** Cheap (no I/O): lets lazy callers self-initialise. Call from Application.onCreate. */
+    public static void registerAppContext(@NonNull Context context) {
+        if (sAppContext == null) sAppContext = context.getApplicationContext();
+    }
+
+    /** Application context registered via {@link #registerAppContext} / init, or null. */
+    @Nullable
+    public static Context appContextOrNull() {
+        return sAppContext;
     }
 
     private static boolean isLowMemory(@NonNull Context ctx) {

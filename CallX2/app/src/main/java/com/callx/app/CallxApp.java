@@ -79,6 +79,8 @@ public class CallxApp extends Application implements Configuration.Provider {
     @Override
     public void onCreate() {
         super.onCreate();
+        // v803: cheap static assign so deferred video-cache init can be triggered lazily by any caller.
+        UnifiedVideoCacheManager.registerAppContext(this);
 
         // "Just watched" reels-grid overlay is scoped to the CURRENT app
         // session (see AppSessionTracker + UserReelsActivity#loadWatchedReelIds
@@ -102,7 +104,7 @@ public class CallxApp extends Application implements Configuration.Provider {
         // CameraProviderCache for details. Fire-and-forget: kicks off
         // CameraX's internal binder setup on a background thread inside
         // CameraX itself, doesn't block this onCreate().
-        com.callx.app.cache.CameraProviderCache.warmUp(this);
+        // (CameraProviderCache.warmUp moved to deferred init — v803)
 
         // PERF (advance #1): ThumbHashPlaceholder disk-persist. Reloads the
         // most-recently-used decoded chat-media placeholders from the new
@@ -110,7 +112,7 @@ public class CallxApp extends Application implements Configuration.Provider {
         // LruCache(50), on a background thread, so this cold app start
         // doesn't need to re-run ThumbHash.decode() once ChatActivity's
         // RecyclerView starts binding rows.
-        com.callx.app.utils.ThumbHashPlaceholder.warmUpFromDisk(this);
+        // (ThumbHashPlaceholder.warmUpFromDisk moved to deferred init — v803)
 
         // PERF/UX (EmojiCompat): render emoji from a bitmap font instead of
         // the OEM system font — identical look across devices, and
@@ -300,6 +302,7 @@ public class CallxApp extends Application implements Configuration.Provider {
         // calls just return the existing instance (cheap synchronized
         // null-check, same as AppDatabase.isWarm()'s fast path).
         new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             try {
                 com.callx.app.utils.E2EEncryptionManager.getInstance(CallxApp.this);
                 Log.d(TAG, "E2EEncryptionManager warm-up complete");
@@ -358,40 +361,13 @@ public class CallxApp extends Application implements Configuration.Provider {
 
         // ── BACKGROUND THREAD: heavy init ─────────────────────────────
         new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             // PERF FIX v401 — WorkManager schedule calls + privacy sync,
             // moved off the main thread (see comment above where these
             // used to live). Enqueue-only work, safe to run here — no UI
             // depends on any of these having run by first frame.
-            try {
-                XNotificationWorker.schedule(this);
-                com.callx.app.notifications.ReelNotificationWorker.schedule(this);
-                // YouTube background polling worker — killed/background state notifications
-                com.callx.app.notifications.YouTubeNotificationWorker.schedule(this);
-                // Trending Sound worker enqueue.
-                com.callx.app.workers.TrendingSoundWorker.scheduleIfNeeded(this);
-                // Reels avatar background pre-warm — charging+WiFi(+idle) only.
-                com.callx.app.workers.AvatarPreWarmWorker.schedule(this);
-                // Channel scheduled posts: auto-publish overdue posts every 15 min.
-                com.callx.app.channel.ChannelScheduledPostWorker.schedulePeriodicWork(this);
-                // Status scheduled posts: same cadence/pattern as the channel worker above.
-                com.callx.app.services.StatusScheduledPostWorker.schedulePeriodicWork(this);
-                // Status media: hourly Wi-Fi background pre-download (scheduled here, not only when the Status tab opens),
-                // and wipe account-specific status caches on sign-out / account switch.
-                com.callx.app.services.StatusMediaPrefetchWorker.schedule(this);
-                com.google.firebase.auth.FirebaseAuth.getInstance().addAuthStateListener(a -> {
-                    com.google.firebase.auth.FirebaseUser u = a.getCurrentUser();
-                    com.callx.app.cache.StatusCacheController.onAuthChanged(CallxApp.this, u == null ? null : u.getUid());
-                });
-            } catch (Exception e) {
-                Log.w(TAG, "WorkManager schedule (background) failed: " + e.getMessage());
-            }
 
             // Sync privacy settings to Firebase (if user already logged in)
-            try {
-                if (com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null) {
-                    new com.callx.app.utils.SecurityManager(CallxApp.this).syncAllPrivacyToFirebase();
-                }
-            } catch (Exception ignored) {}
 
             // PERF FIX v238 — "app fresh open / recent-apps-kill open slow":
 
@@ -453,15 +429,6 @@ public class CallxApp extends Application implements Configuration.Provider {
             // every message instead of just failing once). Cheap to attach
             // (a single Firebase listener on our own uid's node) and only
             // ever does real work when a partner is genuinely stuck.
-            try {
-                if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-                    String myUid = FirebaseUtils.getCurrentUid();
-                    com.callx.app.utils.E2EEncryptionManager.getInstance(CallxApp.this)
-                            .listenForReKeyRequests(myUid);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "E2E re-key listener attach failed: " + e.getMessage());
-            }
 
             // ── GROUP E2E RE-KEY FIX: self-healing "Waiting for encryption
             // key…" in group chat — the group counterpart of the listener
@@ -473,33 +440,12 @@ public class CallxApp extends Application implements Configuration.Provider {
             // is the actual root cause of that marker persisting forever
             // instead of just failing once). Cheap to attach and only ever
             // does real work when a groupmate is genuinely stuck.
-            try {
-                if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-                    String myUid = FirebaseUtils.getCurrentUid();
-                    com.callx.app.utils.GroupE2EManager.getInstance(CallxApp.this)
-                            .listenForGroupKeyRequests(myUid);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Group E2E key-resend listener attach failed: " + e.getMessage());
-            }
 
             // Cache system: CacheManager, SyncWorker, StatusCacheManager
-            initCacheSystem();
+            preloadChatsEarly();
 
             // v32 Unified Video Cache — replaces 4 separate caches (was 1150MB total)
             // Now: 500MB shared, partial caching (4MB/reel = ~125 reels), weighted quotas
-            UnifiedVideoCacheManager.init(CallxApp.this);
-            // Legacy managers auto-delegate to UnifiedVideoCacheManager
-            com.callx.app.utils.ExoPlayerManager.init(CallxApp.this);
-
-            // Reels: 500MB dedicated cache for Instagram-like instant playback
-            ReelCacheManager.init(CallxApp.this);
-
-            // X tweet video cache
-            XTweetCacheManager.init(CallxApp.this);
-
-            // Status: 200MB dedicated cache — same pattern as Reels
-            StatusVideoCacheManager.init(CallxApp.this);
 
             // Verified-badge cache: loads previously-resolved uid→isVerified
             // pairs from disk so a cold restart shows badges immediately
@@ -509,14 +455,96 @@ public class CallxApp extends Application implements Configuration.Provider {
             // why this isn't done for every cached uid) — an admin
             // grant/revoke reflects instantly instead of waiting on the
             // cache's 12h TTL.
-            try {
-                if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-                    com.callx.app.cache.VerifiedStatusCache.getInstance()
-                            .listenSelf(FirebaseUtils.getCurrentUid());
+
+            // ── PERF v803 (cold start): DEFERRED INIT ─────────────────────────────
+            // Everything below is NOT needed to paint the Chat List: WorkManager
+            // schedules, E2E key-request listeners, video/ExoPlayer caches, privacy
+            // sync, cache-system listeners, CameraX + ThumbHash warm-ups. Running them
+            // during cold start made 5+ threads (plus 2 SQLite opens) fight the UI
+            // thread for CPU. They now run at BACKGROUND priority DEFERRED_INIT_DELAY_MS
+            // after process start. Video-cache getters self-initialise if touched earlier
+            // (see UnifiedVideoCacheManager#ensureInit), so an early Reels/Status open is safe.
+            final Runnable deferredInit = () -> {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                try { com.callx.app.cache.CameraProviderCache.warmUp(CallxApp.this); } catch (Throwable ignored) {}
+                try { com.callx.app.utils.ThumbHashPlaceholder.warmUpFromDisk(CallxApp.this); } catch (Throwable ignored) {}
+                initCacheSystem();
+                // ── moved blocks ──
+                try {
+                    XNotificationWorker.schedule(this);
+                    com.callx.app.notifications.ReelNotificationWorker.schedule(this);
+                    // YouTube background polling worker — killed/background state notifications
+                    com.callx.app.notifications.YouTubeNotificationWorker.schedule(this);
+                    // Trending Sound worker enqueue.
+                    com.callx.app.workers.TrendingSoundWorker.scheduleIfNeeded(this);
+                    // Reels avatar background pre-warm — charging+WiFi(+idle) only.
+                    com.callx.app.workers.AvatarPreWarmWorker.schedule(this);
+                    // Channel scheduled posts: auto-publish overdue posts every 15 min.
+                    com.callx.app.channel.ChannelScheduledPostWorker.schedulePeriodicWork(this);
+                    // Status scheduled posts: same cadence/pattern as the channel worker above.
+                    com.callx.app.services.StatusScheduledPostWorker.schedulePeriodicWork(this);
+                    // Status media: hourly Wi-Fi background pre-download (scheduled here, not only when the Status tab opens),
+                    // and wipe account-specific status caches on sign-out / account switch.
+                    com.callx.app.services.StatusMediaPrefetchWorker.schedule(this);
+                    com.google.firebase.auth.FirebaseAuth.getInstance().addAuthStateListener(a -> {
+                        com.google.firebase.auth.FirebaseUser u = a.getCurrentUser();
+                        com.callx.app.cache.StatusCacheController.onAuthChanged(CallxApp.this, u == null ? null : u.getUid());
+                    });
+                } catch (Exception e) {
+                    Log.w(TAG, "WorkManager schedule (background) failed: " + e.getMessage());
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "Verified-status self listener attach failed: " + e.getMessage());
-            }
+
+                try {
+                    if (com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null) {
+                        new com.callx.app.utils.SecurityManager(CallxApp.this).syncAllPrivacyToFirebase();
+                    }
+                } catch (Exception ignored) {}
+
+                try {
+                    if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                        String myUid = FirebaseUtils.getCurrentUid();
+                        com.callx.app.utils.E2EEncryptionManager.getInstance(CallxApp.this)
+                                .listenForReKeyRequests(myUid);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "E2E re-key listener attach failed: " + e.getMessage());
+                }
+
+                try {
+                    if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                        String myUid = FirebaseUtils.getCurrentUid();
+                        com.callx.app.utils.GroupE2EManager.getInstance(CallxApp.this)
+                                .listenForGroupKeyRequests(myUid);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Group E2E key-resend listener attach failed: " + e.getMessage());
+                }
+
+                UnifiedVideoCacheManager.init(CallxApp.this);
+                // Legacy managers auto-delegate to UnifiedVideoCacheManager
+                com.callx.app.utils.ExoPlayerManager.init(CallxApp.this);
+
+                // Reels: 500MB dedicated cache for Instagram-like instant playback
+                ReelCacheManager.init(CallxApp.this);
+
+                // X tweet video cache
+                XTweetCacheManager.init(CallxApp.this);
+
+                // Status: 200MB dedicated cache — same pattern as Reels
+                StatusVideoCacheManager.init(CallxApp.this);
+
+                try {
+                    if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                        com.callx.app.cache.VerifiedStatusCache.getInstance()
+                                .listenSelf(FirebaseUtils.getCurrentUid());
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Verified-status self listener attach failed: " + e.getMessage());
+                }
+            };
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    () -> new Thread(deferredInit, "app-init-deferred").start(),
+                    DEFERRED_INIT_DELAY_MS);
 
             Log.d(TAG, "Background init complete");
         }, "app-init-bg").start();
@@ -534,6 +562,18 @@ public class CallxApp extends Application implements Configuration.Provider {
     // Same DEBUG-only verbosity CallxApp already uses elsewhere (StrictMode
     // above) — release builds stay quiet, debug builds get WorkManager's
     // own Logcat output for its schedule()/enqueue() calls above.
+    /** Cold-start critical: warm the in-memory top-chats cache for the Chat List (cheap, background thread). */
+    private void preloadChatsEarly() {
+        try {
+            CacheManager.getInstance(this).preloadTopChats();
+        } catch (Exception e) {
+            Log.w(TAG, "preloadChatsEarly failed: " + e.getMessage());
+        }
+    }
+
+    /** Delay before non-critical startup work runs (after the first frame has had time to paint). */
+    private static final long DEFERRED_INIT_DELAY_MS = 2500L;
+
     @Override
     public Configuration getWorkManagerConfiguration() {
         return new Configuration.Builder()
@@ -698,7 +738,7 @@ public class CallxApp extends Application implements Configuration.Provider {
     private void initCacheSystem() {
         try {
             CacheManager cacheManager = CacheManager.getInstance(this);
-            cacheManager.preloadTopChats();
+            // preloadTopChats() runs early via preloadChatsEarly() (v803)
             SyncWorker.schedule(this);
             // Durable chat writes are independent from the visible chat
             // screen. Schedule the network-constrained outbox on every

@@ -88,7 +88,7 @@ public class MainActivity extends AppCompatActivity
     // without risking the "app looks frozen" perception on a genuinely
     // slow device — past this, MainActivity proceeds and ChatsFragment
     // pays whatever DB-open cost is left, exactly like before this fix.
-    private static final long SPLASH_MAX_HOLD_MS = 1200L;
+    private static final long SPLASH_MAX_HOLD_MS = 500L; // v803: was 1200 — cold start never waits >0.5s on DB warm-up; Chats paints its own loading state
 
     // My profile cache — for UserReelsActivity launch
     private String myName     = "";

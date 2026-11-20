@@ -39,12 +39,20 @@ public class StatusVideoCacheManager {
 
     public static CacheDataSource.Factory getCacheDataSourceFactory() {
         if (!sInitialized) {
+            android.content.Context c = UnifiedVideoCacheManager.appContextOrNull();
+            if (c != null) init(c);   // v803 lazy-init (app defers cache init past first paint)
+        }
+        if (!sInitialized) {
             throw new IllegalStateException("StatusVideoCacheManager.init() pehle call karo!");
         }
         return sCacheDataSourceFactory;
     }
 
     public static SimpleCache getSimpleCache() {
+        if (!sInitialized) {
+            android.content.Context c = UnifiedVideoCacheManager.appContextOrNull();
+            if (c != null) init(c);   // v803 lazy-init (app defers cache init past first paint)
+        }
         if (!sInitialized) {
             throw new IllegalStateException("StatusVideoCacheManager.init() pehle call karo!");
         }

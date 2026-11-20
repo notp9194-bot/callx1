@@ -77,7 +77,11 @@ public class ReelCacheManager {
      */
     public static CacheDataSource.Factory getCacheDataSourceFactory() {
         if (!sInitialized) {
-            throw new IllegalStateException("ReelCacheManager.init(context) pehle call karo!");
+            android.content.Context c = UnifiedVideoCacheManager.appContextOrNull();
+            if (c != null) init(c);   // v803 lazy-init (app defers cache init past first paint)
+        }
+        if (!sInitialized) {
+            throw new IllegalStateException("ReelCacheManager.init() pehle call karo!");
         }
         return sCacheDataSourceFactory;
     }
@@ -87,7 +91,11 @@ public class ReelCacheManager {
      */
     public static SimpleCache getSimpleCache() {
         if (!sInitialized) {
-            throw new IllegalStateException("ReelCacheManager.init(context) pehle call karo!");
+            android.content.Context c = UnifiedVideoCacheManager.appContextOrNull();
+            if (c != null) init(c);   // v803 lazy-init (app defers cache init past first paint)
+        }
+        if (!sInitialized) {
+            throw new IllegalStateException("ReelCacheManager.init() pehle call karo!");
         }
         return sSimpleCache;
     }
