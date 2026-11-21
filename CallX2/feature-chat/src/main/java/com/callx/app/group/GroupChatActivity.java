@@ -6169,6 +6169,9 @@ public class GroupChatActivity extends AppCompatActivity
                 android.widget.Toast.makeText(this, "Wallpaper removed", android.widget.Toast.LENGTH_SHORT).show();
             }
         });
+        sheet.setOnAvatarsToggledListener(() -> {
+            if (pagingAdapter != null) pagingAdapter.onAvatarSettingChanged();
+        });
         sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.ChatCustomizationBottomSheet.TAG);
     }
 

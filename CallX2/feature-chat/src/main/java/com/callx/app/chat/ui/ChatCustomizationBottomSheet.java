@@ -45,6 +45,12 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         this.listener = l;
     }
 
+    /** v810: called after the "Show avatars" switch changes (setting already saved). */
+    private Runnable avatarsToggledListener;
+    public void setOnAvatarsToggledListener(Runnable r) {
+        this.avatarsToggledListener = r;
+    }
+
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -96,7 +102,8 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         addRow(ctx, root, "🎨", "Solid Color", "Fast — low CPU/GPU, no image decode",
                 dp(16), OPTION_SOLID_COLOR);
         addRow(ctx, root, "❌", "Remove Wallpaper", "Back to default chat background",
-                dp(20), OPTION_REMOVE);
+                dp(16), OPTION_REMOVE);
+        addAvatarToggleRow(ctx, root);
 
         return root;
     }
@@ -116,13 +123,36 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         root.addView(card);
     }
 
+    /** v810: "Show avatars" switch. Off = no avatar beside bubbles and no reserved column. */
+    private void addAvatarToggleRow(Context ctx, LinearLayout root) {
+        LinearLayout card = buildRow(ctx, "👤", "Show avatars",
+                "Profile photo beside bubbles. Turn off for wider bubbles");
+        card.removeViewAt(card.getChildCount() - 1); // drop the "›" arrow, a switch replaces it
+        final androidx.appcompat.widget.SwitchCompat sw = new androidx.appcompat.widget.SwitchCompat(ctx);
+        sw.setChecked(com.callx.app.conversation.ChatAvatarPrefs.isShowAvatars());
+        card.addView(sw);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        cp.setMargins(dp(12), 0, dp(12), dp(20));
+        card.setLayoutParams(cp);
+        com.callx.app.conversation.ChatAvatarPrefs.ensureLoaded(ctx);
+        sw.setChecked(com.callx.app.conversation.ChatAvatarPrefs.isShowAvatars());
+        sw.setOnCheckedChangeListener((b, checked) -> {
+            com.callx.app.conversation.ChatAvatarPrefs.set(ctx, checked);
+            if (avatarsToggledListener != null) avatarsToggledListener.run();
+        });
+        card.setOnClickListener(v -> sw.toggle());
+        root.addView(card);
+    }
+
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
-            int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.5f);
+            int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.65f);
             behavior.setPeekHeight(height, false);
             behavior.setMaxHeight(height);
             behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);

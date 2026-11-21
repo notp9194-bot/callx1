@@ -2383,6 +2383,8 @@ public class MessagePagingAdapter
      *  received GROUP row only when it has a sender name; broadcasts never. */
     private boolean avatarEligible(@NonNull Message m, boolean sent) {
         if (Boolean.TRUE.equals(m.broadcast)) return false;
+        // v810: "Show avatars" setting off -> no avatar and NO reserved column (full bubble width).
+        if (!ChatAvatarPrefs.isShowAvatars()) return false;
         // v807: avatar lives on the SAME bubble as the tail, so only tail-capable bubbles carry
         // one. This also keeps status_seen / reel_seen (own avatar), reel cards, contact,
         // location, call and view-once rows completely untouched.
@@ -2818,6 +2820,13 @@ public class MessagePagingAdapter
         if (shown) loadChatAvatar(h, cv, m, sent, token);
     }
 
+    /** v810: the "Show avatars" setting changed — the avatar column is layout-affecting, so every
+     *  bound row needs a FULL rebind (no payload). Rare user action; off-screen rows bind fresh. */
+    public void onAvatarSettingChanged() {
+        final int n = getItemCount();
+        if (n > 0) notifyItemRangeChanged(0, n);
+    }
+
     public boolean isInMultiSelectMode() { return multiSelectMode; }
 
     public java.util.List<Message> getSelectedMessages() {
@@ -3067,6 +3076,7 @@ public class MessagePagingAdapter
     @Override
     public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onAttachedToRecyclerView(recyclerView);
+        ChatAvatarPrefs.ensureLoaded(recyclerView.getContext()); // v810: before the first bind
         glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
         attachedRecyclerView = recyclerView;
         sWarmAppContext = recyclerView.getContext().getApplicationContext();

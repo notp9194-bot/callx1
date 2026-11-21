@@ -45,3 +45,9 @@
 - Avatar rect now starts at `bubbleRect.top` (was bottom-aligned), so it stays level with the tail tip on tall/multi-line/media bubbles. Single-line bubbles look the same as before.
 - onMeasure: row height is floored to the avatar's bottom so a bubble shorter than 28dp never clips the avatar.
 - File: MessageBubbleCanvasView only.
+
+## v810 — "Show avatars" setting
+- New `ChatAvatarPrefs` (feature-chat, `conversation` pkg): SharedPreferences `chat_display_prefs` / `show_chat_avatars`, default ON, read via a static boolean (loaded once in adapter `onAttachedToRecyclerView`, no prefs hit per bind).
+- `MessagePagingAdapter.avatarEligible()` returns false when OFF -> no avatar AND no reserved column (bubbles get full width, 28dp back). `onAvatarSettingChanged()` does a full rebind of bound rows (column is layout-affecting).
+- `ChatCustomizationBottomSheet` (chat menu -> customization): new "Show avatars" switch row; sheet height 50% -> 65% to fit it. Wired in `ChatThemeController` (1:1) and `GroupChatActivity`, both call `onAvatarSettingChanged()` on toggle.
+- Setting is global (all chats, 1:1 + group, both sides).

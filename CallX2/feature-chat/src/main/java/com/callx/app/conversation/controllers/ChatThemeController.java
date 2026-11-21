@@ -140,6 +140,10 @@ public class ChatThemeController {
                 removeWallpaper();
             }
         });
+        sheet.setOnAvatarsToggledListener(() -> {
+            com.callx.app.conversation.MessagePagingAdapter ad = delegate.getPagingAdapter();
+            if (ad != null) ad.onAvatarSettingChanged();
+        });
         sheet.show(delegate.getSupportFragmentManager(), ChatCustomizationBottomSheet.TAG);
     }
 
