@@ -36,3 +36,12 @@
 - `avatarEligible()` additionally requires a tail-capable bubble: status_seen / reel_seen (own avatar), reel/contact/location cards, call entries and view-once rows get NO chat avatar and no reserved column — their code is untouched.
 - Avatar now depends on the PREVIOUS row only (same as the tail). AdapterDataObserver refreshes the row BELOW an insert/remove for 1:1 as well (removed: avatar's old "next row" dependency).
 - File: MessagePagingAdapter only.
+
+## v808 — Avatar–tail gap 0dp
+- `GROUP_AVATAR_GAP_DP` 4 -> 0: the avatar now sits directly against the tail zone (tailInset still added on top, so tail/bubble geometry is unchanged). Bubble max width gains 4dp back (reserved avatar column 32dp -> 28dp).
+- File: MessageBubbleCanvasView only.
+
+## v809 — Avatar top-aligned to the tail
+- Avatar rect now starts at `bubbleRect.top` (was bottom-aligned), so it stays level with the tail tip on tall/multi-line/media bubbles. Single-line bubbles look the same as before.
+- onMeasure: row height is floored to the avatar's bottom so a bubble shorter than 28dp never clips the avatar.
+- File: MessageBubbleCanvasView only.

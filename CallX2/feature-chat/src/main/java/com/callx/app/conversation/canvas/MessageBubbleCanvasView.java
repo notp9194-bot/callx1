@@ -426,7 +426,7 @@ public class MessageBubbleCanvasView extends View {
     // 28dp still fits the shared TINY (32dp) avatar tier, so no extra decode/cache entry.
     // The gap is measured from the avatar to the TAIL ZONE (tailInset is added on top).
     static final float GROUP_AVATAR_SIZE_DP = 28f;
-    static final float GROUP_AVATAR_GAP_DP  = 4f;
+    static final float GROUP_AVATAR_GAP_DP  = 0f;   // v808: avatar touches the tail zone (was 4dp)
     static final int   GROUP_AVATAR_PLACEHOLDER_COLOR = 0xFFBDBDBD;
 
     // ── Reactor avatars on the reaction badge + poll-voters strip (v439). Both
@@ -7439,8 +7439,10 @@ public class MessageBubbleCanvasView extends View {
             float avatarSize = GROUP_AVATAR_SIZE_DP * density;
             // Received: left gutter. Sent: mirrored into the right gutter.
             float avLeft = sent ? (parentWidth - edgeMargin - avatarSize) : edgeMargin;
-            groupSenderAvatarRect.set(avLeft, bubbleRect.bottom - avatarSize,
-                    avLeft + avatarSize, bubbleRect.bottom);
+            // v809: TOP-aligned to the bubble body, level with the tail tip (tail sits on the
+            // body's top corner) — stays next to the tail for tall bubbles too.
+            groupSenderAvatarRect.set(avLeft, bubbleRect.top,
+                    avLeft + avatarSize, bubbleRect.top + avatarSize);
         }
 
         if (isCallEntry) {
@@ -7703,6 +7705,9 @@ public class MessageBubbleCanvasView extends View {
         } else {
             seenByRect.setEmpty();
         }
+
+        // v809: a bubble shorter than the avatar must not clip it (avatar hangs from the top now).
+        if (hasGroupSenderAvatar) totalHeight = Math.max(totalHeight, (int) Math.ceil(groupSenderAvatarRect.bottom));
 
         setMeasuredDimension(parentWidth, totalHeight);
     }
