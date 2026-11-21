@@ -2978,6 +2978,9 @@ public class MessagePagingAdapter
         detachMediaPreloader(recyclerView);
         recyclerView.removeCallbacks(senderAvatarPrefetchRunnable);
         senderAvatarPrefetchQueued = false;
+        recyclerView.removeCallbacks(deferredTailRunnable);
+        deferredTailPosted = false;
+        deferredTailCount = 0;
         attachedRecyclerView = null;
         GlobalVoicePlaybackManager.getInstance().removeListener(globalPlaybackListener);
 
@@ -4759,12 +4762,65 @@ public class MessagePagingAdapter
         }
     }
 
+    // Rows whose tail refresh had to wait because the RecyclerView was computing layout.
+    // Pre-allocated queue + ONE reusable Runnable (no lambda allocation per deferral).
+    private int[] deferredTailPos = new int[8];
+    private int deferredTailCount = 0;
+    private boolean deferredTailPosted = false;
+    private final Runnable deferredTailRunnable = new Runnable() {
+        @Override public void run() {
+            deferredTailPosted = false;
+            final RecyclerView rv = attachedRecyclerView;
+            if (rv == null) { deferredTailCount = 0; return; }
+            if (rv.isComputingLayout()) {               // still in layout: try again next message
+                deferredTailPosted = true;
+                rv.post(this);
+                return;
+            }
+            // Not computing layout here, so refreshBubbleTailRow() cannot re-queue into the array
+            // while we iterate it.
+            final int n = deferredTailCount;
+            deferredTailCount = 0;
+            for (int i = 0; i < n; i++) refreshBubbleTailRow(deferredTailPos[i]);
+        }
+    };
+
+    private void deferBubbleTailRow(RecyclerView rv, int pos) {
+        for (int i = 0; i < deferredTailCount; i++) if (deferredTailPos[i] == pos) return;   // dedupe
+        if (deferredTailCount == deferredTailPos.length) {
+            deferredTailPos = java.util.Arrays.copyOf(deferredTailPos, deferredTailCount * 2);
+        }
+        deferredTailPos[deferredTailCount++] = pos;
+        if (!deferredTailPosted) {
+            deferredTailPosted = true;
+            rv.post(deferredTailRunnable);
+        }
+    }
+
+    /**
+     * Cheap "is there any chance this adapter position is bound right now?" test: the
+     * children are laid out in adapter order, so a position outside [first child, last child]
+     * has no bound holder and the O(children) findViewHolderForAdapterPosition() scan is
+     * pointless (the common case when an older page is prepended off-screen, or when
+     * DiffUtil dispatches many small inserts).
+     */
+    private static boolean mayBeBound(@NonNull RecyclerView rv, int pos) {
+        final int cc = rv.getChildCount();
+        if (cc == 0) return false;
+        final RecyclerView.ViewHolder a = rv.getChildViewHolder(rv.getChildAt(0));
+        final RecyclerView.ViewHolder b = rv.getChildViewHolder(rv.getChildAt(cc - 1));
+        final int pa = a != null ? a.getAbsoluteAdapterPosition() : RecyclerView.NO_POSITION;
+        final int pb = b != null ? b.getAbsoluteAdapterPosition() : RecyclerView.NO_POSITION;
+        if (pa == RecyclerView.NO_POSITION || pb == RecyclerView.NO_POSITION) return true;   // unsure -> do the full lookup
+        return pos >= Math.min(pa, pb) && pos <= Math.max(pa, pb);
+    }
+
     private void refreshBubbleTailRow(int pos) {
         if (pos < 0) return;
         RecyclerView rv = attachedRecyclerView;
         if (rv == null) return;
         if (rv.isComputingLayout()) {
-            rv.post(() -> refreshBubbleTailRow(pos));
+            deferBubbleTailRow(rv, pos);
             return;
         }
         if (pos >= getItemCount()) return;
@@ -4774,10 +4830,12 @@ public class MessagePagingAdapter
         // that is NOT bound (off-screen / cached holder) is still notified — a cached
         // holder would otherwise keep a stale tail.
         try {
-            RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
-            if (vh instanceof VH && ((VH) vh).canvasView != null) {
-                Message m = peek(pos);
-                if (m != null && ((VH) vh).canvasView.isBubbleTailShown() == isBubbleRunHead(pos, m)) return;
+            if (mayBeBound(rv, pos)) {
+                RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
+                if (vh instanceof VH && ((VH) vh).canvasView != null) {
+                    Message m = peek(pos);
+                    if (m != null && ((VH) vh).canvasView.isBubbleTailShown() == isBubbleRunHead(pos, m)) return;
+                }
             }
         } catch (Throwable ignored) { /* fall through to the safe path */ }
         notifyItemChanged(pos, PAYLOAD_BUBBLE_TAIL);

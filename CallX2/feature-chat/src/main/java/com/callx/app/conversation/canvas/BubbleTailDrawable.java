@@ -35,6 +35,10 @@ final class BubbleTailDrawable extends Drawable {
     private final boolean tail;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path tailPath = new Path();   // local coords, origin = body's top corner on the tail side
+    // Square corner (r x r) + tail fused into ONE path (Path.op UNION, built once): the tail
+    // bubble costs a single drawPath instead of drawRect + drawPath. Same local origin as tailPath.
+    private final Path patchPath = new Path();
+    private boolean patchOk;
     private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private boolean shadow;          // only for LIGHT bubble colours (they vanish on a light wallpaper)
     private float shadowDy;
@@ -65,49 +69,58 @@ final class BubbleTailDrawable extends Drawable {
     }
 
     private void buildTail(float tw, float th, float overlap) {
-        // Received orientation (tail to the LEFT of the body, origin at body top-left).
+        // Built in received orientation (tail LEFT of the body, origin = body top-left);
+        // for sent every x is mirrored by k = -1 directly (no Matrix object needed).
+        final float k = sent ? -1f : 1f;
         final Path raw = new Path();
-        raw.moveTo(-tw, 0f);                       // tip
-        raw.lineTo(overlap, 0f);                   // along the top edge, into the body
-        raw.lineTo(overlap, th);
-        raw.lineTo(0f, th);                        // down the body's left edge
-        raw.cubicTo(0f, th * 0.55f, -tw * 0.30f, th * 0.14f, -tw, 0f);   // concave swoosh back to the tip
+        raw.moveTo(-tw * k, 0f);                   // tip
+        raw.lineTo(overlap * k, 0f);               // along the top edge, into the body
+        raw.lineTo(overlap * k, th);
+        raw.lineTo(0f, th);                        // down the body's side edge
+        raw.cubicTo(0f, th * 0.55f, -tw * 0.30f * k, th * 0.14f, -tw * k, 0f);   // concave swoosh back to the tip
         raw.close();
-        if (sent) {                                // mirror for the right side
-            android.graphics.Matrix m = new android.graphics.Matrix();
-            m.setScale(-1f, 1f);
-            raw.transform(m);
-        }
         // Bake a slightly rounded tip once (a path effect at draw time would be CPU work per frame).
         final Paint bake = new Paint(Paint.ANTI_ALIAS_FLAG);
         bake.setStyle(Paint.Style.FILL);
         bake.setPathEffect(new CornerPathEffect(tw * 0.22f));
         tailPath.reset();
         bake.getFillPath(raw, tailPath);
+
+        // Fuse the squared corner into the tail path once (r is fixed per density).
+        final Path square = new Path();
+        if (sent) square.addRect(-radius, 0f, 0f, radius, Path.Direction.CW);
+        else      square.addRect(0f, 0f, radius, radius, Path.Direction.CW);
+        patchPath.reset();
+        patchOk = radius > 0f && patchPath.op(square, tailPath, Path.Op.UNION);
+        if (!patchOk) patchPath.reset();           // fall back to drawRect + drawPath at draw time
     }
 
     @Override
     public void draw(@NonNull Canvas c) {
         final Rect b = getBounds();
         final float r = Math.min(radius, Math.min(b.width(), b.height()) / 2f);
+        // The fused patch is only valid while the corner radius isn't clamped by a tiny bubble.
+        final boolean fused = tail && patchOk && r == radius;
         if (shadow) {                                  // soft edge under bubble + tail, drawn first
-            final int s = c.save();
-            c.translate(0f, shadowDy);
-            drawShape(c, b, r, shadowPaint);
-            c.restoreToCount(s);
+            drawShape(c, b.left, b.top + shadowDy, b.right, b.bottom + shadowDy, r, fused, shadowPaint);
         }
-        drawShape(c, b, r, paint);
+        drawShape(c, b.left, b.top, b.right, b.bottom, r, fused, paint);
     }
 
-    private void drawShape(Canvas c, Rect b, float r, Paint p) {
-        c.drawRoundRect(b.left, b.top, b.right, b.bottom, r, r, p);
+    private void drawShape(Canvas c, float l, float t, float rt, float bt, float r,
+                           boolean fused, Paint p) {
+        c.drawRoundRect(l, t, rt, bt, r, r, p);
         if (!tail) return;
-        // Square off the corner the tail grows from.
-        if (sent) c.drawRect(b.right - r, b.top, b.right, b.top + r, p);
-        else      c.drawRect(b.left, b.top, b.left + r, b.top + r, p);
         final int save = c.save();
-        c.translate(sent ? b.right : b.left, b.top);
-        c.drawPath(tailPath, p);
+        c.translate(sent ? rt : l, t);
+        if (fused) {
+            c.drawPath(patchPath, p);                  // squared corner + tail, one shared texture
+        } else {
+            // Square off the corner the tail grows from (translated: sent = left of origin).
+            if (sent) c.drawRect(-r, 0f, 0f, r, p);
+            else      c.drawRect(0f, 0f, r, r, p);
+            c.drawPath(tailPath, p);
+        }
         c.restoreToCount(save);
     }
 

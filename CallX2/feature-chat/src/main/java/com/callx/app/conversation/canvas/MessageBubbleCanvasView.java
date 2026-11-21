@@ -1709,6 +1709,8 @@ public class MessageBubbleCanvasView extends View {
     }
 
     BubbleTailDrawable bubbleDrawable;
+    // Tail state bubbleDrawable was resolved for — lets setReply() skip a redundant pool lookup.
+    private boolean bubbleDrawableTail = false;
     // WhatsApp-style bubble tail: only the FIRST bubble of a run of consecutive messages
     // from one sender draws it (set by the adapter). Layout never depends on it — the
     // tail room is always reserved (see TAIL_W_DP in onMeasure) so bodies stay aligned.
@@ -1716,15 +1718,15 @@ public class MessageBubbleCanvasView extends View {
     static final float TAIL_W_DP = 7f;
     static final float TAIL_H_DP = 10f;
 
-    /** Package-private: MediaRenderer squares the media corner on the tail side while true. */
-    boolean isBubbleTailShown() { return bubbleTailShown; }
+    /** Public (adapter lives in another package; MediaRenderer also squares the media corner on the tail side while true. */
+    public boolean isBubbleTailShown() { return bubbleTailShown; }
 
     /**
      * Bind-time variant: just records the flag. Every bind*() path resolves the shared
      * drawable right after this and already marks the static layer dirty + invalidates,
      * so doing it here too would be redundant work on every scroll rebind.
      */
-    void setBubbleTailForBind(boolean shown) {
+    public void setBubbleTailForBind(boolean shown) {
         if (shown == bubbleTailShown) return;
         bubbleTailShown = shown;
         // Flags only (no drawable resolve / invalidate): the bind path that follows does both.
@@ -5534,8 +5536,11 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(getContext());
         // Bubble corner treatment doesn't actually depend on hasReply in this
         // view (unlike the legacy bg_reply_preview backgrounds, the outer
-        // bubble shape is unaffected). Shared process-wide instance.
-        bubbleDrawable = sharedBubbleDrawable(getContext(), sent, false, density);
+        // bubble shape is unaffected). Every bind*() already resolved the shared drawable, so
+        // only look it up again if it is missing or was resolved for a different tail state.
+        if (bubbleDrawable == null || bubbleDrawableTail != bubbleTailShown) {
+            bubbleDrawable = sharedBubbleDrawable(getContext(), sent, false, density);
+        }
         if (requestLayoutIfSizeChanged()) {
             replySenderLayout = null; // recomputed in onMeasure
             replyTextLayout = null;
@@ -6405,6 +6410,7 @@ public class MessageBubbleCanvasView extends View {
         // 4 shared instances: (sent x tail). isMediaTail no longer changes the shape —
         // the old "sharper media corner" is now the real tail on the run's first bubble.
         final boolean tail = bubbleTailShown;
+        bubbleDrawableTail = tail;
         int idx = (sent ? 2 : 0) | (tail ? 1 : 0);
         BubbleTailDrawable gd = BUBBLE_DRAWABLE_POOL[idx];
         if (gd == null) {
