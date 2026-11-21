@@ -243,7 +243,7 @@ public class MessageBubbleCanvasView extends View {
         return out;
     }
 
-    static final float CORNER_RADIUS_DP = 18f;
+    static final float CORNER_RADIUS_DP = 6f;
     static final float TAIL_RADIUS_DP    = 4f;
     static final float H_PADDING_DP      = 12f;
     // TELEGRAM-STYLE COMPACT PASS: was 8f. Telegram's bubble text padding
@@ -310,12 +310,12 @@ public class MessageBubbleCanvasView extends View {
     static final float MEDIA_MAX_HEIGHT_DP     = 300f;  // cap for a very tall portrait photo
     static final float MEDIA_MIN_HEIGHT_DP     = 120f;  // floor for a very wide/short landscape photo
     // PREMIUM REDESIGN (v32): corner radius bumped from 12→18dp to match the
-    // bubble's own CORNER_RADIUS_DP (18dp) — image/video now reads as one
+    // bubble's own CORNER_RADIUS_DP (6dp) — image/video now reads as one
     // continuous rounded shape family with the bubble instead of a boxier
     // nested rect. Pill/badge treatment below also reworked to a softer
     // "glass" look (bigger radius, subtle border, slightly deeper scrim)
     // instead of the flat hard-edged translucent rectangle.
-    static final float MEDIA_CORNER_RADIUS_DP  = 18f;
+    static final float MEDIA_CORNER_RADIUS_DP  = 6f;
     static final float MEDIA_MARGIN_DP         = 2f;   // unused (kept for reference) — the real media/bubble-edge gap is MEDIA_TIGHT_INSET_DP, applied where mediaRect is set
     // v34: WhatsApp-level approach — the image/video itself now sits
     // almost flush against the bubble edge (2dp, just enough for the
@@ -1715,8 +1715,8 @@ public class MessageBubbleCanvasView extends View {
     // from one sender draws it (set by the adapter). Layout never depends on it — the
     // tail room is always reserved (see TAIL_W_DP in onMeasure) so bodies stay aligned.
     private boolean bubbleTailShown = false;
-    static final float TAIL_W_DP = 8f;
-    static final float TAIL_H_DP = 12f;
+    static final float TAIL_W_DP = 10f;
+    static final float TAIL_H_DP = 15f;
 
     /** Public (adapter lives in another package; MediaRenderer also squares the media corner on the tail side while true. */
     public boolean isBubbleTailShown() { return bubbleTailShown; }
