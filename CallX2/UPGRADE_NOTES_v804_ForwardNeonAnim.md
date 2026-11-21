@@ -39,3 +39,13 @@ Not changed: per-bind `isDarkMode()` (cheap, once per bind) and location-address
 3. `LinkPreviewFetcher`: title regex is a static constant; meta-tag regexes compiled once per property and cached.
 4. `GroupMemberAdapter.formatLastSeen()`: cached per-locale `SimpleDateFormat`s instead of constructing one per bind.
 Behaviour is unchanged; these only reduce rebinds/allocations.
+
+## v804i — Circle only during animation + bigger button
+- Idle button = arrow only (no disc/ring/glow). On tap the circle fades in (~140ms), plays the same animation, and fades out over the last 200ms, so it never "pops". Both canvas + legacy views (shared `ForwardNeonButton`).
+- Button size: canvas `FORWARD_BTN_SIZE_DP` 38 -> 46dp; legacy `ForwardNeonView` 44 -> 54dp (4dp padding, -4dp margin unchanged).
+
+## v804j — ForwardNeonButton per-frame optimization
+- Removed both CPU path effects from the hot path: `CornerPathEffect` on `fill` (hit the arrow, 3 trail ghosts, spark circles and head every frame) is baked into the arrow `Path` once via `getFillPath()` (same shape); `DashPathEffect` + `drawArc` for the dotted ring is replaced by one `drawLines()` call of DOTS round-capped dashes (same dash geometry; dots appear as the sweep reaches them).
+- Spark trig/size factors are static tables (no cos/sin/toRadians per spark per frame); spark alpha set once per frame.
+- Draw path is allocation-free: reusable `dotPts` array, no new objects.
+- Idle (arrow-only) stays a single cached-bitmap blit; animation redraw stays limited to the button rect.

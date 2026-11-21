@@ -3,7 +3,6 @@ package com.callx.app.conversation.canvas;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.CornerPathEffect;
-import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
@@ -70,6 +69,20 @@ final class ForwardNeonButton {
     private static final int SPARKS = 12;
     private static final float[] GLOW_K = {3.2f, 2.0f, 1.0f};
     private static final int[] GLOW_A = {0x26, 0x3A, 0x60};
+    // PERF: per-spark trig + size factors are constants — computed once, not per frame.
+    private static final float[] SPARK_COS  = new float[SPARKS];
+    private static final float[] SPARK_SIN  = new float[SPARKS];
+    private static final float[] SPARK_BASE = new float[SPARKS];
+    private static final float[] SPARK_SIZE = new float[SPARKS];
+    static {
+        for (int i = 0; i < SPARKS; i++) {
+            double ang = Math.toRadians(i * 30f + (i % 3) * 7f);
+            SPARK_COS[i]  = (float) Math.cos(ang);
+            SPARK_SIN[i]  = (float) Math.sin(ang);
+            SPARK_BASE[i] = 1.12f + 0.28f * (((i * 37) % 10) / 10f);
+            SPARK_SIZE[i] = 0.45f + 0.55f * (((i * 13) % 5) / 5f);
+        }
+    }
     private static final float[] LINE_Y = {-0.22f, 0.02f, 0.26f};
     private static final float[] LINE_LEN = {0.55f, 0.8f, 0.45f};
 
@@ -83,6 +96,12 @@ final class ForwardNeonButton {
     private final Path arrow   = new Path();
 
     private float builtForSize = -1f;
+
+    // PERF: dotted ring drawn as DOTS round-capped lines in ONE drawLines() call instead
+    // of drawArc() + DashPathEffect (a CPU path-effect pass on every frame). Same
+    // geometry (dash = half the period, round caps); offsets are relative to the centre.
+    private final float[] dotOffs = new float[DOTS * 4];
+    private final float[] dotPts  = new float[DOTS * 4];
 
     ForwardNeonButton() {
         disc.setStyle(Paint.Style.FILL);
@@ -101,7 +120,6 @@ final class ForwardNeonButton {
 
         fill.setStyle(Paint.Style.FILL);
         fill.setColor(arrowC);
-        fill.setPathEffect(new CornerPathEffect(1.4f));
 
         line.setStyle(Paint.Style.STROKE);
         line.setStrokeCap(Paint.Cap.ROUND);
@@ -116,6 +134,16 @@ final class ForwardNeonButton {
         arrow.cubicTo(9f, 14.9f, 5.5f, 16.5f, 3f, 20f);
         arrow.cubicTo(4f, 15f, 7f, 10f, 14f, 9f);
         arrow.close();
+
+        // PERF: the 1.4-unit corner rounding used to be a CornerPathEffect on `fill`, i.e. a
+        // CPU path-effect pass for every arrow/trail/spark draw on every frame. Bake it into
+        // the arrow path once (identical shape) and keep `fill` effect-free.
+        final Paint bake = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bake.setStyle(Paint.Style.FILL);
+        bake.setPathEffect(new CornerPathEffect(1.4f));
+        final Path rounded = new Path();
+        bake.getFillPath(arrow, rounded);
+        arrow.set(rounded);
     }
 
     /** Switch palette (cheap no-op when the mode did not change). */
@@ -150,7 +178,14 @@ final class ForwardNeonButton {
             float circ = (float) (2.0 * Math.PI * R);
             float period = circ / DOTS;
             float on = Math.max(0.01f, period * 0.5f - sw);
-            dotted.setPathEffect(new DashPathEffect(new float[]{on, period - on}, 0f));
+            for (int i = 0; i < DOTS; i++) {
+                float a0 = i * period / R;
+                float a1 = (i * period + on) / R;
+                dotOffs[i * 4]     = (float) Math.cos(a0) * R;
+                dotOffs[i * 4 + 1] = (float) Math.sin(a0) * R;
+                dotOffs[i * 4 + 2] = (float) Math.cos(a1) * R;
+                dotOffs[i * 4 + 3] = (float) Math.sin(a1) * R;
+            }
         }
         ring.setStrokeWidth(sw);
         dotted.setStrokeWidth(sw);
@@ -158,26 +193,27 @@ final class ForwardNeonButton {
 
         final boolean idle = ms < 0 || ms >= DURATION_MS;
 
+        // Idle = arrow only. The circle (disc + ring + glow) exists only while the
+        // tap animation plays: it fades in at the start and out at the end.
+        if (idle) {
+            drawArrow(c, cx, cy, R, 0f, 1f, 1f);
+            return;
+        }
+        final float circleA = Math.min(1f, ms / 140f)
+                * (ms > 1400L ? Math.max(0f, 1f - (ms - 1400L) / 200f) : 1f);
+        final int ca255 = (int) (255 * circleA);
+
         // disc: dark interior in dark mode, light lavender in light mode
-        disc.setAlpha(dark ? 0xF2 : 0xF5);
+        disc.setAlpha((int) ((dark ? 0xF2 : 0xF5) * circleA));
         c.drawCircle(cx, cy, R + sw * 0.4f, disc);
         if (!dark) {
-            // Light disc blends into a light wallpaper and looked smaller than the
-            // dark one: a soft violet edge at the SAME radius keeps the circle's
-            // visible size identical in both modes.
+            // Light disc blends into a light wallpaper: a soft violet edge at the
+            // SAME radius keeps the circle's visible size identical in both modes.
             ring.setStrokeWidth(sw * 0.6f);
-            ring.setAlpha(120);
+            ring.setAlpha((int) (120 * circleA));
             c.drawCircle(cx, cy, R + sw * 0.4f, ring);
             ring.setStrokeWidth(sw);
             ring.setAlpha(255);
-        }
-
-        if (idle) {
-            drawGlow(c, 0f, 360f, sw, 1f);
-            ring.setAlpha(255);
-            c.drawCircle(cx, cy, R, ring);
-            drawArrow(c, cx, cy, R, 0f, 1f, 1f);
-            return;
         }
 
         // glow breathing at start and end
@@ -185,27 +221,27 @@ final class ForwardNeonButton {
 
         // ── ring body ────────────────────────────────────────────────
         if (ms < 200) {                                    // frames 1-2: solid
-            drawGlow(c, 0f, 360f, sw, pulse);
-            ring.setAlpha(255);
+            drawGlow(c, 0f, 360f, sw, pulse * circleA);
+            ring.setAlpha(ca255);
             c.drawCircle(cx, cy, R, ring);
         } else if (ms < 850) {                             // frames 3-5: solid → dashes
             float p = ease((ms - 200) / 650f);
             float sweep = 360f * p;
-            drawGlow(c, 0f, 360f, sw, 0.8f);
-            dotted.setAlpha(255);
-            if (sweep > 0.5f) c.drawArc(oval, 0f, sweep, false, dotted);
-            ring.setAlpha(255);
+            drawGlow(c, 0f, 360f, sw, 0.8f * circleA);
+            dotted.setAlpha(ca255);
+            if (sweep > 0.5f) drawDots(c, cx, cy, sweep);
+            ring.setAlpha(ca255);
             if (sweep < 359.5f) c.drawArc(oval, sweep, 360f - sweep, false, ring);
         } else if (ms < 1250) {                            // frames 5-7: full dots
-            drawGlow(c, 0f, 360f, sw, 0.6f);
-            dotted.setAlpha(255);
-            c.drawArc(oval, 0f, 359.9f, false, dotted);
+            drawGlow(c, 0f, 360f, sw, 0.6f * circleA);
+            dotted.setAlpha(ca255);
+            drawDots(c, cx, cy, 360f);
         } else {                                           // frames 8-9: dots → solid
             float q = (ms - 1250) / 350f;
-            drawGlow(c, 0f, 360f, sw, (0.6f + 0.4f * q) * pulse);
-            dotted.setAlpha((int) (255 * (1f - q)));
-            c.drawArc(oval, 0f, 359.9f, false, dotted);
-            ring.setAlpha((int) (255 * q));
+            drawGlow(c, 0f, 360f, sw, (0.6f + 0.4f * q) * pulse * circleA);
+            dotted.setAlpha((int) (255 * (1f - q) * circleA));
+            drawDots(c, cx, cy, 360f);
+            ring.setAlpha((int) (255 * q * circleA));
             c.drawCircle(cx, cy, R, ring);
         }
 
@@ -224,14 +260,12 @@ final class ForwardNeonButton {
             float pp = (ms - 800) / 450f;
             float a = (float) Math.sin(Math.PI * pp);
             fill.setColor(trailC);
+            fill.setAlpha((int) (230 * a));            // same for every spark this frame
+            final float growth = R * 0.5f * pp;
             for (int i = 0; i < SPARKS; i++) {
-                float ang = (float) Math.toRadians(i * 30f + (i % 3) * 7f);
-                float base = R * (1.12f + 0.28f * (((i * 37) % 10) / 10f));
-                float rad = base + R * 0.5f * pp;
-                float s = sparkScale * sw * (0.45f + 0.55f * (((i * 13) % 5) / 5f));
-                fill.setAlpha((int) (230 * a));
-                c.drawCircle(cx + (float) Math.cos(ang) * rad,
-                             cy + (float) Math.sin(ang) * rad, s, fill);
+                float rad = R * SPARK_BASE[i] + growth;
+                c.drawCircle(cx + SPARK_COS[i] * rad, cy + SPARK_SIN[i] * rad,
+                             sparkScale * sw * SPARK_SIZE[i], fill);
             }
             fill.setColor(arrowC);
         }
@@ -282,6 +316,18 @@ final class ForwardNeonButton {
     }
 
     // ── helpers ──────────────────────────────────────────────────────
+
+    /** Dotted ring covering [0, sweepDeg]; dots whose start angle is inside the sweep are drawn. */
+    private void drawDots(Canvas c, float cx, float cy, float sweepDeg) {
+        final int count = sweepDeg >= 359.5f ? DOTS
+                : Math.min(DOTS, (int) (sweepDeg * DOTS / 360f) + 1);
+        final float[] o = dotOffs, p = dotPts;
+        for (int k = 0; k < count * 4; k += 2) {
+            p[k]     = o[k] + cx;
+            p[k + 1] = o[k + 1] + cy;
+        }
+        c.drawLines(p, 0, count * 4, dotted);
+    }
 
     private void drawGlow(Canvas c, float start, float sweep, float sw, float mul) {
         final float[] k = GLOW_K;

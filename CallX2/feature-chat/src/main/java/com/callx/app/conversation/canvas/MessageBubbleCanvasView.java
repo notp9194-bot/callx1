@@ -2367,7 +2367,7 @@ public class MessageBubbleCanvasView extends View {
     // pass from bubbleRect/bubbleLeft, same as every other overlay here. ──
     boolean showForwardBtn = false;
     final RectF forwardBtnRect = new RectF();
-    static final float FORWARD_BTN_SIZE_DP   = 38f;
+    static final float FORWARD_BTN_SIZE_DP   = 46f;
     static final float FORWARD_BTN_MARGIN_DP = 0f;
     // Neon tap animation (ForwardNeonButton): tap -> 1.6s animation, the real
     // forward action fires at ForwardNeonButton.ACTION_AT_MS. fwdAnimStart<0 = idle.
