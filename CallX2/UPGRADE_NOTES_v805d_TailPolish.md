@@ -18,3 +18,6 @@
 ## v805h — Sharper corners, bigger tail
 - CORNER_RADIUS_DP 18 -> 6 and MEDIA_CORNER_RADIUS_DP 18 -> 6 (media keeps matching the bubble).
 - Tail 8x12 -> 10x15dp. Reserved side room is now 10dp, so media rows (8dp margin) sit 2dp further in, same as text bubbles.
+
+## v805i — Corner 8dp, tail 12x18dp
+- CORNER_RADIUS_DP and MEDIA_CORNER_RADIUS_DP 6 -> 8. Tail 10x15 -> 12x18dp (media rows sit 4dp further in than before: 12dp tail room vs 8dp margin).
