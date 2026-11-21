@@ -6,6 +6,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.R;
@@ -14,6 +15,7 @@ import com.callx.app.mention.canvas.MentionRowCanvasView;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 /**
  * MentionSuggestAdapter — filterable list of members shown when the user
@@ -66,11 +68,29 @@ public class MentionSuggestAdapter
 
     /** Replaces the full member list (call when group membership changes). */
     public void setItems(@NonNull List<MentionItem> items) {
+        final List<MentionItem> old = new ArrayList<>(filteredItems);
         allItems.clear();
         allItems.addAll(items);
         filteredItems.clear();
         filteredItems.addAll(items);
-        notifyDataSetChanged();
+        dispatchFilteredDiff(old);
+    }
+
+    /** PERF: diff instead of notifyDataSetChanged() — filter() runs on every keystroke. */
+    private void dispatchFilteredDiff(@NonNull final List<MentionItem> old) {
+        final List<MentionItem> neu = new ArrayList<>(filteredItems);
+        if (old.isEmpty() || neu.isEmpty()) { notifyDataSetChanged(); return; }
+        DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return old.size(); }
+            @Override public int getNewListSize() { return neu.size(); }
+            @Override public boolean areItemsTheSame(int o, int n) {
+                return Objects.equals(old.get(o).uid, neu.get(n).uid);
+            }
+            @Override public boolean areContentsTheSame(int o, int n) {
+                MentionItem a = old.get(o), b = neu.get(n);
+                return Objects.equals(a.name, b.name) && Objects.equals(a.photoUrl, b.photoUrl);
+            }
+        }, false).dispatchUpdatesTo(this);
     }
 
     /**
@@ -79,6 +99,7 @@ public class MentionSuggestAdapter
      * Empty / null → show all.
      */
     public void filter(String prefix) {
+        final List<MentionItem> old = new ArrayList<>(filteredItems);
         filteredItems.clear();
         if (prefix == null || prefix.isEmpty()) {
             filteredItems.addAll(allItems);
@@ -90,7 +111,7 @@ public class MentionSuggestAdapter
                 }
             }
         }
-        notifyDataSetChanged();
+        dispatchFilteredDiff(old);
     }
 
     // ── RecyclerView ──────────────────────────────────────────────────────

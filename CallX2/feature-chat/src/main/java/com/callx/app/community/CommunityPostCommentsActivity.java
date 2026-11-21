@@ -21,6 +21,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.inputmethod.InputContentInfoCompat;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -44,6 +45,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -569,14 +571,63 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         long   createdAt, likeCount;
     }
 
+    // ─── DiffUtil content comparators (every field the row actually renders) ──
+
+    static boolean sameReply(ReplyItem a, ReplyItem b) {
+        return a == b || (Objects.equals(a.id, b.id)
+                && Objects.equals(a.parentId, b.parentId)
+                && Objects.equals(a.text, b.text)
+                && Objects.equals(a.authorUid, b.authorUid)
+                && Objects.equals(a.authorName, b.authorName)
+                && Objects.equals(a.authorPhoto, b.authorPhoto)
+                && Objects.equals(a.replyToName, b.replyToName)
+                && a.createdAt == b.createdAt && a.likeCount == b.likeCount);
+    }
+
+    static boolean sameComment(CommentItem a, CommentItem b) {
+        if (a == b) return true;
+        if (!(Objects.equals(a.id, b.id) && Objects.equals(a.text, b.text)
+                && Objects.equals(a.authorUid, b.authorUid)
+                && Objects.equals(a.authorName, b.authorName)
+                && Objects.equals(a.authorPhoto, b.authorPhoto)
+                && Objects.equals(a.myReaction, b.myReaction)
+                && a.createdAt == b.createdAt && a.likeCount == b.likeCount
+                && Objects.equals(a.type, b.type)
+                && Objects.equals(a.mediaUrl, b.mediaUrl)
+                && Objects.equals(a.giftEmoji, b.giftEmoji)
+                && Objects.equals(a.giftLabel, b.giftLabel)
+                && a.giftCoins == b.giftCoins
+                && Objects.equals(a.reactionCounts, b.reactionCounts)
+                && a.replies.size() == b.replies.size())) return false;
+        for (int i = 0; i < a.replies.size(); i++) {
+            if (!sameReply(a.replies.get(i), b.replies.get(i))) return false;
+        }
+        return true;
+    }
+
     // ─── Adapters ────────────────────────────────────────────────────────────
 
     class CommentAdapter extends RecyclerView.Adapter<CommentAdapter.VH> {
         private List<CommentItem> items = new ArrayList<>();
 
+        // PERF: DiffUtil instead of notifyDataSetChanged() — every Firebase snapshot
+        // rebuilds the whole list, but only changed comments need a rebind now.
         void setItems(List<CommentItem> list) {
-            items = list != null ? list : new ArrayList<>();
-            notifyDataSetChanged();
+            final List<CommentItem> old = items;
+            final List<CommentItem> neu = list != null ? list : new ArrayList<>();
+            items = neu;
+            if (old.isEmpty() || neu.isEmpty()) { notifyDataSetChanged(); return; }
+            DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return old.size(); }
+                @Override public int getNewListSize() { return neu.size(); }
+                @Override public boolean areItemsTheSame(int o, int n) {
+                    CommentItem a = old.get(o), b = neu.get(n);
+                    return a == b || (a.id != null && a.id.equals(b.id));
+                }
+                @Override public boolean areContentsTheSame(int o, int n) {
+                    return sameComment(old.get(o), neu.get(n));
+                }
+            }, false).dispatchUpdatesTo(this);
         }
 
         @NonNull @Override
@@ -662,12 +713,21 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
                 h.rvReplies.setVisibility(View.GONE);
             } else {
                 h.rvReplies.setVisibility(View.VISIBLE);
-                ReplyAdapter ra = new ReplyAdapter(c.id);
-                ra.setItems(c.replies);
-                h.rvReplies.setLayoutManager(new LinearLayoutManager(h.rvReplies.getContext()));
-                h.rvReplies.setNestedScrollingEnabled(false);
-                h.rvReplies.setHasFixedSize(false);
-                h.rvReplies.setAdapter(ra);
+                // PERF: reuse the nested adapter/LayoutManager of a recycled row instead of
+                // allocating new ones on every bind; setItems() diffs.
+                RecyclerView.Adapter<?> cur = h.rvReplies.getAdapter();
+                if (cur instanceof ReplyAdapter && Objects.equals(((ReplyAdapter) cur).parentCommentId, c.id)) {
+                    ((ReplyAdapter) cur).setItems(c.replies);
+                } else {
+                    ReplyAdapter ra = new ReplyAdapter(c.id);
+                    ra.setItems(c.replies);
+                    if (h.rvReplies.getLayoutManager() == null) {
+                        h.rvReplies.setLayoutManager(new LinearLayoutManager(h.rvReplies.getContext()));
+                        h.rvReplies.setNestedScrollingEnabled(false);
+                        h.rvReplies.setHasFixedSize(false);
+                    }
+                    h.rvReplies.setAdapter(ra);
+                }
             }
         }
 
@@ -704,8 +764,21 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         ReplyAdapter(String parentCommentId) { this.parentCommentId = parentCommentId; }
 
         void setItems(List<ReplyItem> list) {
-            items = list != null ? list : new ArrayList<>();
-            notifyDataSetChanged();
+            final List<ReplyItem> old = items;
+            final List<ReplyItem> neu = list != null ? list : new ArrayList<>();
+            items = neu;
+            if (old.isEmpty() || neu.isEmpty()) { notifyDataSetChanged(); return; }
+            DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return old.size(); }
+                @Override public int getNewListSize() { return neu.size(); }
+                @Override public boolean areItemsTheSame(int o, int n) {
+                    ReplyItem a = old.get(o), b = neu.get(n);
+                    return a == b || (a.id != null && a.id.equals(b.id));
+                }
+                @Override public boolean areContentsTheSame(int o, int n) {
+                    return sameReply(old.get(o), neu.get(n));
+                }
+            }, false).dispatchUpdatesTo(this);
         }
 
         @NonNull @Override
@@ -787,8 +860,21 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         MentionAdapter(OnPickListener l) { this.listener = l; }
 
         void setMembers(List<CommunityMemberEntity> list) {
-            items = list != null ? list : new ArrayList<>();
-            notifyDataSetChanged();
+            final List<CommunityMemberEntity> old = items;
+            final List<CommunityMemberEntity> neu = list != null ? list : new ArrayList<>();
+            items = neu;
+            if (old.isEmpty() || neu.isEmpty()) { notifyDataSetChanged(); return; }
+            DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return old.size(); }
+                @Override public int getNewListSize() { return neu.size(); }
+                @Override public boolean areItemsTheSame(int o, int n) {
+                    return Objects.equals(old.get(o).uid, neu.get(n).uid);
+                }
+                @Override public boolean areContentsTheSame(int o, int n) {
+                    CommunityMemberEntity a = old.get(o), b = neu.get(n);
+                    return Objects.equals(a.name, b.name) && Objects.equals(a.role, b.role);
+                }
+            }, false).dispatchUpdatesTo(this);
         }
 
         @NonNull @Override

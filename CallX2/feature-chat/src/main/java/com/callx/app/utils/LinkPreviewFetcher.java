@@ -464,27 +464,43 @@ public class LinkPreviewFetcher {
 
     // ── HTML parsing helpers ──────────────────────────────────────────────
 
+    // PERF: compiled once per meta property (a handful of og:/twitter: keys) instead of
+    // two Pattern.compile() calls on every extractMeta() call.
+    private static final java.util.concurrent.ConcurrentHashMap<String, Pattern[]> META_PATTERNS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Pattern TITLE_PATTERN = Pattern.compile("<title[^>]*>([^<]+)</title>",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    private static Pattern[] metaPatterns(String property) {
+        Pattern[] ps = META_PATTERNS.get(property);
+        if (ps == null) {
+            ps = new Pattern[] {
+                    Pattern.compile(
+                            "<meta[^>]+property=[\"']" + Pattern.quote(property)
+                            + "[\"'][^>]+content=[\"']([^\"']*)[\"']",
+                            Pattern.CASE_INSENSITIVE | Pattern.DOTALL),
+                    Pattern.compile(
+                            "<meta[^>]+content=[\"']([^\"']*)[\"'][^>]+property=[\"']"
+                            + Pattern.quote(property) + "[\"']",
+                            Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
+            };
+            META_PATTERNS.put(property, ps);
+        }
+        return ps;
+    }
+
     private static String extractMeta(String html, String property) {
-        Pattern p = Pattern.compile(
-                "<meta[^>]+property=[\"']" + Pattern.quote(property)
-                + "[\"'][^>]+content=[\"']([^\"']*)[\"']",
-                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(html);
+        final Pattern[] ps = metaPatterns(property);
+        Matcher m = ps[0].matcher(html);
         if (m.find()) return htmlDecode(m.group(1));
 
-        p = Pattern.compile(
-                "<meta[^>]+content=[\"']([^\"']*)[\"'][^>]+property=[\"']"
-                + Pattern.quote(property) + "[\"']",
-                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        m = p.matcher(html);
+        m = ps[1].matcher(html);
         if (m.find()) return htmlDecode(m.group(1));
         return null;
     }
 
     private static String extractTitle(String html) {
-        Pattern p = Pattern.compile("<title[^>]*>([^<]+)</title>",
-                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(html);
+        Matcher m = TITLE_PATTERN.matcher(html);
         return m.find() ? htmlDecode(m.group(1)) : null;
     }
 

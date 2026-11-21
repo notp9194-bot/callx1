@@ -4231,8 +4231,7 @@ public class MessagePagingAdapter
             // Call was connected — show duration
             String durStr = "";
             if (m.duration != null && m.duration > 0) {
-                long sec = m.duration / 1000;
-                durStr = " • " + String.format(java.util.Locale.getDefault(), "%d:%02d", sec / 60, sec % 60);
+                durStr = " • " + formatVoiceDuration(m.duration);
             }
             if (iAmCaller) {
                 label = isVideoCall ? ("Video call" + durStr) : ("Audio call" + durStr);
@@ -5824,8 +5823,7 @@ public class MessagePagingAdapter
             } else {
                 String durStr = "";
                 if (m.duration != null && m.duration > 0) {
-                    long sec = m.duration / 1000;
-                    durStr = " \u2022 " + String.format(java.util.Locale.getDefault(), "%d:%02d", sec / 60, sec % 60);
+                    durStr = " \u2022 " + formatVoiceDuration(m.duration);
                 }
                 if (sent) {
                     label = isVideoCall ? ("Video call" + durStr) : ("Audio call" + durStr);
@@ -7994,9 +7992,7 @@ public class MessagePagingAdapter
                     } // else: BlurHash / skeleton stays until thumb URL arrives
                     // Duration overlay
                     if (h.tvDuration != null && m.duration != null && m.duration > 0) {
-                        long secs = m.duration / 1000;
-                        h.tvDuration.setText(String.format(
-                                java.util.Locale.US, "%d:%02d", secs / 60, secs % 60));
+                        h.tvDuration.setText(formatVoiceDuration(m.duration));
                         h.tvDuration.setVisibility(View.VISIBLE);
                     }
                     // GAP FIX: this block never had a setOnLongClickListener
@@ -8904,9 +8900,8 @@ public class MessagePagingAdapter
         Context ctx = h.itemView.getContext();
         h.llPoll.setVisibility(View.VISIBLE);
 
-        int textColor = sent
-                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_sent_text)
-                : androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_received_text);
+        // PERF: memoized per-uiMode (same colors, no Resources lookup per poll bind)
+        int textColor = com.callx.app.utils.ChatThemeManager.get(ctx).getTextColor(ctx, sent);
 
         // Recolor the fixed-white header icon to match the bubble's text color
         // so it stays legible on both light and dark bubble/theme combinations.

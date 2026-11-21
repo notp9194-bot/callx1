@@ -1704,7 +1704,7 @@ public class MessageBubbleCanvasView extends View {
         float rowH = READ_MORE_ROW_HEIGHT_DP * density;
         float rmBaseline = rowTop + (rowH - (rfm.descent - rfm.ascent)) * 0.5f - rfm.ascent;
         canvas.drawText(rmLabel, x, rmBaseline, readMorePaint);
-        float rmW = readMorePaint.measureText(rmLabel);
+        float rmW = readMoreWidthCache.get(readMorePaint, rmLabel);
         readMoreRect.set(x, rowTop, x + rmW, rowTop + rowH);
     }
 
@@ -2178,7 +2178,7 @@ public class MessageBubbleCanvasView extends View {
         playingBadgeTextPaint.getFontMetrics(playingBadgeFmScratch);
         Paint.FontMetrics fm = playingBadgeFmScratch;
         float padH = 8f * density, padTop = 2f * density, padBottom = 2f * density;
-        float textW = playingBadgeTextPaint.measureText(playingBadgeText);
+        float textW = playingBadgeWidthCache.get(playingBadgeTextPaint, playingBadgeText);
         float textH = fm.descent - fm.ascent;
         float badgeW = textW + padH * 2;
         float badgeH = textH + padTop + padBottom;
@@ -2376,6 +2376,8 @@ public class MessageBubbleCanvasView extends View {
     // Pressed feedback (scale-down while the finger is on the button) and a
     // larger touch target than the 38dp drawn button (outer side + top/bottom).
     private boolean fwdPressed = false;
+    // Cached theme flag for the forward button (refreshed on attach / config change).
+    private boolean fwdDarkCached = true;
     private final RectF forwardHitRect = new RectF();
     private static final float FORWARD_BTN_HIT_SLOP_DP = 5f;
     private final Runnable fwdFireRunnable = new Runnable() {
@@ -3029,6 +3031,7 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        fwdDarkCached = ChatThemeManager.isDarkMode(getContext());
     }
 
     @Override
@@ -8205,7 +8208,7 @@ public class MessageBubbleCanvasView extends View {
         // forwardBtnRect's POSITION varies per bind (sent vs received
         // side). Blit the pre-rendered bitmap instead of re-issuing
         // drawCircle()+drawPath() every frame — see FORWARD_BTN_BITMAP_CACHE.
-        final boolean fwdDark = ChatThemeManager.isDarkMode(getContext());
+        final boolean fwdDark = fwdDarkCached;
         if (fwdAnimStart >= 0) {
             long el = android.os.SystemClock.uptimeMillis() - fwdAnimStart;
             if (el >= ForwardNeonButton.DURATION_MS) {
@@ -8547,7 +8550,7 @@ public class MessageBubbleCanvasView extends View {
         // below is filled in place instead (zero-alloc).
         expiryPaint.getFontMetrics(cornerExpiryFmScratch);
         Paint.FontMetrics efm = cornerExpiryFmScratch;
-        float textW = expiryPaint.measureText(expiryText);
+        float textW = expiryWidthCache.get(expiryPaint, expiryText);
         float pillH = (efm.descent - efm.ascent) + padV * 2;
         float pillW = textW + padH * 2;
         float right = anchorRect.right - inset;
@@ -8584,11 +8587,11 @@ public class MessageBubbleCanvasView extends View {
 
         float x = left;
         canvas.drawText(callEntryIcon, x, rowCenterY - (cifm.ascent + cifm.descent) / 2f, callEntryIconPaint);
-        x += callEntryIconPaint.measureText(callEntryIcon) + gap;
+        x += callIconWidthCache.get(callEntryIconPaint, callEntryIcon) + gap;
         canvas.drawText(callEntryLabel, x, rowCenterY - (clfm.ascent + clfm.descent) / 2f, callEntryLabelPaint);
-        x += callEntryLabelPaint.measureText(callEntryLabel);
+        x += callLabelWidthCache.get(callEntryLabelPaint, callEntryLabel);
         canvas.drawText(CALL_ENTRY_DOT_TEXT, x, rowCenterY - (cdfm.ascent + cdfm.descent) / 2f, callEntryDotPaint);
-        x += callEntryDotPaint.measureText(CALL_ENTRY_DOT_TEXT);
+        x += callDotWidthCache.get(callEntryDotPaint, CALL_ENTRY_DOT_TEXT);
         canvas.drawText(callEntryTime, x, rowCenterY - (ctfm.ascent + ctfm.descent) / 2f, callEntryTimePaint);
     }
 
@@ -9004,6 +9007,14 @@ public class MessageBubbleCanvasView extends View {
         performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
     }
 
+    @Override
+    protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        fwdDarkCached = ChatThemeManager.isDarkMode(getContext());
+        scaledDensityCached = -1f;   // font scale may have changed
+        invalidate();
+    }
+
     private void invalidateForwardBtn() {
         final float m = forwardBtnRect.width() * 0.2f;
         invalidate((int) (forwardBtnRect.left - m), (int) (forwardBtnRect.top - m),
@@ -9413,7 +9424,43 @@ public class MessageBubbleCanvasView extends View {
         return gestureDetector.onTouchEvent(event) || super.onTouchEvent(event);
     }
 
+    // PERF: scaledDensity cached (was a getResources().getDisplayMetrics() lookup on
+    // every call, incl. from draw paths). Reset on config change (font scale).
+    private float scaledDensityCached = -1f;
+
     float spToPx(float sp) {
-        return sp * getContext().getResources().getDisplayMetrics().scaledDensity;
+        float sd = scaledDensityCached;
+        if (sd <= 0f) {
+            sd = getContext().getResources().getDisplayMetrics().scaledDensity;
+            scaledDensityCached = sd;
+        }
+        return sp * sd;
     }
+
+    /**
+     * PERF: remembers the last measureText() result for one paint. Re-measures only
+     * when the text or the paint's text size changed, so the per-frame draw paths
+     * (expiry pill, playing badge, call entry, read-more) no longer measure every frame.
+     */
+    private static final class TextWidthCache {
+        private String text;
+        private float size = -1f;
+        private float width;
+
+        float get(Paint p, String s) {
+            final float sz = p.getTextSize();
+            if (sz != size || s == null || !s.equals(text)) {
+                width = p.measureText(s);
+                text = s;
+                size = sz;
+            }
+            return width;
+        }
+    }
+    private final TextWidthCache expiryWidthCache = new TextWidthCache();
+    private final TextWidthCache playingBadgeWidthCache = new TextWidthCache();
+    private final TextWidthCache callIconWidthCache = new TextWidthCache();
+    private final TextWidthCache callLabelWidthCache = new TextWidthCache();
+    private final TextWidthCache callDotWidthCache = new TextWidthCache();
+    private final TextWidthCache readMoreWidthCache = new TextWidthCache();
 }

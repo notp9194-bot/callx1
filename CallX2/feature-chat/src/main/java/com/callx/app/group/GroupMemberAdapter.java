@@ -421,11 +421,31 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         yesterday.setTimeInMillis(now);
         yesterday.add(Calendar.DAY_OF_YEAR, -1);
         if (isSameDay(then, yesterday)) {
-            return "yesterday at " + new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(ts));
+            return "yesterday at " + formatCached(0, ts);
         }
 
-        String pattern = then.get(Calendar.YEAR) == today.get(Calendar.YEAR) ? "dd MMM" : "dd MMM yyyy";
-        return new SimpleDateFormat(pattern, Locale.getDefault()).format(new Date(ts));
+        return formatCached(then.get(Calendar.YEAR) == today.get(Calendar.YEAR) ? 1 : 2, ts);
+    }
+
+    // PERF: SimpleDateFormat construction is expensive and used to happen on every
+    // member bind (last-seen label). Cached per locale; SimpleDateFormat isn't
+    // thread-safe, hence synchronized.
+    private static final String[] FMT_PATTERNS = {"h:mm a", "dd MMM", "dd MMM yyyy"};
+    private static final SimpleDateFormat[] sFmts = new SimpleDateFormat[3];
+    private static Locale sFmtLocale;
+
+    private static synchronized String formatCached(int which, long ts) {
+        final Locale loc = Locale.getDefault();
+        if (!loc.equals(sFmtLocale)) {
+            sFmtLocale = loc;
+            for (int i = 0; i < sFmts.length; i++) sFmts[i] = null;
+        }
+        SimpleDateFormat f = sFmts[which];
+        if (f == null) {
+            f = new SimpleDateFormat(FMT_PATTERNS[which], loc);
+            sFmts[which] = f;
+        }
+        return f.format(new Date(ts));
     }
 
     private static boolean isSameDay(Calendar a, Calendar b) {

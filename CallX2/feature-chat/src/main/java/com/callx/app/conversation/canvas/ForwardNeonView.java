@@ -21,6 +21,7 @@ public class ForwardNeonView extends ImageButton {
 
     private final ForwardNeonButton neon = new ForwardNeonButton();
     private long animStart = -1L;
+    private boolean darkCached = true;   // refreshed on attach / config change
     private Runnable pendingAction;
     private final Runnable fire = new Runnable() {
         @Override public void run() {
@@ -75,7 +76,7 @@ public class ForwardNeonView extends ImageButton {
         if (size <= 0f) return;
         final float left = getPaddingLeft() + (getWidth() - getPaddingLeft() - getPaddingRight() - size) / 2f;
         final float top  = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom() - size) / 2f;
-        final boolean dark = ChatThemeManager.isDarkMode(getContext());
+        final boolean dark = darkCached;
 
         long el = -1L;
         if (animStart >= 0) {
@@ -90,6 +91,19 @@ public class ForwardNeonView extends ImageButton {
         neon.draw(canvas, left, top, size, el, dark);
         if (pressedLook) canvas.restore();
         if (el >= 0) postInvalidateOnAnimation();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        darkCached = ChatThemeManager.isDarkMode(getContext());
+    }
+
+    @Override
+    protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        darkCached = ChatThemeManager.isDarkMode(getContext());
+        invalidate();
     }
 
     @Override

@@ -11,9 +11,6 @@ import android.graphics.RectF;
 /**
  * Neon "share/forward" button used beside media bubbles (quick-forward).
  *
- * The real forward action fires at {@link #ACTION_AT_MS} (mid-animation, so the
- * UI never feels laggy); the animation keeps playing to the end.
- *
  * Static look  : dark disc + glowing violet ring + white curved-arrow.
  * Tap animation: 9-frame timeline (0.0s … 1.6s) —
  *   0.0  solid glowing ring
@@ -23,7 +20,7 @@ import android.graphics.RectF;
  *   0.8  fully dotted ring
  *   1.0  sparkle particles burst outward
  *   1.2  arrow dashes right with motion trail + speed lines
- *   1.4  arrow touches ring edge, spark flare
+ *   1.4  arrow touches ring edge, spark flare  (== ACTION_AT_MS, click fires here)
  *   1.6  solid glowing ring, arrow back at centre
  *
  * Zero allocation in {@link #draw}. One painter per canvas view (lazy);
@@ -33,9 +30,8 @@ final class ForwardNeonButton {
 
     /** Whole animation length. */
     static final long DURATION_MS  = 1600L;
-    /** Moment (ms) the real forward action is fired (dotted ring + sparkle burst
-     *  phase). Lower = snappier, higher = more of the animation is seen first. */
-    static final long ACTION_AT_MS = 950L;
+    /** Moment (ms) the real forward action is fired — arrow "launch" frame. */
+    static final long ACTION_AT_MS = 1400L;
 
     /** True when the user turned system animations off (animator scale 0):
      *  callers skip the animation and act immediately. */
@@ -59,7 +55,7 @@ final class ForwardNeonButton {
     //    glow, sparks, trail and arrow keep contrast on light wallpapers ──
     private static final int L_RING  = 0xFF7A2BFF;
     private static final int L_GLOW  = 0xFF7A2BFF;
-    private static final int L_DISC  = 0xF5F4ECFF;
+    private static final int L_DISC  = 0xF5E6DAFF;   // slightly deeper so the disc edge reads on white
     private static final int L_TRAIL = 0xFF8B4DFF;
     private static final int L_ARROW = 0xFF5A14D6;
     private static final int L_HEAD  = 0xFF3A0CA3;
@@ -165,6 +161,16 @@ final class ForwardNeonButton {
         // disc: dark interior in dark mode, light lavender in light mode
         disc.setAlpha(dark ? 0xF2 : 0xF5);
         c.drawCircle(cx, cy, R + sw * 0.4f, disc);
+        if (!dark) {
+            // Light disc blends into a light wallpaper and looked smaller than the
+            // dark one: a soft violet edge at the SAME radius keeps the circle's
+            // visible size identical in both modes.
+            ring.setStrokeWidth(sw * 0.6f);
+            ring.setAlpha(120);
+            c.drawCircle(cx, cy, R + sw * 0.4f, ring);
+            ring.setStrokeWidth(sw);
+            ring.setAlpha(255);
+        }
 
         if (idle) {
             drawGlow(c, 0f, 360f, sw, 1f);

@@ -10,6 +10,8 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.core.view.ViewCompat;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
@@ -141,9 +143,35 @@ public class RecentMediaGridAdapter extends RecyclerView.Adapter<RecentMediaGrid
     }
 
     public void submit(List<RecentMediaLoader.Item> newItems) {
+        final List<RecentMediaLoader.Item> old = this.items;
         this.items = newItems;
         reindex();
-        notifyDataSetChanged();
+        // PERF: a refresh used to rebind (and re-issue a Glide load for) every cell;
+        // diff by uri so only the really inserted/removed cells are touched.
+        if (old == null || old.isEmpty() || newItems == null || newItems.isEmpty()) {
+            notifyDataSetChanged();
+            return;
+        }
+        final List<RecentMediaLoader.Item> neu = newItems;
+        final int off = offset();
+        DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return old.size(); }
+            @Override public int getNewListSize() { return neu.size(); }
+            @Override public boolean areItemsTheSame(int o, int n) {
+                return old.get(o).uri.equals(neu.get(n).uri);
+            }
+            @Override public boolean areContentsTheSame(int o, int n) {
+                RecentMediaLoader.Item a = old.get(o), b = neu.get(n);
+                return a.isVideo == b.isVideo && a.durationMs == b.durationMs;
+            }
+        }, false).dispatchUpdatesTo(new ListUpdateCallback() {
+            @Override public void onInserted(int position, int count) { notifyItemRangeInserted(position + off, count); }
+            @Override public void onRemoved(int position, int count) { notifyItemRangeRemoved(position + off, count); }
+            @Override public void onMoved(int from, int to) { notifyItemMoved(from + off, to + off); }
+            @Override public void onChanged(int position, int count, Object payload) {
+                notifyItemRangeChanged(position + off, count, payload);
+            }
+        });
     }
 
     /** Appends a page fetched by RecentMediaLoader#loadRecentPage — powers the
