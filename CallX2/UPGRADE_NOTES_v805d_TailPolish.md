@@ -11,3 +11,6 @@
 
 ## v805f — Build fix
 - `MessageBubbleCanvasView.isBubbleTailShown()` and `setBubbleTailForBind()` are now public: MessagePagingAdapter is in another package (compile error in v805c+).
+
+## v805g — Tail size
+- TAIL_W_DP 7 -> 8, TAIL_H_DP 10 -> 12 (closer to WhatsApp/Telegram proportions; 12dp stays below the 18dp corner radius). Reserved side room 8dp now equals the media rows' 8dp margin.

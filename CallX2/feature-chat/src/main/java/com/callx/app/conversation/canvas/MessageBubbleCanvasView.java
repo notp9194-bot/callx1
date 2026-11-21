@@ -1715,8 +1715,8 @@ public class MessageBubbleCanvasView extends View {
     // from one sender draws it (set by the adapter). Layout never depends on it — the
     // tail room is always reserved (see TAIL_W_DP in onMeasure) so bodies stay aligned.
     private boolean bubbleTailShown = false;
-    static final float TAIL_W_DP = 7f;
-    static final float TAIL_H_DP = 10f;
+    static final float TAIL_W_DP = 8f;
+    static final float TAIL_H_DP = 12f;
 
     /** Public (adapter lives in another package; MediaRenderer also squares the media corner on the tail side while true. */
     public boolean isBubbleTailShown() { return bubbleTailShown; }
