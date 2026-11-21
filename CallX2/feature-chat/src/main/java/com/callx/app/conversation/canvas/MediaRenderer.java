@@ -137,6 +137,43 @@ final class MediaRenderer {
      *        MessageBubbleCanvasView#drawMediaWithOptionalCache() for the
      *        full picture (pun intended).
      */
+    // WhatsApp: on the bubble's tail side the media's top corner is square (the tail grows
+    // out of it); otherwise a round image corner inside a square bubble corner leaves a
+    // small notch. drawRoundRect can't do per-corner radii, so after the normal rounded
+    // draw we paint ONLY the corner filler (square minus quarter-circle) with the same
+    // paint/shader — a few vertices, no extra overdraw, no alpha doubling for scrims.
+    private final android.graphics.Path tailCornerPath = new android.graphics.Path();
+    private final android.graphics.RectF tailCornerOval = new android.graphics.RectF();
+    // PERF: the filler path is rebuilt only when its geometry changes (media draw can run
+    // every frame during download/upload progress; a mutated Path = a re-rasterised texture).
+    private float tcL = Float.NaN, tcT, tcR;
+    private boolean tcSent;
+
+    private void squareTailCorner(Canvas canvas, android.graphics.Paint paint, float r) {
+        if (!host.isBubbleTailShown() || r <= 0f) return;
+        final android.graphics.RectF m = host.mediaRect;
+        final android.graphics.Path p = tailCornerPath;
+        final boolean sent = host.sent;
+        final float x = sent ? m.right : m.left;
+        if (x != tcL || m.top != tcT || r != tcR || sent != tcSent) {
+            tcL = x; tcT = m.top; tcR = r; tcSent = sent;
+            p.reset();
+            if (sent) {                                    // tail at the top-RIGHT
+                p.moveTo(m.right, m.top);
+                p.lineTo(m.right - r, m.top);
+                tailCornerOval.set(m.right - 2f * r, m.top, m.right, m.top + 2f * r);
+                p.arcTo(tailCornerOval, 270f, 90f, false);
+            } else {                                       // tail at the top-LEFT
+                p.moveTo(m.left, m.top);
+                p.lineTo(m.left, m.top + r);
+                tailCornerOval.set(m.left, m.top, m.left + 2f * r, m.top + 2f * r);
+                p.arcTo(tailCornerOval, 180f, 90f, false);
+            }
+            p.close();
+        }
+        canvas.drawPath(p, paint);
+    }
+
     void draw(Canvas canvas, int hPad, int vPad, boolean spinnerHandledSeparately) {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
         // BUG FIX: defense-in-depth alongside MessagePagingAdapter's
@@ -212,6 +249,7 @@ final class MediaRenderer {
                 cachedRectBottom = host.mediaRect.bottom;
             }
             canvas.drawRoundRect(host.mediaRect, r, r, host.mediaBitmapPaint);
+            squareTailCorner(canvas, host.mediaBitmapPaint, r);
         } else {
             // Not decoded yet — plain placeholder box, same rounded shape.
             // Also drop any stale cached shader so a bitmap arriving later
@@ -221,6 +259,7 @@ final class MediaRenderer {
             cachedShader = null;
             cachedShaderBitmap = null;
             canvas.drawRoundRect(host.mediaRect, r, r, host.mediaPlaceholderPaint);
+            squareTailCorner(canvas, host.mediaPlaceholderPaint, r);
         }
 
         // PREMIUM REDESIGN (v32): hairline glass edge traced around the
@@ -667,6 +706,7 @@ final class MediaRenderer {
     private void drawMediaDownloadGate(Canvas canvas, boolean spinnerHandledSeparately) {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
         canvas.drawRoundRect(host.mediaRect, r, r, host.mediaGateScrimPaint);
+        squareTailCorner(canvas, host.mediaGateScrimPaint, r);
 
         final int drawnPercent = host.mediaDownloadProgress >= 0
                 ? Math.max(0, Math.min(100, Math.round(host.mediaDisplayProgress))) : -1;

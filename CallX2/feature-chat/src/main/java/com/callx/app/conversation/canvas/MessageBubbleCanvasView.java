@@ -1708,7 +1708,40 @@ public class MessageBubbleCanvasView extends View {
         readMoreRect.set(x, rowTop, x + rmW, rowTop + rowH);
     }
 
-    GradientDrawable bubbleDrawable;
+    BubbleTailDrawable bubbleDrawable;
+    // WhatsApp-style bubble tail: only the FIRST bubble of a run of consecutive messages
+    // from one sender draws it (set by the adapter). Layout never depends on it — the
+    // tail room is always reserved (see TAIL_W_DP in onMeasure) so bodies stay aligned.
+    private boolean bubbleTailShown = false;
+    static final float TAIL_W_DP = 7f;
+    static final float TAIL_H_DP = 10f;
+
+    /** Package-private: MediaRenderer squares the media corner on the tail side while true. */
+    boolean isBubbleTailShown() { return bubbleTailShown; }
+
+    /**
+     * Bind-time variant: just records the flag. Every bind*() path resolves the shared
+     * drawable right after this and already marks the static layer dirty + invalidates,
+     * so doing it here too would be redundant work on every scroll rebind.
+     */
+    void setBubbleTailForBind(boolean shown) {
+        if (shown == bubbleTailShown) return;
+        bubbleTailShown = shown;
+        // Flags only (no drawable resolve / invalidate): the bind path that follows does both.
+        staticPictureDirty = true;
+        fullBubbleDirty = true;
+    }
+
+    /** Show/hide the bubble tail (no re-measure: only the static bubble layer is redrawn). */
+    public void setBubbleTailShown(boolean shown) {
+        if (shown == bubbleTailShown) return;
+        bubbleTailShown = shown;
+        if (bubbleDrawable != null) {
+            bubbleDrawable = sharedBubbleDrawable(getContext(), sent, false, density);
+            staticPictureDirty = true;
+            invalidate();
+        }
+    }
     // PERF: WhatsApp-level static pre-bake. Only 4 distinct bubble shapes
     // exist app-wide (sent × normal-or-media-tail radius) — every one of
     // them is identical across every message row and every chat screen,
@@ -1716,7 +1749,7 @@ public class MessageBubbleCanvasView extends View {
     // bind of every freshly recycled/newly created holder, build each of
     // the 4 exactly once per process and hand out the same shared
     // GradientDrawable to whoever needs it. See sharedBubbleDrawable().
-    private static final GradientDrawable[] BUBBLE_DRAWABLE_POOL = new GradientDrawable[4];
+    private static final BubbleTailDrawable[] BUBBLE_DRAWABLE_POOL = new BubbleTailDrawable[4];
     // Density/colors the pool was last built for. Density is effectively
     // fixed for a process, but the bubble colors can change at runtime
     // (day/night theme switch without a process restart) — comparing
@@ -1724,6 +1757,7 @@ public class MessageBubbleCanvasView extends View {
     // pool lazily instead of leaving stale colors baked in forever.
     private static float sBubblePoolDensity = -1f;
     private static int sBubblePoolSentColor = 0;
+    private static int sBubblePoolUiMode = -1;
     private static int sBubblePoolReceivedColor = 0;
 
     // ── Perf gap #5: requestLayout() skip-if-unchanged ──────────────────
@@ -6345,32 +6379,38 @@ public class MessageBubbleCanvasView extends View {
      * image/video bubbles want a sharper, more visible corner poking out
      * from behind the media rect (MEDIA_TAIL_RADIUS_DP vs TAIL_RADIUS_DP).
      */
-    private static GradientDrawable sharedBubbleDrawable(Context ctx, boolean sent, boolean isMediaTail, float density) {
-        int sentColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent);
-        int receivedColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received);
-        if (density != sBubblePoolDensity
-                || sentColor != sBubblePoolSentColor
-                || receivedColor != sBubblePoolReceivedColor) {
-            // Density changed (shouldn't happen mid-process, but cheap to
-            // guard) or the bubble colors changed (day/night switch) —
-            // invalidate the whole pool so nothing stale lingers.
-            java.util.Arrays.fill(BUBBLE_DRAWABLE_POOL, null);
-            sBubblePoolDensity = density;
-            sBubblePoolSentColor = sentColor;
-            sBubblePoolReceivedColor = receivedColor;
-        }
-        int idx = (sent ? 2 : 0) | (isMediaTail ? 1 : 0);
-        GradientDrawable gd = BUBBLE_DRAWABLE_POOL[idx];
-        if (gd == null) {
-            gd = new GradientDrawable();
-            gd.setColor(sent ? sentColor : receivedColor);
-            float r = CORNER_RADIUS_DP * density;
-            float tail = (isMediaTail ? MEDIA_TAIL_RADIUS_DP : TAIL_RADIUS_DP) * density;
-            if (sent) {
-                gd.setCornerRadii(new float[]{r, r, r, r, tail, tail, r, r});
-            } else {
-                gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
+    private BubbleTailDrawable sharedBubbleDrawable(Context ctx, boolean sent, boolean isMediaTail, float density) {
+        // PERF: bubble colours only change with the night mode (they are plain resources), so
+        // the two ContextCompat.getColor() resource lookups that used to run on EVERY bind
+        // are now skipped while uiMode + density are unchanged (one int field read instead).
+        final int uiMode = ctx.getResources().getConfiguration().uiMode;
+        int sentColor = sBubblePoolSentColor;
+        int receivedColor = sBubblePoolReceivedColor;
+        if (uiMode != sBubblePoolUiMode || density != sBubblePoolDensity) {
+            sentColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent);
+            receivedColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received);
+            if (density != sBubblePoolDensity
+                    || sentColor != sBubblePoolSentColor
+                    || receivedColor != sBubblePoolReceivedColor) {
+                // Density changed (shouldn't happen mid-process, but cheap to
+                // guard) or the bubble colors changed (day/night switch) —
+                // invalidate the whole pool so nothing stale lingers.
+                java.util.Arrays.fill(BUBBLE_DRAWABLE_POOL, null);
+                sBubblePoolDensity = density;
+                sBubblePoolSentColor = sentColor;
+                sBubblePoolReceivedColor = receivedColor;
             }
+            sBubblePoolUiMode = uiMode;
+        }
+        // 4 shared instances: (sent x tail). isMediaTail no longer changes the shape —
+        // the old "sharper media corner" is now the real tail on the run's first bubble.
+        final boolean tail = bubbleTailShown;
+        int idx = (sent ? 2 : 0) | (tail ? 1 : 0);
+        BubbleTailDrawable gd = BUBBLE_DRAWABLE_POOL[idx];
+        if (gd == null) {
+            gd = new BubbleTailDrawable(sent, tail);
+            gd.configure(sent ? sentColor : receivedColor, CORNER_RADIUS_DP * density,
+                    TAIL_W_DP * density, TAIL_H_DP * density, density);
             BUBBLE_DRAWABLE_POOL[idx] = gd;
         }
         return gd;
@@ -7349,7 +7389,15 @@ public class MessageBubbleCanvasView extends View {
         // the original flush-to-edge behaviour, so this only applies when
         // isMedia is true.
         int edgeMargin = isMedia ? Math.round(MEDIA_ROW_EDGE_MARGIN_DP * density) : 0;
-        bubbleLeft = sent ? (parentWidth - bubbleWidth - edgeMargin) : (edgeMargin + avatarColW);
+        // Room for the bubble tail on the sender's side. Reserved for EVERY bubble that
+        // draws a background (tail or not), so all bodies in a chat line up; media rows
+        // already have an 8dp gap, so they need no extra inset.
+        final boolean drawsBubbleBg = !isContact && !isLocation && !isReelShare
+                && !isViewOnce && !isSeenBubble && !isCallEntry;
+        final int tailInset = drawsBubbleBg
+                ? Math.max(0, Math.round(TAIL_W_DP * density) - edgeMargin) : 0;
+        bubbleLeft = sent ? (parentWidth - bubbleWidth - edgeMargin - tailInset)
+                          : (edgeMargin + avatarColW + tailInset);
         bubbleTop = pinnedTopExtra;
         bubbleRect.set(bubbleLeft, bubbleTop, bubbleLeft + bubbleWidth, bubbleTop + bubbleHeight);
 

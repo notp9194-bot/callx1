@@ -491,6 +491,8 @@ public class MessagePagingAdapter
     // other content. Fired by onMemberPhotosChanged() (photo arrived /
     // changed) and by the AdapterDataObserver (neighbor inserted/removed).
     static final String PAYLOAD_GROUP_SENDER = "group_sender";
+    /** Neighbor above changed -> re-evaluate only this row's bubble tail (no re-measure). */
+    static final String PAYLOAD_BUBBLE_TAIL = "bubble_tail";
 
     // PERF: RGB_565 for thumbnail-sized images — half the memory of ARGB_8888.
     // Thumbnails (avatars, video covers, reply previews, status/reel chips) have
@@ -2795,6 +2797,23 @@ public class MessagePagingAdapter
         // identity tracking across submitData() calls, including the
         // warm-cache-list → real-Paging-list transition.
 
+        // Bubble-tail staleness: a row's tail depends on the row ABOVE it (run head), so only
+        // the row right after an insert/remove point needs re-evaluating (cheap payload,
+        // no re-measure). Needed for every chat type, hence outside the isGroup block.
+        registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+            @Override public void onItemRangeInserted(int positionStart, int itemCount) {
+                refreshBubbleTailRow(positionStart + itemCount);
+            }
+            @Override public void onItemRangeRemoved(int positionStart, int itemCount) {
+                refreshBubbleTailRow(positionStart);
+            }
+            @Override public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
+                int lo = Math.min(fromPosition, toPosition);
+                int hi = Math.max(fromPosition, toPosition) + itemCount;
+                for (int p = Math.max(0, lo); p <= hi && p - lo < 30; p++) refreshBubbleTailRow(p);
+            }
+        });
+
         if (isGroup) {
             // Run-boundary staleness fix: whether a row shows the group
             // AVATAR depends on the NEXT row (isGroupAvatarRunTail) and
@@ -3771,6 +3790,7 @@ public class MessagePagingAdapter
                                  @NonNull java.util.List<Object> payloads) {
         boolean hasReadByPayload = false;
         boolean hasMemberAvatarPayload = false;
+        boolean hasTailPayload = false;
         int handledPayloadCount = 0;
         for (Object payload : payloads) {
             if (PAYLOAD_READ_BY.equals(payload)) {
@@ -3779,9 +3799,12 @@ public class MessagePagingAdapter
             } else if (PAYLOAD_GROUP_SENDER.equals(payload)) {
                 hasMemberAvatarPayload = true;
                 handledPayloadCount++;
+            } else if (PAYLOAD_BUBBLE_TAIL.equals(payload)) {
+                hasTailPayload = true;
+                handledPayloadCount++;
             }
         }
-        if (hasReadByPayload || hasMemberAvatarPayload) {
+        if (hasReadByPayload || hasMemberAvatarPayload || hasTailPayload) {
             // The same Firebase snapshot can change a receipt map and a
             // delivery tick. Handle both payloads when RecyclerView merges
             // them instead of letting the first one hide the second.
@@ -3792,6 +3815,10 @@ public class MessagePagingAdapter
                 // bitmap (invalidate, no re-measure) — see
                 // bindGroupSenderOnly().
                 if (hasMemberAvatarPayload) bindGroupSenderOnly(h, position, m);
+                // Tail payload: just flip the tail on this canvas bubble (redraw only).
+                if (hasTailPayload && h.canvasView != null) {
+                    h.canvasView.setBubbleTailShown(isBubbleRunHead(position, m));
+                }
             }
             // Every merged payload was one of the two handled above
             // (duplicates of the same payload included) — nothing left
@@ -4694,6 +4721,66 @@ public class MessagePagingAdapter
         if (isNonGroupingRow(prev.type)) return true;
         if (Boolean.TRUE.equals(prev.broadcast)) return true;
         return prev.senderName == null || prev.senderName.isEmpty();
+    }
+
+    /**
+     * WhatsApp-style bubble tail: only the FIRST bubble of a run of consecutive messages
+     * from one sender (sent or received, 1:1 or group) draws the little triangle. Same
+     * run rule as isGroupNameRunHead but without the group/name requirements. peek(),
+     * so no Paging load hints; an unloaded row above counts as "head" and is
+     * re-evaluated via PAYLOAD_BUBBLE_TAIL when the older page arrives.
+     */
+    private boolean isBubbleRunHead(int position, @NonNull Message m) {
+        if (position <= 0) return true;
+        Message prev = peek(position - 1);
+        if (prev == null || prev.senderId == null || m.senderId == null) return true;
+        if (!prev.senderId.equals(m.senderId)) return true;
+        if (isNonGroupingRow(prev.type)) return true;
+        // A previous row that draws NO tail-capable bubble (contact / location / reel card,
+        // call entry, view-once, or a legacy non-canvas row) can't carry the run's tail,
+        // so this row must — otherwise the whole run would end up without one.
+        return !drawsTailCapableBubble(prev);
+    }
+
+    private boolean drawsTailCapableBubble(@NonNull Message m) {
+        if (Boolean.TRUE.equals(m.deleted)) return true;          // text placeholder bubble
+        if (Boolean.TRUE.equals(m.viewOnce)) return false;
+        final int vt = viewTypeOf(m);                              // memoized on the Message
+        if (vt != TYPE_CANVAS_SENT && vt != TYPE_CANVAS_RECEIVED) return false;   // legacy / system rows
+        final String t = m.type;
+        if (t == null) return true;
+        // switch on String = one cached hashCode + 1 equals, vs 7 sequential equals() per bind
+        switch (t) {
+            case "contact": case "location": case "reel_share": case "reel_link":
+            case "call_entry": case "status_seen": case "reel_seen":
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    private void refreshBubbleTailRow(int pos) {
+        if (pos < 0) return;
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return;
+        if (rv.isComputingLayout()) {
+            rv.post(() -> refreshBubbleTailRow(pos));
+            return;
+        }
+        if (pos >= getItemCount()) return;
+        // PERF: if the row is currently bound/visible and its tail state already matches
+        // what it should be (the common case when a page is prepended or a message is
+        // appended in the middle of a run), skip the payload round-trip entirely. A row
+        // that is NOT bound (off-screen / cached holder) is still notified — a cached
+        // holder would otherwise keep a stale tail.
+        try {
+            RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
+            if (vh instanceof VH && ((VH) vh).canvasView != null) {
+                Message m = peek(pos);
+                if (m != null && ((VH) vh).canvasView.isBubbleTailShown() == isBubbleRunHead(pos, m)) return;
+            }
+        } catch (Throwable ignored) { /* fall through to the safe path */ }
+        notifyItemChanged(pos, PAYLOAD_BUBBLE_TAIL);
     }
 
     /** The sender-name string for a received group row — 📢 prefix for a broadcast. */
@@ -5629,6 +5716,9 @@ public class MessagePagingAdapter
         // pencil tag drew fine but was never clickable and edit history
         // never opened.
         cv.setEdited(Boolean.TRUE.equals(m.edited));
+        // Bubble tail on the first bubble of a run (must be set BEFORE the bind*() calls
+        // below resolve the bubble drawable).
+        cv.setBubbleTailForBind(isBubbleRunHead(position, m));
         final String type = m.type != null ? m.type : "text";
         final boolean isImage = "image".equals(type);
         final boolean isMultiMedia = "multi_media".equals(type);

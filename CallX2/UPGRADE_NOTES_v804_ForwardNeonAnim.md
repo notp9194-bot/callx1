@@ -49,3 +49,26 @@ Behaviour is unchanged; these only reduce rebinds/allocations.
 - Spark trig/size factors are static tables (no cos/sin/toRadians per spark per frame); spark alpha set once per frame.
 - Draw path is allocation-free: reusable `dotPts` array, no new objects.
 - Idle (arrow-only) stays a single cached-bitmap blit; animation redraw stays limited to the button rect.
+
+## v805 — WhatsApp-style bubble tail (sent + received)
+- New `BubbleTailDrawable` replaces the GradientDrawable bubble background. Received: tail pokes out of the TOP-LEFT corner; sent: TOP-RIGHT (WhatsApp). Only the FIRST bubble of a run of consecutive messages from one sender draws it; the rest are fully rounded.
+- Perf: the body is a plain `drawRoundRect()` (GPU fast path); the tail-side corner is squared with one `drawRect()`; the tail is one tiny shared `Path` (rounded tip baked once, 1dp overlap with the body = no AA seams) so HWUI caches a single texture for every tail. Drawable is stateless w.r.t. bounds -> 4 shared instances process-wide (sent x tail), nothing rebuilt per row; same day/night + density guard as before.
+- Layout: 7dp tail room is always reserved on the sender side for every bubble that draws a background (so all bodies line up); media rows already have 8dp so they don't move. Toggling the tail never re-measures — only the static bubble layer is redrawn.
+- Adapter: `isBubbleRunHead()` (1:1 + group, sent + received) sets the tail at bind; `PAYLOAD_BUBBLE_TAIL` + an always-on data observer re-evaluate ONLY the row right after an insert/remove (older page prepended, deleted message) with the cheap payload path. Tuning: `TAIL_W_DP` / `TAIL_H_DP` in `MessageBubbleCanvasView`.
+- Bubbleless cards (contact, location, reel, view-once, seen, call entry) are unchanged. The legacy XML bubble path is unchanged.
+
+## v805b — Bubble tail polish
+1. Run-head rule: a previous row that draws no tail-capable bubble (contact/location/reel card, call entry, view-once, seen, legacy non-canvas row) now breaks the run (`drawsTailCapableBubble()`), so a run never ends up with no tail at all.
+2. Single-media bubbles: the media's top corner on the tail side is squared (`MediaRenderer.squareTailCorner`): after the normal rounded draw only the corner filler (square minus quarter-circle) is painted with the same paint/shader — no per-corner path for the whole image, no alpha doubling on scrims. Media GROUP grids are unchanged.
+3. Light bubble colours get a ~10% black 1dp soft edge under body + tail (luminance > 0.6 only; dark bubbles unchanged), drawn once inside the cached static bubble layer.
+4. RTL: no change needed — bubble placement is absolute (sent = right, received = left) and the tail follows the same side.
+5. Selection tint is row-level (itemView background/alpha), so it already covers the tail.
+Not done: tail fade-in/out on neighbor change (would need the dynamic overlay layer for a rarely-visible event); legacy XML rows keep no tail.
+
+## v805c — Bubble tail: bind/draw-path optimization
+- Bind: tail flag set via `setBubbleTailForBind()` (flags only — the bind path already resolves the drawable and invalidates; the old setter did it twice on every scroll rebind).
+- `sharedBubbleDrawable()`: the two `ContextCompat.getColor()` lookups per bind are skipped while `uiMode` + density are unchanged (one int read); pool is rebuilt only on night-mode/density change.
+- Neighbor refresh: `refreshBubbleTailRow()` skips the payload round-trip when the row is bound/visible and its tail already matches; unbound/cached holders are still notified (no stale tails).
+- `drawsTailCapableBubble()` uses a String `switch` (cached hash) instead of 7 sequential `equals()`.
+- `MediaRenderer.squareTailCorner()`: filler Path rebuilt only when geometry changes (media draws every frame during progress; a mutated Path = a re-rasterised texture).
+- Unchanged by design: body = GPU `drawRoundRect`, one shared tail `Path`/texture, 4 shared drawables, soft shadow baked in the cached bubble layer.
