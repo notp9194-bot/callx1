@@ -21,3 +21,18 @@
 
 ## v805i — Corner 8dp, tail 12x18dp
 - CORNER_RADIUS_DP and MEDIA_CORNER_RADIUS_DP 6 -> 8. Tail 10x15 -> 12x18dp (media rows sit 4dp further in than before: 12dp tail room vs 8dp margin).
+
+## v806 — Chat avatars on BOTH sides (1:1 + group), tail-style
+- Avatar circle now shows beside text/other bubbles for received (left) AND sent (right), in 1:1 and group chats, on the run tail (bottom-aligned), 28dp (fits the shared TINY tier -> no extra decode/cache entry). Gap 4dp + tail zone.
+- No extra calls: group = live groupMemberPhotos (sent falls back to auth photo); 1:1 = partner photo (same URL as toolbar header) + auth photo, set once via `setPartnerPhotoUrl()` / constructor default. Bind = L2 `peekInline` (no allocation) else the shared `ChatAvatarBinder` pipeline.
+- Layout: column reserved on all bubbles of a run (aligned bodies); sent side reserves on the right. Draw-only gate (`groupSenderAvatarShown`) so moving the avatar never re-measures.
+- Neighbor change (insert/remove): observer now runs for 1:1 too, with an O(1) `mayBeBound` + "already correct" short-circuit (no payload when the bound row is right). Deferral queue shared with the tail refresh (no lambda per call).
+- Tap/long-press only for received GROUP avatars (`setGroupSenderAvatarTappable`); sent/1:1 avatars are display-only.
+- Placeholder bitmap pre-set on every pooled canvas holder (sent + received) in all chats.
+- Files: MessageBubbleCanvasView, MessagePagingAdapter, ChatActivity (partner photo wiring).
+
+## v807 — Avatar moves to the TAIL bubble
+- Chat avatar now shows on the SAME bubble as the bubble tail (first bubble of a same-sender run) instead of the run's last bubble. Gate = `drawsTailCapableBubble(m) && isBubbleRunHead(pos, m)` (`isGroupAvatarRunTail()` now delegates to it). Size/gap/bottom alignment, column reservation on all bubbles of a run, bind pipeline unchanged.
+- `avatarEligible()` additionally requires a tail-capable bubble: status_seen / reel_seen (own avatar), reel/contact/location cards, call entries and view-once rows get NO chat avatar and no reserved column — their code is untouched.
+- Avatar now depends on the PREVIOUS row only (same as the tail). AdapterDataObserver refreshes the row BELOW an insert/remove for 1:1 as well (removed: avatar's old "next row" dependency).
+- File: MessagePagingAdapter only.

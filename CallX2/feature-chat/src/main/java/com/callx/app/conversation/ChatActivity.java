@@ -747,6 +747,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (url != null && !url.isEmpty()) {
                     if (photo != null) partnerPhoto = photo;
                     if (thumb != null) partnerThumb = thumb;
+                    if (pagingAdapter != null) pagingAdapter.setPartnerPhotoUrl(ChatActivity.this, url);
                     // FIX (avatar optimization — reuse core pipeline): was a
                     // flat, hardcoded-96px Glide load with its own
                     // CacheDashboardStats listener; ChatAvatarBinder.bind()
@@ -2719,6 +2720,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
         pagingAdapter.setChatId(chatId);
         pagingAdapter.setPartnerUid(partnerUid);
+        // Chat avatars beside bubbles (received = partner, sent = me): URLs the screen already
+        // holds, so no extra call. Same URL choice as the toolbar header avatar -> shared cache hit.
+        pagingAdapter.setPartnerPhotoUrl(this,
+                (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto);
 
         // Feature 13: View Once — wire adapter listener to controller + viewer launch
         // (Moved here from early onCreate block — pagingAdapter must exist first.)

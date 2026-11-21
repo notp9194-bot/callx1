@@ -421,8 +421,12 @@ public class MessageBubbleCanvasView extends View {
     // bubbleLeft/maxTextWidth right by AVATAR_SIZE+AVATAR_GAP so the bubble
     // itself never overlaps the avatar column — same reservation the legacy
     // XML's ll_bubble-constraintStart_toEndOf-iv_sender_avatar gave it. ──
-    static final float GROUP_AVATAR_SIZE_DP = 20f;
-    static final float GROUP_AVATAR_GAP_DP  = 6f; // gap between avatar and bubble start edge
+    // v806: now used for EVERY chat (1:1 + group) and BOTH sides — received avatar
+    // sits left of the bubble, sent avatar right of it (bottom-aligned, run tail).
+    // 28dp still fits the shared TINY (32dp) avatar tier, so no extra decode/cache entry.
+    // The gap is measured from the avatar to the TAIL ZONE (tailInset is added on top).
+    static final float GROUP_AVATAR_SIZE_DP = 28f;
+    static final float GROUP_AVATAR_GAP_DP  = 4f;
     static final int   GROUP_AVATAR_PLACEHOLDER_COLOR = 0xFFBDBDBD;
 
     // ── Reactor avatars on the reaction badge + poll-voters strip (v439). Both
@@ -2328,6 +2332,9 @@ public class MessageBubbleCanvasView extends View {
     // is draw-only (no re-measure when it flips). Default true so any
     // caller that never sets it keeps the old always-draw behaviour.
     boolean groupSenderAvatarShown = true;
+    // Tap (full-screen viewer) / long-press (@mention) only make sense for a received GROUP
+    // avatar; the sent-side and 1:1 avatars are display-only. Draw/touch-only (no re-measure).
+    boolean groupSenderAvatarTappable = false;
     final Paint groupSenderAvatarPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     // PERF: the "no photo yet" placeholder used to be a Paint-drawn oval
     // (drawOval + AA paint every draw() for as long as the avatar was
@@ -5981,7 +5988,21 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
-    /** True when the avatar column is reserved (received group bubble). Used by
+    /** True when this row currently draws its avatar circle (run tail). */
+    public boolean isGroupSenderAvatarShown() { return groupSenderAvatarShown; }
+
+    /** Draw/touch-only: enables avatar tap + long-press (received group rows only). */
+    public void setGroupSenderAvatarTappable(boolean tappable) {
+        if (this.groupSenderAvatarTappable == tappable) return;
+        this.groupSenderAvatarTappable = tappable;
+        if (!tappable) {
+            removeCallbacks(avatarLongPressRunnable);
+            avatarTouchActive = false;
+            avatarLongPressFired = false;
+        }
+    }
+
+    /** True when the avatar column is reserved (any canvas bubble that shows a chat avatar). Used by
      *  the adapter's PAYLOAD_MEMBER_AVATAR fast path to skip rows that have no
      *  avatar to swap (sent / 1:1 / broadcast pseudo-label). */
     public boolean isGroupSenderAvatarVisible() {
@@ -7402,7 +7423,7 @@ public class MessageBubbleCanvasView extends View {
                 && !isViewOnce && !isSeenBubble && !isCallEntry;
         final int tailInset = drawsBubbleBg
                 ? Math.max(0, Math.round(TAIL_W_DP * density) - edgeMargin) : 0;
-        bubbleLeft = sent ? (parentWidth - bubbleWidth - edgeMargin - tailInset)
+        bubbleLeft = sent ? (parentWidth - bubbleWidth - edgeMargin - avatarColW - tailInset)
                           : (edgeMargin + avatarColW + tailInset);
         bubbleTop = pinnedTopExtra;
         bubbleRect.set(bubbleLeft, bubbleTop, bubbleLeft + bubbleWidth, bubbleTop + bubbleHeight);
@@ -7416,8 +7437,10 @@ public class MessageBubbleCanvasView extends View {
         // every other conditional rect in this method. ──
         if (hasGroupSenderAvatar) {
             float avatarSize = GROUP_AVATAR_SIZE_DP * density;
-            groupSenderAvatarRect.set(edgeMargin, bubbleRect.bottom - avatarSize,
-                    edgeMargin + avatarSize, bubbleRect.bottom);
+            // Received: left gutter. Sent: mirrored into the right gutter.
+            float avLeft = sent ? (parentWidth - edgeMargin - avatarSize) : edgeMargin;
+            groupSenderAvatarRect.set(avLeft, bubbleRect.bottom - avatarSize,
+                    avLeft + avatarSize, bubbleRect.bottom);
         }
 
         if (isCallEntry) {
@@ -9430,7 +9453,8 @@ public class MessageBubbleCanvasView extends View {
         // so this sub-rect's long-press can fire independently of, and
         // instead of, the whole-bubble long-click below it — mirrors the
         // audio-waveform scrub block's early-intercept-on-DOWN pattern.
-        if (hasGroupSenderAvatar && groupSenderAvatarShown && !groupSenderAvatarRect.isEmpty()) {
+        if (hasGroupSenderAvatar && groupSenderAvatarShown && groupSenderAvatarTappable
+                && !groupSenderAvatarRect.isEmpty()) {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN
                     && groupSenderAvatarRect.contains(event.getX(), event.getY())) {

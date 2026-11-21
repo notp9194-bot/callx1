@@ -2321,6 +2321,75 @@ public class MessagePagingAdapter
     private String partnerUid;
     public void setPartnerUid(String partnerUid) { this.partnerUid = partnerUid; }
 
+    // ── Chat avatars (1:1 + group, BOTH sides) ─────────────────────────────
+    // Photo URLs come from data the screen already holds (intent extras / auth
+    // profile) — no extra Firebase/Room read per message or per bind. Groups use
+    // the live groupMemberPhotos map instead (myPhotoUrl is only its fallback).
+    private String myPhotoUrl = "";
+    private String partnerPhotoUrl = "";
+
+    /** 1:1 chats: the partner's photo (same URL the toolbar header avatar uses). */
+    public void setPartnerPhotoUrl(@Nullable Context ctx, @Nullable String url) {
+        final String v = url != null ? url : "";
+        if (v.equals(partnerPhotoUrl)) return;
+        partnerPhotoUrl = v;
+        onChatAvatarUrlChanged(ctx, v);
+    }
+
+    /** My own photo (sent-side avatar). Defaults to the auth profile photo at construction. */
+    public void setMyPhotoUrl(@Nullable Context ctx, @Nullable String url) {
+        final String v = url != null ? url : "";
+        if (v.equals(myPhotoUrl)) return;
+        myPhotoUrl = v;
+        onChatAvatarUrlChanged(ctx, v);
+    }
+
+    /** Warm the one URL that changed (same pipeline/tier the bind uses, so the
+     *  bind is an L2 hit) and refresh only the visible run-tail avatar rows. */
+    private void onChatAvatarUrlChanged(@Nullable Context ctx, @NonNull String url) {
+        if (ctx != null && !url.isEmpty() && prefetchedSenderPhotoUrls.add(url)) {
+            com.callx.app.cache.ChatAvatarBinder.prefetchBatch(ctx, java.util.Collections.singleton(url));
+        }
+        RecyclerView rv = attachedRecyclerView;
+        if (rv == null) return; // not attached yet — first bind reads the fresh value
+        int count = getItemCount();
+        if (count == 0) return;
+        RecyclerView.LayoutManager lm = rv.getLayoutManager();
+        if (!(lm instanceof androidx.recyclerview.widget.LinearLayoutManager)) return;
+        androidx.recyclerview.widget.LinearLayoutManager llm = (androidx.recyclerview.widget.LinearLayoutManager) lm;
+        int first = llm.findFirstVisibleItemPosition();
+        int last = llm.findLastVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
+        int start = Math.max(0, first - MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+        int end = Math.min(count - 1, last + MEMBER_AVATAR_NOTIFY_BUFFER_ROWS);
+        for (int i = start; i <= end; i++) {
+            Message m = peek(i);
+            if (m == null || m.senderId == null) continue;
+            if (isGroupAvatarRunTail(i, m)) notifyItemChanged(i, PAYLOAD_GROUP_SENDER);
+        }
+    }
+
+    /** Photo URL for the avatar beside {@code m}'s bubble (no I/O). Empty = placeholder circle. */
+    private String avatarUrlFor(@NonNull Message m, boolean sent) {
+        if (isGroup) {
+            String u = m.senderId != null ? groupMemberPhotos.get(m.senderId) : null;
+            if ((u == null || u.isEmpty()) && sent) u = myPhotoUrl;
+            return u;
+        }
+        return sent ? myPhotoUrl : partnerPhotoUrl;
+    }
+
+    /** Which canvas rows carry a chat avatar: every sent/received bubble (1:1 + group); a
+     *  received GROUP row only when it has a sender name; broadcasts never. */
+    private boolean avatarEligible(@NonNull Message m, boolean sent) {
+        if (Boolean.TRUE.equals(m.broadcast)) return false;
+        // v807: avatar lives on the SAME bubble as the tail, so only tail-capable bubbles carry
+        // one. This also keeps status_seen / reel_seen (own avatar), reel cards, contact,
+        // location, call and view-once rows completely untouched.
+        if (!drawsTailCapableBubble(m)) return false;
+        return sent || !isGroup || (m.senderName != null && !m.senderName.isEmpty());
+    }
+
     /**
      * Finds a Message in the currently loaded paging snapshot by id.
      * Used by ChatActivity/GroupChatActivity to resolve the message that
@@ -2487,6 +2556,10 @@ public class MessagePagingAdapter
                         if (m.readBy.containsKey(cu)) { notifyItemChanged(i, PAYLOAD_READ_BY); break; }
                     }
                 }
+                // My own row's (sent-side) avatar follows my entry in the member map.
+                if (changedUids.contains(m.senderId) && isGroupAvatarRunTail(i, m)) {
+                    notifyItemChanged(i, PAYLOAD_GROUP_SENDER);
+                }
                 continue;
             }
             // Only run-tail rows draw an avatar — skip the rest (no payload bind).
@@ -2600,6 +2673,8 @@ public class MessagePagingAdapter
                         if (rp != null && !rp.isEmpty() && prefetchedSenderPhotoUrls.add(rp)) photos.add(rp);
                     }
                 }
+                String mine = avatarUrlFor(m, true);   // my sent-side avatar
+                if (mine != null && !mine.isEmpty() && prefetchedSenderPhotoUrls.add(mine)) photos.add(mine);
                 continue;
             }
             String photo = groupMemberPhotos.get(m.senderId);
@@ -2684,42 +2759,63 @@ public class MessagePagingAdapter
      */
     private void bindGroupSenderOnly(@NonNull VH h, int position, @NonNull Message m) {
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
-        // Not a canvas row / not a received-group row with the avatar column
-        // reserved (sent, 1:1, broadcast pseudo-label) — nothing to swap.
+        // Not a canvas row / no avatar column reserved on this row — nothing to swap.
         if (cv == null || !cv.isGroupSenderAvatarVisible()) return;
+        final boolean sent = h.getItemViewType() == TYPE_CANVAS_SENT;
 
         // This payload is also what the observer fires when a neighbor was
         // inserted/removed, so first re-evaluate the parts that depend on
-        // neighbors: the NAME (first bubble of the run) and — below — whether
-        // this row is still the AVATAR tail. Both setters are no-ops when
+        // neighbors: the NAME (received group rows only — first bubble of the run) and — below —
+        // whether this row is still the AVATAR tail. Both setters are no-ops when
         // nothing changed (the photo-changed case), and the name setter
         // re-measures only when the row's size signature actually changes.
-        if (Boolean.TRUE.equals(m.broadcast) || isGroupNameRunHead(position, m)) {
-            cv.setGroupSender(groupSenderLabel(m), m.senderId);
-            cv.setGroupSenderBadge(Boolean.TRUE.equals(m.broadcast) ? null : groupBadgeFor(m.senderId));
-        } else {
-            cv.clearGroupSender();
+        if (isGroup && !sent) {
+            if (Boolean.TRUE.equals(m.broadcast) || isGroupNameRunHead(position, m)) {
+                cv.setGroupSender(groupSenderLabel(m), m.senderId);
+                cv.setGroupSenderBadge(Boolean.TRUE.equals(m.broadcast) ? null : groupBadgeFor(m.senderId));
+            } else {
+                cv.clearGroupSender();
+            }
+            // Name visibility also drives the tight/full gap above the bubble.
+            applyGroupedSpacing(h, position, m);
         }
-        // Name visibility also drives the tight/full gap above the bubble.
-        applyGroupedSpacing(h, position, m);
 
         final boolean tail = isGroupAvatarRunTail(position, m);
         cv.setGroupSenderAvatarShown(tail);
         if (!tail) return; // avatar now belongs to a later bubble — nothing to load
+        loadChatAvatar(h, cv, m, sent, h.canvasBindToken);
+    }
 
-        final String url = groupMemberPhotos.get(m.senderId);
+    /** Resolve + set the avatar bitmap: L2 hit = inline (no lambda/token/callback allocation),
+     *  miss = the shared ChatAvatarBinder pipeline (same tier/cache as every other avatar). */
+    private void loadChatAvatar(@NonNull VH h,
+                                @NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+                                @NonNull Message m, boolean sent, final int token) {
+        final String url = avatarUrlFor(m, sent);
         if (url == null || url.isEmpty()) {
-            cv.setGroupSenderAvatarBitmap(null); // photo removed → placeholder
+            cv.setGroupSenderAvatarBitmap(null); // no photo → placeholder circle
             return;
         }
-        // v445: L2 hit → set inline (no lambda / token / callback allocation).
-        final android.graphics.Bitmap l2 = com.callx.app.cache.ChatAvatarBinder.peekInline(h.itemView.getContext(), url);
+        final Context c = h.itemView.getContext();
+        final android.graphics.Bitmap l2 = com.callx.app.cache.ChatAvatarBinder.peekInline(c, url);
         if (l2 != null) { cv.setGroupSenderAvatarBitmap(l2); return; }
-        final int token = h.canvasBindToken;
-        com.callx.app.cache.ChatAvatarBinder.bindBitmap(h.itemView.getContext(), url, 0L, resource -> {
+        com.callx.app.cache.ChatAvatarBinder.bindBitmap(c, url, 0L, resource -> {
             if (h.canvasBindToken != token) return; // recycled/rebound meanwhile
             cv.setGroupSenderAvatarBitmap(resource);
         });
+    }
+
+    /** Full-bind entry: reserve the avatar column synchronously (correct width on frame 1),
+     *  show the circle on the tail bubble (run head) only. */
+    private void bindChatAvatar(@NonNull VH h,
+                                @NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+                                int position, @NonNull Message m, boolean sent, int token) {
+        if (!avatarEligible(m, sent)) { cv.clearGroupSenderAvatar(); return; }
+        cv.setGroupSenderAvatarTappable(!sent && isGroup);
+        cv.setGroupSenderAvatarVisible(true);
+        final boolean shown = isGroupAvatarRunTail(position, m);
+        cv.setGroupSenderAvatarShown(shown);
+        if (shown) loadChatAvatar(h, cv, m, sent, token);
     }
 
     public boolean isInMultiSelectMode() { return multiSelectMode; }
@@ -2789,6 +2885,10 @@ public class MessagePagingAdapter
         super(DIFF);
         this.currentUid = currentUid;
         this.isGroup    = isGroup;
+        try {
+            String mp = com.callx.app.utils.FirebaseUtils.getCurrentPhotoUrl(); // in-memory auth profile, no I/O
+            this.myPhotoUrl = mp != null ? mp : "";
+        } catch (Throwable ignored) { /* keep "" -> placeholder */ }
         // NOTE: setHasStableIds(true) + custom getItemId() was attempted here
         // but PagingDataAdapter.getItemId(int) is FINAL — it already manages
         // item identity internally via the DiffUtil.ItemCallback (DIFF above
@@ -2814,9 +2914,10 @@ public class MessagePagingAdapter
             }
         });
 
-        if (isGroup) {
-            // Run-boundary staleness fix: whether a row shows the group
-            // AVATAR depends on the NEXT row (isGroupAvatarRunTail) and
+        {
+            // Run-boundary staleness fix (every chat type now that 1:1 shows avatars too):
+            // whether a row shows the chat
+            // AVATAR (tail-bound, v807) depends on the PREVIOUS row (isBubbleRunHead) and
             // whether it shows the sender NAME depends on the PREVIOUS row
             // (isGroupNameRunHead), but DiffUtil only rebinds a row whose OWN
             // content changed. A new same-sender message appended after row
@@ -2826,32 +2927,34 @@ public class MessagePagingAdapter
             // Re-evaluate the rows on both sides of every insert/remove
             // point via the cheap payload path.
             registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
-                // Row ABOVE the change point: its NEXT row changed (avatar tail).
+                // Row ABOVE the change point: its NEXT row changed (nothing avatar/tail-related since v807).
                 // Row BELOW it: its PREVIOUS row changed (name run-head) — this
                 // is also what fixes the oldest row when an older page is
                 // prepended, and the row after a deleted message.
                 @Override public void onItemRangeChanged(int positionStart, int itemCount) {
                     // v443: a changed row below may be some own row's "next own row".
-                    bumpSeenByEpoch();
+                    if (isGroup) bumpSeenByEpoch();
                 }
                 @Override public void onItemRangeChanged(int positionStart, int itemCount, @Nullable Object payload) {
-                    bumpSeenByEpoch();
+                    if (isGroup) bumpSeenByEpoch();
                 }
                 @Override public void onItemRangeInserted(int positionStart, int itemCount) {
-                    bumpSeenByEpoch();
+                    if (isGroup) bumpSeenByEpoch();
                     refreshGroupSenderRow(positionStart - 1);
-                    refreshGroupSenderRow(positionStart + itemCount);
+                    refreshGroupSenderRow(positionStart + itemCount); // avatar (tail) + name depend on the PREVIOUS row
                     // A new own row below changes which readers the own row above shows.
-                    if (rangeHasOwnRow(positionStart, itemCount)) refreshSeenByOwnRowAbove(positionStart - 1);
+                    if (isGroup && rangeHasOwnRow(positionStart, itemCount)) refreshSeenByOwnRowAbove(positionStart - 1);
                 }
                 @Override public void onItemRangeRemoved(int positionStart, int itemCount) {
-                    bumpSeenByEpoch();
+                    if (isGroup) bumpSeenByEpoch();
                     refreshGroupSenderRow(positionStart - 1);
-                    refreshGroupSenderRow(positionStart);
-                    refreshSeenByOwnRowAbove(positionStart - 1); // removed row may have been the "next own row"
+                    refreshGroupSenderRow(positionStart);   // row after the removed one: its PREVIOUS row changed
+                    if (isGroup) {
+                        refreshSeenByOwnRowAbove(positionStart - 1); // removed row may have been the "next own row"
+                    }
                 }
                 @Override public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
-                    bumpSeenByEpoch();
+                    if (isGroup) bumpSeenByEpoch();
                     int lo = Math.min(fromPosition, toPosition) - 1;
                     int hi = Math.max(fromPosition, toPosition) + itemCount;
                     for (int p = Math.max(0, lo); p <= hi && p - lo < 30; p++) {
@@ -3674,7 +3777,9 @@ public class MessagePagingAdapter
         int haveSent     = pool.getRecycledViewCount(TYPE_CANVAS_SENT);
         int haveReceived = pool.getRecycledViewCount(TYPE_CANVAS_RECEIVED);
         for (int i = haveSent; i < countPerType; i++) {
-            pool.putRecycledView(onCreateViewHolder(parent, TYPE_CANVAS_SENT));
+            VH svh = onCreateViewHolder(parent, TYPE_CANVAS_SENT);
+            if (svh.canvasView != null) svh.canvasView.presetGroupSenderAvatarPlaceholder();
+            pool.putRecycledView(svh);
         }
         // Group chats: the received holders are the ones that draw the 20dp
         // sender avatar, and until a photo resolves that's the flat-gray
@@ -3683,13 +3788,11 @@ public class MessagePagingAdapter
         // and no holder gets created below — and pre-set it on every
         // received holder we DO create, so the first unresolved avatar of the
         // first scroll draws with no build/lookup cost. 1:1 chat skips this.
-        if (isGroup) {
-            com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                    .prewarmGroupAvatarPlaceholder(parent.getContext());
-        }
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                .prewarmGroupAvatarPlaceholder(parent.getContext());
         for (int i = haveReceived; i < countPerType; i++) {
             VH vh = onCreateViewHolder(parent, TYPE_CANVAS_RECEIVED);
-            if (isGroup && vh.canvasView != null) {
+            if (vh.canvasView != null) {
                 vh.canvasView.presetGroupSenderAvatarPlaceholder();
             }
             pool.putRecycledView(vh);
@@ -4663,40 +4766,17 @@ public class MessagePagingAdapter
     }
 
     /**
-     * WhatsApp-style "same-uid consecutive skip": in a run of consecutive
-     * messages from one sender, the 20dp avatar belongs on the LAST bubble
-     * of the run only. True when the row at {@code position} is that tail —
-     * i.e. it's the newest row, or the next row is a different sender / a
-     * system row / a row that will not draw a group avatar itself (a legacy
-     * non-canvas bubble has no avatar, so the canvas row before it must
-     * keep the run's avatar or the run would end up with none).
+     * v807: the chat avatar sits on the SAME bubble as the bubble tail — the FIRST bubble of a
+     * same-sender run (isBubbleRunHead). One rule, one neighbor (the PREVIOUS row), so tail and
+     * avatar can never end up on different bubbles. Rows that draw no tail (seen/reel cards,
+     * contact, location, call, view-once) never carry an avatar.
      *
-     * Uses peek() (never getItem()) so asking about position+1 can't trigger
-     * Paging load hints. An unloaded neighbor (null) counts as "tail" —
-     * showing an avatar too often is harmless, dropping it isn't.
-     *
-     * NOTE this depends on the NEXT row, which DiffUtil never rebinds when
-     * only its neighbor changed — see the AdapterDataObserver in the
-     * constructor (refreshGroupSenderRow), which re-evaluates the row
-     * before every insert/remove via PAYLOAD_GROUP_SENDER.
+     * Uses peek() (never getItem()) so no Paging load hints. DiffUtil never rebinds a row
+     * when only its previous neighbor changed — see the AdapterDataObserver in the constructor
+     * (refreshGroupSenderRow on the row BELOW each insert/remove).
      */
     private boolean isGroupAvatarRunTail(int position, @NonNull Message m) {
-        int next = position + 1;
-        if (next >= getItemCount()) return true;
-        Message nm = peek(next);
-        if (nm == null || nm.senderId == null || m.senderId == null) return true;
-        if (!nm.senderId.equals(m.senderId)) return true;
-        if (isNonGroupingRow(nm.type)) return true;
-        return !willShowGroupSenderAvatar(nm);
-    }
-
-    /** Mirrors bindCanvasMessage()'s avatar gate (received + group + a
-     *  sender name) AND that the row actually renders on the canvas path. */
-    private boolean willShowGroupSenderAvatar(@NonNull Message nm) {
-        if (!isGroup) return false;
-        if (currentUid != null && currentUid.equals(nm.senderId)) return false;
-        if (nm.senderName == null || nm.senderName.isEmpty()) return false;
-        return viewTypeOf(nm) == TYPE_CANVAS_RECEIVED;
+        return drawsTailCapableBubble(m) && isBubbleRunHead(position, m);
     }
 
     /**
@@ -4781,16 +4861,22 @@ public class MessagePagingAdapter
             // while we iterate it.
             final int n = deferredTailCount;
             deferredTailCount = 0;
-            for (int i = 0; i < n; i++) refreshBubbleTailRow(deferredTailPos[i]);
+            for (int i = 0; i < n; i++) {
+                final int code = deferredTailPos[i];
+                if ((code & 1) == 0) refreshBubbleTailRow(code >> 1);
+                else refreshGroupSenderRow(code >> 1);
+            }
         }
     };
 
-    private void deferBubbleTailRow(RecyclerView rv, int pos) {
-        for (int i = 0; i < deferredTailCount; i++) if (deferredTailPos[i] == pos) return;   // dedupe
+    /** kind 0 = bubble tail refresh, 1 = chat-avatar refresh (low bit of the queued code). */
+    private void deferRowRefresh(RecyclerView rv, int pos, int kind) {
+        final int code = (pos << 1) | kind;
+        for (int i = 0; i < deferredTailCount; i++) if (deferredTailPos[i] == code) return;   // dedupe
         if (deferredTailCount == deferredTailPos.length) {
             deferredTailPos = java.util.Arrays.copyOf(deferredTailPos, deferredTailCount * 2);
         }
-        deferredTailPos[deferredTailCount++] = pos;
+        deferredTailPos[deferredTailCount++] = code;
         if (!deferredTailPosted) {
             deferredTailPosted = true;
             rv.post(deferredTailRunnable);
@@ -4820,7 +4906,7 @@ public class MessagePagingAdapter
         RecyclerView rv = attachedRecyclerView;
         if (rv == null) return;
         if (rv.isComputingLayout()) {
-            deferBubbleTailRow(rv, pos);
+            deferRowRefresh(rv, pos, 0);
             return;
         }
         if (pos >= getItemCount()) return;
@@ -4852,10 +4938,29 @@ public class MessagePagingAdapter
         RecyclerView rv = attachedRecyclerView;
         if (rv == null) return; // nothing bound yet — first bind computes it fresh
         if (rv.isComputingLayout()) {
-            rv.post(() -> refreshGroupSenderRow(pos));
+            deferRowRefresh(rv, pos, 1);   // no per-call lambda; one reusable Runnable drains the queue
             return;
         }
         if (pos >= getItemCount()) return;
+        if (!isGroup) {
+            // 1:1: only the avatar's tail-bound state can be stale (no name row). If the row is
+            // bound and already right, skip the payload round-trip (O(1) range check first).
+            try {
+                if (mayBeBound(rv, pos)) {
+                    RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
+                    if (vh instanceof VH && ((VH) vh).canvasView != null) {
+                        final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = ((VH) vh).canvasView;
+                        Message m = peek(pos);
+                        if (m != null) {
+                            final boolean sentRow = vh.getItemViewType() == TYPE_CANVAS_SENT;
+                            final boolean want = avatarEligible(m, sentRow) && isGroupAvatarRunTail(pos, m);
+                            final boolean have = cv.isGroupSenderAvatarVisible() && cv.isGroupSenderAvatarShown();
+                            if (want == have) return;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) { /* fall through to the safe path */ }
+        }
         notifyItemChanged(pos, PAYLOAD_GROUP_SENDER);
     }
 
@@ -7401,53 +7506,13 @@ public class MessagePagingAdapter
             } else {
                 cv.clearGroupSender(); // also drops any stale badge
             }
-
-            // ── Group-sender avatar (WhatsApp-style, 20dp) — column
-            // reserved synchronously regardless of whether the photo has
-            // resolved yet (see setGroupSenderAvatarVisible()'s doc), so
-            // the bubble's width is correct on the very first frame. photo
-            // URL comes straight from groupMemberPhotos — the group's
-            // already-loaded member/presence map (see field doc) — no
-            // extra Firebase/Room read per message. Bind goes through
-            // ChatAvatarBinder.bindBitmap() at its default TIER_INLINE
-            // (24dp) so this shares L2/L3 cache entries with every other
-            // canvas avatar at that tier (reel-share header, contact-share
-            // avatar) for the same photo, same core pipeline the rest of
-            // chat's avatars already use. ──
-            cv.setGroupSenderAvatarVisible(true);
-            // Same-uid consecutive skip (WhatsApp): the column above stays
-            // reserved for EVERY bubble in a run (so the whole run stays
-            // aligned — setGroupSenderAvatarVisible(false) here would shift
-            // the bubble left and misalign it), but only the LAST bubble of
-            // the run draws + binds the avatar. Earlier bubbles skip
-            // bindBitmap() entirely and hold no bitmap.
-            final boolean avatarShown = isGroupAvatarRunTail(position, m);
-            cv.setGroupSenderAvatarShown(avatarShown);
-            if (avatarShown) {
-                String avatarPhotoUrl = groupMemberPhotos.get(m.senderId);
-                if (avatarPhotoUrl != null && !avatarPhotoUrl.isEmpty()) {
-                    // v447: L2 hit → set inline (no lambda / token capture / callback allocation).
-                    final android.graphics.Bitmap l2 =
-                            com.callx.app.cache.ChatAvatarBinder.peekInline(ctx, avatarPhotoUrl);
-                    if (l2 != null) {
-                        cv.setGroupSenderAvatarBitmap(l2);
-                    } else {
-                        com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, avatarPhotoUrl, 0L, resource -> {
-                            if (h.canvasBindToken != myToken) return; // recycled/rebound meanwhile
-                            cv.setGroupSenderAvatarBitmap(resource);
-                        });
-                    }
-                } else {
-                    cv.setGroupSenderAvatarBitmap(null);
-                }
-            }
         } else if (!sent && isBroadcastMsg) {
             cv.setGroupSender("\uD83D\uDCE2 Broadcast");
-            cv.clearGroupSenderAvatar();
         } else {
             cv.clearGroupSender();
-            cv.clearGroupSenderAvatar();
         }
+        // Chat avatar beside the bubble (both sides, 1:1 + group; on the same bubble as the tail).
+        bindChatAvatar(h, cv, position, m, sent, myToken);
 
         // ── "Seen by" reader-avatar strip (sent group rows only; clears
         // itself on every other row so a recycled holder never keeps one) ──
