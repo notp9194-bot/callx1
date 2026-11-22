@@ -378,7 +378,7 @@ final class MediaRenderer {
                 // with the paint as-is instead of hijacking its color.
                 // Sent + gated = upload still queued/running (or failed, retry
                 // shown): pending clock instead of a sent tick.
-                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY, host.mediaGated);
+                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY, host.mediaGated, true);
             }
         }
     }

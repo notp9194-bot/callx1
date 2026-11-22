@@ -356,7 +356,7 @@ final class MediaGroupRenderer {
             }
             if (host.sent) {
                 // Any cell still uploading / failed → pending clock instead of a sent tick.
-                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY, host.hasPendingGroupUpload());
+                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY, host.hasPendingGroupUpload(), true);
             }
         }
     }

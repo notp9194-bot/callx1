@@ -51,3 +51,26 @@
 - `MessagePagingAdapter.avatarEligible()` returns false when OFF -> no avatar AND no reserved column (bubbles get full width, 28dp back). `onAvatarSettingChanged()` does a full rebind of bound rows (column is layout-affecting).
 - `ChatCustomizationBottomSheet` (chat menu -> customization): new "Show avatars" switch row; sheet height 50% -> 65% to fit it. Wired in `ChatThemeController` (1:1) and `GroupChatActivity`, both call `onAvatarSettingChanged()` on toggle.
 - Setting is global (all chats, 1:1 + group, both sides).
+
+## v811 — Time/tick on one visual row
+- Tick glyph sat ~4-5dp below the footer time's digit centre (y = baseline - 0.4*size), so time and tick looked like two rows. New `drawTick(..., alignToText)` overload: `true` uses y = baseline - 0.78*size (tick centre == digit centre).
+- Only `drawFooter` (text / audio / file / caption footers) passes `true`. `MediaRenderer`, `MediaGroupRenderer` and `ReelShareRenderer` pills keep the old offset (unchanged). No width/height/measure change.
+- File: MessageBubbleCanvasView only.
+
+## v812 — Time/tick alignment for media pills + tick no longer cut at the bubble bottom
+- Captionless image pill (`MediaRenderer`) and captionless media-group pill (`MediaGroupRenderer`) now call `drawTick(..., alignToText=true)`: tick centre == pill time-digit centre (same row). Captioned media / media-group already go through `drawFooter` (v811).
+- Cut-off fix: with the old offset the glyph's ink reached ~baseline+4.8dp while footer baseline sits only ~vPad*0.4 above the bubble bottom, so the tick's lower half was clipped by the bubble/pill edge. The aligned offset puts the ink bottom at ~baseline+1dp — inside the bubble.
+- `ReelShareRenderer` (reel card pill) and seen bubbles intentionally untouched (legacy offset).
+
+## v813 — Swipe reply fires on RELEASE (1:1 + group)
+- `SwipeReplyHandler`: reply no longer fires while the finger is down. While dragging, crossing the trigger only gives haptic + icon pop (armed); coming back under it disarms. The reply is decided on the first non-active `onChildDraw` (= exact release position): `|dX| >= trigger` -> `onSwipeReply`, otherwise nothing. So swipe out -> drag back to the resting spot (or anywhere short of the trigger) -> lift = no reply.
+- Removed the old fire-on-cross + cancel-on-return (35%) logic; `onSwipeReplyCancelled()` stays in the interface as a default no-op (ChatActivity's override is now unused, harmless).
+- Rows with no `senderId` (system/date rows) are not swipeable.
+- Group chat had NO swipe-to-reply: `GroupChatActivity` now attaches the same `SwipeReplyHandler` (-> `startReply(message)`, which keeps the admin-only-send guard). Sent rows swipe left, received rows swipe right (RTL flips), deleted rows ignored.
+
+## v814 — WhatsApp-style reply preview bar (1:1 + group)
+- `layout_chat_reply_preview.xml` rebuilt: rounded inner card (clipToOutline) with a 4dp accent strip on the left, bold sender name, a small type icon + label row (text up to 3 lines, non-italic), thumbnail flush on the right edge, and an "X" close button (was a back-arrow `ic_back`) at the top-right — over a translucent disc when a thumbnail is shown.
+- New `ReplyBarLayout` (root of that layout): while visible it merges with `cv_input_capsule` — own top corners 28dp, capsule switches to `bg_chat_input_capsule_reply` (bottom-rounded) and its top margin goes 6dp -> 0, so reply card + input read as one rounded container; restored on hide. Done in `onVisibilityChanged`, so no call site changes. (Hairline capsule stroke is dropped only while a reply is showing.)
+- New `ReplyPreviewBinder` (shared by `ChatActivity.activateReplyDirect` and `GroupChatActivity.startReply`): labels "Photo", "Video (0:07)", "Audio (0:07)", "GIF", file name, "Contact: X", "Poll: Q"…; gallery-item replies keep their caption/Photo/Video + thumb. Thumb loads at 192px (was 720).
+- Group chat reply bar now shows type icon/label, "You" for own messages and the thumbnail (it showed only name + `[type]` before).
+- Ids kept (`ll_reply_bar`, `view_reply_accent`, `tv_reply_bar_name`, `tv_reply_bar_text`, `iv_reply_bar_thumb`, `btn_cancel_reply`); new `iv_reply_bar_type`. New colors `chat_reply_card_bg`, `chat_reply_close_bg` (day/night).

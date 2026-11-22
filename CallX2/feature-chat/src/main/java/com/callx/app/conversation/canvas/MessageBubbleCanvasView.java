@@ -8611,7 +8611,8 @@ public class MessageBubbleCanvasView extends View {
         }
 
         if (sent && !isDeletedStyle) {
-            drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY);
+            // v811: text-aligned — tick centre sits on the time digits' centre (same footer row).
+            drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY, false, true);
         }
     }
 
@@ -9047,10 +9048,19 @@ public class MessageBubbleCanvasView extends View {
 
     /** @param pending true → clock glyph (media still queued/uploading/failed) instead of the status tick. */
     void drawTick(Canvas canvas, float x, float baselineY, boolean pending) {
+        drawTick(canvas, x, baselineY, pending, false);
+    }
+
+    /**
+     * @param alignToText v811: true → centre the glyph on the footer time text's digit centre
+     *        (baselineY - 0.78*size) so time and tick read as ONE row. false keeps the legacy
+     *        offset (baselineY - 0.4*size) used by the media / reel-card pills, untouched.
+     */
+    void drawTick(Canvas canvas, float x, float baselineY, boolean pending, boolean alignToText) {
         // Blit the pre-rendered glyph for the current status instead of
         // redrawing stroke geometry — see TICK_BITMAP_CACHE doc above.
         float size = TICK_SIZE_DP * density;
-        float y = baselineY - size * 0.4f;
+        float y = baselineY - size * (alignToText ? 0.78f : 0.4f);
         boolean isDouble = delivered || read;
         int variant = pending ? TICK_VARIANT_PENDING
                 : !isDouble ? TICK_VARIANT_SINGLE

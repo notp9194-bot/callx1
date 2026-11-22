@@ -1330,6 +1330,17 @@ public class GroupChatActivity extends AppCompatActivity
         // and makes group-chat scroll start responding a few ms earlier per swipe.
         binding.rvMessages.setScrollingTouchSlop(RecyclerView.TOUCH_SLOP_DEFAULT);
         binding.rvMessages.setAdapter(pagingAdapter);
+        // v813: swipe-to-reply in group chat too — same engine as 1:1 (reply fires on finger
+        // RELEASE past the trigger; swiping back to the resting spot before lifting = no reply).
+        new androidx.recyclerview.widget.ItemTouchHelper(
+                new com.callx.app.chat.gesture.SwipeReplyHandler(this,
+                        new java.util.AbstractList<Message>() {
+                            @Override public Message get(int index) { return pagingAdapter.peek(index); }
+                            @Override public int size() { return pagingAdapter.getItemCount(); }
+                        },
+                        currentUid,
+                        (message, adapterPosition) -> startReply(message)))
+                .attachToRecyclerView(binding.rvMessages);
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
         jankMonitor = com.callx.app.chat.performance.ChatJankMonitor.attachIfEnabled(this, "group");
@@ -2936,11 +2947,13 @@ public class GroupChatActivity extends AppCompatActivity
         if (sendPermissionAdminsOnly && !isAdmin) return;
         replyingTo = m;
         if (!ensureReplyBarViews()) return;
+        // v814: same WhatsApp-style preview as 1:1 (type icon + label, thumb, 3 lines).
+        String who = (currentUid != null && currentUid.equals(m.senderId)) ? "You"
+                : (m.senderName != null ? m.senderName : "");
+        com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, who,
+                com.callx.app.chat.ui.ReplyPreviewBinder.describe(m),
+                com.callx.app.chat.ui.ReplyPreviewBinder.thumbUrl(m));
         replyBarView.setVisibility(View.VISIBLE);
-        if (replyBarNameView != null)
-            replyBarNameView.setText(m.senderName != null ? m.senderName : "");
-        if (replyBarTextView != null)
-            replyBarTextView.setText(m.text != null ? m.text : "[" + m.type + "]");
         binding.etMessage.requestFocus();
     }
 

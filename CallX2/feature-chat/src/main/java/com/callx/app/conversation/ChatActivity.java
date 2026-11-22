@@ -1969,40 +1969,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         String senderName = (currentUid != null && currentUid.equals(m.senderId))
                 ? "You" : (m.senderName != null ? m.senderName : "");
-        String preview;
-        if (Boolean.TRUE.equals(m.deleted)) {
-            preview = "\uD83D\uDEAB  Original message unavailable";
-        } else if (galleryItem != null) {
+        // v814: WhatsApp-style preview (type icon + label, 3 lines, thumb on the right).
+        com.callx.app.chat.ui.ReplyPreviewBinder.Preview pv =
+                com.callx.app.chat.ui.ReplyPreviewBinder.describe(m);
+        String thumbUrl = com.callx.app.chat.ui.ReplyPreviewBinder.thumbUrl(m);
+        if (galleryItem != null) {
             Object itemCaption = galleryItem.get("caption");
             boolean isVideo = "video".equals(galleryItem.get("mediaType"));
-            preview = (itemCaption instanceof String && !((String) itemCaption).isEmpty())
-                    ? (String) itemCaption
-                    : (isVideo ? "\uD83C\uDFAC Video" : "\uD83D\uDCF7 Photo");
-        } else if (m.text != null && !m.text.isEmpty()) {
-            preview = m.text;
-        } else {
-            preview = buildTypePreviewLocal(m);
+            boolean hasCap = itemCaption instanceof String && !((String) itemCaption).isEmpty();
+            pv.text = hasCap ? (String) itemCaption : (isVideo ? "Video" : "Photo");
+            pv.iconRes = isVideo ? R.drawable.ic_video : R.drawable.ic_photo_library;
+            Object u  = galleryItem.get("thumbUrl");
+            Object u2 = galleryItem.get("url");
+            thumbUrl = (u instanceof String && !((String) u).isEmpty()) ? (String) u
+                    : (u2 instanceof String ? (String) u2 : null);
         }
-
-        if (replyBarNameView != null) replyBarNameView.setText(senderName);
-        if (replyBarTextView != null) replyBarTextView.setText(preview);
-
-        if (replyBarThumbView != null) {
-            String thumbUrl = null;
-            if (galleryItem != null) {
-                Object u  = galleryItem.get("thumbUrl");
-                Object u2 = galleryItem.get("url");
-                thumbUrl = (u instanceof String && !((String) u).isEmpty()) ? (String) u
-                        : (u2 instanceof String ? (String) u2 : null);
-            } else if ("image".equals(m.type)) thumbUrl = m.mediaUrl;
-            else if ("video".equals(m.type)) thumbUrl = m.thumbnailUrl;
-            if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                replyBarThumbView.setVisibility(View.VISIBLE);
-                Glide.with(this).load(thumbUrl).centerCrop().override(720, 720).into(replyBarThumbView);
-            } else {
-                replyBarThumbView.setVisibility(View.GONE);
-            }
-        }
+        com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, senderName, pv, thumbUrl);
 
         replyBarView.setAlpha(1f);
         replyBarView.setTranslationY(0f);

@@ -54,23 +54,16 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     private static final float VELOCITY_GUARD  = 3500f;   // px/s — fast fling → ignore
     private static final long  DEBOUNCE_MS     = 350L;    // min gap between triggers
     private static final int   ICON_SIZE_DP    = 36;
-    // BUG FIX (swipe-to-reply not cancelling on reverse swipe): if the user
-    // drags past the trigger point (reply already fired) and then, in the
-    // SAME finger-down gesture, drags back down near the bubble's resting
-    // position without releasing, WhatsApp treats that as "changed their
-    // mind" and cancels the reply instead of keeping it queued. Once |dX|
-    // falls back under this fraction of the trigger distance we fire
-    // onSwipeReplyCancelled() and re-arm `triggered` so swiping back out
-    // again (still same gesture) can re-fire a fresh reply.
-    private static final float CANCEL_BACK_RATIO = 0.35f;
-
     // ── State ──────────────────────────────────────────────────────────────
     private final List<Message>        messages;
     private final String               currentUid;
     private final OnSwipeReplyListener listener;
     private final float                density;
 
-    private boolean triggered        = false;
+    // v813: the reply is decided on finger RELEASE, never while the finger is still down.
+    // `releaseHandled` = this gesture's release already made its decision (fire / no-op), so the
+    // recover animation's remaining onChildDraw frames and clearView() can't fire it twice.
+    private boolean releaseHandled   = false;
     private long    lastTriggerTime  = 0L;
     private boolean hapticFired      = false;
     private float   currentSwipeDx   = 0f;
@@ -140,6 +133,7 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         if (!ENABLE_SWIPE_REPLY) return makeMovementFlags(0, 0);
         Message m = getMessageAt(vh.getBindingAdapterPosition());
         if (m == null || Boolean.TRUE.equals(m.deleted)) return makeMovementFlags(0, 0);
+        if (m.senderId == null || m.senderId.isEmpty()) return makeMovementFlags(0, 0); // system rows (join/leave/date)
 
         boolean isSent = currentUid.equals(m.senderId);
         boolean isRtl  = vh.itemView.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
@@ -264,43 +258,40 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
             drawReplyIcon(c, itemView, swipeProgress, finalDx, isSent);
         }
 
-        // ── Haptic on threshold cross ──
-        if (isCurrentlyActive && absDx >= trigger && !hapticFired) {
-            hapticFired = true;
-            fireHaptic(itemView, false);
-        } else if (absDx < trigger) {
-            hapticFired = false;
+        // ── Finger DOWN: only feedback (haptic + icon pop), NEVER the reply itself ──
+        // Crossing the trigger arms the reply; coming back under it disarms it (haptic re-arms),
+        // so "swipe out, then back to the bubble's resting spot without lifting" = no reply.
+        if (isCurrentlyActive) {
+            releaseHandled = false;
+            if (absDx >= trigger && !hapticFired) {
+                hapticFired = true;
+                fireHaptic(itemView, false);
+            } else if (absDx < trigger) {
+                hapticFired = false;
+            }
+            return;
         }
 
-        // ── Trigger reply action ──
-        if (isCurrentlyActive && absDx >= trigger && !triggered) {
-            long now = System.currentTimeMillis();
-            if (now - lastTriggerTime >= DEBOUNCE_MS) {
-                // TraceSectionMetric("SwipeReply#start") — time from threshold cross
-                // to listener callback. Target: < 2ms for smooth 60fps swipe feedback.
-                // If > 2ms, profile fireHaptic() and listener callback overhead.
-                android.os.Trace.beginSection("SwipeReply#start");
-                try {
-                    triggered       = true;
-                    lastTriggerTime = now;
-                    fireHaptic(itemView, true);
-                    if (listener != null)
-                        listener.onSwipeReply(m, vh.getBindingAdapterPosition());
-                } finally {
-                    android.os.Trace.endSection();
+        // ── Finger UP (first non-active frame = the exact release position) ──
+        // ItemTouchHelper starts its recover animation from the dX at release, so absDx here
+        // is where the finger let go. Past the trigger -> reply; anywhere short of it
+        // (including back at the start) -> nothing.
+        if (!releaseHandled) {
+            releaseHandled = true;
+            if (absDx >= trigger) {
+                long now = System.currentTimeMillis();
+                if (now - lastTriggerTime >= DEBOUNCE_MS) {
+                    android.os.Trace.beginSection("SwipeReply#start");
+                    try {
+                        lastTriggerTime = now;
+                        fireHaptic(itemView, true);
+                        if (listener != null)
+                            listener.onSwipeReply(m, vh.getBindingAdapterPosition());
+                    } finally {
+                        android.os.Trace.endSection();
+                    }
                 }
             }
-        }
-
-        // ── Cancel reply if user swipes back to (near) start position ──
-        // WhatsApp-style: reply already fired once trigger was crossed, but
-        // the finger is still down and has come back close to the resting
-        // spot in this SAME drag — treat it as an undo, not a completed
-        // reply, and re-arm so a fresh out-swipe fires a new reply cleanly.
-        if (isCurrentlyActive && triggered && absDx <= trigger * CANCEL_BACK_RATIO) {
-            triggered   = false;
-            hapticFired = false;
-            if (listener != null) listener.onSwipeReplyCancelled();
         }
     }
 
@@ -316,7 +307,7 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         android.os.Trace.beginSection("SwipeReply#spring");
         SwipeOptimizer.springBack(vh.itemView);
         android.os.Trace.endSection();
-        triggered      = false;
+        releaseHandled = false;
         hapticFired    = false;
         currentSwipeDx = 0f;
 
