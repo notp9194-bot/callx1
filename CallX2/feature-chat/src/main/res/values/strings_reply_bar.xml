@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_reply_cancel">Cancel reply</string>
+    <string name="chat_reply_bar_desc">Replying to message</string>
+    <string name="chat_reply_you">You</string>
+    <string name="chat_reply_unavailable">Original message unavailable</string>
+    <string name="chat_reply_photo">Photo</string>
+    <string name="chat_reply_photos">Photos</string>
+    <string name="chat_reply_video">Video</string>
+    <string name="chat_reply_audio">Audio</string>
+    <string name="chat_reply_gif">GIF</string>
+    <string name="chat_reply_file">File</string>
+    <string name="chat_reply_sticker">Sticker</string>
+    <string name="chat_reply_location">Location</string>
+    <string name="chat_reply_contact">Contact</string>
+    <string name="chat_reply_contact_named">Contact: %1$s</string>
+    <string name="chat_reply_poll">Poll</string>
+    <string name="chat_reply_poll_named">Poll: %1$s</string>
+</resources>

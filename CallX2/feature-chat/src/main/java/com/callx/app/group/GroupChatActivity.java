@@ -2948,13 +2948,25 @@ public class GroupChatActivity extends AppCompatActivity
         replyingTo = m;
         if (!ensureReplyBarViews()) return;
         // v814: same WhatsApp-style preview as 1:1 (type icon + label, thumb, 3 lines).
-        String who = (currentUid != null && currentUid.equals(m.senderId)) ? "You"
+        final boolean replyToMine = currentUid != null && currentUid.equals(m.senderId);
+        String who = replyToMine ? getString(R.string.chat_reply_you)
                 : (m.senderName != null ? m.senderName : "");
         com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, who,
-                com.callx.app.chat.ui.ReplyPreviewBinder.describe(m),
-                com.callx.app.chat.ui.ReplyPreviewBinder.thumbUrl(m));
+                com.callx.app.chat.ui.ReplyPreviewBinder.describe(this, m),
+                com.callx.app.chat.ui.ReplyPreviewBinder.thumbUrl(m),
+                replyToMine ? com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor()
+                        : com.callx.app.chat.ui.ReplyPreviewBinder.colorFor(
+                                m.senderId != null ? m.senderId : who));
         replyBarView.setVisibility(View.VISIBLE);
         binding.etMessage.requestFocus();
+        // WhatsApp-style: swipe-to-reply opens the keyboard right away (same as 1:1).
+        binding.etMessage.post(() -> {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager)
+                            getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(binding.etMessage,
+                    android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        });
     }
 
     private void clearReply() {

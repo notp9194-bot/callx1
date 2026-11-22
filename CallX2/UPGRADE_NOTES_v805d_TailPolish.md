@@ -74,3 +74,18 @@
 - New `ReplyPreviewBinder` (shared by `ChatActivity.activateReplyDirect` and `GroupChatActivity.startReply`): labels "Photo", "Video (0:07)", "Audio (0:07)", "GIF", file name, "Contact: X", "Poll: Q"…; gallery-item replies keep their caption/Photo/Video + thumb. Thumb loads at 192px (was 720).
 - Group chat reply bar now shows type icon/label, "You" for own messages and the thumbnail (it showed only name + `[type]` before).
 - Ids kept (`ll_reply_bar`, `view_reply_accent`, `tv_reply_bar_name`, `tv_reply_bar_text`, `iv_reply_bar_thumb`, `btn_cancel_reply`); new `iv_reply_bar_type`. New colors `chat_reply_card_bg`, `chat_reply_close_bg` (day/night).
+
+## v815 — Swipe-to-reply fix (1:1 + group)
+- Root causes: (1) `SwipeReplyHandler` re-resolved the message on the release frame via `getBindingAdapterPosition()` (NO_POSITION / shifted row on a live Paging list -> `m == null -> return`, reply silently dropped); (2) the reply was started from inside `onChildDraw` (RecyclerView draw pass: ViewStub inflate / setVisibility / focus / keyboard); (3) reveal icon was drawn on the wrong side / off-screen; (4) `ReplyController.onSwipeReply` ignored every swipe while a reply was already ACTIVE, so after the first reply all later swipes did nothing until the bar was closed or a message sent.
+- `SwipeReplyHandler` rewritten on the same approach as the Reels-comments swipe: message captured once at drag start, reply posted to the next frame, 60dp arm / 84dp visual cap, flick-to-arm, parent `requestDisallowInterceptTouchEvent` lock, stale-row guard, 120ms spring-back, chip + icon drawn in the revealed strip (received -> left, sent -> right). Release rule unchanged: armed at lift (or fast flick) -> reply; drag back under the trigger = no reply.
+- `ReplyController.onSwipeReply`: swiping another bubble now retargets the active reply (WhatsApp behaviour).
+- `GroupChatActivity.startReply`: keyboard opens on swipe-reply like 1:1.
+- Files: SwipeReplyHandler, ReplyController, GroupChatActivity.
+
+## v816 — Reply bar UI polish
+- `ReplyBarLayout`: smooth show (fade + rise, 180ms) / hide (fade + drop, 130ms) driven from `setVisibility`, capsule un-merged only after hide ends; 48dp `TouchDelegate` for the small close button.
+- `layout_chat_reply_preview.xml`: name 13sp bold / body 13sp, `app:tint` instead of deprecated `android:tint`, string-resource content descriptions, id `ll_reply_bar_texts`.
+- `ReplyPreviewBinder`: `describe(Context, Message)` (strings in `strings_reply_bar.xml`), icons for sticker/location/contact/poll, thumb placeholder + `dontAnimate()` + same-url skip + `Glide.clear()` when no thumb, text end-padding only reserved for the close button when there is no thumbnail, per-sender accent colour (own = chat theme colour).
+- `activity_chat.xml`: link-preview stub moved above the reply stub so the reply bar sits flush on the input capsule.
+- `SwipeReplyHandler`: reveal chip/icon uses the chat theme colour.
+- `ChatActivity` / `GroupChatActivity`: callers updated; `clearReply()` no longer resets alpha/translation (layout does it).

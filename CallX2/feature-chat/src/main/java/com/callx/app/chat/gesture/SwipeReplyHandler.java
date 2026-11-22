@@ -5,11 +5,8 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
-import android.os.Build;
+import android.os.SystemClock;
 import android.view.HapticFeedbackConstants;
-import android.view.MotionEvent;
 import android.view.View;
 
 import androidx.annotation.NonNull;
@@ -23,21 +20,29 @@ import com.callx.app.models.Message;
 import java.util.List;
 
 /**
- * SwipeReplyHandler — WhatsApp/Telegram-grade swipe-to-reply gesture engine.
+ * SwipeReplyHandler — WhatsApp-style swipe-to-reply (1:1 + group).
  *
- * Architecture:
- *   • Uses ItemTouchHelper.Callback for reliable gesture detection
- *   • translationX ONLY — zero layout passes during swipe (performance-critical)
- *   • Rubber-band non-linear resistance: drag feels natural, not mechanical
- *   • Debounce + fling guard: no accidental triggers
- *   • Full conflict handling: vertical scroll blocks swipe
- *   • RTL support: direction flips for right-to-left layouts
- *   • Device adaptation: reduces animation on low-end devices
- *   • MotionEvent pooling: obtain()/recycle() instead of new allocation per touch
+ * v815 rewrite — same proven approach as the Reels-comments swipe
+ * (ReelCommentFragment#attachSwipeToReply), adapted for the chat list:
  *
- * Physics model:
- *   resistance(x) = x * (1 - x / (2 * maxDrag))   [rubber-band curve]
- *   spring-back: SpringForce MEDIUM stiffness, damping 0.7
+ *  1. The target message is captured ONCE when the drag starts (first active frame), not
+ *     looked up again on release. The old code re-resolved it via
+ *     getBindingAdapterPosition() inside the release frame; on a live Paging list that can be
+ *     NO_POSITION / a different row mid-recover, and the early `m == null -> return` silently
+ *     dropped the reply.
+ *  2. The reply is NOT started from inside onChildDraw (we are in RecyclerView's draw pass:
+ *     ViewStub inflate, setVisibility, requestFocus and showSoftInput are all illegal/janky
+ *     there). It is posted to the next frame (~16ms).
+ *  3. The reveal icon is drawn in the strip the row uncovers (received -> left edge, sent ->
+ *     right edge). The old code positioned it on the wrong side / off-screen.
+ *  4. Quick flick arms the reply with a short drag; parents can't steal a horizontal drag;
+ *     rows still recovering from an earlier swipe are ignored; spring-back is 120ms.
+ *
+ * The row only ever moves via translationX (no layout pass) and always springs back —
+ * ItemTouchHelper's own swipe-dismiss is disabled (threshold/velocity unreachable).
+ *
+ * Reply decision = finger RELEASE: armed (|dX| >= trigger at lift) or a fast flick -> reply.
+ * Swipe out, drag back under the trigger, lift = no reply.
  */
 public class SwipeReplyHandler extends ItemTouchHelper.Callback {
 
@@ -46,61 +51,50 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     public static boolean ENABLE_HAPTICS     = true;
     public static boolean ENABLE_SOUND       = false;
 
-    // ── Threshold & physics constants ──────────────────────────────────────
-    private static final float TRIGGER_RATIO   = 0.18f;   // 18% of item width
-    private static final float MIN_TRIGGER_DP  = 72f;
-    private static final float MAX_DRAG_RATIO  = 0.30f;   // 30% max drag (clamp)
-    private static final float ICON_APPEAR_DP  = 20f;     // icon starts showing at 20dp
-    private static final float VELOCITY_GUARD  = 3500f;   // px/s — fast fling → ignore
-    private static final long  DEBOUNCE_MS     = 350L;    // min gap between triggers
-    private static final int   ICON_SIZE_DP    = 36;
-    // ── State ──────────────────────────────────────────────────────────────
+    // ── Geometry (dp) ──────────────────────────────────────────────────────
+    private static final float TRIGGER_DP     = 60f;   // finger travel that arms the reply
+    private static final float MAX_VISUAL_DP  = 84f;   // row never visually goes past this
+    private static final float FLING_MIN_DP   = 28f;   // flick arms from this travel...
+    private static final float FLING_VEL_DP_S = 600f;  // ...if at least this fast (dp/s)
+    private static final float LOCK_DP        = 8f;    // lock parents once clearly horizontal
+    private static final float ICON_MAX_CX_DP = 28f;   // icon centre distance from row edge
+    private static final float CHIP_BASE_DP   = 14f;
+    private static final float CHIP_GROW_DP   = 5f;
+    private static final float ICON_SMALL_DP  = 17f;
+    private static final float ICON_BIG_DP    = 21f;
+    private static final long  RECOVER_MS     = 120L;
+    private static final long  DEBOUNCE_MS    = 350L;
+
+    private static final int COLOR_FALLBACK = 0xFF4CAF50; // brand_primary
+
+    // ── Collaborators ──────────────────────────────────────────────────────
     private final List<Message>        messages;
     private final String               currentUid;
+    private final Context              ctx;
     private final OnSwipeReplyListener listener;
-    private final float                density;
 
-    // v813: the reply is decided on finger RELEASE, never while the finger is still down.
-    // `releaseHandled` = this gesture's release already made its decision (fire / no-op), so the
-    // recover animation's remaining onChildDraw frames and clearView() can't fire it twice.
-    private boolean releaseHandled   = false;
-    private long    lastTriggerTime  = 0L;
-    private boolean hapticFired      = false;
-    private float   currentSwipeDx   = 0f;
+    // ── Cached px values ───────────────────────────────────────────────────
+    private final float triggerPx, maxVisualPx, flingMinPx, flingVelPxS, lockPx;
+    private final float iconMaxCxPx, chipBasePx, chipGrowPx, iconSmallPx, iconBigPx;
 
-    /**
-     * Pooled MotionEvent used to forward synthetic touch events without
-     * heap-allocating a new MotionEvent on every touch frame.
-     *
-     * Lifecycle:
-     *   obtain()  – grab from Android's internal pool in onChildDraw()
-     *   recycle() – return to pool at end of the same call
-     *
-     * Why this matters: onChildDraw() is called for every touch-move frame
-     * (~60–120 Hz). Each `new MotionEvent()` or un-pooled `MotionEvent.obtain()`
-     * causes a small heap allocation that, at 120 fps, totals hundreds of
-     * short-lived objects per second — triggering frequent minor GC pauses
-     * that manifest as jank on the UI thread. Using the pool eliminates these
-     * allocations entirely: the same MotionEvent object is reused every frame.
-     */
-    private MotionEvent mPooledEvent;
-
-    // ── Paint & drawable ───────────────────────────────────────────────────
-    private final Paint tintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    // ── Draw objects (built once) ──────────────────────────────────────────
+    private final Paint chipPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Drawable    replyIcon;
+
+    // ── Gesture state ──────────────────────────────────────────────────────
+    private boolean               dragging, armed, fired, parentLocked, dragIsSent;
+    private RecyclerView.ViewHolder dragVh;      // the row being dragged (others = still recovering)
+    private Message               dragMsg;       // captured at drag start
+    private int                   dragPos = RecyclerView.NO_POSITION;
+    private float                 lastAbsDx, velocity;   // velocity in px/s
+    private long                  lastT;
+    private long                  lastTriggerTime = 0L;
+    private int                   accent = COLOR_FALLBACK;   // chat theme colour, refreshed per drag
 
     public interface OnSwipeReplyListener {
         void onSwipeReply(Message message, int adapterPosition);
 
-        /**
-         * Called when the user, in the SAME continuous drag that already
-         * crossed the trigger threshold (so onSwipeReply already fired),
-         * pulls the bubble back near its resting position without letting
-         * go. WhatsApp cancels the reply in this case instead of leaving
-         * it queued up for whatever position the finger happened to be at
-         * on release. Default no-op so existing callers don't have to
-         * implement this to keep compiling.
-         */
+        /** Kept for source compatibility; no longer called (reply is decided on release). */
         default void onSwipeReplyCancelled() {}
     }
 
@@ -109,36 +103,44 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
             List<Message> messages,
             String currentUid,
             OnSwipeReplyListener listener) {
+        this.ctx        = ctx;
         this.messages   = messages;
         this.currentUid = currentUid;
         this.listener   = listener;
-        this.density    = ctx.getResources().getDisplayMetrics().density;
 
-        // Try to load reply icon — graceful fallback if resource missing
+        final float d = ctx.getResources().getDisplayMetrics().density;
+        triggerPx   = TRIGGER_DP * d;
+        maxVisualPx = MAX_VISUAL_DP * d;
+        flingMinPx  = FLING_MIN_DP * d;
+        flingVelPxS = FLING_VEL_DP_S * d;
+        lockPx      = LOCK_DP * d;
+        iconMaxCxPx = ICON_MAX_CX_DP * d;
+        chipBasePx  = CHIP_BASE_DP * d;
+        chipGrowPx  = CHIP_GROW_DP * d;
+        iconSmallPx = ICON_SMALL_DP * d;
+        iconBigPx   = ICON_BIG_DP * d;
+
         try {
-            int iconRes = ctx.getResources().getIdentifier(
-                    "ic_reply", "drawable", ctx.getPackageName());
-            if (iconRes != 0)
-                replyIcon = ContextCompat.getDrawable(ctx, iconRes);
+            Drawable dr = ContextCompat.getDrawable(ctx, com.callx.app.chat.R.drawable.ic_reply);
+            if (dr != null) replyIcon = dr.mutate();
         } catch (Exception ignored) {}
 
-        tintPaint.setStyle(Paint.Style.FILL);
-        tintPaint.setAntiAlias(true);
+        chipPaint.setStyle(Paint.Style.FILL);
     }
 
-    // ── ItemTouchHelper.Callback overrides ─────────────────────────────────
+    // ── ItemTouchHelper.Callback ───────────────────────────────────────────
 
     @Override
     public int getMovementFlags(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
         if (!ENABLE_SWIPE_REPLY) return makeMovementFlags(0, 0);
         Message m = getMessageAt(vh.getBindingAdapterPosition());
         if (m == null || Boolean.TRUE.equals(m.deleted)) return makeMovementFlags(0, 0);
-        if (m.senderId == null || m.senderId.isEmpty()) return makeMovementFlags(0, 0); // system rows (join/leave/date)
+        if (m.senderId == null || m.senderId.isEmpty()) return makeMovementFlags(0, 0); // system rows
 
-        boolean isSent = currentUid.equals(m.senderId);
+        boolean isSent = currentUid != null && currentUid.equals(m.senderId);
         boolean isRtl  = vh.itemView.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
 
-        // Sent → swipe left; Received → swipe right (RTL flips)
+        // Sent -> swipe left; Received -> swipe right (RTL flips)
         int swipeFlags;
         if (!isRtl) {
             swipeFlags = isSent ? ItemTouchHelper.LEFT : ItemTouchHelper.RIGHT;
@@ -157,25 +159,32 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
 
     @Override
     public void onSwiped(@NonNull RecyclerView.ViewHolder vh, int direction) {
-        // Reset translation — we never actually dismiss on swipe
-        vh.itemView.setTranslationX(0);
+        // Unreachable (threshold/velocity disabled below) — never dismiss a row.
+        vh.itemView.setTranslationX(0f);
     }
 
+    /** >1 => ItemTouchHelper can never complete a swipe by distance; we only use dX as a signal. */
     @Override
-    public float getSwipeThreshold(@NonNull RecyclerView.ViewHolder vh) {
-        // Return >1f so onSwiped is never triggered by the framework automatically;
-        // we handle the trigger ourselves in onChildDraw.
-        return 2.0f;
-    }
+    public float getSwipeThreshold(@NonNull RecyclerView.ViewHolder vh) { return 2.0f; }
+
+    /** Disable the velocity path too: a fast fling would otherwise "dismiss" the row. */
+    @Override
+    public float getSwipeEscapeVelocity(float defaultValue) { return Float.MAX_VALUE; }
 
     @Override
-    public float getSwipeEscapeVelocity(float defaultValue) {
-        return Float.MAX_VALUE; // Disable velocity-based completion
+    public float getSwipeVelocityThreshold(float defaultValue) { return 0f; }
+
+    /** Fast spring-back (default ~250ms, scaled by distance). */
+    @Override
+    public long getAnimationDuration(@NonNull RecyclerView rv, int animationType,
+                                     float animateDx, float animateDy) {
+        return RECOVER_MS;
     }
 
-    @Override
-    public float getSwipeVelocityThreshold(float defaultValue) {
-        return 0f;
+    /** Row translation for a raw finger distance: 1:1 to the trigger, then heavy resistance. */
+    private float visualAbs(float absDx) {
+        if (absDx <= triggerPx) return absDx;
+        return Math.min(maxVisualPx, triggerPx + (absDx - triggerPx) * 0.25f);
     }
 
     @Override
@@ -192,105 +201,84 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
             return;
         }
 
-        Message m = getMessageAt(vh.getBindingAdapterPosition());
-        if (m == null) return;
+        final View  item   = vh.itemView;
+        final float absDx  = Math.abs(dX);
+        final float signed = (dX >= 0f ? 1f : -1f) * visualAbs(absDx);
 
-        View  itemView = vh.itemView;
-        float itemW    = itemView.getWidth();
-        float maxDrag  = Math.max(dpToPx(MIN_TRIGGER_DP), itemW * MAX_DRAG_RATIO);
-        float trigger  = Math.max(dpToPx(MIN_TRIGGER_DP), itemW * TRIGGER_RATIO);
-
-        // Apply rubber-band resistance: dX → resistedX
-        float absDx    = Math.abs(dX);
-        float resisted = rubberBand(absDx, maxDrag);
-        float finalDx  = (dX >= 0 ? 1 : -1) * resisted;
-
-        currentSwipeDx = finalDx;
-
-        // ── MotionEvent pooling ──────────────────────────────────────────────
-        // Obtain a MotionEvent from Android's pool to represent the current
-        // touch position (used if any child view needs a synthetic touch signal).
-        // We obtain() here and recycle() at the end of this call so that:
-        //   • No heap allocation occurs on the hot path (every touch frame)
-        //   • The object is returned immediately — no lingering references
-        //
-        // NOTE: mPooledEvent is a field only to allow recycling in the finally
-        // block; it must NOT be stored beyond this method's scope.
-        try {
-            mPooledEvent = MotionEvent.obtain(
-                    System.currentTimeMillis(),   // downTime
-                    System.currentTimeMillis(),   // eventTime
-                    MotionEvent.ACTION_MOVE,      // action
-                    itemView.getLeft() + finalDx, // x  — bubble leading edge
-                    itemView.getTop() + dY,       // y
-                    0                             // metaState
-            );
-            // mPooledEvent is available here for any gesture sub-system that
-            // needs the current synthetic touch coordinates (e.g. icon hit-test,
-            // child ripple dispatch). If unused, it is still recycled below.
-        } finally {
-            if (mPooledEvent != null) {
-                mPooledEvent.recycle();
-                mPooledEvent = null;
-            }
-        }
-
-        // PERF: promote to LAYER_TYPE_HARDWARE while swiping.
-        // During a swipe, the bubble is being translateX'd every touch event.
-        // With LAYER_TYPE_NONE (default), each frame composites the bubble's
-        // entire sub-tree from scratch. LAYER_TYPE_HARDWARE caches the bubble
-        // into a GPU texture once; subsequent translation frames are nearly
-        // free (just a matrix multiply on the GPU). Cleared in clearView().
-        if (itemView.getLayerType() != View.LAYER_TYPE_HARDWARE) {
-            SwipeOptimizer.enableHardwareLayer(itemView);
-        }
-        // Move ONLY translationX — zero layout passes
-        SwipeOptimizer.setTranslationXSafe(itemView, finalDx);
-
-        float swipeProgress = Math.min(1f, absDx / trigger);
-
-        // ── Background tint ──
-        boolean isSent = currentUid.equals(m.senderId);
-        drawSwipeTint(c, itemView, swipeProgress, isSent, finalDx);
-
-        // ── Reply icon ──
-        if (absDx > dpToPx(ICON_APPEAR_DP)) {
-            drawReplyIcon(c, itemView, swipeProgress, finalDx, isSent);
-        }
-
-        // ── Finger DOWN: only feedback (haptic + icon pop), NEVER the reply itself ──
-        // Crossing the trigger arms the reply; coming back under it disarms it (haptic re-arms),
-        // so "swipe out, then back to the bubble's resting spot without lifting" = no reply.
         if (isCurrentlyActive) {
-            releaseHandled = false;
-            if (absDx >= trigger && !hapticFired) {
-                hapticFired = true;
-                fireHaptic(itemView, false);
-            } else if (absDx < trigger) {
-                hapticFired = false;
+            if (!dragging || vh != dragVh) beginDrag(vh, dX);
+
+            // finger velocity (px/s), lightly smoothed — used for flick-to-arm
+            long now = SystemClock.uptimeMillis();
+            if (lastT != 0L && now > lastT) {
+                float v = (absDx - lastAbsDx) * 1000f / (now - lastT);
+                velocity = 0.5f * velocity + 0.5f * v;
             }
-            return;
+            lastAbsDx = absDx;
+            lastT     = now;
+
+            // Clearly horizontal -> stop parents from stealing the gesture.
+            if (!parentLocked && absDx > lockPx && rv.getParent() != null) {
+                rv.getParent().requestDisallowInterceptTouchEvent(true);
+                parentLocked = true;
+            }
+
+            boolean nowArmed = absDx >= triggerPx;
+            if (nowArmed && !armed) fireHaptic(item, false); // tick once, as it crosses
+            armed = nowArmed;                                // dragging back under = disarmed
+        } else if (dragging && vh == dragVh) {
+            // First non-active frame after the finger lifted = exact release position.
+            onRelease(rv, item);
         }
 
-        // ── Finger UP (first non-active frame = the exact release position) ──
-        // ItemTouchHelper starts its recover animation from the dX at release, so absDx here
-        // is where the finger let go. Past the trigger -> reply; anywhere short of it
-        // (including back at the start) -> nothing.
-        if (!releaseHandled) {
-            releaseHandled = true;
-            if (absDx >= trigger) {
-                long now = System.currentTimeMillis();
-                if (now - lastTriggerTime >= DEBOUNCE_MS) {
-                    android.os.Trace.beginSection("SwipeReply#start");
-                    try {
-                        lastTriggerTime = now;
-                        fireHaptic(itemView, true);
-                        if (listener != null)
-                            listener.onSwipeReply(m, vh.getBindingAdapterPosition());
-                    } finally {
-                        android.os.Trace.endSection();
-                    }
-                }
+        // Row moves by translationX only — zero layout passes.
+        if (item.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+            SwipeOptimizer.enableHardwareLayer(item);
+        }
+        SwipeOptimizer.setTranslationXSafe(item, signed);
+
+        // Reveal chip + icon in the strip the row uncovers.
+        float progress = Math.min(1f, absDx / triggerPx);
+        if (progress > 0.05f) {
+            boolean isSent = (vh == dragVh) ? dragIsSent : isSentRow(vh);
+            boolean triggered = (vh == dragVh) && (isCurrentlyActive ? armed : fired);
+            drawReveal(c, item, progress, signed, isSent, triggered);
+        }
+    }
+
+    private void beginDrag(RecyclerView.ViewHolder vh, float dX) {
+        dragging     = true;
+        armed        = false;
+        fired        = false;
+        parentLocked = false;
+        dragVh       = vh;
+        dragPos      = vh.getBindingAdapterPosition();
+        dragMsg      = getMessageAt(dragPos);   // captured once, used at release
+        try { accent = com.callx.app.utils.ChatThemeManager.get(ctx).getPrimaryColor(); }
+        catch (Exception e) { accent = COLOR_FALLBACK; }
+        dragIsSent   = dragMsg != null && currentUid != null && currentUid.equals(dragMsg.senderId);
+        velocity     = 0f;
+        lastAbsDx    = 0f;
+        lastT        = 0L;
+    }
+
+    /** Finger lifted: decide now. Reply is posted to the next frame (we are inside a draw pass). */
+    private void onRelease(@NonNull RecyclerView rv, @NonNull View item) {
+        dragging = false;
+        unlockParent(rv);
+
+        boolean flick = !armed && lastAbsDx >= flingMinPx && velocity >= flingVelPxS;
+        if ((armed || flick) && !fired && dragMsg != null) {
+            long now = SystemClock.uptimeMillis();
+            if (now - lastTriggerTime >= DEBOUNCE_MS) {
+                fired           = true;
+                lastTriggerTime = now;
+                fireHaptic(item, true);
+                final Message fm = dragMsg;
+                final int     fp = dragPos;
+                rv.post(() -> {
+                    if (listener != null) listener.onSwipeReply(fm, fp);
+                });
             }
         }
     }
@@ -298,102 +286,75 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     @Override
     public void clearView(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
         super.clearView(rv, vh);
-        // PERF: remove hardware layer — bubble is no longer moving, no need
-        // to keep it as a GPU texture (wastes VRAM and blocks invalidation).
         SwipeOptimizer.clearHardwareLayer(vh.itemView);
-        // TraceSectionMetric("SwipeReply#spring") — spring-back animation init cost.
-        // Target: < 1ms. SpringForce setup should be instantaneous; if not,
-        // SpringAnimation is being created fresh on each swipe instead of reused.
-        android.os.Trace.beginSection("SwipeReply#spring");
         SwipeOptimizer.springBack(vh.itemView);
-        android.os.Trace.endSection();
-        releaseHandled = false;
-        hapticFired    = false;
-        currentSwipeDx = 0f;
 
-        // Safety: recycle any leftover pooled event if clearView fires mid-gesture
-        if (mPooledEvent != null) {
-            mPooledEvent.recycle();
-            mPooledEvent = null;
-        }
+        // Fallback: view cleared before any non-active frame was drawn.
+        if (dragging && vh == dragVh) onRelease(rv, vh.itemView);
+
+        // Another (older) row finished recovering — keep the current drag's state.
+        if (dragVh != null && vh != dragVh) return;
+
+        unlockParent(rv);
+        dragVh = null;
+        dragMsg = null;
+        dragPos = RecyclerView.NO_POSITION;
+        dragging = armed = fired = false;
+        velocity = lastAbsDx = 0f;
+        lastT = 0L;
     }
 
-    // ── Drawing helpers ────────────────────────────────────────────────────
+    private void unlockParent(RecyclerView rv) {
+        if (parentLocked && rv.getParent() != null) {
+            rv.getParent().requestDisallowInterceptTouchEvent(false);
+        }
+        parentLocked = false;
+    }
+
+    // ── Drawing ────────────────────────────────────────────────────────────
 
     /**
-     * Rubber-band formula: gives non-linear resistance.
-     * At x=0: multiplier=1 (no resistance)
-     * At x=maxDrag: multiplier=0.5 (50% resistance)
+     * signedVisual > 0: row moved right (received) -> strip is at the LEFT edge.
+     * signedVisual < 0: row moved left  (sent)     -> strip is at the RIGHT edge.
      */
-    private float rubberBand(float x, float max) {
-        if (x <= 0) return 0;
-        if (x >= max * 2) return max; // hard clamp
-        return x * (1f - x / (2f * max * 1.5f));
-    }
+    private void drawReveal(Canvas c, View item, float progress, float signedVisual,
+                            boolean isSent, boolean triggered) {
+        final float strip = Math.abs(signedVisual);
+        final float off   = Math.min(strip * 0.5f, iconMaxCxPx);
+        final float cx    = signedVisual >= 0f ? item.getLeft() + off : item.getRight() - off;
+        final float cy    = item.getTop() + item.getHeight() / 2f;
+        final int   color = accent;
 
-    private void drawSwipeTint(Canvas c, View item, float progress, boolean isSent, float dx) {
-        // Sent: light blue (#1A2196F3); Received: light green (#1A4CAF50)
-        int baseColor = isSent ? 0x1A2196F3 : 0x1A4CAF50;
-        int alpha     = (int) (progress * 60); // max alpha 60 (very subtle)
-        tintPaint.setColor((baseColor & 0x00FFFFFF) | (alpha << 24));
+        float chipProgress = Math.min(1f, progress * 1.3f);
+        int chipAlpha = triggered ? 0x55 : (int) (0x33 * chipProgress);
+        chipPaint.setColor((color & 0x00FFFFFF) | (chipAlpha << 24));
+        c.drawCircle(cx, cy, chipBasePx + chipGrowPx * chipProgress, chipPaint);
 
-        float left  = dx >= 0 ? item.getLeft() : item.getLeft() + dx;
-        float right = dx >= 0 ? item.getLeft() + dx : item.getRight();
-        if (Math.abs(right - left) < 1) return;
-
-        c.drawRect(left, item.getTop(), right, item.getBottom(), tintPaint);
-    }
-
-    private void drawReplyIcon(Canvas c, View item, float progress, float dx, boolean isSent) {
-        if (replyIcon == null) return;
-
-        int   iconSizePx = (int) dpToPx(ICON_SIZE_DP);
-        float alpha      = Math.min(1f, progress * 1.5f);
-        // Pop effect: scale 0.8→1 then 1→1.2 at trigger cross
-        float scale      = 0.8f + (progress * 0.4f);
-        if (progress >= 1.0f) scale = 1.0f + (progress - 1.0f) * 0.2f;
-        scale = Math.min(1.2f, scale);
-
-        int iconW = (int) (iconSizePx * scale);
-        int iconH = (int) (iconSizePx * scale);
-
-        int itemCenterY = item.getTop() + item.getHeight() / 2;
-
-        // Position: icon travels WITH the bubble edge
-        int iconX;
-        if (dx < 0) { // sent → swipe left: icon on left side of bubble
-            iconX = (int) (item.getLeft() + dx - iconW - (int) dpToPx(8));
-            if (iconX < 0) iconX = (int) dpToPx(4);
-        } else { // received → swipe right: icon on right side of bubble
-            iconX = (int) (item.getLeft() + dx + (int) dpToPx(8));
+        if (replyIcon != null) {
+            float sz = triggered ? iconBigPx : iconSmallPx;
+            int   h  = (int) (sz / 2f);
+            replyIcon.setBounds((int) cx - h, (int) cy - h, (int) cx + h, (int) cy + h);
+            replyIcon.setAlpha((int) (255 * Math.min(1f, progress * 1.6f)));
+            replyIcon.setColorFilter(color, PorterDuff.Mode.SRC_IN);
+            replyIcon.draw(c);
         }
-
-        int top    = itemCenterY - iconH / 2;
-        int bottom = itemCenterY + iconH / 2;
-
-        replyIcon.setBounds(iconX, top, iconX + iconW, bottom);
-        replyIcon.setAlpha((int) (alpha * 255));
-        // Tint: sent → blue, received → green
-        replyIcon.setColorFilter(
-                isSent ? 0xFF2196F3 : 0xFF4CAF50,
-                PorterDuff.Mode.SRC_IN);
-        replyIcon.draw(c);
     }
 
     // ── Haptic ─────────────────────────────────────────────────────────────
 
     private void fireHaptic(View v, boolean heavy) {
         if (!ENABLE_HAPTICS) return;
-        if (heavy) {
-            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-        } else {
-            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_PRESS);
-        }
+        v.performHapticFeedback(heavy
+                ? HapticFeedbackConstants.LONG_PRESS
+                : HapticFeedbackConstants.KEYBOARD_PRESS);
     }
 
     // ── Utils ──────────────────────────────────────────────────────────────
 
-    private float dpToPx(float dp) { return dp * density; }
+    private boolean isSentRow(RecyclerView.ViewHolder vh) {
+        Message m = getMessageAt(vh.getBindingAdapterPosition());
+        return m != null && currentUid != null && currentUid.equals(m.senderId);
+    }
 
     private Message getMessageAt(int pos) {
         if (messages == null || pos < 0 || pos >= messages.size()) return null;

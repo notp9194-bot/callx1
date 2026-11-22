@@ -282,17 +282,17 @@
             <!-- Reply and link previews stay outside the initial measure tree.
                  Their full view hierarchies inflate only when used. -->
             <ViewStub
-                android:id="@+id/stub_reply_bar"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout="@layout/layout_chat_reply_preview"
-                android:visibility="gone"/>
-
-            <ViewStub
                 android:id="@+id/stub_link_preview_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout="@layout/layout_chat_link_preview"
+                android:visibility="gone"/>
+
+            <ViewStub
+                android:id="@+id/stub_reply_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout="@layout/layout_chat_reply_preview"
                 android:visibility="gone"/>
 
             <!-- Block banner — shown when YOU have blocked this person -->

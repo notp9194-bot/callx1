@@ -1930,9 +1930,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // whatever bubble was being replied to.
         if (presenceController != null) presenceController.publishTypingReplyTarget();
         if (replyBarView == null) return;
-        replyBarView.setVisibility(View.GONE);
-        replyBarView.setAlpha(1f);
-        replyBarView.setTranslationY(0f);
+        replyBarView.setVisibility(View.GONE); // ReplyBarLayout animates out + resets alpha/translation
         if (replyBarThumbView != null) replyBarThumbView.setVisibility(View.GONE);
     }
 
@@ -1967,24 +1965,28 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             galleryItem = m.mediaItems.get(itemIndex);
         }
 
-        String senderName = (currentUid != null && currentUid.equals(m.senderId))
-                ? "You" : (m.senderName != null ? m.senderName : "");
+        final boolean replyToMine = currentUid != null && currentUid.equals(m.senderId);
+        String senderName = replyToMine
+                ? getString(R.string.chat_reply_you) : (m.senderName != null ? m.senderName : "");
         // v814: WhatsApp-style preview (type icon + label, 3 lines, thumb on the right).
         com.callx.app.chat.ui.ReplyPreviewBinder.Preview pv =
-                com.callx.app.chat.ui.ReplyPreviewBinder.describe(m);
+                com.callx.app.chat.ui.ReplyPreviewBinder.describe(this, m);
         String thumbUrl = com.callx.app.chat.ui.ReplyPreviewBinder.thumbUrl(m);
         if (galleryItem != null) {
             Object itemCaption = galleryItem.get("caption");
             boolean isVideo = "video".equals(galleryItem.get("mediaType"));
             boolean hasCap = itemCaption instanceof String && !((String) itemCaption).isEmpty();
-            pv.text = hasCap ? (String) itemCaption : (isVideo ? "Video" : "Photo");
+            pv.text = hasCap ? (String) itemCaption : getString(isVideo ? R.string.chat_reply_video : R.string.chat_reply_photo);
             pv.iconRes = isVideo ? R.drawable.ic_video : R.drawable.ic_photo_library;
             Object u  = galleryItem.get("thumbUrl");
             Object u2 = galleryItem.get("url");
             thumbUrl = (u instanceof String && !((String) u).isEmpty()) ? (String) u
                     : (u2 instanceof String ? (String) u2 : null);
         }
-        com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, senderName, pv, thumbUrl);
+        com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, senderName, pv, thumbUrl,
+                replyToMine ? com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor()
+                        : com.callx.app.chat.ui.ReplyPreviewBinder.colorFor(
+                                m.senderId != null ? m.senderId : senderName));
 
         replyBarView.setAlpha(1f);
         replyBarView.setTranslationY(0f);

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.callx.app.chat.ui.ReplyBarLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/ll_reply_bar"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -7,6 +8,7 @@
     android:layout_marginEnd="10dp"
     android:padding="8dp"
     android:background="@drawable/bg_chat_reply_container"
+    android:contentDescription="@string/chat_reply_bar_desc"
     android:visibility="gone">
 
     <LinearLayout
@@ -24,6 +26,7 @@
             android:background="@color/brand_primary"/>
 
         <LinearLayout
+            android:id="@+id/ll_reply_bar_texts"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -39,7 +42,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@color/brand_primary"
-                android:textSize="14sp"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end"/>
@@ -65,7 +68,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:textColor="@color/text_secondary"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:maxLines="3"
                     android:ellipsize="end"/>
             </LinearLayout>
@@ -91,6 +94,6 @@
         android:src="@drawable/ic_close"
         android:scaleType="fitCenter"
         android:background="@null"
-        android:tint="@color/text_secondary"
-        android:contentDescription="Cancel reply"/>
+        app:tint="@color/text_secondary"
+        android:contentDescription="@string/chat_reply_cancel"/>
 </com.callx.app.chat.ui.ReplyBarLayout>

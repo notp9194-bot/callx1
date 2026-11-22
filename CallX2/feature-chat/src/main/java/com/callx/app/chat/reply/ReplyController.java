@@ -66,9 +66,14 @@ public class ReplyController {
      * Called immediately after successful swipe gesture.
      * If undo is enabled, enters PENDING_UNDO state (snackbar shown).
      * If undo is disabled, activates reply immediately.
+     * Always (re)targets the reply — also when one is already active.
      */
     public void onSwipeReply(Message message) {
-        if (state == State.ACTIVE || state == State.PENDING_UNDO) return;
+        if (message == null) return;
+        // WhatsApp: swiping ANOTHER bubble while a reply is already showing simply
+        // retargets the reply bar. The old early-return on ACTIVE made every later
+        // swipe a silent no-op until the reply bar was closed or a message was sent.
+        cancelUndoTimeout();
         pending = message;
 
         if (ENABLE_UNDO) {
