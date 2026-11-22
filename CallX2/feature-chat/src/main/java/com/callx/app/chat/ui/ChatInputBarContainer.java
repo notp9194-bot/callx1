@@ -22,6 +22,10 @@ import com.callx.app.chat.R;
  * measure/layout pass replaces three generic ViewGroup passes. The recording
  * bar remains lazy and can replace the normal controls without hiding the
  * capsule itself.</p>
+ *
+ * <p>v817: the reply preview ({@code ll_reply_bar}, lazy ViewStub) is also a direct child.
+ * When shown it is laid out as a card on TOP of the capsule's content (input row or recording
+ * bar), so the one pill simply grows taller — same "expanding input bar" feel as recording.</p>
  */
 public final class ChatInputBarContainer extends ViewGroup {
 
@@ -69,9 +73,11 @@ public final class ChatInputBarContainer extends ViewGroup {
         return inputContentVisible;
     }
 
+    /** Children that are NOT part of the normal input controls (recording bar + reply row). */
     private boolean isRecordingChild(View child) {
         int id = child.getId();
-        return id == R.id.stub_recording_bar || id == R.id.ll_recording_bar;
+        return id == R.id.stub_recording_bar || id == R.id.ll_recording_bar
+                || id == R.id.stub_reply_bar || id == R.id.ll_reply_bar;
     }
 
     private View directChild(int id) {
@@ -90,12 +96,46 @@ public final class ChatInputBarContainer extends ViewGroup {
         return null;
     }
 
+    /** The inflated reply row, or null while its ViewStub has not been inflated. */
+    private View replyChild() {
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child.getId() == R.id.ll_reply_bar) return child;
+        }
+        return null;
+    }
+
+    /** Height the reply row takes (incl. its margins); 0 when hidden / not inflated. */
+    private int measureReply(int width) {
+        View reply = replyChild();
+        if (reply == null || reply.getVisibility() == GONE) return 0;
+        MarginLayoutParams lp = (MarginLayoutParams) reply.getLayoutParams();
+        int w = Math.max(0, width - lp.leftMargin - lp.rightMargin);
+        reply.measure(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+        return lp.topMargin + reply.getMeasuredHeight() + lp.bottomMargin;
+    }
+
+    /** Lays the reply row at the top of the capsule; returns its total height (0 if hidden). */
+    private int layoutReply(int width) {
+        View reply = replyChild();
+        if (reply == null || reply.getVisibility() == GONE) return 0;
+        MarginLayoutParams lp = (MarginLayoutParams) reply.getLayoutParams();
+        int left = lp.leftMargin;
+        int top = lp.topMargin;
+        reply.layout(left, top, left + reply.getMeasuredWidth(), top + reply.getMeasuredHeight());
+        return lp.topMargin + reply.getMeasuredHeight() + lp.bottomMargin;
+    }
+
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = MeasureSpec.getSize(widthMeasureSpec);
         if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) {
             width = 0;
         }
+
+        final int replyHeight = measureReply(width);
 
         View recording = recordingChild();
         if (recording != null && recording.getVisibility() != GONE) {
@@ -104,7 +144,7 @@ public final class ChatInputBarContainer extends ViewGroup {
                     MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY),
                     MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
             int desiredWidth = childWidth;
-            int desiredHeight = recording.getMeasuredHeight();
+            int desiredHeight = replyHeight + recording.getMeasuredHeight();
             setMeasuredDimension(
                     resolveSize(desiredWidth, widthMeasureSpec),
                     resolveSize(desiredHeight, heightMeasureSpec));
@@ -152,7 +192,7 @@ public final class ChatInputBarContainer extends ViewGroup {
         }
 
         int desiredWidth = Math.max(0, width);
-        int desiredHeight = verticalInsetPx * 2 + contentHeight;
+        int desiredHeight = replyHeight + verticalInsetPx * 2 + contentHeight;
         setMeasuredDimension(
                 resolveSize(desiredWidth, widthMeasureSpec),
                 resolveSize(desiredHeight, heightMeasureSpec));
@@ -163,9 +203,11 @@ public final class ChatInputBarContainer extends ViewGroup {
         int width = right - left;
         int height = bottom - top;
 
+        final int replyHeight = layoutReply(width);
+
         View recording = recordingChild();
         if (recording != null && recording.getVisibility() != GONE) {
-            recording.layout(0, 0, width, height);
+            recording.layout(0, replyHeight, width, height);
             return;
         }
 
@@ -175,7 +217,8 @@ public final class ChatInputBarContainer extends ViewGroup {
 
         int contentLeft = horizontalInsetPx;
         int contentRight = Math.max(contentLeft, width - horizontalInsetPx);
-        int centerY = height / 2;
+        // Input row sits below the reply row (if any), centred in the remaining space.
+        int centerY = replyHeight + (height - replyHeight) / 2;
 
         if (viewOnce != null && viewOnce.getVisibility() != GONE) {
             int childWidth = viewOnce.getMeasuredWidth();

@@ -279,20 +279,14 @@
                 android:progressTint="@color/brand_primary"
                 android:visibility="gone"/>
 
-            <!-- Reply and link previews stay outside the initial measure tree.
-                 Their full view hierarchies inflate only when used. -->
+            <!-- Link preview stays outside the initial measure tree and inflates only
+                 when used. (The reply preview now lives INSIDE the input capsule —
+                 see stub_reply_bar below.) -->
             <ViewStub
                 android:id="@+id/stub_link_preview_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout="@layout/layout_chat_link_preview"
-                android:visibility="gone"/>
-
-            <ViewStub
-                android:id="@+id/stub_reply_bar"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout="@layout/layout_chat_reply_preview"
                 android:visibility="gone"/>
 
             <!-- Block banner — shown when YOU have blocked this person -->
@@ -442,6 +436,26 @@
                             android:layout_width="wrap_content"
                             android:layout_height="34dp"
                             android:contentDescription="Attach, camera, voice message and send"/>
+                    <!-- ═══════════════════════════════════════════════════════
+                         REPLY ROW — lives INSIDE the capsule (same idea as the
+                         recording bar): when a message is swiped-to-reply the
+                         capsule itself grows upward and shows the reply card
+                         on top of the input row. Lazily inflated; the
+                         inflated id stays ll_reply_bar so ChatActivity /
+                         GroupChatActivity need no changes. Margins live on
+                         the stub because the stub's LayoutParams win.
+                         ═══════════════════════════════════════════════════ -->
+                    <ViewStub
+                        android:id="@+id/stub_reply_bar"
+                        android:inflatedId="@+id/ll_reply_bar"
+                        android:layout="@layout/layout_chat_reply_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginEnd="8dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="2dp"
+                        android:visibility="gone"/>
                     <!-- ═══════════════════════════════════════════════════════
                          RECORDING BAR — replaces the normal input controls
                          message is being held/locked (see

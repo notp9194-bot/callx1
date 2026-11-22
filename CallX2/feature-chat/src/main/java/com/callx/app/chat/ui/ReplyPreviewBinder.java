@@ -3,6 +3,7 @@ package com.callx.app.chat.ui;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.ColorDrawable;
+import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -28,6 +29,12 @@ import com.callx.app.models.Message;
  * when the same url is re-bound (retarget flicker) and is cleared when there is no thumb, the
  * text column only reserves room for the close button when there is no thumbnail, and the
  * accent line + sender name take a per-sender colour.
+ *
+ * v817 perf (ported from the voice-recording bar work): child views come from the cached
+ * references in {@link ReplyBarLayout} (no findViewById per bind), redundant setText /
+ * setTextColor calls are skipped (each one triggers a relayout of the capsule), and very long
+ * message text is cut before it reaches the TextView — a 4000-char message used to be measured
+ * in full just to show 3 lines.
  */
 public final class ReplyPreviewBinder {
 
@@ -115,20 +122,23 @@ public final class ReplyPreviewBinder {
     /** @param accentColor colour for the accent line + sender name; 0 = leave as is. */
     public static void bind(@NonNull Context ctx, @NonNull View bar, @Nullable String senderName,
                             @NonNull Preview p, @Nullable String thumbUrl, int accentColor) {
-        TextView name = bar.findViewById(R.id.tv_reply_bar_name);
-        TextView text = bar.findViewById(R.id.tv_reply_bar_text);
-        ImageView icon = bar.findViewById(R.id.iv_reply_bar_type);
-        ImageView thumb = bar.findViewById(R.id.iv_reply_bar_thumb);
-        ImageButton close = bar.findViewById(R.id.btn_cancel_reply);
-        View texts = bar.findViewById(R.id.ll_reply_bar_texts);
-        View accent = bar.findViewById(R.id.view_reply_accent);
+        final ReplyBarLayout rb = bar instanceof ReplyBarLayout ? (ReplyBarLayout) bar : null;
+        TextView name = rb != null ? rb.nameView() : bar.findViewById(R.id.tv_reply_bar_name);
+        TextView text = rb != null ? rb.textView() : bar.findViewById(R.id.tv_reply_bar_text);
+        ImageView icon = rb != null ? rb.typeView() : bar.findViewById(R.id.iv_reply_bar_type);
+        ImageView thumb = rb != null ? rb.thumbView() : bar.findViewById(R.id.iv_reply_bar_thumb);
+        ImageButton close = rb != null ? rb.closeView() : bar.findViewById(R.id.btn_cancel_reply);
+        View texts = rb != null ? rb.textsView() : bar.findViewById(R.id.ll_reply_bar_texts);
+        View accent = rb != null ? rb.accentView() : bar.findViewById(R.id.view_reply_accent);
 
         if (name != null) {
-            name.setText(senderName != null ? senderName : "");
-            if (accentColor != 0) name.setTextColor(accentColor);
+            setTextIfChanged(name, senderName != null ? senderName : "");
+            if (accentColor != 0 && name.getCurrentTextColor() != accentColor) {
+                name.setTextColor(accentColor);
+            }
         }
         if (accent != null && accentColor != 0) accent.setBackgroundColor(accentColor);
-        if (text != null) text.setText(p.text);
+        if (text != null) setTextIfChanged(text, clip(p.text));
 
         final int secondary = ContextCompat.getColor(ctx, R.color.text_secondary);
         if (icon != null) {
@@ -183,6 +193,23 @@ public final class ReplyPreviewBinder {
                 ImageViewCompat.setImageTintList(close, ColorStateList.valueOf(secondary));
             }
         }
+    }
+
+    /** Reply preview shows max 3 lines — never hand the TextView more than this. */
+    private static final int MAX_PREVIEW_CHARS = 240;
+
+    @NonNull
+    private static String clip(@Nullable String t) {
+        if (t == null) return "";
+        if (t.length() <= MAX_PREVIEW_CHARS) return t;
+        return t.substring(0, MAX_PREVIEW_CHARS).trim() + "\u2026";
+    }
+
+    /** setText() always requests a layout; skip it when nothing changed (e.g. retarget same text). */
+    private static void setTextIfChanged(@NonNull TextView tv, @NonNull CharSequence next) {
+        CharSequence cur = tv.getText();
+        if (cur != null && cur.length() == next.length() && TextUtils.equals(cur, next)) return;
+        tv.setText(next);
     }
 
     private static String dur(@Nullable Long ms) {

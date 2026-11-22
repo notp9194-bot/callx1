@@ -403,6 +403,8 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.utils.LinkPreviewFetcher.init(this);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        // v817: capsule grows upward (reply row / extra lines) with the same reveal as 1:1 chat.
+        com.callx.app.chat.ui.CapsuleRevealAnimator.attach(binding.cvInputCapsule);
         // PERF: same overdraw fix as 1:1 ChatActivity — this screen reuses
         // activity_chat.xml, whose root already has an opaque background,
         // so the theme's windowBackground underneath is dead weight drawn

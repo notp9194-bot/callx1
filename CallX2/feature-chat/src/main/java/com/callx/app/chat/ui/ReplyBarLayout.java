@@ -5,10 +5,12 @@ import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.TouchDelegate;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -16,18 +18,21 @@ import androidx.annotation.Nullable;
 import com.callx.app.chat.R;
 
 /**
- * v814: reply-preview container that merges with the input capsule (WhatsApp look).
- * While VISIBLE it sits flush on top of {@code cv_input_capsule}: its own top corners are
- * rounded (bg_chat_reply_container) and the capsule switches to a bottom-rounded background
- * with no top margin, so both read as ONE rounded container. When hidden the capsule is
- * restored. Doing it from onVisibilityChanged means no call site (1:1, group, reply controller)
- * needs to know about it.
+ * v817: reply-preview row that lives INSIDE the input capsule ({@link ChatInputBarContainer}),
+ * exactly like the voice-recording bar does. Showing it makes the capsule itself grow upward
+ * (the capsule's own height-reveal animation plays) with the reply card on top and the normal
+ * input row below, so reply + input read as ONE expanded rounded container.
  *
- * v816 polish:
- *  - Smooth show (fade + 12dp rise, 180ms) and hide (fade + 10dp drop, 130ms). The capsule
- *    is un-merged only once the hide animation finished, so there is never a visual gap.
- *    Call sites keep using plain setVisibility(VISIBLE/GONE) — nothing else changes.
- *  - The close button keeps its small 26dp look but gets a 48dp touch target (TouchDelegate).
+ * <p>History: v814 merged a separate sibling bar with the capsule through background swaps;
+ * v816 added fade/rise animation and the 48dp close touch target. v817 removed the merge hack
+ * (no more mergeCapsule / bg_chat_input_capsule_reply) — the capsule is always the one pill.
+ * Call sites keep using plain setVisibility(VISIBLE/GONE).</p>
+ *
+ * <ul>
+ *  <li>Show: fade + small rise (180ms) while the capsule expands.</li>
+ *  <li>Hide: fade + small drop (130ms); real GONE (and capsule shrink) happens after it.</li>
+ *  <li>The close button keeps its small 26dp look but has a 48dp touch target.</li>
+ * </ul>
  */
 public class ReplyBarLayout extends FrameLayout {
 
@@ -36,8 +41,23 @@ public class ReplyBarLayout extends FrameLayout {
     private static final int  MIN_TOUCH_DP = 48;
 
     private final float density;
-    private int capsuleTopMargin = -1;
     private boolean exiting;
+
+    // PERF (same idea as the recording bar's cached LayoutRecordingBarBinding): child views are
+    // resolved ONCE in onFinishInflate, so bind() and onLayout() never call findViewById again.
+    private TextView  tvName;
+    private TextView  tvText;
+    private ImageView ivType;
+    private ImageView ivThumb;
+    private ImageButton btnClose;
+    private View      llTexts;
+    private View      accent;
+
+    // PERF: reused across layout passes (onLayout used to allocate a Rect + TouchDelegate on
+    // EVERY pass, including every keyboard / capsule-height relayout while the reply is shown).
+    private final Rect hit = new Rect();
+    private final Rect lastHit = new Rect();
+    private boolean hasDelegate;
 
     public ReplyBarLayout(@NonNull Context c) { this(c, null, 0); }
     public ReplyBarLayout(@NonNull Context c, @Nullable AttributeSet a) { this(c, a, 0); }
@@ -46,6 +66,26 @@ public class ReplyBarLayout extends FrameLayout {
         density = c.getResources().getDisplayMetrics().density;
     }
 
+    @Override
+    protected void onFinishInflate() {
+        super.onFinishInflate();
+        tvName   = findViewById(R.id.tv_reply_bar_name);
+        tvText   = findViewById(R.id.tv_reply_bar_text);
+        ivType   = findViewById(R.id.iv_reply_bar_type);
+        ivThumb  = findViewById(R.id.iv_reply_bar_thumb);
+        btnClose = findViewById(R.id.btn_cancel_reply);
+        llTexts  = findViewById(R.id.ll_reply_bar_texts);
+        accent   = findViewById(R.id.view_reply_accent);
+    }
+
+    @Nullable public TextView  nameView()   { return tvName; }
+    @Nullable public TextView  textView()   { return tvText; }
+    @Nullable public ImageView typeView()   { return ivType; }
+    @Nullable public ImageView thumbView()  { return ivThumb; }
+    @Nullable public ImageButton closeView(){ return btnClose; }
+    @Nullable public View      textsView()  { return llTexts; }
+    @Nullable public View      accentView() { return accent; }
+
     // ── Visibility + animation ─────────────────────────────────────────────
 
     @Override
@@ -53,9 +93,10 @@ public class ReplyBarLayout extends FrameLayout {
         if (visibility == GONE && getVisibility() == VISIBLE && !exiting && isLaidOut()) {
             exiting = true;
             animate().cancel();
-            animate().alpha(0f).translationY(10f * density)
+            animate().alpha(0f).translationY(6f * density)
                     .setDuration(EXIT_MS)
                     .setInterpolator(new AccelerateInterpolator())
+                    .withLayer()   // PERF: GPU texture only while animating, released after
                     .withEndAction(this::finishHide)
                     .start();
             return; // real GONE happens in finishHide()
@@ -72,7 +113,7 @@ public class ReplyBarLayout extends FrameLayout {
     private void finishHide() {
         if (!exiting) return;
         exiting = false;
-        super.setVisibility(GONE);   // -> onVisibilityChanged -> capsule restored
+        super.setVisibility(GONE);   // -> container re-measures, capsule shrinks
         setAlpha(1f);
         setTranslationY(0f);
     }
@@ -81,14 +122,14 @@ public class ReplyBarLayout extends FrameLayout {
     protected void onVisibilityChanged(@NonNull View changedView, int visibility) {
         super.onVisibilityChanged(changedView, visibility);
         if (changedView != this) return;
-        mergeCapsule(visibility == VISIBLE);
         if (visibility == VISIBLE) {
             animate().cancel();
             setAlpha(0f);
-            setTranslationY(12f * density);
+            setTranslationY(8f * density);
             animate().alpha(1f).translationY(0f)
                     .setDuration(ENTER_MS)
                     .setInterpolator(new DecelerateInterpolator())
+                    .withLayer()   // PERF: GPU texture only while animating, released after
                     .start();
         }
     }
@@ -110,35 +151,18 @@ public class ReplyBarLayout extends FrameLayout {
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         super.onLayout(changed, l, t, r, b);
-        View close = findViewById(R.id.btn_cancel_reply);
+        final View close = btnClose;
         if (close == null || close.getVisibility() != VISIBLE) return;
-        Rect hit = new Rect();
         close.getHitRect(hit);
         int min = (int) (MIN_TOUCH_DP * density);
         int padX = Math.max(0, (min - hit.width()) / 2);
         int padY = Math.max(0, (min - hit.height()) / 2);
         hit.inset(-padX, -padY);
         hit.intersect(0, 0, getWidth(), getHeight());
-        setTouchDelegate(new TouchDelegate(hit, close));
-    }
-
-    // ── Capsule merge ──────────────────────────────────────────────────────
-
-    private void mergeCapsule(boolean merged) {
-        if (!(getParent() instanceof View)) return;
-        View capsule = ((View) getParent()).findViewById(R.id.cv_input_capsule);
-        if (capsule == null) return;
-        ViewGroup.LayoutParams lp = capsule.getLayoutParams();
-        if (!(lp instanceof ViewGroup.MarginLayoutParams)) return;
-        ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
-        if (capsuleTopMargin < 0) capsuleTopMargin = mlp.topMargin; // first call = original 6dp
-        capsule.setBackgroundResource(merged
-                ? R.drawable.bg_chat_input_capsule_reply
-                : R.drawable.bg_chat_input_capsule);
-        int want = merged ? 0 : capsuleTopMargin;
-        if (mlp.topMargin != want) {
-            mlp.topMargin = want;
-            capsule.setLayoutParams(mlp);
-        }
+        // PERF: only rebuild the delegate when the touch rect really moved.
+        if (hasDelegate && hit.equals(lastHit)) return;
+        lastHit.set(hit);
+        hasDelegate = true;
+        setTouchDelegate(new TouchDelegate(new Rect(hit), close));
     }
 }
