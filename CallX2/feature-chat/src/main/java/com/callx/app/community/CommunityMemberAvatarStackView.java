@@ -39,7 +39,7 @@ public class CommunityMemberAvatarStackView extends View {
     private final Paint mOverflowTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final List<Bitmap> mBitmaps = new ArrayList<>();
-    private final List<Target<Bitmap>> mAvatarTargets = new ArrayList<>();
+    private final List<com.callx.app.cache.AvatarBitmapPipeline.Cancelable> mAvatarTargets = new ArrayList<>();
     private int mTotalCount = 0;
     private float mDensity;
     // Bumped on every bind() — lets an async callback from a PREVIOUS
@@ -83,7 +83,7 @@ public class CommunityMemberAvatarStackView extends View {
      * recording) instead of maintaining its own parallel copy of it.
      */
     public void bind(List<String> photoUrls, int totalCount) {
-        for (Target<Bitmap> t : mAvatarTargets) CommunityAvatarBinder.cancelBitmap(getContext(), t);
+        for (com.callx.app.cache.AvatarBitmapPipeline.Cancelable t : mAvatarTargets) CommunityAvatarBinder.cancelBitmap(getContext(), t);
         mAvatarTargets.clear();
 
         mTotalCount = totalCount;
@@ -98,7 +98,7 @@ public class CommunityMemberAvatarStackView extends View {
             final int index = i;
             mBitmaps.add(null); // placeholder slot, filled in (possibly synchronously) below
 
-            Target<Bitmap> target = CommunityAvatarBinder.bindBitmap(
+            com.callx.app.cache.AvatarBitmapPipeline.Cancelable target = CommunityAvatarBinder.bindBitmap(
                     getContext(), rawUrl, CommunityAvatarBinder.TIER_STACK, bmp -> {
                         if (generation != mBindGeneration) return; // recycled to a different bind() since
                         while (mBitmaps.size() <= index) mBitmaps.add(null);
@@ -113,7 +113,7 @@ public class CommunityMemberAvatarStackView extends View {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        for (Target<Bitmap> t : mAvatarTargets) CommunityAvatarBinder.cancelBitmap(getContext(), t);
+        for (com.callx.app.cache.AvatarBitmapPipeline.Cancelable t : mAvatarTargets) CommunityAvatarBinder.cancelBitmap(getContext(), t);
         mAvatarTargets.clear();
     }
 

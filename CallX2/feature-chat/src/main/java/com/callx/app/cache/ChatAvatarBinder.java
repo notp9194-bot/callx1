@@ -90,7 +90,19 @@ public final class ChatAvatarBinder {
             new com.callx.app.cache.AvatarBinderCore.CacheProvider() {
                 @Override public AvatarL2MemoryCache l2(Context ctx) { return ChatAvatarL2Cache.get(ctx); }
                 @Override public AvatarL3DiskCache l3(Context ctx) { return ChatAvatarL2Cache.l3(ctx); }
+                /** v821: nothing in the app ever reads ChatAvatarL2Cache's L3 -> skip the write on every decode. */
+                @Override public boolean l3Readable() { return false; }
             };
+
+    /**
+     * v821: the shared canvas-bitmap pipeline (hot strong cache + one request per url + cancel) —
+     * lives in :core now; CommunityAvatarBinder uses this same instance (same ChatAvatarL2Cache),
+     * so a member shown as a post author / in the member list / as a bubble sender shares entries.
+     * 2 MB hot (~55 avatars at 96x96 ARGB), 1 MB on RAM-constrained devices.
+     */
+    static final AvatarBitmapPipeline PIPELINE = new AvatarBitmapPipeline(
+            CACHE, AVATAR_FORMAT, /*writeL3=*/false,
+            /*hotBytes=*/2 * 1024 * 1024, /*hotBytesLowRam=*/1024 * 1024);
 
     /** Server-side responsive, version-tagged URL for one row -- thumbUrl-equivalent input, same as the reel owner avatar. */
     public static String url(Context ctx, String photo, long avatarVersion) {
@@ -117,8 +129,8 @@ public final class ChatAvatarBinder {
      * reel-share ViewHolder path, which now also calls bind() with
      * TIER_INLINE -- see MessagePagingAdapter).
      */
-    public interface BitmapCallback {
-        void onBitmap(Bitmap bitmap);
+    public interface BitmapCallback extends AvatarBitmapPipeline.Callback {
+        @Override void onBitmap(Bitmap bitmap);
     }
 
     public static void bindBitmap(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
@@ -158,70 +170,6 @@ public final class ChatAvatarBinder {
         return url;
     }
 
-    // ── v821: STRONG hot cache for canvas-drawn bubble avatars ────────────
-    // WHY: ChatAvatarL2Cache is WeakReference-based and bindBitmap()'s CustomTarget is never
-    // cleared (clearing would let Glide recycle a bitmap the canvas is still drawing), so nothing
-    // ever held a strong ref to a decoded avatar once its row was recycled. The next scroll-back
-    // therefore found a GC-reclaimed L2 entry and went through Glide again. A small byte-bounded
-    // LruCache (avatars are ~96x96 -> a few dozen KB) makes scroll-back a plain map lookup.
-    private static final class HotCache implements android.content.ComponentCallbacks2 {
-        final android.util.LruCache<String, Bitmap> lru;
-        final int maxBytes;
-        HotCache(int maxBytes) {
-            this.maxBytes = maxBytes;
-            this.lru = new android.util.LruCache<String, Bitmap>(maxBytes) {
-                @Override protected int sizeOf(String k, Bitmap b) {
-                    return Math.max(1, b.getAllocationByteCount());
-                }
-            };
-        }
-        @Override public void onTrimMemory(int level) {
-            if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE) lru.evictAll();
-            else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) lru.trimToSize(maxBytes / 2);
-        }
-        @Override public void onLowMemory() { lru.evictAll(); }
-        @Override public void onConfigurationChanged(android.content.res.Configuration c) { }
-    }
-    private static volatile HotCache sHot;
-
-    private static HotCache hot(Context ctx) {
-        HotCache h = sHot;
-        if (h == null) {
-            synchronized (ChatAvatarBinder.class) {
-                h = sHot;
-                if (h == null) {
-                    // 2 MB normally (~55 avatars at 96x96 ARGB); 1 MB on RAM-constrained devices.
-                    boolean low = com.callx.app.utils.DeviceTier.isLowRamDevice(ctx);
-                    h = new HotCache(low ? 1024 * 1024 : 2 * 1024 * 1024);
-                    ctx.getApplicationContext().registerComponentCallbacks(h);
-                    sHot = h;
-                }
-            }
-        }
-        return h;
-    }
-
-    @Nullable
-    private static Bitmap hotGet(Context ctx, String url) {
-        Bitmap b = hot(ctx).lru.get(url);
-        return (b != null && !b.isRecycled()) ? b : null;
-    }
-
-    private static void hotPut(Context ctx, String url, Bitmap b) {
-        if (url == null || b == null || b.isRecycled()) return;
-        hot(ctx).lru.put(url, b);
-    }
-
-    // v821: in-memory hits fire on EVERY scroll rebind. record() = 2 atomic incs + a debounce check
-    // per call, so hits are counted in batches of 16 via recordMany() (ratio stays unbiased).
-    private static int sPendingHits = 0;
-    private static void countMemoryHit(Context ctx) {
-        if (++sPendingHits >= 16) {
-            sPendingHits = 0;
-            AvatarCacheAnalytics.getInstance(ctx).recordMany(AvatarCacheAnalytics.Tier.L2_MEMORY, 16);
-        }
-    }
-
     /**
      * Synchronous fast path for the 24dp inline tier: returns the decoded bitmap if it is already in
      * the strong hot cache (v821) or the shared L2 memory cache, else null (caller then falls back to
@@ -230,15 +178,7 @@ public final class ChatAvatarBinder {
      */
     public static Bitmap peekInline(Context ctx, String photo) {
         final String url = resolveInlineUrl(ctx, photo);
-        if (url == null) return null;
-        Bitmap hit = hotGet(ctx, url);
-        if (hit == null) {
-            hit = ChatAvatarL2Cache.get(ctx).get(url);
-            if (hit == null || hit.isRecycled()) return null;
-            hotPut(ctx, url, hit);   // promote: survives GC from now on
-        }
-        countMemoryHit(ctx);
-        return hit;
+        return url == null ? null : PIPELINE.peek(ctx, url);
     }
 
     /** Same as {@link #bindBitmap(Context, String, long, BitmapCallback)} but
@@ -248,184 +188,37 @@ public final class ChatAvatarBinder {
         bindBitmapCancelable(ctx, photo, avatarVersion, tier, callback);
     }
 
-    // ── v821: cancellable + de-duplicated bitmap bind ─────────────────────
-    /** Handle for one pending bindBitmap callback. cancel() is idempotent and safe after delivery. */
-    public interface Cancelable { void cancel(); }
-    private static final Cancelable NOOP = () -> { };
-
-    /** One in-flight Glide load for a url, shared by every row asking for it (v821). */
-    private static final class Pending {
-        final String url;
-        final Context glideCtx;                       // application context: not tied to one Activity
-        final java.util.ArrayList<Waiter> waiters = new java.util.ArrayList<>(2);
-        com.bumptech.glide.request.target.Target<Bitmap> target;
-        boolean finished;
-        boolean cancelled;      // finished because the last waiter left (NOT because it was delivered)
-        Pending(String url, Context glideCtx) { this.url = url; this.glideCtx = glideCtx; }
-    }
-    private static final class Waiter implements Cancelable {
-        final BitmapCallback cb;
-        Pending owner;
-        Waiter(BitmapCallback cb) { this.cb = cb; }
-        @Override public void cancel() { cancelWaiter(this); }
-    }
-    /** url -> its single in-flight load. ALWAYS touched under synchronized(IN_FLIGHT). */
-    private static final java.util.HashMap<String, Pending> IN_FLIGHT = new java.util.HashMap<>();
-
+    // ── v821: cancellable + de-duplicated bitmap bind (implementation: core AvatarBitmapPipeline) ──
     /** Same as {@link #bindBitmap(Context, String, long, BitmapCallback)} but returns a handle the
-     *  caller cancels when its row is recycled / rebound (v821). */
-    public static Cancelable bindBitmapCancelable(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
+     *  caller cancels when its row is recycled / rebound. */
+    public static AvatarBitmapPipeline.Cancelable bindBitmapCancelable(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
         return bindBitmapCancelable(ctx, photo, avatarVersion, TIER_INLINE, callback);
     }
 
     /**
-     * v821 pipeline: hot LRU (strong) -> L2 (weak) -> ONE shared Glide load per url.
-     *  - de-dup: N rows of the same sender (group chat open) used to start N Glide requests +
-     *    N targets + N listeners for the same url; now the 2nd..Nth just join the first one's waiters.
-     *  - cancel: a row recycled mid-load removes only ITS waiter; when the last waiter leaves, the
-     *    not-yet-delivered Glide request itself is cancelled (a fling no longer decodes avatars for
-     *    rows nobody sees). A DELIVERED target is never cleared on purpose — clearing would let Glide
-     *    recycle/reuse a bitmap the canvas may still be drawing.
-     *  - L3: not written here any more. Nothing on this path ever reads it (Glide's RESOURCE disk
-     *    cache already serves cold starts), so each fresh decode paid a WebP compress for nothing.
+     * Pipeline: hot LRU (strong) -> L2 (weak) -> ONE shared Glide load per url. See
+     * {@link AvatarBitmapPipeline} for dedupe / cancel / owned-copy / no-L3-write details.
      */
-    public static Cancelable bindBitmapCancelable(Context ctx, String photo, long avatarVersion,
+    public static AvatarBitmapPipeline.Cancelable bindBitmapCancelable(Context ctx, String photo, long avatarVersion,
                                                   AvatarSizeTier tier, BitmapCallback callback) {
-        if (photo == null || photo.isEmpty()) return NOOP;
+        if (photo == null || photo.isEmpty()) return AvatarBitmapPipeline.NOOP;
         // v445: the default 24dp inline tier / unversioned case (every canvas strip +
         // sender avatar) goes through the resolved-URL memo instead of re-running
         // indexOf + ~8 String concats + 2 substrings on every single bind.
         String url = (tier == TIER_INLINE && avatarVersion == 0L)
                 ? resolveInlineUrl(ctx, photo)
                 : AvatarUrlBuilder.buildResponsive(ctx, photo, tier, avatarVersion);
-        if (url == null) return NOOP;
-
-        Bitmap h = hotGet(ctx, url);
-        if (h != null) { countMemoryHit(ctx); callback.onBitmap(h); return NOOP; }
-        Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
-        if (l2Hit != null && !l2Hit.isRecycled()) {
-            hotPut(ctx, url, l2Hit);
-            countMemoryHit(ctx);
-            callback.onBitmap(l2Hit);
-            return NOOP;
-        }
-
-        final Context appCtx = ctx.getApplicationContext();
-        final Waiter w = new Waiter(callback);
-        final Pending pending;
-        boolean start = false;
-        synchronized (IN_FLIGHT) {
-            Pending existing = IN_FLIGHT.get(url);
-            if (existing == null) {
-                existing = new Pending(url, appCtx);
-                IN_FLIGHT.put(url, existing);
-                start = true;
-            }
-            pending = existing;
-            pending.waiters.add(w);
-            w.owner = pending;
-        }
-        if (start) startLoad(appCtx, pending, AvatarUrlBuilder.tierPx(ctx, tier));
-        return w;
-    }
-
-    private static void startLoad(final Context appCtx, final Pending pending, int px) {
-        final String url = pending.url;
-        com.bumptech.glide.request.target.Target<Bitmap> t = bitmapRequest(appCtx, url, px)
-            .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
-                @Override
-                public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
-                                             com.bumptech.glide.request.target.Target<Bitmap> target, boolean isFirstResource) {
-                    return false;
-                }
-                @Override
-                public boolean onResourceReady(Bitmap resource, Object model,
-                                                com.bumptech.glide.request.target.Target<Bitmap> target,
-                                                com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                    AvatarCacheAnalytics.getInstance(appCtx)
-                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                    // Cache even when every waiter already left: the decode is paid for, keep it.
-                    ChatAvatarL2Cache.get(appCtx).put(url, resource);
-                    hotPut(appCtx, url, resource);
-                    return false; // let Glide still deliver the bitmap into the target below
-                }
-            })
-            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                @Override
-                public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
-                        @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                    finish(pending, resource);
-                }
-                @Override
-                public void onLoadFailed(@androidx.annotation.Nullable android.graphics.drawable.Drawable errorDrawable) {
-                    finish(pending, null);   // free the slot so the next bind can retry
-                }
-                @Override
-                public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable placeholder) {
-                    finish(pending, null);   // request cancelled (last waiter left / Glide torn down)
-                }
-            });
-        boolean clearNow;
-        synchronized (IN_FLIGHT) {
-            // Cancelled while into() was still running -> clear. A load that was DELIVERED
-            // synchronously from Glide's memory cache inside into() is finished too, but must
-            // NOT be cleared (the bitmap is in use) — hence the separate flag.
-            clearNow = pending.cancelled;
-            if (!clearNow) pending.target = t;
-        }
-        if (clearNow) Glide.with(appCtx).clear(t);
-    }
-
-    /** Delivers (bmp != null) or just drops (bmp == null) the shared load; idempotent. */
-    private static void finish(Pending pending, @Nullable Bitmap bmp) {
-        final java.util.ArrayList<Waiter> toNotify;
-        synchronized (IN_FLIGHT) {
-            if (pending.finished) return;
-            pending.finished = true;
-            if (IN_FLIGHT.get(pending.url) == pending) IN_FLIGHT.remove(pending.url);
-            toNotify = new java.util.ArrayList<>(pending.waiters);
-            pending.waiters.clear();
-        }
-        if (bmp == null) return;
-        for (Waiter w : toNotify) w.cb.onBitmap(bmp);   // outside the lock: callbacks run arbitrary UI code
-    }
-
-    private static void cancelWaiter(Waiter w) {
-        com.bumptech.glide.request.target.Target<Bitmap> toClear = null;
-        Context glideCtx = null;
-        synchronized (IN_FLIGHT) {
-            final Pending p = w.owner;
-            if (p == null || p.finished) return;      // already delivered / failed: nothing to cancel
-            p.waiters.remove(w);
-            w.owner = null;
-            if (!p.waiters.isEmpty()) return;          // other rows still want this avatar
-            p.finished = true;                         // last waiter left: cancel the load itself
-            p.cancelled = true;
-            if (IN_FLIGHT.get(p.url) == p) IN_FLIGHT.remove(p.url);
-            toClear = p.target;                        // null => startLoad() clears it right after into()
-            glideCtx = p.glideCtx;
-        }
-        if (toClear != null) Glide.with(glideCtx).clear(toClear);
+        if (url == null) return AvatarBitmapPipeline.NOOP;
+        return PIPELINE.bind(ctx, url, AvatarUrlBuilder.tierPx(ctx, tier), callback);
     }
 
     /**
-     * The ONE place bindBitmap()'s Glide request options live. prefetchBatch()
-     * builds its request from this same method on purpose: Glide's cache key
-     * covers url + override size + transformations + decode format + options,
-     * so a warm request only produces a hit for a later bindBitmap() call if
-     * every one of those is IDENTICAL. Sharing the builder makes drift
-     * (someone tweaking one path and silently killing the other's cache hits)
-     * impossible.
+     * Request options for bindBitmap() live in {@link AvatarBitmapPipeline#request}. prefetchBatch()
+     * builds from the same method on purpose (Glide's cache key covers url + override + transforms +
+     * format + options, so a warm only hits if every one of those is IDENTICAL).
      */
     private static RequestBuilder<Bitmap> bitmapRequest(Context ctx, String url, int px) {
-        return Glide.with(ctx)
-            .asBitmap()
-            .load(url)
-            .apply(new RequestOptions()
-                    .override(px, px)
-                    .format(AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
-            .circleCrop();
+        return PIPELINE.request(ctx, url, px);
     }
 
     /**

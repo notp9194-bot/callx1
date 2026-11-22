@@ -1698,21 +1698,6 @@ public class MessagePagingAdapter
         }
     }
 
-    // WHATSAPP-STYLE HEIGHT CACHE: LRU cache of measured message row heights
-    // keyed by messageId. When a new message is bound, if we've previously
-    // measured a similar message (same sender type, rough text length), reuse
-    // that height. This prevents the RecyclerView from re-measuring and
-    // re-laying-out the entire list when a new message arrives at the bottom.
-    // The height is cached in onViewRecycled() after the view has been
-    // laid out once, so it's accurate.
-    private static final java.util.LinkedHashMap<String, Integer> messagHeightCache =
-            new java.util.LinkedHashMap<String, Integer>(32, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(
-                        java.util.Map.Entry<String, Integer> eldest) {
-                    return size() > 64; // Keep only recent 64 messages' heights
-                }
-            };
 
     // TELEGRAM-STYLE OBJECT CACHE: Lightweight message cache to avoid
     // re-processing during scroll. Keyed by messageId, stores the last-seen
@@ -2813,7 +2798,7 @@ public class MessagePagingAdapter
 
     /** v821: drop this holder's pending avatar callback (no-op if none / already delivered). */
     private static void cancelChatAvatarLoad(@NonNull VH h) {
-        com.callx.app.cache.ChatAvatarBinder.Cancelable c = h.avatarLoad;
+        com.callx.app.cache.AvatarBitmapPipeline.Cancelable c = h.avatarLoad;
         if (c != null) { h.avatarLoad = null; c.cancel(); }
     }
 
@@ -4228,22 +4213,8 @@ public class MessagePagingAdapter
             resetSendAnimState(h);
         }
         
-        // WHATSAPP-STYLE SMOOTHNESS: Set a fixed height hint BEFORE binding
-        // This prevents the RecyclerView from recalculating layout when new
-        // messages arrive. If height was previously measured, reuse it.
-        // If not, the view will measure naturally but won't cause full list re-layout.
-        if (h.itemView != null && m.messageId != null) {
-            String cacheKey = m.messageId;
-            Integer cachedHeight = messagHeightCache.get(cacheKey);
-            if (cachedHeight != null && cachedHeight > 0) {
-                // Reuse cached height — prevents measure thrashing
-                android.view.ViewGroup.LayoutParams lp = h.itemView.getLayoutParams();
-                if (lp != null && lp.height != cachedHeight) {
-                    lp.height = cachedHeight;
-                    h.itemView.setLayoutParams(lp);
-                }
-            }
-        }
+        // v824: the old row-height pin (messagHeightCache -> lp.height) was removed: it forced EXACTLY
+        // measures with a stale height (edit/reaction/expand/font-scale) and was never reset to WRAP_CONTENT.
         // ── DATE SEPARATOR / SECURITY EVENT — standalone chip row ────────
         if ("date_separator".equals(m.type) || "security_event".equals(m.type)) {
             if (h.dateSeparatorView != null) {
@@ -7591,10 +7562,27 @@ public class MessagePagingAdapter
         // than the (few, cheap) draw calls it would replace.
         boolean hasReactions = m.reactions != null && !m.reactions.isEmpty();
         boolean needsHwLayer = hasReactions || isImage || isVideo || isMultiMedia || isReelShare;
-        int targetLayerType = needsHwLayer ? View.LAYER_TYPE_HARDWARE : View.LAYER_TYPE_NONE;
+        // v826: bubbles already cache their draw ops in a RenderNode; an extra
+        // HW layer = second offscreen texture + layer re-raster on every
+        // invalidate. Always NONE here; HW layer is used only during the
+        // send spring animation (see startSendAnim).
+        int targetLayerType = View.LAYER_TYPE_NONE;
         if (h.lastCanvasLayerType != targetLayerType) {
             cv.setLayerType(targetLayerType, null);
             h.lastCanvasLayerType = targetLayerType;
+        }
+
+        // v827: record-ahead. A bind outside any layout/scroll pass is a RecyclerView
+        // prefetch bind — schedule the bubble's RenderNode to be recorded in the next
+        // idle gap so its first on-screen draw is a cache hit.
+        final RecyclerView preRv = attachedRecyclerView;
+        if (preRv != null && !preRv.isComputingLayout() && preRv.getWidth() > 0) {
+            final ViewGroup.LayoutParams plp = cv.getLayoutParams();
+            final int pm = (plp instanceof ViewGroup.MarginLayoutParams)
+                    ? ((ViewGroup.MarginLayoutParams) plp).leftMargin
+                      + ((ViewGroup.MarginLayoutParams) plp).rightMargin : 0;
+            final int pw = preRv.getWidth() - preRv.getPaddingLeft() - preRv.getPaddingRight() - pm;
+            if (pw > 0) cv.schedulePreRecord(View.MeasureSpec.makeMeasureSpec(pw, View.MeasureSpec.EXACTLY));
         }
     }
 
@@ -10622,14 +10610,6 @@ public class MessagePagingAdapter
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
         
-        // WHATSAPP-STYLE HEIGHT CACHE: Cache this message's measured height
-        // before the view gets recycled. When this message is bound again
-        // (or a similar message), we can reuse this height to avoid re-measure.
-        Message m = holder.boundMessage; // Track which message was bound to this holder
-        if (m != null && m.messageId != null && holder.itemView.getHeight() > 0) {
-            messagHeightCache.put(m.messageId, holder.itemView.getHeight());
-        }
-        
         // FIX #3: Clear ALL ImageViews on recycle — not just ivImage.
         // Missing clears on ivReplyThumb/ivLinkThumb/ivVideoThumb/ivStatusSeenThumb/ivReelSeenThumb
         // caused Glide memory leaks and stale image flicker on fast scrolling.
@@ -10694,6 +10674,7 @@ public class MessagePagingAdapter
         // call will set the correct layer type based on the new message's complexity.
         if (holder.canvasView != null) {
             holder.canvasView.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
+            holder.canvasView.releaseRenderCaches(); // v826: free display lists on recycle (not on detach)
         }
         // TELEGRAM-STYLE SEND ANIMATION: cancel + snap back any in-flight
         // send-in springs before this holder goes back into the pool — a
@@ -11695,7 +11676,7 @@ public class MessagePagingAdapter
         // preventing that race.
         volatile int canvasBindToken = 0;
         /** v821: pending chat-avatar load for this holder's run-tail circle (null when none). */
-        com.callx.app.cache.ChatAvatarBinder.Cancelable avatarLoad;
+        com.callx.app.cache.AvatarBitmapPipeline.Cancelable avatarLoad;
         // PERF ULTRA: reusable Glide target for the single-image (isImage,
         // non-group) bind path — previously a fresh anonymous
         // CustomTarget<Bitmap> was allocated on EVERY bind that fired a

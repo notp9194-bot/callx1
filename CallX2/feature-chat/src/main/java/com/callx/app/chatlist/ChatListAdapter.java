@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.AsyncDifferConfig;
 import androidx.recyclerview.widget.DiffUtil;
@@ -189,8 +190,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
      * mismatch that caused low hit ratios: see ChatListTextPrecompute).
      */
     public void submitList(List<User> newList) {
+        submitList(newList, null);
+    }
+
+    /** @param onCommitted runs on the main thread once the diff has been dispatched (may be null). */
+    public void submitList(List<User> newList, @Nullable Runnable onCommitted) {
         List<User> safe = newList == null ? Collections.emptyList() : newList;
-        differ.submitList(safe);
+        differ.submitList(safe, onCommitted);
         // Batch-warm the verified-badge cache for this page of chats before
         // rows bind — avoids one Firebase read per row on a fast fling.
         List<String> uids = new ArrayList<>(safe.size());

@@ -444,7 +444,7 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
 
     static class VH extends RecyclerView.ViewHolder {
         final CommunityPostCanvasView canvasView;
-        Target<Bitmap> avatarTarget;
+        com.callx.app.cache.AvatarBitmapPipeline.Cancelable avatarTarget;
         Target<Bitmap> mediaTarget;
         final Target<Bitmap>[] groupTargets = newTargetArray();
         @SuppressWarnings("unchecked")

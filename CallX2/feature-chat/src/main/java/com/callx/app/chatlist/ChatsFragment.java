@@ -14,6 +14,7 @@ import android.content.SharedPreferences;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -644,6 +645,20 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
     }
 
+    /**
+     * If the list is currently resting at the very top (first row fully visible, nothing scrolled
+     * past), returns a commit callback that re-pins it to position 0 after the diff lands; otherwise
+     * null so a user who scrolled down is never yanked back.
+     */
+    @Nullable
+    private Runnable topPinnedCommit() {
+        final RecyclerView rv = rvChats;
+        if (rv == null || !(rv.getLayoutManager() instanceof LinearLayoutManager)) return null;
+        LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+        if (lm.findFirstCompletelyVisibleItemPosition() != 0) return null;
+        return () -> { if (rvChats == rv) rv.scrollToPosition(0); };
+    }
+
     /** Applies the current query without changing the source contacts list. */
     private void applyChatSearch() {
         if (adapter == null) return;
@@ -655,8 +670,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         List<User> base = buildDisplayList();
         final boolean narrowed = chatFilterMode != FILTER_ALL;
 
+        // v825: keep a list that is parked at the very top pinned there when the diff moves a row
+        // to position 0. The LayoutManager anchors on the OLD first row, so without this a received
+        // message's row moved above the viewport and the list looked unchanged (sending worked only
+        // because the list was off-screen under the chat).
+        final Runnable keepTop = topPinnedCommit();
+
         if (chatSearchQuery.isEmpty()) {
-            adapter.submitList(base);
+            adapter.submitList(base, keepTop);
             updateChatSearchEmptyState(narrowed && base.isEmpty());
             lastAppliedSearchQuery = chatSearchQuery;
             lastAppliedSearchDataVersion = chatSearchDataVersion;
@@ -668,7 +689,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         for (User user : base) {
             if (matchesChatSearch(user, query)) filtered.add(user);
         }
-        adapter.submitList(filtered);
+        adapter.submitList(filtered, keepTop);
         updateChatSearchEmptyState(filtered.isEmpty());
         lastAppliedSearchQuery = chatSearchQuery;
         lastAppliedSearchDataVersion = chatSearchDataVersion;

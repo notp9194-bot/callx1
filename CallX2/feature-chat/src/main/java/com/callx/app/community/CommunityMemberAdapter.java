@@ -120,7 +120,7 @@ public class CommunityMemberAdapter extends RecyclerView.Adapter<CommunityMember
 
     static class VH extends RecyclerView.ViewHolder {
         final CommunityMemberCanvasView canvasView;
-        Target<Bitmap> avatarTarget;
+        com.callx.app.cache.AvatarBitmapPipeline.Cancelable avatarTarget;
         VH(@NonNull CommunityMemberCanvasView cv) {
             super(cv);
             this.canvasView = cv;

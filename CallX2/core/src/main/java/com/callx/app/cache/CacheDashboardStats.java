@@ -93,6 +93,13 @@ public final class CacheDashboardStats {
         schedulePersist();
     }
 
+    /** Batched {@link #recordMemoryHit}: one counter add + one persist-schedule for n hits (v821). */
+    public void recordMemoryHits(int n) {
+        if (n <= 0) return;
+        memoryHits.addAndGet(n);
+        schedulePersist();
+    }
+
     public void recordMemoryMiss(@Nullable String key) {
         memoryMisses.incrementAndGet();
         schedulePersist();

@@ -110,7 +110,7 @@ public class CommunityJoinRequestAdapter
 
     static class VH extends RecyclerView.ViewHolder {
         final CommunityJoinRequestCanvasView canvasView;
-        Target<Bitmap> avatarTarget;
+        com.callx.app.cache.AvatarBitmapPipeline.Cancelable avatarTarget;
         VH(@NonNull CommunityJoinRequestCanvasView cv) {
             super(cv);
             this.canvasView = cv;

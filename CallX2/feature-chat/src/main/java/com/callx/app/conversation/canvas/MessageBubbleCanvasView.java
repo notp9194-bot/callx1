@@ -890,7 +890,7 @@ public class MessageBubbleCanvasView extends View {
     private final Paint searchHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final android.graphics.Path searchHighlightPathScratch = new android.graphics.Path();
     {
-        searchHighlightPaint.setColor(0xFFFFEB3B); // same yellow as the old TextView BackgroundColorSpan
+        searchHighlightPaint.setColor(0x99FFEB3B); // v826: translucent yellow (drawn over cached glyphs in overlay layer)
         searchHighlightPaint.setStyle(Paint.Style.FILL);
     }
 
@@ -905,7 +905,10 @@ public class MessageBubbleCanvasView extends View {
         String norm = (query != null && !query.isEmpty()) ? query : null;
         if (java.util.Objects.equals(norm, searchHighlightQuery)) return;
         searchHighlightQuery = norm;
-        invalidate();
+        // v826: highlight now lives in the dynamic overlay layer, so toggling
+        // it must NOT mark the cached bubble display list dirty. super.invalidate()
+        // bypasses the overridden invalidate() (which sets fullBubbleDirty).
+        super.invalidate();
     }
 
     /**
@@ -2865,6 +2868,13 @@ public class MessageBubbleCanvasView extends View {
     // that haven't changed at all — same content, same size, just re-shown.
     // Picture stays as the fallback for API 23-28 and for the rare
     // software-canvas case (e.g. a bitmap snapshot draw path).
+    // v826: cheap main-thread-only counters + systrace sections to verify cache hit rate.
+    public static int sRenderCacheHits, sRenderCacheMisses;
+    public static String renderCacheStats() {
+        int t = sRenderCacheHits + sRenderCacheMisses;
+        return "bubble cache pre " + sRenderCachePreRecorded + " hit " + sRenderCacheHits + "/" + t
+                + (t > 0 ? " (" + (100 * sRenderCacheHits / t) + "%)" : "");
+    }
     private static final boolean SUPPORTS_RENDER_NODE =
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q;
     private android.graphics.RenderNode fullBubbleRenderNode;
@@ -3079,6 +3089,15 @@ public class MessageBubbleCanvasView extends View {
         super.onDetachedFromWindow();
         SpinnerClock.unregister(this);
         indeterminateDrawnSinceTick = false;
+        // v826: do NOT discard the display lists / mark dirty here any more.
+        // Views parked in RecyclerView's item-view cache are detached but keep
+        // their binding; on scroll-back they re-attach without a rebind, so the
+        // recorded RenderNode is still valid and is replayed as-is. GPU memory
+        // is released in releaseRenderCaches(), called from onViewRecycled().
+    }
+
+    /** v826: free GPU-side display lists. Call when the holder is recycled to the pool. */
+    public void releaseRenderCaches() {
         if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
         if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
         staticPictureDirty = true;
@@ -3092,6 +3111,10 @@ public class MessageBubbleCanvasView extends View {
     public MessageBubbleCanvasView(Context ctx, @Nullable android.util.AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
+        // v827: per-bubble framework work that a canvas-drawn view never needs.
+        setSaveEnabled(false);                       // no state save/restore dispatch per bubble
+        if (android.os.Build.VERSION.SDK_INT >= 29) setForceDarkAllowed(false); // app themes itself
+        if (android.os.Build.VERSION.SDK_INT >= 26) setDefaultFocusHighlightEnabled(false);
         // PERF ADV: set once here instead of every drawTick() call — see
         // the tickPaint field comment above.
         tickPaint.setStyle(Paint.Style.STROKE);
@@ -7776,6 +7799,122 @@ public class MessageBubbleCanvasView extends View {
     // cache is marked stale automatically by content-changing setters/binds.
     // Reaction and presence setters deliberately use invalidate(Rect)
     // directly because those visuals live in the dynamic overlay layer.
+
+    // ── v827 helpers ─────────────────────────────────────────────────────
+    /** Flip to false to restore the Picture cache on API 23-28 for plain-text bubbles. */
+    private static final boolean LEGACY_DIRECT_DRAW_PLAIN_TEXT = true;
+    /** Flip to false to disable idle-time record-ahead (v827). */
+    private static final boolean PRERECORD_ENABLED = true;
+
+    /** Plain text bubble = none of the special card/media/audio/file/poll layouts. */
+    private boolean isPlainTextBubble() {
+        return !(isReelShare || isContact || isLocation || isViewOnce || isSeenBubble
+                || isCallEntry || isPoll || isMediaGroup || isMedia || isAudio || isFileBubble);
+    }
+
+    /** True while an animation/progress tick redraws the bubble every frame (cache bypassed). */
+    private boolean shouldSkipFullCache() {
+        boolean mediaDownloadActive = isMedia && mediaGated && mediaDownloading;
+        boolean fileDownloadActive  = isFileBubble && fileIsDownloading;
+        boolean groupDownloadActive = isMediaGroup
+                && (mediaGroupRenderer.hasActiveIndeterminateSpinner() || hasActiveGroupCellDownload());
+        boolean audioTicking = isAudio && audioPlaying;
+        return audioTicking || mediaDownloadActive || fileDownloadActive || groupDownloadActive;
+    }
+
+    // ── v827: idle-time record-ahead ─────────────────────────────────────
+    // Adapter calls schedulePreRecord() for binds that happen OUTSIDE a layout/scroll
+    // pass (RecyclerView GapWorker prefetch). In the next main-looper idle gap
+    // (between frames) we measure+layout the still-detached view at the RV's item
+    // width and record its RenderNode, so when it scrolls in the first draw is a
+    // cache hit instead of a record inside the scroll frame. Budgeted per idle
+    // callback; any mismatch just means the normal onDraw path records as before.
+    private static final java.util.ArrayDeque<PreRecordJob> sPreQ = new java.util.ArrayDeque<>();
+    private static boolean sPreIdleHooked;
+    private boolean preRecordQueued;
+
+    private static final class PreRecordJob {
+        final java.lang.ref.WeakReference<MessageBubbleCanvasView> v;
+        final int wSpec;
+        PreRecordJob(MessageBubbleCanvasView v, int wSpec) {
+            this.v = new java.lang.ref.WeakReference<>(v);
+            this.wSpec = wSpec;
+        }
+    }
+
+    private static final android.os.MessageQueue.IdleHandler PRE_IDLE = () -> {
+        final long t0 = android.os.SystemClock.uptimeMillis();
+        while (!sPreQ.isEmpty() && android.os.SystemClock.uptimeMillis() - t0 < 2) {
+            PreRecordJob j = sPreQ.pollFirst();
+            MessageBubbleCanvasView v = j.v.get();
+            if (v != null) v.runPreRecord(j.wSpec);
+        }
+        if (sPreQ.isEmpty()) { sPreIdleHooked = false; return false; }
+        return true;
+    };
+
+    /** Main thread only. {@code wSpec} must be the EXACTLY width spec RecyclerView will use. */
+    public void schedulePreRecord(int wSpec) {
+        if (!PRERECORD_ENABLED || !SUPPORTS_RENDER_NODE || preRecordQueued) return;
+        if (sPreQ.size() >= 12) return;                    // bounded
+        preRecordQueued = true;
+        sPreQ.addLast(new PreRecordJob(this, wSpec));
+        if (!sPreIdleHooked) {
+            sPreIdleHooked = true;
+            android.os.Looper.myQueue().addIdleHandler(PRE_IDLE);
+        }
+    }
+
+    private void runPreRecord(int wSpec) {
+        preRecordQueued = false;
+        if (!SUPPORTS_RENDER_NODE || getVisibility() == GONE) return;
+        if (shouldSkipFullCache()) return;
+        try {
+            if (getParent() == null) {
+                // Detached prefetched view: lay it out ourselves (RV will re-use the
+                // cached measure when its specs match, else it re-measures as usual).
+                if (isLayoutRequested() || getWidth() <= 0 || getMeasuredWidth() <= 0) {
+                    measure(wSpec, android.view.View.MeasureSpec.makeMeasureSpec(0,
+                            android.view.View.MeasureSpec.UNSPECIFIED));
+                    layout(0, 0, getMeasuredWidth(), getMeasuredHeight());
+                }
+            }
+            final int w = getWidth(), h = getHeight();
+            if (w <= 0 || h <= 0) return;
+            if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce
+                    && !isSeenBubble && !isCallEntry) {
+                if (bubbleDrawable == null) return;
+                if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
+            }
+            if (fullBubbleRenderNode == null) fullBubbleRenderNode = new android.graphics.RenderNode("bubble");
+            if (!fullBubbleDirty && w == fullBubblePictureW && h == fullBubblePictureH
+                    && fullBubbleRenderNode.hasDisplayList()) return;      // already cached
+            android.os.Trace.beginSection("Bubble.preRecord");
+            fullBubbleRenderNode.setPosition(0, 0, w, h);
+            android.graphics.RecordingCanvas rc = fullBubbleRenderNode.beginRecording();
+            try {
+                drawBubbleContent(rc);
+            } finally {
+                fullBubbleRenderNode.endRecording();
+                android.os.Trace.endSection();
+            }
+            fullBubbleDirty = false;
+            fullBubblePictureW = w;
+            fullBubblePictureH = h;
+            sRenderCachePreRecorded++;
+        } catch (RuntimeException e) {
+            fullBubbleDirty = true;                         // fall back to normal onDraw record
+        }
+    }
+
+    public static int sRenderCachePreRecorded;
+
+    /** v826: single custom-drawn view; avoids an offscreen saveLayer when alpha < 1. */
+    @Override
+    public boolean hasOverlappingRendering() {
+        return false;
+    }
+
     @Override
     public void invalidate() {
         fullBubbleDirty = true;
@@ -7845,20 +7984,10 @@ public class MessageBubbleCanvasView extends View {
         //     change. Folding determinate progress into this bypass means a
         //     download tick now only ever re-draws its own small region.
         //   • audio waveform progress bar (~60fps redraws during playback)
-        boolean mediaDownloadActive = isMedia && mediaGated && mediaDownloading;
-        boolean fileDownloadActive  = isFileBubble && fileIsDownloading;
-        boolean groupDownloadActive = isMediaGroup
-                && (mediaGroupRenderer.hasActiveIndeterminateSpinner() || hasActiveGroupCellDownload());
-        boolean downloadTicking = mediaDownloadActive || fileDownloadActive || groupDownloadActive;
-        // PERF ADV: previously `isAudio` alone bypassed the outer cache for
-        // EVERY voice-note bubble, even idle ones just scrolling past —
-        // forcing a full background+waveform+text+footer+reactions
-        // re-record on every frame. Only a bubble whose audio is actually
-        // playing needs the ~60fps waveform-progress bypass; idle audio
-        // bubbles now get the same cached RenderNode/Picture replay as
-        // text/media bubbles.
-        boolean audioTicking = isAudio && audioPlaying;
-        boolean skipFullCache = audioTicking || downloadTicking;
+        // v827: legacy (API < 29) Picture replay on a HW canvas is op-by-op, so
+        // for plain-text bubbles record+replay costs more than drawing directly.
+        boolean skipFullCache = shouldSkipFullCache()
+                || (LEGACY_DIRECT_DRAW_PLAIN_TEXT && !SUPPORTS_RENDER_NODE && isPlainTextBubble());
 
         int w = getWidth(), h = getHeight();
         if (!skipFullCache && w > 0 && h > 0) {
@@ -7875,14 +8004,18 @@ public class MessageBubbleCanvasView extends View {
                 if (hit) {
                     // Cache hit: replay the GPU-side display list — no CPU
                     // draw-op walk at all, cheaper than canvas.drawPicture().
+                    sRenderCacheHits++;
                     canvas.drawRenderNode(fullBubbleRenderNode);
                     drawDynamicOverlayLayer(canvas);
                     return;
                 }
+                sRenderCacheMisses++;
+                android.os.Trace.beginSection("Bubble.record");
                 fullBubbleRenderNode.setPosition(0, 0, w, h);
                 android.graphics.RecordingCanvas rc = fullBubbleRenderNode.beginRecording();
                 drawBubbleContent(rc);
                 fullBubbleRenderNode.endRecording();
+                android.os.Trace.endSection();
                 fullBubbleDirty    = false;
                 fullBubblePictureW = w;
                 fullBubblePictureH = h;
@@ -7986,7 +8119,6 @@ public class MessageBubbleCanvasView extends View {
             float textBlockTop = bubbleTop + replyBoxHeight + replyGap + vPad;
             canvas.save();
             canvas.translate(bubbleLeft + hPad, textBlockTop);
-            drawSearchHighlight(canvas);
             textLayout.draw(canvas);
             canvas.restore();
 
@@ -8023,7 +8155,22 @@ public class MessageBubbleCanvasView extends View {
      * while the row remains bound, so they must not be baked into the static
      * Picture/RenderNode.
      */
+    /** v826: plain-text bubbles only — same translate as the text block in drawBubbleContent(). */
+    private void drawSearchHighlightOverlay(Canvas canvas) {
+        if (textLayout == null || !isPlainTextBubble()) return;
+        int hPad = Math.round(H_PADDING_DP * density);
+        int vPad = Math.round(V_PADDING_DP * density);
+        int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
+        canvas.save();
+        canvas.translate(bubbleLeft + hPad, bubbleTop + replyBoxHeight + replyGap + vPad);
+        drawSearchHighlight(canvas);
+        canvas.restore();
+    }
+
     private void drawDynamicOverlayLayer(Canvas canvas) {
+        if (searchHighlightQuery != null) {
+            drawSearchHighlightOverlay(canvas);
+        }
         if (showForwardBtn) {
             drawForwardButton(canvas);   // outside static cache so tap animation can run
         }

@@ -246,6 +246,7 @@ public class AvatarPreWarmWorker extends Worker {
         AvatarBinderCore.CacheProvider chatCache = new AvatarBinderCore.CacheProvider() {
             @Override public AvatarL2MemoryCache l2(Context ctx) { return ChatAvatarL2Cache.get(ctx); }
             @Override public AvatarL3DiskCache l3(Context ctx) { return ChatAvatarL2Cache.l3(ctx); }
+            @Override public boolean l3Readable() { return false; } // v821: chat's L3 is never read
         };
         AvatarBatchPrefetcher.prefetchBatch(appCtx, dmItems, ChatAvatarBinder.tier(), chatCache);
         return dmItems.size();

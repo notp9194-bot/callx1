@@ -208,6 +208,14 @@ public final class AvatarBinderCore {
     public interface CacheProvider {
         AvatarL2MemoryCache l2(Context ctx);
         AvatarL3DiskCache l3(Context ctx);
+
+        /**
+         * v821: false when nothing ever READS this provider's L3 (the chat module's L3: no
+         * getAsync() on it anywhere), so {@link #bind} / AvatarBatchPrefetcher skip the L3 write —
+         * otherwise every fresh decode pays a WebP compress + disk write for an entry nobody reads.
+         * Keep true for any provider whose L3 some binder reads back (reels, status, profile, misc).
+         */
+        default boolean l3Readable() { return true; }
     }
 
     /** Per-caller knobs — the small behavioral differences that used to be
@@ -267,12 +275,8 @@ public final class AvatarBinderCore {
         Bitmap l2Hit = cache.l2(ctx).get(url);
         if (l2Hit != null) {
             iv.setImageBitmap(l2Hit);
-            if (opts.recordDashboardStats) {
-                CacheDashboardStats dashboard = CacheDashboardStats.getInstance(ctx);
-                dashboard.recordMemoryHit("avatar:" + url);
-                dashboard.recordMemoryEntry("avatar:" + url, l2Hit.getByteCount());
-            }
-            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
+            if (opts.recordDashboardStats) recordDashboardHit(ctx, url, l2Hit);
+            AvatarCacheAnalytics.getInstance(ctx).recordL2Hit();
             return;
         }
 
@@ -314,12 +318,28 @@ public final class AvatarBinderCore {
                     if (resource instanceof BitmapDrawable) {
                         Bitmap bmp = ((BitmapDrawable) resource).getBitmap();
                         cache.l2(ctx).put(url, bmp);
-                        cache.l3(ctx).put(url, bmp);
+                        if (cache.l3Readable()) cache.l3(ctx).put(url, bmp);
                     }
                     return false; // let Glide still deliver the drawable into the ImageView
                 }
             })
             .into(iv);
+    }
+
+    /**
+     * v821: an L2 hit fires on every scroll rebind. The old per-hit path built "avatar:"+url TWICE
+     * and did a synchronized LruCache put + a persist-schedule each time. Hits are now counted in
+     * batches of 16 (one add), and the key string / entry bookkeeping only happens on that sampled
+     * call (the entry was already recorded when Glide first decoded this bitmap).
+     */
+    private static final AtomicInteger sDashPendingHits = new AtomicInteger();
+
+    private static void recordDashboardHit(Context ctx, String url, Bitmap l2Hit) {
+        int n = sDashPendingHits.incrementAndGet();
+        if (n < 16 || !sDashPendingHits.compareAndSet(n, 0)) return;
+        CacheDashboardStats dashboard = CacheDashboardStats.getInstance(ctx);
+        dashboard.recordMemoryHits(n);
+        dashboard.recordMemoryEntry("avatar:" + url, l2Hit.getByteCount());
     }
 
     /**

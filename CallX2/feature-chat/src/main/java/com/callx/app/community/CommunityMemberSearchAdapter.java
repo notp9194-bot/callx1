@@ -85,7 +85,7 @@ public class CommunityMemberSearchAdapter
 
     static class VH extends RecyclerView.ViewHolder {
         final CommunityMemberSearchCanvasView canvasView;
-        Target<Bitmap> avatarTarget;
+        com.callx.app.cache.AvatarBitmapPipeline.Cancelable avatarTarget;
         VH(@NonNull CommunityMemberSearchCanvasView cv) {
             super(cv);
             this.canvasView = cv;

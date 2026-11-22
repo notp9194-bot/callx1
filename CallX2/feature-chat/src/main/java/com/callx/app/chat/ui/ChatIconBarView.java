@@ -81,6 +81,8 @@ public class ChatIconBarView extends View {
     private float attachCameraFraction = 1f; // 0..1(+overshoot), paint-only
     private boolean scheduleAvailable;
     private boolean scheduleVisible;
+    private float scheduleAlpha = 1f;        // paint-only fade-in when the schedule slot lands after a collapse
+    private ValueAnimator scheduleFadeAnimator;
     private ValueAnimator expandAnimator;
 
     // Mic <-> send crossfade state
@@ -209,7 +211,7 @@ public class ChatIconBarView extends View {
 
         if (scheduleVisible && micSendVisible) {
             drawIcon(canvas, scheduleIcon, scheduleRect,
-                    Math.max(0f, Math.min(1f, sendFraction)), 1f);
+                    Math.max(0f, Math.min(1f, Math.min(sendFraction, scheduleAlpha))), 1f);
         }
 
         // Mic/send shared slot: same accent circle (follow-button color, via
@@ -396,8 +398,40 @@ public class ChatIconBarView extends View {
     private void refreshScheduleVisibility() {
         boolean shouldShow = scheduleAvailable && showingSend && micSendVisible;
         if (scheduleVisible == shouldShow) return;
+        if (shouldShow && !iconsExpanded && expandedLayout) {
+            // Typing just started and attach/camera are mid-collapse: adding the schedule slot's
+            // width NOW would cost a measure pass of its own, and the collapse costs another ~200ms
+            // later. The collapse's end listener lands both width changes in ONE requestLayout.
+            return;
+        }
         scheduleVisible = shouldShow;
+        scheduleAlpha = 1f;
+        if (scheduleFadeAnimator != null) scheduleFadeAnimator.cancel();
         requestLayout();
+        invalidate();
+    }
+
+    /** Collapse finished: apply the (possibly deferred) schedule slot together with the width collapse. */
+    private void commitCollapse() {
+        boolean changed = false;
+        if (expandedLayout) { expandedLayout = false; changed = true; }
+        boolean show = scheduleAvailable && showingSend && micSendVisible;
+        if (show != scheduleVisible) {
+            scheduleVisible = show;
+            changed = true;
+            if (show) {
+                scheduleAlpha = 0f;
+                if (scheduleFadeAnimator != null) scheduleFadeAnimator.cancel();
+                scheduleFadeAnimator = ValueAnimator.ofFloat(0f, 1f);
+                scheduleFadeAnimator.setDuration(140);
+                scheduleFadeAnimator.addUpdateListener(a -> {
+                    scheduleAlpha = (float) a.getAnimatedValue();
+                    invalidate();
+                });
+                scheduleFadeAnimator.start();
+            }
+        }
+        if (changed) requestLayout();
         invalidate();
     }
 
@@ -473,10 +507,7 @@ public class ChatIconBarView extends View {
                     // Now that attach/camera are fully invisible, collapse
                     // the measured width -- exactly one requestLayout for
                     // the whole cycle, not one per frame.
-                    if (expandedLayout) {
-                        expandedLayout = false;
-                        requestLayout();
-                    }
+                    commitCollapse();
                 }
             });
             expandAnimator.start();

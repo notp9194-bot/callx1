@@ -163,70 +163,37 @@ public final class MiscAvatarBinder {
     }
 
     /** Callback for {@link #bindBitmap} — used by canvas-drawn targets (not a real ImageView Glide can .into()). */
-    public interface BitmapCallback {
-        void onBitmap(Bitmap bitmap);
+    public interface BitmapCallback extends AvatarBitmapPipeline.Callback {
+        @Override void onBitmap(Bitmap bitmap);
     }
+
+    /** Misc bucket's L2/L3 pair for the shared bitmap pipeline. Nothing reads L3 entries written for
+     *  MENTION_TIER (bind() uses ROW/HERO tiers), so the pipeline skips the L3 write. */
+    private static final AvatarBinderCore.CacheProvider CACHE = new AvatarBinderCore.CacheProvider() {
+        @Override public AvatarL2MemoryCache l2(Context ctx) { return MiscAvatarL2Cache.get(ctx); }
+        @Override public AvatarL3DiskCache l3(Context ctx) { return MiscAvatarL2Cache.l3(ctx); }
+    };
+
+    /** v821: strong hot cache + one-request-per-url + cancel, shared with chat/community (see AvatarBitmapPipeline). */
+    private static final AvatarBitmapPipeline PIPELINE = new AvatarBitmapPipeline(
+            CACHE, DecodeFormat.PREFER_RGB_565, /*writeL3=*/false,
+            /*hotBytes=*/1024 * 1024, /*hotBytesLowRam=*/512 * 1024);
 
     /**
      * FIX (avatar-optimization — mention dropdown): MentionRowCanvasView's
      * ~32dp inline avatar (core module — can't depend on feature-chat's
-     * ChatAvatarBinder, so this is that same canvas-target shape, kept
-     * here) used to go through a flat, un-tiered
-     * {@code Glide.asBitmap().load(rawUrl).override(720, 720)} — a fixed
-     * 720x720 decode for a 32dp row, with no L2/L3 reuse and no CDN/
-     * cache-tier analytics. Routed through MENTION_TIER + MiscAvatarL2Cache
-     * instead, so a mention-dropdown avatar shares cache entries with the
-     * SAME user's avatar bound anywhere else in the "misc" bucket, and a
-     * keystroke that re-shows an already-seen row paints instantly from L2
-     * instead of re-decoding a fresh 720x720 bitmap on every filter pass.
+     * ChatAvatarBinder) used to go through a flat, un-tiered
+     * {@code Glide.asBitmap().load(rawUrl).override(720, 720)}. Routed through
+     * MENTION_TIER + MiscAvatarL2Cache instead, and (v821) through the shared
+     * {@link AvatarBitmapPipeline}: hot cache -> L2 -> one deduped Glide load.
+     *
+     * @return handle the caller cancels when its row is rebound / detached (never null)
      */
-    public static void bindBitmap(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
-        if (photo == null || photo.isEmpty()) return;
+    public static AvatarBitmapPipeline.Cancelable bindBitmap(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
+        if (photo == null || photo.isEmpty()) return AvatarBitmapPipeline.NOOP;
         String url = url(ctx, photo, avatarVersion, MENTION_TIER);
-        if (url == null) return;
-
-        Bitmap l2Hit = MiscAvatarL2Cache.get(ctx).get(url);
-        if (l2Hit != null && !l2Hit.isRecycled()) {
-            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
-            callback.onBitmap(l2Hit);
-            return;
-        }
-
-        int px = AvatarUrlBuilder.tierPx(ctx, MENTION_TIER);
-        Glide.with(ctx)
-            .asBitmap()
-            .load(url)
-            .apply(new RequestOptions()
-                    .override(px, px)
-                    .format(DecodeFormat.PREFER_RGB_565)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
-            .circleCrop()
-            .listener(new RequestListener<Bitmap>() {
-                @Override
-                public boolean onLoadFailed(GlideException e, Object model,
-                                             Target<Bitmap> target, boolean isFirstResource) {
-                    return false;
-                }
-                @Override
-                public boolean onResourceReady(Bitmap resource, Object model,
-                                                Target<Bitmap> target,
-                                                DataSource dataSource, boolean isFirstResource) {
-                    AvatarCacheAnalytics.getInstance(ctx)
-                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                    MiscAvatarL2Cache.get(ctx).put(url, resource);
-                    MiscAvatarL2Cache.l3(ctx).put(url, resource);
-                    return false; // let Glide still deliver the bitmap into the target below
-                }
-            })
-            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                @Override
-                public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
-                        @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                    callback.onBitmap(resource);
-                }
-                @Override
-                public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable placeholder) {}
-            });
+        if (url == null) return AvatarBitmapPipeline.NOOP;
+        return PIPELINE.bind(ctx, url, AvatarUrlBuilder.tierPx(ctx, MENTION_TIER), callback);
     }
 
     /**

@@ -74,6 +74,7 @@ public final class CommunityAvatarBinder {
             new com.callx.app.cache.AvatarBinderCore.CacheProvider() {
                 @Override public AvatarL2MemoryCache l2(Context ctx) { return ChatAvatarL2Cache.get(ctx); }
                 @Override public AvatarL3DiskCache l3(Context ctx) { return ChatAvatarL2Cache.l3(ctx); }
+                @Override public boolean l3Readable() { return false; } // v821: chat's L3 is never read
             };
 
     /** CommunityActivity toolbar icon (iv_community_icon, 36dp). */
@@ -118,8 +119,8 @@ public final class CommunityAvatarBinder {
     }
 
     /** Delivers a resolved Bitmap (or null on clear/failure) to a Canvas-based row. */
-    public interface BitmapCallback {
-        void onBitmap(@Nullable Bitmap bitmap);
+    public interface BitmapCallback extends AvatarBitmapPipeline.Callback {
+        @Override void onBitmap(@Nullable Bitmap bitmap);
     }
 
     /**
@@ -171,72 +172,35 @@ public final class CommunityAvatarBinder {
         String url = url(ctx, rawUrl, tier);
         if (url == null) return;
         ChatAvatarL2Cache.get(ctx).put(url, bitmap);
-        ChatAvatarL2Cache.l3(ctx).put(url, bitmap);
+        // v821: no L3 write — chat's L3 is never read. (Not promoted to the pipeline's hot cache
+        // either: the preloader's bitmap is Glide-owned/pooled, only pipeline-made copies are safe to pin.)
     }
 
     /**
-     * Canvas-row bind (post author / member avatar). Returns the in-flight
-     * {@link Target} so the caller can store+cancel it in onViewRecycled(),
-     * exactly like the raw CustomTarget these adapters used to build by
-     * hand — or {@code null} when nothing is in flight (empty url, or an
-     * L2 hit already delivered synchronously).
+     * Canvas-row bind (post author / member avatar), through the SAME shared
+     * {@link AvatarBitmapPipeline} instance as {@link ChatAvatarBinder#bindBitmapCancelable}
+     * (hot strong cache -> ChatAvatarL2Cache -> one deduped Glide load per url). Returns the
+     * handle the caller cancels in onViewRecycled() — never null except for an empty url
+     * (callback gets null then, as before).
      */
-    public static Target<Bitmap> bindBitmap(Context ctx, String rawUrl, AvatarSizeTier tier, BitmapCallback callback) {
+    public static AvatarBitmapPipeline.Cancelable bindBitmap(Context ctx, String rawUrl, AvatarSizeTier tier, BitmapCallback callback) {
         return bindBitmap(ctx, rawUrl, tier, 0L, callback);
     }
 
     /** Same as the 4-arg {@link #bindBitmap} but for a real user avatar
      *  (post author / member) that carries an avatarVersion — see
      *  {@link #url(Context, String, AvatarSizeTier, long)}. */
-    public static Target<Bitmap> bindBitmap(Context ctx, String rawUrl, AvatarSizeTier tier, long avatarVersion, BitmapCallback callback) {
+    public static AvatarBitmapPipeline.Cancelable bindBitmap(Context ctx, String rawUrl, AvatarSizeTier tier, long avatarVersion, BitmapCallback callback) {
         if (rawUrl == null || rawUrl.isEmpty()) {
             callback.onBitmap(null);
             return null;
         }
         String url = url(ctx, rawUrl, tier, avatarVersion);
-        Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
-        if (l2Hit != null) {
-            callback.onBitmap(l2Hit);
-            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
-            return null;
-        }
-        CustomTarget<Bitmap> target = new CustomTarget<Bitmap>() {
-            @Override
-            public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
-                ChatAvatarL2Cache.get(ctx).put(url, resource);
-                ChatAvatarL2Cache.l3(ctx).put(url, resource);
-                callback.onBitmap(resource);
-            }
-            @Override
-            public void onLoadCleared(@Nullable Drawable placeholder) {
-                callback.onBitmap(null);
-            }
-        };
-        Glide.with(ctx).asBitmap()
-            .load(url)
-            .apply(RequestOptions.circleCropTransform()
-                    .format(AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
-            .listener(new RequestListener<Bitmap>() {
-                @Override
-                public boolean onLoadFailed(GlideException e, Object model, Target<Bitmap> t, boolean isFirstResource) {
-                    return false;
-                }
-                @Override
-                public boolean onResourceReady(Bitmap resource, Object model, Target<Bitmap> t,
-                                                DataSource dataSource, boolean isFirstResource) {
-                    AvatarCacheAnalytics.getInstance(ctx)
-                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                    return false;
-                }
-            })
-            .into(target);
-        return target;
+        return ChatAvatarBinder.PIPELINE.bind(ctx, url, AvatarUrlBuilder.tierPx(ctx, tier), callback);
     }
 
-    /** Call from onViewRecycled() for a Target returned by {@link #bindBitmap}. Safe to call with null. */
-    public static void cancelBitmap(Context ctx, Target<Bitmap> target) {
-        if (target == null) return;
-        try { Glide.with(ctx).clear(target); } catch (Exception ignored) {}
+    /** Call from onViewRecycled() for a handle returned by {@link #bindBitmap}. Safe to call with null. */
+    public static void cancelBitmap(Context ctx, AvatarBitmapPipeline.Cancelable handle) {
+        if (handle != null) handle.cancel();
     }
 }

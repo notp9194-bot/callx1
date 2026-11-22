@@ -4768,8 +4768,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pendingInputVisibilityUpdate = () -> {
             if (lastInputHasText == null || lastInputHasText != hasText) {
                 lastInputHasText = hasText;
-                animateSendMicSwap(hasText);
+                // Order matters: collapse/expand FIRST, so ChatIconBarView can fold the schedule
+                // slot's width change into the same layout pass as the attach/camera collapse.
                 animateAttachCameraIcons(!hasText);
+                animateSendMicSwap(hasText);
             }
             pendingInputVisibilityUpdate = null;
         };

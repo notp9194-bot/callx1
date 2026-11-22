@@ -156,7 +156,7 @@ public final class AvatarBatchPrefetcher {
                 String url = AvatarUrlBuilder.buildResponsive(appCtx, item.photo, tier, item.avatarVersion);
                 if (url == null) continue;
                 cache.l2(appCtx).put(url, cell);
-                cache.l3(appCtx).put(url, cell);
+                if (cache.l3Readable()) cache.l3(appCtx).put(url, cell);
                 AvatarCacheAnalytics.getInstance(appCtx).record(AvatarCacheAnalytics.Tier.PREWARM);
             } catch (Exception e) {
                 Log.w(TAG, "slice failed at index " + i + ": " + e.getMessage());
@@ -178,7 +178,7 @@ public final class AvatarBatchPrefetcher {
                         .submit().get(SUBMIT_TIMEOUT_SEC, TimeUnit.SECONDS);
                 if (bmp != null) {
                     cache.l2(appCtx).put(url, bmp);
-                    cache.l3(appCtx).put(url, bmp);
+                    if (cache.l3Readable()) cache.l3(appCtx).put(url, bmp);
                     AvatarCacheAnalytics.getInstance(appCtx).record(AvatarCacheAnalytics.Tier.PREWARM);
                 }
             } catch (Exception e) {

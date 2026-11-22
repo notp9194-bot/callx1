@@ -101,6 +101,17 @@ public final class AvatarCacheAnalytics {
         if (total / LOG_EVERY_N != (total - n) / LOG_EVERY_N) logSnapshot(); // crossed a log boundary
     }
 
+    private final java.util.concurrent.atomic.AtomicInteger pendingL2Hits = new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * v821: L2 in-memory hits fire on EVERY scroll rebind, so they are counted in batches of 16 via
+     * {@link #recordMany} (ratio stays unbiased; at most 15 hits are unflushed at process end).
+     */
+    public void recordL2Hit() {
+        int n = pendingL2Hits.incrementAndGet();
+        if (n >= 16 && pendingL2Hits.compareAndSet(n, 0)) recordMany(Tier.L2_MEMORY, n);
+    }
+
     /**
      * Maps a Glide {@link DataSource} straight to a {@link Tier} — the one
      * choke point every RequestListener#onResourceReady across the app

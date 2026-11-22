@@ -14,6 +14,7 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
+import com.callx.app.cache.AvatarBitmapPipeline;
 import com.callx.app.cache.MiscAvatarBinder;
 
 /**
@@ -57,6 +58,7 @@ public class MentionRowCanvasView extends View {
 
     private Bitmap avatarBitmap;
     private String pendingAvatarUrl;
+    private AvatarBitmapPipeline.Cancelable avatarLoad; // v821: this row's pending avatar wait
 
     private String nameText = "";
     private CharSequence nameEllipsized = "";
@@ -114,6 +116,7 @@ public class MentionRowCanvasView extends View {
      */
     public void setAvatarUrl(@Nullable String url) {
         if (url != null && url.equals(pendingAvatarUrl) && avatarBitmap != null) return;
+        cancelAvatarLoad(); // v821: a rebound row stops waiting on its previous photo
         pendingAvatarUrl = url;
         avatarBitmap = null;
         invalidate();
@@ -121,13 +124,18 @@ public class MentionRowCanvasView extends View {
         if (url == null || url.isEmpty()) return;
 
         final String requestedUrl = url;
-        MiscAvatarBinder.bindBitmap(getContext(), url, 0L, resource -> {
+        avatarLoad = MiscAvatarBinder.bindBitmap(getContext(), url, 0L, resource -> {
             // Stale — row has been rebound (recycled dropdown) to a
             // different photo since this request went out; drop the result.
             if (!requestedUrl.equals(pendingAvatarUrl)) return;
             avatarBitmap = resource;
             invalidate();
         });
+    }
+
+    private void cancelAvatarLoad() {
+        AvatarBitmapPipeline.Cancelable c = avatarLoad;
+        if (c != null) { avatarLoad = null; c.cancel(); }
     }
 
     @Override
@@ -174,10 +182,9 @@ public class MentionRowCanvasView extends View {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        // bindBitmap() has no external target to Glide.clear() — its
-        // in-flight request is left to finish, and the staleness check in
-        // setAvatarUrl()'s callback (pendingAvatarUrl) discards the result
-        // if this row has since been rebound to a different photo.
+        // v821: the pending wait is cancelled (the shared Glide request is cancelled too once no
+        // other row wants the same avatar); the pendingAvatarUrl staleness check stays as a backstop.
+        cancelAvatarLoad();
         pendingAvatarUrl = null;
     }
 }
