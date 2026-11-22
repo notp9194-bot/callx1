@@ -119,7 +119,11 @@ public final class BubbleBitmapPipeline {
 
     private static final ThreadPoolExecutor VISIBLE_EXEC;
     static {
-        VISIBLE_EXEC = new ThreadPoolExecutor(2, 2, 30L, TimeUnit.SECONDS,
+        // v829: 2 threads starved chat-open (6-10 images at once). Scale with cores on normal devices,
+        // stay at 2 on low-RAM / few-core devices.
+        final int cores = Runtime.getRuntime().availableProcessors();
+        final int decodeThreads = cores >= 6 ? 4 : (cores >= 4 ? 3 : 2);
+        VISIBLE_EXEC = new ThreadPoolExecutor(decodeThreads, decodeThreads, 30L, TimeUnit.SECONDS,
                 new LifoQueue(), new NamedFactory("bubble-decode"));
         VISIBLE_EXEC.allowCoreThreadTimeOut(true);
     }

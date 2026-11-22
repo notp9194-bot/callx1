@@ -219,6 +219,10 @@ public class MessageBubbleCanvasView extends View {
     private static final android.util.LruCache<String, CharSequence> BODY_SPAN_CACHE =
             new android.util.LruCache<>(256);
     private static final int BODY_SPAN_CACHE_MAX_LEN = 2000;
+    /** v829: markdown-only results (EmojiCompat not ready yet, i.e. chat opened right after cold start).
+     *  Avoids re-running MarkdownFormatter per bind; emoji pass is applied on top once EmojiCompat loads. */
+    private static final android.util.LruCache<String, CharSequence> BODY_MD_CACHE =
+            new android.util.LruCache<>(256);
 
     static CharSequence formatBody(String raw) {
         if (raw == null || raw.isEmpty()) return raw == null ? "" : raw;
@@ -227,7 +231,11 @@ public class MessageBubbleCanvasView extends View {
             CharSequence hit = BODY_SPAN_CACHE.get(raw);
             if (hit != null) return hit;
         }
-        CharSequence md = MarkdownFormatter.format(raw);
+        CharSequence md = cacheable ? BODY_MD_CACHE.get(raw) : null;
+        if (md == null) {
+            md = MarkdownFormatter.format(raw);
+            if (cacheable && md != null) BODY_MD_CACHE.put(raw, md);
+        }
         CharSequence out = md;
         boolean emojiReady = false;
         try {
@@ -3507,7 +3515,25 @@ public class MessageBubbleCanvasView extends View {
      * Bind this view to a message. Call from the adapter's onBindViewHolder
      * in place of the old setText()/Glide/etc. calls for the plain-text case.
      */
+    // v829: which bind*() last configured this view. KIND_TEXT is set only at the end of bind(); every
+    // other bind*() clears it, so an identical plain-text rebind can be recognised safely.
+    private boolean lastBindWasPlainText = false;
+
     public void bind(String text, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
+        // v829: identical rebind (tick/payload refresh, scroll back) on an already-recorded bubble:
+        // don't reset flags, re-format, or invalidate() (which discards the cached RenderNode).
+        if (lastBindWasPlainText && !fullBubbleDirty && !staticPictureDirty
+                && sent == isSent && read == isRead && delivered == isDelivered
+                && (text != null ? text : "").equals(messageText)
+                && (timeText != null ? timeText : "").equals(footerTimeText)
+                && textPaint.getColor() == ChatThemeManager.get(getContext()).getTextColor(getContext(), isSent)) {
+            if (requestLayoutIfSizeChanged()) {
+                textLayout = null;
+                invalidate();
+            }
+            return;
+        }
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -3545,6 +3571,7 @@ public class MessageBubbleCanvasView extends View {
         if (requestLayoutIfSizeChanged()) {
             textLayout = null;
         }
+        lastBindWasPlainText = true;
         invalidate();
     }
 
@@ -3584,6 +3611,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindMedia(@Nullable Bitmap bitmap, @Nullable String caption, String timeText,
                            boolean isSent, boolean isRead, boolean isDelivered,
                            @Nullable String aspectKey, float knownAspectRatio) {
+        lastBindWasPlainText = false;
         this.isMedia = true;
         // PERF: a recycled view must never replay a Picture cached for
         // whatever message it showed before this bind — see the field
@@ -3863,6 +3891,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindVideo(@Nullable Bitmap thumb, @Nullable String caption, @Nullable String duration,
                           String timeText, boolean isSent, boolean isRead, boolean isDelivered,
                           @Nullable String aspectKey, float knownAspectRatio) {
+        lastBindWasPlainText = false;
         bindMedia(thumb, caption, timeText, isSent, isRead, isDelivered, aspectKey, knownAspectRatio);
         this.isVideoMedia = true;
         this.videoDuration = duration;
@@ -3885,6 +3914,7 @@ public class MessageBubbleCanvasView extends View {
      */
     public void bindAudio(@Nullable String seed, String timeText,
                            boolean isSent, boolean isRead, boolean isDelivered) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -3962,6 +3992,7 @@ public class MessageBubbleCanvasView extends View {
         }
         if (this.audioPlaying == playing) return;
         this.audioPlaying = playing;
+        fullBubbleDirty = true;   // v828: play-state flip changes what the cached node contains
         invalidateAudioRow();
     }
 
@@ -4030,6 +4061,7 @@ public class MessageBubbleCanvasView extends View {
         this.audioPlaying = false;
         this.audioProgress = 0f;
         this.audioElapsedText = "";
+        fullBubbleDirty = true;   // v828
         invalidateAudioRow();
         // BUG FIX: a voice-caption-on-photo bubble (isMedia + voiceUrl,
         // not isAudio) never reached any reset here before — the two
@@ -4069,9 +4101,12 @@ public class MessageBubbleCanvasView extends View {
         // replay a stale Picture/RenderNode recorded before this row's last
         // change (wrong play/pause icon, stale progress, stale elapsed
         // label) instead of picking up the final state.
-        fullBubbleDirty = true;
+        // v828: while playing, progress/elapsed ticks only touch the overlay row, so the
+        // cached node stays valid (play-state flips set fullBubbleDirty explicitly).
+        final boolean liveRowOnly = isAudio && audioPlaying;
+        if (!liveRowOnly) fullBubbleDirty = true;
         if (audioBtnRect.isEmpty() && audioWaveformRect.isEmpty()) {
-            invalidate();
+            if (liveRowOnly) super.invalidate(); else invalidate();
             return;
         }
         float pad = 4f * density; // covers button/waveform stroke + AA bleed at the rect edges
@@ -4546,6 +4581,7 @@ public class MessageBubbleCanvasView extends View {
      */
     public void bindMediaGroup(java.util.List<GridItem> items, @Nullable String caption, String timeText,
                                 boolean isSent, boolean isRead, boolean isDelivered) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = true;
         this.isReelShare = false;
@@ -4625,6 +4661,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindReelShare(@Nullable Bitmap thumb, @Nullable Bitmap avatar,
                                @Nullable String username, @Nullable String caption,
                                String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = true;
@@ -4723,6 +4760,7 @@ public class MessageBubbleCanvasView extends View {
      */
     public void bindContact(@Nullable Bitmap avatar, @Nullable String name, @Nullable String phone,
                              boolean isSent) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -4789,6 +4827,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindViewOnce(int variant, @Nullable String sublabel, @Nullable String expiredLabel,
                               @Nullable String openedAtText, boolean showOpenedAt,
                               String timeText, boolean isSent) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -4832,6 +4871,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindSeenBubble(boolean isReel, @Nullable Bitmap avatar, @Nullable Bitmap thumb,
                                 boolean hasThumb, @Nullable String senderName, String timeText,
                                 @Nullable String labelOverride) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -4894,6 +4934,7 @@ public class MessageBubbleCanvasView extends View {
      */
     public void bindCallEntry(@Nullable String icon, @Nullable String label,
                                int labelColor, @Nullable String timeText, boolean iAmCaller) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -4922,6 +4963,7 @@ public class MessageBubbleCanvasView extends View {
     }
 
     public void bindLocation(@Nullable Bitmap mapThumb, @Nullable String address, boolean isSent) {
+        lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -4957,6 +4999,7 @@ public class MessageBubbleCanvasView extends View {
      * sets isGifBubble so drawMedia() adds the "GIF" badge.
      */
     public void bindGif(@Nullable String gifUrl, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
+        lastBindWasPlainText = false;
         isGifBubble = true;
         isFileBubble = false;
         bindMedia(null, null, timeText != null ? timeText : "", isSent, isRead, isDelivered, gifUrl, 0f);
@@ -4989,6 +5032,7 @@ public class MessageBubbleCanvasView extends View {
      * layout/draw — no caption, no GIF badge.
      */
     public void bindSticker(@Nullable String stickerUrl, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
+        lastBindWasPlainText = false;
         isStickerBubble = true;
         isGifBubble = false;
         isFileBubble = false;
@@ -5028,6 +5072,7 @@ public class MessageBubbleCanvasView extends View {
     public void bindFile(@Nullable String fileName, @Nullable String mimeType,
                          @Nullable String formattedSize, boolean isCached,
                          boolean isSent, boolean isRead, boolean isDelivered) {
+        lastBindWasPlainText = false;
         this.isMedia        = false;
         this.isMediaGroup   = false;
         this.isReelShare    = false;
@@ -5199,6 +5244,7 @@ public class MessageBubbleCanvasView extends View {
             String timeText,
             boolean isRead,
             boolean isDelivered) {
+        lastBindWasPlainText = false;
         this.isMedia       = false;
         this.isMediaGroup  = false;
         this.isReelShare   = false;
@@ -6388,7 +6434,21 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
+    // v829: received-side colors resolved once per night-mode state (was 2 ContextCompat.getColor per bind).
+    private static int sRcvBrand, sRcvText, sRcvNightKey = -1;
+    private int replyColorsKey = -1; // 0/1 sent, | night<<1 ; skips the 5 setColor calls on same-state rebinds
+
     private void resolveReplyColors(Context ctx) {
+        final int night = ctx.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        if (!sent && sRcvNightKey != night) {
+            sRcvBrand = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.brand_primary);
+            sRcvText = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received_text);
+            sRcvNightKey = night;
+        }
+        final int key = (sent ? 1 : 0) | (night << 1);
+        if (key == replyColorsKey) return;
+        replyColorsKey = key;
         if (sent) {
             replyBgPaint.setColor(SENT_REPLY_BG);
             replyBarPaint.setColor(SENT_REPLY_BAR);
@@ -6399,10 +6459,9 @@ public class MessageBubbleCanvasView extends View {
             linkCardBgPaint.setColor(SENT_REPLY_BG);
         } else {
             replyBgPaint.setColor(RECEIVED_REPLY_BG);
-            int brand = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.brand_primary);
-            replyBarPaint.setColor(brand);
-            replySenderPaint.setColor(brand);
-            replyTextPaint.setColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received_text));
+            replyBarPaint.setColor(sRcvBrand);
+            replySenderPaint.setColor(sRcvBrand);
+            replyTextPaint.setColor(sRcvText);
             // bg_reply_preview_received — same #22000000 card background.
             linkCardBgPaint.setColor(RECEIVED_REPLY_BG);
         }
@@ -7818,8 +7877,8 @@ public class MessageBubbleCanvasView extends View {
         boolean fileDownloadActive  = isFileBubble && fileIsDownloading;
         boolean groupDownloadActive = isMediaGroup
                 && (mediaGroupRenderer.hasActiveIndeterminateSpinner() || hasActiveGroupCellDownload());
-        boolean audioTicking = isAudio && audioPlaying;
-        return audioTicking || mediaDownloadActive || fileDownloadActive || groupDownloadActive;
+        // v828: playing audio no longer bypasses the cache — its live row is drawn in the overlay.
+        return mediaDownloadActive || fileDownloadActive || groupDownloadActive;
     }
 
     // ── v827: idle-time record-ahead ─────────────────────────────────────
@@ -8111,7 +8170,12 @@ public class MessageBubbleCanvasView extends View {
         } else if (isMedia) {
             drawMediaWithOptionalCache(canvas, hPad, vPad);
         } else if (isAudio) {
-            audioRenderer.draw(canvas, hPad, vPad);
+            if (audioPlaying) {
+                // v828: live row lives in drawDynamicOverlayLayer(); cache only the static part.
+                drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
+            } else {
+                audioRenderer.draw(canvas, hPad, vPad);
+            }
         } else if (isFileBubble) {
             drawFileBubbleWithOptionalCache(canvas);
         } else {
@@ -8168,6 +8232,10 @@ public class MessageBubbleCanvasView extends View {
     }
 
     private void drawDynamicOverlayLayer(Canvas canvas) {
+        if (isAudio && audioPlaying) {
+            audioRenderer.drawRow(canvas, Math.round(H_PADDING_DP * density),
+                    Math.round(V_PADDING_DP * density));
+        }
         if (searchHighlightQuery != null) {
             drawSearchHighlightOverlay(canvas);
         }
@@ -8587,6 +8655,13 @@ public class MessageBubbleCanvasView extends View {
      * tick and only actually changes (forcing a relayout) on the rarer
      * digit-count flip, e.g. "9:59" -> "10:00".
      */
+    /** v829: text part of the size signature as length+hash (String.hashCode is cached per instance),
+     *  so the signature no longer copies the whole message body on every bind. */
+    private static void appendTextKey(StringBuilder sb, String t) {
+        if (t == null) { sb.append('-'); return; }
+        sb.append(t.length()).append(':').append(t.hashCode());
+    }
+
     private String computeSizeSignature() {
         float footerReserve = footerTimeTextWidth()
                 + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
@@ -8625,7 +8700,8 @@ public class MessageBubbleCanvasView extends View {
             // make requestLayoutIfSizeChanged() wrongly think nothing
             // changed and skip the relayout that grows/shrinks the bubble
             // from the placeholder square to its real WhatsApp-style size.
-            sb.append("|M").append(mediaHasCaption ? messageText : "")
+            sb.append("|M"); appendTextKey(sb, mediaHasCaption ? messageText : "");
+            sb
                     .append('\u0001').append(Math.round(mediaAspectRatio * 1000));
             // BUG FIX: same "Read more" expand-state omission the plain-text
             // branch already guards against below — without this, tapping
@@ -8660,7 +8736,7 @@ public class MessageBubbleCanvasView extends View {
             }
         } else if (isMediaGroup) {
             sb.append("|MG").append(groupVisibleCount).append('\u0001')
-                    .append(groupHasCaption ? messageText : "");
+                    .append('\u0001'); appendTextKey(sb, groupHasCaption ? messageText : "");
             // Same fix as the isMedia branch above, for group captions.
             if (groupHasCaption) sb.append('|').append(isTextExpanded ? 'X' : 'x');
         } else if (isFileBubble) {
@@ -8672,7 +8748,7 @@ public class MessageBubbleCanvasView extends View {
             // setDeletedStyle()), which re-measures the same messageText
             // to a slightly different width, so it has to be part of the
             // key even though the string itself didn't change.
-            sb.append("|T").append(isDeletedStyle ? '1' : '0').append(messageText);
+            sb.append("|T").append(isDeletedStyle ? '1' : '0'); appendTextKey(sb, messageText);
             // Include expand state so toggling "Read more" triggers a re-measure.
             sb.append('|').append(isTextExpanded ? 'X' : 'x');
             if (hasLinkPreview) {

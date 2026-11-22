@@ -893,7 +893,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Room/SQLCipher/Firebase initialization. The in-memory cache remains
         // the render source; this only repopulates it from the tiny disk
         // snapshot when Android created a fresh process.
-        LastMessagesDiskCache.loadIntoMemory(this, currentUid, chatId);
+        // v828: disk read + Gson parse moved off the main thread; it overlaps with the
+        // toolbar/recycler/input setup below and is joined right before seedInstantRenderFromCache().
+        {
+            final android.content.Context diskCtx = getApplicationContext();
+            final String diskUid = currentUid, diskChat = chatId;
+            lastMsgDiskLoad = new java.util.concurrent.FutureTask<>(
+                    () -> LastMessagesDiskCache.loadIntoMemory(diskCtx, diskUid, diskChat));
+            safeIoExecute(lastMsgDiskLoad);
+        }
 
         // Chat Lock — if this 1:1 chat is locked, block the screen behind a
         // biometric/PIN gate before anything else. The rest of onCreate
@@ -1015,7 +1023,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // removed entirely (see note near attachUnifiedMessagesScrollListener) —
         // the header is now permanently fixed at the top.
         attachUnifiedMessagesScrollListener();
-        setupNetworkMonitor();
+        // v828: network callback + outbox banner are not needed for the first frame.
+        binding.getRoot().post(() -> {
+            if (!isFinishing() && !isDestroyed() && binding != null) setupNetworkMonitor();
+        });
 
         // WHATSAPP-LEVEL INSTANT REOPEN (root-cause fix — see
         // seedInstantRenderFromCache() doc): the old approach here dropped
@@ -3279,7 +3290,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * clean top-of-list/bottom-of-list diff (new messages did arrive) —
      * never a rebuild of the whole visible list.
      */
+    // v828: background warm-frame cache load started in onCreate().
+    private java.util.concurrent.FutureTask<Boolean> lastMsgDiskLoad;
+
     private void seedInstantRenderFromCache() {
+        final java.util.concurrent.FutureTask<Boolean> pendingLoad = lastMsgDiskLoad;
+        lastMsgDiskLoad = null;
+        if (pendingLoad != null) {
+            // Normally already finished (it ran during ~100 lines of setup). Bounded wait:
+            // on timeout we simply fall back to the normal cold-open path (DB load).
+            try { pendingLoad.get(250, java.util.concurrent.TimeUnit.MILLISECONDS); }
+            catch (Exception ignored) { }
+        }
         if (chatId == null || pagingAdapter == null) return;
         if (!LastMessagesCache.getInstance().has(chatId)) return; // nothing to seed — cold open, no shortcut
         java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
@@ -4757,8 +4779,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * per frame instead of one pass per TextWatcher callback.
      */
     private void handleMessageTextChanged(CharSequence changedText) {
-        String text = changedText != null ? changedText.toString() : "";
-        final boolean hasText = !text.trim().isEmpty();
+        // v828: no per-keystroke String allocation unless a consumer needs one.
+        final boolean hasText = changedText != null
+                && android.text.TextUtils.getTrimmedLength(changedText) > 0;
 
         // Relayout-triggering icon work is still delayed by one short window,
         // but repeated same-state callbacks do not restart the send/mic swap.
@@ -4823,13 +4846,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             typingHandler.removeCallbacks(stopTypingRunnable);
             if (presenceController != null) presenceController.setOurTypingStatus(false);
         }
-        if (liveTypingController != null) liveTypingController.onOurTextChanged(text);
-        scheduleDraftSave();
-        if (composeLinkPreview == null
-                && com.callx.app.chat.ui.ComposeLinkPreviewController.mayContainUrl(text)) {
-            ensureComposeLinkPreviewController();
+        final boolean linkPossible = composeLinkPreview != null
+                || com.callx.app.chat.ui.ComposeLinkPreviewController.mayContainUrl(changedText);
+        if (liveTypingController != null || linkPossible) {
+            final String text = changedText != null ? changedText.toString() : "";
+            if (liveTypingController != null) liveTypingController.onOurTextChanged(text);
+            scheduleDraftSave();
+            if (composeLinkPreview == null && linkPossible) ensureComposeLinkPreviewController();
+            if (composeLinkPreview != null) composeLinkPreview.onTextChanged(text);
+        } else {
+            scheduleDraftSave();
         }
-        if (composeLinkPreview != null) composeLinkPreview.onTextChanged(text);
     }
 
     /**

@@ -87,6 +87,11 @@ public class Message {
      */
     public transient int cachedAdapterViewType = 0;
 
+    /** v829: memo for "text contains http(s)://" (bind-time quick-forward check).
+     *  0 = unknown, 1 = no link, 2 = has link. Valid only while cachedUrlSrc == text. */
+    public transient byte cachedHasUrl = 0;
+    public transient String cachedUrlSrc = null;
+
     /**
      * v443: scratch slots owned by {@code MessagePagingAdapter#bindSeenByAvatars}
      * — the memoized "Seen by" strip result for this row and the adapter epoch

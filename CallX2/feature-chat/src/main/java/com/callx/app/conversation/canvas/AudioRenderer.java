@@ -51,7 +51,18 @@ final class AudioRenderer {
         this.host = host;
     }
 
+    /** Full audio bubble content (row + footer) — used when the bubble is idle / cached. */
     void draw(Canvas canvas, int hPad, int vPad) {
+        drawRow(canvas, hPad, vPad);
+        host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.bubbleRect.right - hPad);
+    }
+
+    /**
+     * v828: the live part only (play/pause button, waveform + progress, elapsed label).
+     * While a voice note plays, the host draws this in its dynamic overlay layer so the
+     * rest of the bubble (background, reply preview, footer) stays in the cached RenderNode.
+     */
+    void drawRow(Canvas canvas, int hPad, int vPad) {
         // ── Play/pause button ──
         canvas.drawCircle(host.audioBtnRect.centerX(), host.audioBtnRect.centerY(),
                 host.audioBtnRect.width() / 2f, host.audioBtnBgPaint);
@@ -146,7 +157,5 @@ final class AudioRenderer {
                     - (host.audioDurPaint.ascent() + host.audioDurPaint.descent()) / 2f;
             canvas.drawText(host.audioElapsedText, host.bubbleRect.right - hPad, baselineY, host.audioDurPaint);
         }
-
-        host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.bubbleRect.right - hPad);
     }
 }

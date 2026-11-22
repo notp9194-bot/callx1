@@ -689,6 +689,13 @@ public class MessagePagingAdapter
             if (!resource.isRecycled()) cache.put(key, resource);
             return;
         }
+        // v829: a HARDWARE bitmap can't be copied cheaply (GPU readback + re-upload on the main thread)
+        // and must not be cached as-is (Glide recycles immutable bitmaps on release). Skip the pool
+        // entry: the rebind falls through to Glide's own memory cache, which hits synchronously.
+        if (android.os.Build.VERSION.SDK_INT >= 26
+                && resource.getConfig() == android.graphics.Bitmap.Config.HARDWARE) {
+            return;
+        }
         // Glide-sourced bitmap (URL thumbs etc.): still has to be copied, but skip the
         // copy when an equivalent entry is already pooled (rebind of a seen row).
         android.graphics.Bitmap existing = cache.get(key);
@@ -3015,8 +3022,17 @@ public class MessagePagingAdapter
     private void indexMessagePosition(int position, @Nullable Message message) {
         if (message == null || position < 0) return;
         ensureMessagePositionIndexGeneration();
-        if (message.messageId != null) messagePositionIndex.put(message.messageId, position);
-        if (message.id != null) messagePositionIndex.put(message.id, position);
+        // v829: skip put() (Integer boxing + hash write) when the entry is already correct.
+        final String mid = message.messageId;
+        if (mid != null) {
+            Integer cur = messagePositionIndex.get(mid);
+            if (cur == null || cur != position) messagePositionIndex.put(mid, position);
+        }
+        final String id = message.id;
+        if (id != null && !id.equals(mid)) {
+            Integer cur = messagePositionIndex.get(id);
+            if (cur == null || cur != position) messagePositionIndex.put(id, position);
+        }
     }
 
     /**
@@ -3075,6 +3091,8 @@ public class MessagePagingAdapter
         glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
         attachedRecyclerView = recyclerView;
         sWarmAppContext = recyclerView.getContext().getApplicationContext();
+        sWarmUid = currentUid;
+        sWarmDecodeBudget.set(com.callx.app.utils.DeviceTier.isLowRamDevice(recyclerView.getContext()) ? 4 : 8);
         attachMediaPreloader(recyclerView);
         GlobalVoicePlaybackManager.getInstance().addListener(globalPlaybackListener);
     }
@@ -3320,6 +3338,12 @@ public class MessagePagingAdapter
      *      getAsync() resolves inline instead of hopping to a decode thread.
      * Safe no-op until the adapter has been attached once (needs an application Context).
      */
+    // v829: chat-open decode budget (reset on attach). Warm-decodes the first few already-downloaded
+    // received images from buildModelUncached() (IO thread) so the first on-screen bind is a pool hit.
+    private static final java.util.concurrent.atomic.AtomicInteger sWarmDecodeBudget =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+    private static volatile String sWarmUid;
+
     public static void warmMediaBindCaches(@Nullable Message m) {
         final Context ctx = sWarmAppContext;
         if (m == null || ctx == null || m.type == null) return;
@@ -3329,7 +3353,16 @@ public class MessagePagingAdapter
             if (!image && !video) return;
             if (image) {
                 String url = m.mediaUrl != null ? m.mediaUrl : m.text;
-                if (url != null && !url.isEmpty()) getCachedFileFast(ctx, url);
+                if (url != null && !url.isEmpty()) {
+                    final java.io.File f = getCachedFileFast(ctx, url);
+                    final String uid = sWarmUid;
+                    if (f != null && !Boolean.TRUE.equals(m.deleted)
+                            && (uid == null || !uid.equals(m.senderId))
+                            && MEDIA_BITMAP_CACHE.get(url) == null
+                            && sWarmDecodeBudget.getAndDecrement() > 0) {
+                        warmDecodeReceivedImage(ctx, url, f);
+                    }
+                }
             }
             // E2E rows keep their placeholder inside the encrypted envelope (resolved
             // asynchronously at bind) — only plain hashes can be warmed here.
@@ -3360,6 +3393,24 @@ public class MessagePagingAdapter
             }
         };
         rv.addOnScrollListener(mediaPreloadListener);
+        // v829: no scroll happens on chat open, so kick the look-ahead once after first layout
+        // (both directions; out-of-range positions are skipped). Retries a few frames if not laid out yet.
+        final Runnable initialPreload = new Runnable() {
+            int tries = 0;
+            @Override public void run() {
+                if (attachedRecyclerView != rv) return;
+                final RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                if (getItemCount() == 0 || !(lm instanceof androidx.recyclerview.widget.LinearLayoutManager)
+                        || ((androidx.recyclerview.widget.LinearLayoutManager) lm).findFirstVisibleItemPosition()
+                                == RecyclerView.NO_POSITION) {
+                    if (++tries <= 6) rv.postDelayed(this, 50);
+                    return;
+                }
+                preloadMediaAhead(rv, 1);
+                preloadMediaAhead(rv, -1);
+            }
+        };
+        rv.postDelayed(initialPreload, 50);
     }
 
     private void detachMediaPreloader(@NonNull RecyclerView rv) {
@@ -3394,6 +3445,28 @@ public class MessagePagingAdapter
     }
 
     /** Warms MEDIA_BITMAP_CACHE[url] with the exact decode the bind path would do. */
+    /** v829: same decode as preloadReceivedImage(), file already resolved by the caller (IO thread). */
+    private static void warmDecodeReceivedImage(final Context ctx, final String url, final java.io.File f) {
+        final int tw = thumbPx(ctx);
+        BubbleBitmapPipeline.runPreload(url, () -> {
+            if (MEDIA_BITMAP_CACHE.get(url) != null) return;
+            final Bitmap b = BubbleBitmapPipeline.decodeBlocking(f, tw, tw);
+            if (b == null) return;
+            BubbleBitmapPipeline.postMain(() -> {
+                final Bitmap existing = MEDIA_BITMAP_CACHE.get(url);
+                if (existing != null && !existing.isRecycled()) {
+                    BubbleBitmapPipeline.recycleUnused(b);
+                    return;
+                }
+                MEDIA_BITMAP_CACHE.put(url, b);
+                if (b.getHeight() > 0) {
+                    com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                            .cacheAspectRatio(url, (float) b.getWidth() / b.getHeight());
+                }
+            });
+        });
+    }
+
     private void preloadReceivedImage(final Context ctx, @Nullable final String url) {
         if (url == null || url.isEmpty()) return;
         if (MEDIA_BITMAP_CACHE.get(url) != null) return;
@@ -4167,9 +4240,13 @@ public class MessagePagingAdapter
         // onViewRecycled() first (for example after a realtime content
         // update). Cancel every reusable bitmap slot here as well, so an old
         // request cannot keep decoding while this holder is rebound.
-        h.cancelReusableBitmapTargets(glide(h.itemView.getContext()));
-        if (h.imageBindTarget != null) glide(h.itemView.getContext()).clear(h.imageBindTarget);
-        if (h.linkPreviewTarget != null) glide(h.itemView.getContext()).clear(h.linkPreviewTarget);
+        // v829: plain-text holders never create Glide targets -> skip glide(ctx) + the slot loop entirely.
+        if (h.hasAnyBitmapTarget()) {
+            final com.bumptech.glide.RequestManager gm = glide(h.itemView.getContext());
+            h.cancelReusableBitmapTargets(gm);
+            if (h.imageBindTarget != null) gm.clear(h.imageBindTarget);
+            if (h.linkPreviewTarget != null) gm.clear(h.linkPreviewTarget);
+        }
 
         indexMessagePosition(position, m);
         
@@ -5852,6 +5929,17 @@ public class MessagePagingAdapter
     }
 
 
+    /** v829: memoized "text contains a http(s) link" (was 2 full-string scans on every text bind). */
+    private static boolean textHasUrl(@NonNull Message m) {
+        final String t = m.text;
+        if (t == null) return false;
+        if (m.cachedHasUrl != 0 && m.cachedUrlSrc == t) return m.cachedHasUrl == 2;
+        final boolean has = t.contains("http://") || t.contains("https://");
+        m.cachedUrlSrc = t;
+        m.cachedHasUrl = (byte) (has ? 2 : 1);
+        return has;
+    }
+
     private void bindCanvasMessage(@NonNull VH h, @NonNull Message m, int position) {
         final Context ctx = h.itemView.getContext();
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
@@ -5874,17 +5962,26 @@ public class MessagePagingAdapter
         // below resolve the bubble drawable).
         cv.setBubbleTailForBind(isBubbleRunHead(position, m));
         final String type = m.type != null ? m.type : "text";
-        final boolean isImage = "image".equals(type);
-        final boolean isMultiMedia = "multi_media".equals(type);
-        final boolean isReelShare = "reel_share".equals(type) || "reel_link".equals(type);
-        final boolean isVideo = "video".equals(type);
-        final boolean isAudio = "audio".equals(type);
-        final boolean isContact = "contact".equals(type);
-        final boolean isLocation = "location".equals(type);
-        final boolean isGif  = "gif".equals(type);
-        final boolean isSticker = "sticker".equals(type);
-        final boolean isFile = "file".equals(type);
-        final boolean isPoll = "poll".equals(type);
+        // v829: one String switch (cached hashCode + 1 equals) instead of 12 sequential equals().
+        boolean tImage = false, tMulti = false, tReel = false, tVideo = false, tAudio = false,
+                tContact = false, tLocation = false, tGif = false, tSticker = false, tFile = false, tPoll = false;
+        switch (type) {
+            case "image": tImage = true; break;
+            case "multi_media": tMulti = true; break;
+            case "reel_share": case "reel_link": tReel = true; break;
+            case "video": tVideo = true; break;
+            case "audio": tAudio = true; break;
+            case "contact": tContact = true; break;
+            case "location": tLocation = true; break;
+            case "gif": tGif = true; break;
+            case "sticker": tSticker = true; break;
+            case "file": tFile = true; break;
+            case "poll": tPoll = true; break;
+            default: break;
+        }
+        final boolean isImage = tImage, isMultiMedia = tMulti, isReelShare = tReel, isVideo = tVideo,
+                isAudio = tAudio, isContact = tContact, isLocation = tLocation, isGif = tGif,
+                isSticker = tSticker, isFile = tFile, isPoll = tPoll;
         final boolean isDeleted = Boolean.TRUE.equals(m.deleted);
         final boolean isStatusSeen = "status_seen".equals(m.type);
         final boolean isReelSeen = "reel_seen".equals(m.type);
@@ -5903,8 +6000,7 @@ public class MessagePagingAdapter
         // pills — none of those were forwardable in the legacy path either.
         boolean showFwd = !isDeleted && !isViewOnceMsg && !isSeen && !isCallEntry
                 && (isImage || isVideo || isAudio || isFile || isReelShare || isMultiMedia || isGif || isSticker
-                    || ("text".equals(type) && m.text != null
-                        && (m.text.contains("http://") || m.text.contains("https://"))));
+                    || ("text".equals(type) && textHasUrl(m)));
         cv.setQuickForwardVisible(showFwd);
 
         if (isDeleted) {
@@ -6188,9 +6284,11 @@ public class MessagePagingAdapter
                     if (cellHit != null && !cellHit.isRecycled()) {
                         cv.setMediaGroupBitmap(cellIndex, cellHit);
                     } else {
-                        glide(ctx).asBitmap().load(cachedFile).apply(THUMB_RGB565).override(gcPx[0], gcPx[1])
-                                .into(h.prepareBitmapTarget(glide(ctx), TARGET_MEDIA_GRID_BASE + cellIndex,
-                                        new BitmapReadyCallback() {
+                        // v829: local cell -> app-owned decode (no Glide pool bitmap, no main-thread copy);
+                        // falls back to the Glide path inside loadFileBitmap() on decode failure.
+                        loadFileBitmap(ctx, h, TARGET_MEDIA_GRID_BASE + cellIndex, cachedFile,
+                                gcPx[0], gcPx[1], myToken,
+                                new BitmapReadyCallback() {
                                     @Override public void onReady(@NonNull Bitmap resource) {
                                         putBitmapSafely(MEDIA_GRID_BITMAP_CACHE, cellPoolKey, resource);
                                         if (h.canvasBindToken != myToken) return;
@@ -6201,7 +6299,7 @@ public class MessagePagingAdapter
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaGroupBitmap(cellIndex, null);
                                     }
-                                }));
+                                });
                     }
                 } else if (loadUrl != null && !loadUrl.isEmpty()) {
                     final String finalLoadUrl = loadUrl;
@@ -11623,6 +11721,13 @@ public class MessagePagingAdapter
             final int saved = imageBindFireToken;
             imageBindFireToken = Integer.MIN_VALUE;
             try { manager.clear(imageBindTarget); } finally { imageBindFireToken = saved; }
+        }
+
+        /** v829: true once any Glide target was ever created for this holder (they are created lazily). */
+        boolean hasAnyBitmapTarget() {
+            if (imageBindTarget != null || linkPreviewTarget != null) return true;
+            for (ReusableBitmapTarget t : reusableBitmapTargets) if (t != null) return true;
+            return false;
         }
 
         void cancelReusableBitmapTargets(com.bumptech.glide.RequestManager manager) {
