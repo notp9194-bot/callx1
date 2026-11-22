@@ -514,6 +514,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // exact item's thumb/caption instead of the generic group thumb.
     // -1 = not from gallery / not item-specific.
     private int pendingReplyItemIndex = -1;
+    // v819: true only while re-showing a reply restored from savedInstanceState.
+    private boolean restoringReply = false;
     private ReplyController  replyController;
     private ItemTouchHelper  swipeHelper;
 
@@ -1003,6 +1005,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupMentionController();
         setupBackPressHandler();
         setupSwipeToReply();
+        restoreReplyIfAny(savedInstanceState);
         setupFabBackToLatest();
         setupStickyDateHeader();
         // PERF: single consolidated OnScrollListener for rv_messages — see
@@ -1614,6 +1617,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // entering the saved-state bundle, with zero effect on what's
         // currently visible on screen. So the empty-submit here was both
         // redundant AND the root cause of the blank-screen bug — removed.
+        // v819: keep the active reply across rotation / process death (tiny snapshot only).
+        com.callx.app.chat.reply.ReplySnapshot.save(outState, replyingTo);
         try {
             super.onSaveInstanceState(outState);
         } catch (Exception e) {
@@ -1957,32 +1962,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Item-specific gallery reply: if the swipe-up happened on a specific
         // image/video inside a multi_media group, quote THAT item instead of
         // the generic group preview. One-shot — consumed and reset here.
+        // (v819: the item-quote logic lives in ReplyPreviewBinder.describe(ctx, m, idx),
+        // shared with GroupChatActivity.)
         int itemIndex = pendingReplyItemIndex;
         pendingReplyItemIndex = -1;
-        java.util.Map<String, Object> galleryItem = null;
-        if (itemIndex >= 0 && "multi_media".equals(m.type)
-                && m.mediaItems != null && itemIndex < m.mediaItems.size()) {
-            galleryItem = m.mediaItems.get(itemIndex);
-        }
 
         final boolean replyToMine = currentUid != null && currentUid.equals(m.senderId);
         String senderName = replyToMine
                 ? getString(R.string.chat_reply_you) : (m.senderName != null ? m.senderName : "");
         // v814: WhatsApp-style preview (type icon + label, 3 lines, thumb on the right).
         com.callx.app.chat.ui.ReplyPreviewBinder.Preview pv =
-                com.callx.app.chat.ui.ReplyPreviewBinder.describe(this, m);
-        String thumbUrl = com.callx.app.chat.ui.ReplyPreviewBinder.thumbUrl(m);
-        if (galleryItem != null) {
-            Object itemCaption = galleryItem.get("caption");
-            boolean isVideo = "video".equals(galleryItem.get("mediaType"));
-            boolean hasCap = itemCaption instanceof String && !((String) itemCaption).isEmpty();
-            pv.text = hasCap ? (String) itemCaption : getString(isVideo ? R.string.chat_reply_video : R.string.chat_reply_photo);
-            pv.iconRes = isVideo ? R.drawable.ic_video : R.drawable.ic_photo_library;
-            Object u  = galleryItem.get("thumbUrl");
-            Object u2 = galleryItem.get("url");
-            thumbUrl = (u instanceof String && !((String) u).isEmpty()) ? (String) u
-                    : (u2 instanceof String ? (String) u2 : null);
-        }
+                com.callx.app.chat.ui.ReplyPreviewBinder.describe(this, m, itemIndex);
+        String thumbUrl = pv.thumbUrl;
         com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, senderName, pv, thumbUrl,
                 replyToMine ? com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor()
                         : com.callx.app.chat.ui.ReplyPreviewBinder.colorFor(
@@ -1991,6 +1982,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         replyBarView.setAlpha(1f);
         replyBarView.setTranslationY(0f);
         replyBarView.setVisibility(View.VISIBLE);
+        if (restoringReply) return;   // v819: silent restore after recreate — no keyboard / analytics
         binding.etMessage.requestFocus();
         // WhatsApp-style: swiping to reply should pop the keyboard back up
         // immediately, exactly like tapping the input field would — plain
@@ -4634,11 +4626,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         ImageButton cancel = root.findViewById(R.id.btn_cancel_reply);
         if (cancel != null) cancel.setOnClickListener(v -> clearReply());
 
+        // v819: WhatsApp — tapping the reply card above the input jumps to the original message.
+        replyBarView.setOnClickListener(v -> jumpToReplyTarget());
+        androidx.core.view.ViewCompat.replaceAccessibilityAction(replyBarView,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+                        .AccessibilityActionCompat.ACTION_CLICK,
+                getString(R.string.chat_reply_bar_jump), null);
+
         int primary = com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor();
         View accent = root.findViewById(R.id.view_reply_accent);
         if (accent != null) accent.setBackgroundColor(primary);
         if (replyBarNameView != null) replyBarNameView.setTextColor(primary);
         return true;
+    }
+
+    private void jumpToReplyTarget() {
+        Message target = replyingTo;
+        if (target == null) return;
+        String id = target.messageId != null ? target.messageId : target.id;
+        if (id == null || id.isEmpty()) return;
+        navigateToOriginalMsg(id, target.senderId);
     }
 
     private void ensureComposeLinkPreviewController() {
@@ -6241,11 +6248,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // SWIPE TO REPLY + FAB
     // ─────────────────────────────────────────────────────────────────────
 
-    // Kept so a reverse-swipe cancel (see onSwipeReplyCancelled below) can
-    // dismiss the "Replying to X…" snackbar immediately instead of leaving
-    // it on screen for a reply that's no longer actually queued up.
-    private Snackbar pendingReplySnackbar;
-
     // ─────────────────────────────────────────────────────────────────────
     // @MENTION CONTROLLER — 1:1 chat
     // ─────────────────────────────────────────────────────────────────────
@@ -6288,48 +6290,56 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 });
     }
 
-    private void setupSwipeToReply() {
-        SwipeReplyHandler handler = new SwipeReplyHandler(this,
-                new java.util.AbstractList<Message>() {
-                    @Override public Message get(int index) { return pagingAdapter.peek(index); }
-                    @Override public int size() { return pagingAdapter.getItemCount(); }
-                },
-                currentUid,
-                new SwipeReplyHandler.OnSwipeReplyListener() {
-                    @Override public void onSwipeReply(Message message, int adapterPosition) {
-                        ReplyAnalyticsTracker.get().onSwipeAttempt(ChatActivity.this, 100f);
-                        startReply(message);
-                    }
+    /** One rule-set for swipe AND the TalkBack "Reply" action. */
+    private boolean canSwipeReplyNow() {
+        return !isBlocked && !isRecording
+                && (pagingAdapter == null || !pagingAdapter.isInMultiSelectMode());
+    }
 
-                    // BUG FIX: user dragged past the reply threshold, then
-                    // swiped back to (near) the original position without
-                    // releasing — WhatsApp cancels the reply-in-progress
-                    // here instead of leaving it queued up.
-                    @Override public void onSwipeReplyCancelled() {
-                        if (pendingReplySnackbar != null) {
-                            pendingReplySnackbar.dismiss();
-                            pendingReplySnackbar = null;
-                        }
-                        if (replyController != null) replyController.cancel();
-                    }
-                });
+    private void setupSwipeToReply() {
+        final java.util.AbstractList<Message> messageList = new java.util.AbstractList<Message>() {
+            @Override public Message get(int index) { return pagingAdapter.peek(index); }
+            @Override public int size() { return pagingAdapter.getItemCount(); }
+        };
+        SwipeReplyHandler handler = new SwipeReplyHandler(this,
+                messageList,
+                currentUid,
+                (message, adapterPosition) -> {
+                    ReplyAnalyticsTracker.get().onSwipeAttempt(ChatActivity.this, 100f);
+                    startReply(message);
+                }).setGate(this::canSwipeReplyNow);
 
         swipeHelper = new ItemTouchHelper(handler);
         swipeHelper.attachToRecyclerView(binding.rvMessages);
 
+        // v819: TalkBack / switch-access "Reply" action on every replyable row.
+        com.callx.app.chat.gesture.ReplyAccessibility.attach(binding.rvMessages,
+                new com.callx.app.chat.gesture.ReplyAccessibility.Host() {
+                    @Override public Message messageAt(int pos) {
+                        return pos < 0 || pos >= pagingAdapter.getItemCount()
+                                ? null : pagingAdapter.peek(pos);
+                    }
+                    @Override public boolean canReply() { return canSwipeReplyNow(); }
+                    @Override public void reply(Message m) { startReply(m); }
+                });
+
         replyController = new ReplyController(new ReplyController.Callback() {
             @Override public void onReplyActivated(Message message) { activateReplyDirect(message); }
             @Override public void onReplyCancelled() {}
-            @Override public void onPendingUndo(Message message, Runnable cancelAction) {
-                String senderName = (currentUid != null && currentUid.equals(message.senderId))
-                        ? "You" : (message.senderName != null ? message.senderName : "Unknown");
-                pendingReplySnackbar = Snackbar.make(binding.getRoot(), "Replying to " + senderName + "\u2026", Snackbar.LENGTH_SHORT)
-                        .setAction("UNDO", v -> { cancelAction.run(); ReplyAnalyticsTracker.get().onUndoUsed(ChatActivity.this); });
-                pendingReplySnackbar.show();
-            }
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId, null); }
-            @Override public void onUndoConfirmed() {}
         });
+    }
+
+    /** v819: re-show the reply that was active before the activity was recreated. */
+    private void restoreReplyIfAny(@Nullable Bundle saved) {
+        Message rm = com.callx.app.chat.reply.ReplySnapshot.restore(saved);
+        if (rm == null || replyController == null) return;
+        restoringReply = true;
+        try {
+            replyController.onSwipeReply(rm);
+        } finally {
+            restoringReply = false;
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_reply_cancel">Cancel reply</string>
+    <string name="chat_reply_a11y_action">Reply</string>
+    <string name="chat_reply_bar_jump">Go to original message</string>
     <string name="chat_reply_bar_desc">Replying to message</string>
     <string name="chat_reply_you">You</string>
     <string name="chat_reply_unavailable">Original message unavailable</string>

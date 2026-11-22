@@ -4,12 +4,17 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.Interpolator;
+import android.view.animation.OvershootInterpolator;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
@@ -49,7 +54,6 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     // ── Feature flags ──────────────────────────────────────────────────────
     public static boolean ENABLE_SWIPE_REPLY = true;
     public static boolean ENABLE_HAPTICS     = true;
-    public static boolean ENABLE_SOUND       = false;
 
     // ── Geometry (dp) ──────────────────────────────────────────────────────
     private static final float TRIGGER_DP     = 60f;   // finger travel that arms the reply
@@ -64,6 +68,10 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     private static final float ICON_BIG_DP    = 21f;
     private static final long  RECOVER_MS     = 120L;
     private static final long  DEBOUNCE_MS    = 350L;
+    private static final long  POP_MS         = 180L;  // icon/chip "pop" when the reply arms
+    private static final float POP_CHIP_DP    = 3f;    // extra chip radius at full pop
+    private static final Interpolator POP_IN  = new OvershootInterpolator(2.2f);
+    private static final Interpolator POP_OUT = new DecelerateInterpolator();
 
     private static final int COLOR_FALLBACK = 0xFF4CAF50; // brand_primary
 
@@ -80,6 +88,19 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     // ── Draw objects (built once) ──────────────────────────────────────────
     private final Paint chipPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Drawable    replyIcon;
+    // PERF: Drawable.setColorFilter(int, Mode) allocates a new PorterDuffColorFilter on EVERY
+    // call — i.e. on every drag frame. Build it once per accent colour instead.
+    private PorterDuffColorFilter iconFilter;
+    private int                   iconFilterColor;
+
+    // "Pop" animation state (0 = resting size, 1 = armed size, overshoots a little on arm).
+    private float   popFrom, popTo;
+    private long    popT0;
+    private boolean popTarget;
+    private final float popChipPx;
+
+    // Optional gate: returns false -> swipe is disabled entirely (no movement, no haptic).
+    private SwipeGate gate;
 
     // ── Gesture state ──────────────────────────────────────────────────────
     private boolean               dragging, armed, fired, parentLocked, dragIsSent;
@@ -93,9 +114,23 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
 
     public interface OnSwipeReplyListener {
         void onSwipeReply(Message message, int adapterPosition);
+    }
 
-        /** Kept for source compatibility; no longer called (reply is decided on release). */
-        default void onSwipeReplyCancelled() {}
+    /** Lets the host veto swiping (blocked chat, admins-only group, recording, multi-select...). */
+    public interface SwipeGate {
+        boolean canSwipe();
+    }
+
+    /** Replyable = a real, non-deleted message that has a sender (not a system / date row). */
+    public static boolean isReplyable(@Nullable Message m) {
+        return m != null
+                && !Boolean.TRUE.equals(m.deleted)
+                && m.senderId != null && !m.senderId.isEmpty();
+    }
+
+    public SwipeReplyHandler setGate(@Nullable SwipeGate gate) {
+        this.gate = gate;
+        return this;
     }
 
     public SwipeReplyHandler(
@@ -119,6 +154,7 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         chipGrowPx  = CHIP_GROW_DP * d;
         iconSmallPx = ICON_SMALL_DP * d;
         iconBigPx   = ICON_BIG_DP * d;
+        popChipPx   = POP_CHIP_DP * d;
 
         try {
             Drawable dr = ContextCompat.getDrawable(ctx, com.callx.app.chat.R.drawable.ic_reply);
@@ -133,9 +169,9 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
     @Override
     public int getMovementFlags(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh) {
         if (!ENABLE_SWIPE_REPLY) return makeMovementFlags(0, 0);
+        if (gate != null && !gate.canSwipe()) return makeMovementFlags(0, 0);
         Message m = getMessageAt(vh.getBindingAdapterPosition());
-        if (m == null || Boolean.TRUE.equals(m.deleted)) return makeMovementFlags(0, 0);
-        if (m.senderId == null || m.senderId.isEmpty()) return makeMovementFlags(0, 0); // system rows
+        if (!isReplyable(m)) return makeMovementFlags(0, 0); // deleted / system rows
 
         boolean isSent = currentUid != null && currentUid.equals(m.senderId);
         boolean isRtl  = vh.itemView.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
@@ -238,12 +274,17 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         SwipeOptimizer.setTranslationXSafe(item, signed);
 
         // Reveal chip + icon in the strip the row uncovers.
+        final long now = SystemClock.uptimeMillis();
         float progress = Math.min(1f, absDx / triggerPx);
+        final boolean isDragRow = (vh == dragVh);
+        final boolean triggered = isDragRow && (isCurrentlyActive ? armed : fired);
+        if (isDragRow) setPopTarget(triggered, now);      // arm -> pop up, disarm -> settle back
         if (progress > 0.05f) {
-            boolean isSent = (vh == dragVh) ? dragIsSent : isSentRow(vh);
-            boolean triggered = (vh == dragVh) && (isCurrentlyActive ? armed : fired);
-            drawReveal(c, item, progress, signed, isSent, triggered);
+            boolean isSent = isDragRow ? dragIsSent : isSentRow(vh);
+            drawReveal(c, item, progress, signed, isSent, isDragRow ? popAt(now) : 0f);
         }
+        // The pop runs on its own clock; keep drawing until it settles (finger may be still).
+        if (isDragRow && popRunning(now)) rv.postInvalidateOnAnimation();
     }
 
     private void beginDrag(RecyclerView.ViewHolder vh, float dX) {
@@ -260,6 +301,7 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         velocity     = 0f;
         lastAbsDx    = 0f;
         lastT        = 0L;
+        resetPop();
     }
 
     /** Finger lifted: decide now. Reply is posted to the next frame (we are inside a draw pass). */
@@ -302,6 +344,7 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
         dragging = armed = fired = false;
         velocity = lastAbsDx = 0f;
         lastT = 0L;
+        resetPop();
     }
 
     private void unlockParent(RecyclerView rv) {
@@ -318,26 +361,59 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
      * signedVisual < 0: row moved left  (sent)     -> strip is at the RIGHT edge.
      */
     private void drawReveal(Canvas c, View item, float progress, float signedVisual,
-                            boolean isSent, boolean triggered) {
+                            boolean isSent, float pop) {
         final float strip = Math.abs(signedVisual);
         final float off   = Math.min(strip * 0.5f, iconMaxCxPx);
         final float cx    = signedVisual >= 0f ? item.getLeft() + off : item.getRight() - off;
         final float cy    = item.getTop() + item.getHeight() / 2f;
         final int   color = accent;
 
+        // pop is 0..1 (+ a little overshoot on arm): chip grows/brightens, icon scales small->big.
+        final float popC = Math.max(0f, Math.min(1f, pop));
         float chipProgress = Math.min(1f, progress * 1.3f);
-        int chipAlpha = triggered ? 0x55 : (int) (0x33 * chipProgress);
+        int chipAlpha = (int) (0x33 * chipProgress + 0x22 * popC);
         chipPaint.setColor((color & 0x00FFFFFF) | (chipAlpha << 24));
-        c.drawCircle(cx, cy, chipBasePx + chipGrowPx * chipProgress, chipPaint);
+        c.drawCircle(cx, cy, chipBasePx + chipGrowPx * chipProgress + popChipPx * pop, chipPaint);
 
         if (replyIcon != null) {
-            float sz = triggered ? iconBigPx : iconSmallPx;
+            float sz = iconSmallPx + (iconBigPx - iconSmallPx) * pop;
             int   h  = (int) (sz / 2f);
             replyIcon.setBounds((int) cx - h, (int) cy - h, (int) cx + h, (int) cy + h);
             replyIcon.setAlpha((int) (255 * Math.min(1f, progress * 1.6f)));
-            replyIcon.setColorFilter(color, PorterDuff.Mode.SRC_IN);
+            if (iconFilter == null || iconFilterColor != color) {   // PERF: no per-frame alloc
+                iconFilter = new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN);
+                iconFilterColor = color;
+            }
+            replyIcon.setColorFilter(iconFilter);
             replyIcon.draw(c);
         }
+    }
+
+    // ── Pop animation (own clock, driven from onChildDraw) ─────────────────
+
+    private float popAt(long now) {
+        if (popT0 == 0L) return popTo;
+        float t = Math.min(1f, (now - popT0) / (float) POP_MS);
+        Interpolator ip = popTo > popFrom ? POP_IN : POP_OUT;
+        return popFrom + (popTo - popFrom) * ip.getInterpolation(t);
+    }
+
+    private boolean popRunning(long now) {
+        return popT0 != 0L && now - popT0 < POP_MS;
+    }
+
+    private void setPopTarget(boolean on, long now) {
+        if (on == popTarget) return;
+        popFrom   = popAt(now);
+        popTo     = on ? 1f : 0f;
+        popT0     = now;
+        popTarget = on;
+    }
+
+    private void resetPop() {
+        popFrom = popTo = 0f;
+        popT0 = 0L;
+        popTarget = false;
     }
 
     // ── Haptic ─────────────────────────────────────────────────────────────

@@ -9,52 +9,31 @@ import com.callx.app.models.Message;
  * ReplyController — Orchestrates the reply lifecycle.
  *
  * State machine:
- *   IDLE ──swipe──► PENDING_UNDO ──timeout──► ACTIVE ──cancel──► IDLE
- *                        │
- *                       undo
- *                        │
- *                       IDLE
+ *   IDLE ──swipe──► ACTIVE ──cancel──► IDLE
+ *
+ * v819: the old PENDING_UNDO step (2-second "Replying to X… UNDO" snackbar) is gone. It was
+ * already disabled (WhatsApp has no such step — swipe shows the reply bar + keyboard instantly),
+ * so the state, timeout, snackbar callbacks and undo() were dead code.
  */
 public class ReplyController {
 
-    public enum State { IDLE, PENDING_UNDO, ACTIVE, NAVIGATING }
+    public enum State { IDLE, ACTIVE, NAVIGATING }
 
     public interface Callback {
-        /** Called when reply is confirmed (undo window expired). */
+        /** Called when a reply is activated (swipe, menu, or restore). */
         void onReplyActivated(Message message);
         /** Called when user cancels reply bar. */
         void onReplyCancelled();
-        /** Called during undo window (show snackbar). */
-        void onPendingUndo(Message message, Runnable cancelAction);
         /** Called to scroll to original message. */
         void onNavigateToOriginal(String messageId);
-        /** Called when undo confirmed — state reset to IDLE. */
-        void onUndoConfirmed();
     }
 
-    // Feature flags
-    // WHATSAPP-STYLE FIX: this used to default to true, which routed every
-    // swipe-to-reply through a 2-SECOND PENDING_UNDO delay (see
-    // scheduleUndoTimeout/UNDO_TIMEOUT_MS below) before activateReply() —
-    // and therefore ChatActivity.activateReplyDirect() — ever ran. That's
-    // the actual cause of "swipe reply karte hain to turant keyboard nahi
-    // khulta / reply preview dikhne mein time leta hai": the keyboard-open
-    // and reply-bar-show logic in activateReplyDirect() were never slow,
-    // they simply weren't being CALLED until 2s after the swipe. WhatsApp
-    // has no such delay — swiping a bubble shows the reply bar and opens
-    // the keyboard immediately, with no intermediate "Replying to X… UNDO"
-    // snackbar step. Disabling this makes onSwipeReply() call
-    // activateReply() synchronously, matching that instant behavior.
-    public static boolean ENABLE_UNDO = false;
-    private static final long UNDO_TIMEOUT_MS = 2000L;
-
     private State   state   = State.IDLE;
-    private Message pending = null;
 
-    private final Callback         callback;
-    private final Handler          handler;
+    private final Callback          callback;
+    private final Handler           handler;
     private final ReplyStateManager stateManager;
-    private Runnable undoTimeoutRunnable;
+    private Runnable navigationResetRunnable;
 
     public ReplyController(Callback callback) {
         this.callback     = callback;
@@ -63,73 +42,37 @@ public class ReplyController {
     }
 
     /**
-     * Called immediately after successful swipe gesture.
-     * If undo is enabled, enters PENDING_UNDO state (snackbar shown).
-     * If undo is disabled, activates reply immediately.
-     * Always (re)targets the reply — also when one is already active.
+     * Called immediately after a successful swipe (or menu "Reply").
+     * Always (re)targets the reply — also when one is already active, exactly like WhatsApp:
+     * swiping ANOTHER bubble while a reply is showing simply retargets the reply bar.
      */
     public void onSwipeReply(Message message) {
         if (message == null) return;
-        // WhatsApp: swiping ANOTHER bubble while a reply is already showing simply
-        // retargets the reply bar. The old early-return on ACTIVE made every later
-        // swipe a silent no-op until the reply bar was closed or a message was sent.
-        cancelUndoTimeout();
-        pending = message;
-
-        if (ENABLE_UNDO) {
-            state = State.PENDING_UNDO;
-            scheduleUndoTimeout(message);
-            Runnable cancelAction = this::undo;
-            if (callback != null) callback.onPendingUndo(message, cancelAction);
-        } else {
-            activateReply(message);
-        }
-    }
-
-    /**
-     * User confirms reply (undo window expired or undo disabled).
-     */
-    private void activateReply(Message message) {
-        cancelUndoTimeout();
         state = State.ACTIVE;
         stateManager.setActive(message);
         if (callback != null) callback.onReplyActivated(message);
     }
 
-    /**
-     * User tapped UNDO in snackbar, or performed reverse swipe.
-     */
-    public void undo() {
-        if (state != State.PENDING_UNDO) return;
-        cancelUndoTimeout();
-        state   = State.IDLE;
-        pending = null;
-        stateManager.clear();
-        if (callback != null) callback.onUndoConfirmed();
-    }
-
-    /**
-     * User cancelled reply (X button on reply bar).
-     */
+    /** User cancelled reply (X button on reply bar) or it was sent. */
     public void cancel() {
-        cancelUndoTimeout();
-        state   = State.IDLE;
-        pending = null;
+        state = State.IDLE;
         stateManager.clear();
         if (callback != null) callback.onReplyCancelled();
     }
 
-    /**
-     * User tapped the reply preview inside a bubble — navigate to original.
-     */
+    /** User tapped the reply preview (inside a bubble or on the reply bar) — go to original. */
     public void navigateToOriginal(String messageId) {
         if (messageId == null || messageId.isEmpty()) return;
         state = State.NAVIGATING;
         if (callback != null) callback.onNavigateToOriginal(messageId);
-        // Reset navigation state after a tick
-        handler.postDelayed(() -> {
-            if (state == State.NAVIGATING) state = State.IDLE;
-        }, 1500);
+        // Reset navigation state after a tick — back to ACTIVE if a reply is still pending.
+        if (navigationResetRunnable != null) handler.removeCallbacks(navigationResetRunnable);
+        final State restore = stateManager.hasActive() ? State.ACTIVE : State.IDLE;
+        navigationResetRunnable = () -> {
+            if (state == State.NAVIGATING) state = restore;
+            navigationResetRunnable = null;
+        };
+        handler.postDelayed(navigationResetRunnable, 1500);
     }
 
     /** Returns current active reply message (null if none). */
@@ -138,25 +81,12 @@ public class ReplyController {
     public boolean isActive() { return state == State.ACTIVE; }
     public State getState()   { return state; }
 
-    private void scheduleUndoTimeout(Message message) {
-        cancelUndoTimeout();
-        undoTimeoutRunnable = () -> {
-            if (state == State.PENDING_UNDO) activateReply(message);
-        };
-        handler.postDelayed(undoTimeoutRunnable, UNDO_TIMEOUT_MS);
-    }
-
-    private void cancelUndoTimeout() {
-        if (undoTimeoutRunnable != null) {
-            handler.removeCallbacks(undoTimeoutRunnable);
-            undoTimeoutRunnable = null;
-        }
-    }
-
     public void release() {
-        cancelUndoTimeout();
-        state   = State.IDLE;
-        pending = null;
+        if (navigationResetRunnable != null) {
+            handler.removeCallbacks(navigationResetRunnable);
+            navigationResetRunnable = null;
+        }
+        state = State.IDLE;
         stateManager.clear();
     }
 }

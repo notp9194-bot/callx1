@@ -2345,14 +2345,6 @@ public class MessageBubbleCanvasView extends View {
     // per-frame path is a field read, not a synchronized cache lookup.
     private Bitmap groupSenderAvatarPlaceholderBmp;
     final RectF groupSenderAvatarRect = new RectF();
-    final android.graphics.Matrix groupSenderAvatarShaderMatrix = new android.graphics.Matrix();
-    // PERF: cached BitmapShader for the group-avatar circle — same
-    // rebuild-only-when-changed treatment SeenBubbleRenderer's avatarShader
-    // gets, avoids a `new BitmapShader(...)` on every single draw() while a
-    // group message with a resolved avatar is on screen/scrolling.
-    private android.graphics.BitmapShader groupSenderAvatarShader;
-    private Bitmap lastGroupSenderAvatarBitmap;
-    private float lastGroupSenderAvatarScale = Float.NaN, lastGroupSenderAvatarDx, lastGroupSenderAvatarDy;
 
     // ── "Seen by" strip state (see SEEN_BY_* constants). hasSeenBy is the
     // only layout-affecting bit; everything else is draw-only and lives in
@@ -8202,8 +8194,8 @@ public class MessageBubbleCanvasView extends View {
      * left of the bubble in the avatarColW gutter onMeasure reserved (same
      * "avatar outside the card" technique SeenBubbleRenderer uses for the
      * reel/status-seen avatar, just against groupSenderAvatarRect instead of
-     * seenAvatarRect). A resolved bitmap draws via a cached center-cropped
-     * BitmapShader; before it resolves (or if this sender has no photo url)
+     * seenAvatarRect). A resolved (already circle-cropped) bitmap is blitted
+     * with one drawBitmap (v821); before it resolves (or if this sender has no photo url)
      * a flat-gray placeholder circle draws instead — never leaves an empty
      * gap where WhatsApp would already show something. The placeholder is
      * a cached pre-rendered Bitmap blit (no per-frame drawOval/AA paint).
@@ -8223,26 +8215,11 @@ public class MessageBubbleCanvasView extends View {
                     Math.round(groupSenderAvatarRect.top), null);
             return;
         }
-        float scale = Math.max(groupSenderAvatarRect.width() / bmp.getWidth(),
-                groupSenderAvatarRect.height() / bmp.getHeight());
-        float dx = groupSenderAvatarRect.left - (bmp.getWidth() * scale - groupSenderAvatarRect.width()) / 2f;
-        float dy = groupSenderAvatarRect.top - (bmp.getHeight() * scale - groupSenderAvatarRect.height()) / 2f;
-
-        if (groupSenderAvatarShader == null || lastGroupSenderAvatarBitmap != bmp
-                || scale != lastGroupSenderAvatarScale || dx != lastGroupSenderAvatarDx || dy != lastGroupSenderAvatarDy) {
-            groupSenderAvatarShaderMatrix.reset();
-            groupSenderAvatarShaderMatrix.setScale(scale, scale);
-            groupSenderAvatarShaderMatrix.postTranslate(dx, dy);
-            groupSenderAvatarShader = new android.graphics.BitmapShader(
-                    bmp, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            groupSenderAvatarShader.setLocalMatrix(groupSenderAvatarShaderMatrix);
-            lastGroupSenderAvatarBitmap = bmp;
-            lastGroupSenderAvatarScale = scale;
-            lastGroupSenderAvatarDx = dx;
-            lastGroupSenderAvatarDy = dy;
-        }
-        groupSenderAvatarPaint.setShader(groupSenderAvatarShader);
-        canvas.drawOval(groupSenderAvatarRect, groupSenderAvatarPaint);
+        // v821: the bitmap is ALREADY circle-cropped (ChatAvatarBinder.bitmapRequest().circleCrop(),
+        // square 1:1), so a plain drawBitmap into the rect is exact. The old path wrapped it in a
+        // BitmapShader (+ matrix + rebuild bookkeeping) and then clipped the circle a SECOND time
+        // with drawOval — extra work per frame and a slightly eroded anti-aliased edge.
+        canvas.drawBitmap(bmp, null, groupSenderAvatarRect, groupSenderAvatarPaint);
     }
 
     private void drawForwardedLabel(Canvas canvas) {

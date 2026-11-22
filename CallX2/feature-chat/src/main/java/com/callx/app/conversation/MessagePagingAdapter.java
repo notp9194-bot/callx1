@@ -2784,7 +2784,7 @@ public class MessagePagingAdapter
 
         final boolean tail = isGroupAvatarRunTail(position, m);
         cv.setGroupSenderAvatarShown(tail);
-        if (!tail) return; // avatar now belongs to a later bubble — nothing to load
+        if (!tail) { cancelChatAvatarLoad(h); return; } // avatar now belongs to a later bubble — nothing to load
         loadChatAvatar(h, cv, m, sent, h.canvasBindToken);
     }
 
@@ -2795,16 +2795,26 @@ public class MessagePagingAdapter
                                 @NonNull Message m, boolean sent, final int token) {
         final String url = avatarUrlFor(m, sent);
         if (url == null || url.isEmpty()) {
+            cancelChatAvatarLoad(h);
             cv.setGroupSenderAvatarBitmap(null); // no photo → placeholder circle
             return;
         }
         final Context c = h.itemView.getContext();
         final android.graphics.Bitmap l2 = com.callx.app.cache.ChatAvatarBinder.peekInline(c, url);
-        if (l2 != null) { cv.setGroupSenderAvatarBitmap(l2); return; }
-        com.callx.app.cache.ChatAvatarBinder.bindBitmap(c, url, 0L, resource -> {
+        if (l2 != null) { cancelChatAvatarLoad(h); cv.setGroupSenderAvatarBitmap(l2); return; }
+        // v821: keep the handle so a recycle / retarget cancels THIS row's wait (and, if it was the
+        // last row wanting this url, the Glide request itself) instead of decoding for nobody.
+        cancelChatAvatarLoad(h);
+        h.avatarLoad = com.callx.app.cache.ChatAvatarBinder.bindBitmapCancelable(c, url, 0L, resource -> {
             if (h.canvasBindToken != token) return; // recycled/rebound meanwhile
             cv.setGroupSenderAvatarBitmap(resource);
         });
+    }
+
+    /** v821: drop this holder's pending avatar callback (no-op if none / already delivered). */
+    private static void cancelChatAvatarLoad(@NonNull VH h) {
+        com.callx.app.cache.ChatAvatarBinder.Cancelable c = h.avatarLoad;
+        if (c != null) { h.avatarLoad = null; c.cancel(); }
     }
 
     /** Full-bind entry: reserve the avatar column synchronously (correct width on frame 1),
@@ -2812,12 +2822,12 @@ public class MessagePagingAdapter
     private void bindChatAvatar(@NonNull VH h,
                                 @NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
                                 int position, @NonNull Message m, boolean sent, int token) {
-        if (!avatarEligible(m, sent)) { cv.clearGroupSenderAvatar(); return; }
+        if (!avatarEligible(m, sent)) { cancelChatAvatarLoad(h); cv.clearGroupSenderAvatar(); return; }
         cv.setGroupSenderAvatarTappable(!sent && isGroup);
         cv.setGroupSenderAvatarVisible(true);
         final boolean shown = isGroupAvatarRunTail(position, m);
         cv.setGroupSenderAvatarShown(shown);
-        if (shown) loadChatAvatar(h, cv, m, sent, token);
+        if (shown) loadChatAvatar(h, cv, m, sent, token); else cancelChatAvatarLoad(h);
     }
 
     /** v810: the "Show avatars" setting changed — the avatar column is layout-affecting, so every
@@ -10643,6 +10653,8 @@ public class MessagePagingAdapter
         // CustomTarget calls — invalidate any in-flight canvas image/reply-
         // thumb load the instant this holder is recycled.
         holder.canvasBindToken++;
+        // v821: cancel this row's pending chat-avatar load (see loadChatAvatar).
+        cancelChatAvatarLoad(holder);
         // v426 PERF: this row was scrolled away — if its auto-download is
         // still WAITING in the queue (not started), drop it so a fast fling
         // through 100 photos doesn't queue 100 downloads for rows nobody is
@@ -11682,6 +11694,8 @@ public class MessagePagingAdapter
         // has no such lifecycle tie-in, so this token is the only thing
         // preventing that race.
         volatile int canvasBindToken = 0;
+        /** v821: pending chat-avatar load for this holder's run-tail circle (null when none). */
+        com.callx.app.cache.ChatAvatarBinder.Cancelable avatarLoad;
         // PERF ULTRA: reusable Glide target for the single-image (isImage,
         // non-group) bind path — previously a fresh anonymous
         // CustomTarget<Bitmap> was allocated on EVERY bind that fired a

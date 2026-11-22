@@ -315,6 +315,8 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Reply ──────────────────────────────────────────────────────────────
     private Message replyingTo = null;
+    // v819: savedInstanceState handed from onCreate to the reply wiring (setupPagingRecyclerView).
+    private Bundle stateToRestoreReplyFrom;
 
     // ── Pinned ─────────────────────────────────────────────────────────────
     private String pinnedMsgId = null;
@@ -405,6 +407,7 @@ public class GroupChatActivity extends AppCompatActivity
         setContentView(binding.getRoot());
         // v817: capsule grows upward (reply row / extra lines) with the same reveal as 1:1 chat.
         com.callx.app.chat.ui.CapsuleRevealAnimator.attach(binding.cvInputCapsule);
+        stateToRestoreReplyFrom = savedInstanceState;   // v819: consumed once swipe/reply wiring exists
         // PERF: same overdraw fix as 1:1 ChatActivity — this screen reuses
         // activity_chat.xml, whose root already has an opaque background,
         // so the theme's windowBackground underneath is dead weight drawn
@@ -740,6 +743,13 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     @Override
+    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+        // v819: keep the active reply across rotation / process death (tiny snapshot only).
+        com.callx.app.chat.reply.ReplySnapshot.save(outState, replyingTo);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         // Re-assert chosen display mode (system can restore bars after
@@ -752,10 +762,11 @@ public class GroupChatActivity extends AppCompatActivity
         // handoff — see GalleryReplyBridge for why this can't be a direct
         // call from the viewer.
         if (groupId != null && pagingAdapter != null) {
+            int itemIdx = com.callx.app.conversation.GalleryReplyBridge.peekItemIndex(groupId);
             String replyMsgId = com.callx.app.conversation.GalleryReplyBridge.consumeIfMatches(groupId);
             if (replyMsgId != null) {
                 Message rm = pagingAdapter.findMessageById(replyMsgId);
-                if (rm != null) startReply(rm);
+                if (rm != null) startReply(rm, itemIdx);
             }
         }
 
@@ -1334,15 +1345,36 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setAdapter(pagingAdapter);
         // v813: swipe-to-reply in group chat too — same engine as 1:1 (reply fires on finger
         // RELEASE past the trigger; swiping back to the resting spot before lifting = no reply).
+        final java.util.AbstractList<Message> swipeMessages = new java.util.AbstractList<Message>() {
+            @Override public Message get(int index) { return pagingAdapter.peek(index); }
+            @Override public int size() { return pagingAdapter.getItemCount(); }
+        };
         new androidx.recyclerview.widget.ItemTouchHelper(
                 new com.callx.app.chat.gesture.SwipeReplyHandler(this,
-                        new java.util.AbstractList<Message>() {
-                            @Override public Message get(int index) { return pagingAdapter.peek(index); }
-                            @Override public int size() { return pagingAdapter.getItemCount(); }
-                        },
+                        swipeMessages,
                         currentUid,
-                        (message, adapterPosition) -> startReply(message)))
+                        (message, adapterPosition) -> {
+                            com.callx.app.chat.analytics.ReplyAnalyticsTracker.get()
+                                    .onSwipeAttempt(GroupChatActivity.this, 100f);
+                            startReply(message);
+                        }).setGate(this::canSwipeReplyNow))
                 .attachToRecyclerView(binding.rvMessages);
+        // v819: TalkBack / switch-access "Reply" action on every replyable row (same rules as swipe).
+        com.callx.app.chat.gesture.ReplyAccessibility.attach(binding.rvMessages,
+                new com.callx.app.chat.gesture.ReplyAccessibility.Host() {
+                    @Override public Message messageAt(int pos) {
+                        return pos < 0 || pos >= pagingAdapter.getItemCount()
+                                ? null : pagingAdapter.peek(pos);
+                    }
+                    @Override public boolean canReply() { return canSwipeReplyNow(); }
+                    @Override public void reply(Message m) { startReply(m); }
+                });
+        // v819: re-show the reply that was active before the activity was recreated.
+        {
+            Message rm = com.callx.app.chat.reply.ReplySnapshot.restore(stateToRestoreReplyFrom);
+            stateToRestoreReplyFrom = null;
+            if (rm != null) showReply(rm, -1, false);
+        }
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
         jankMonitor = com.callx.app.chat.performance.ChatJankMonitor.attachIfEnabled(this, "group");
@@ -2366,11 +2398,30 @@ public class GroupChatActivity extends AppCompatActivity
         ImageButton cancel = root.findViewById(R.id.btn_cancel_reply);
         if (cancel != null) cancel.setOnClickListener(v -> clearReply());
 
+        // v819: WhatsApp — tapping the reply card above the input jumps to the original message.
+        replyBarView.setOnClickListener(v -> {
+            Message target = replyingTo;
+            if (target == null) return;
+            String id = target.messageId != null ? target.messageId : target.id;
+            if (id != null && !id.isEmpty()) scrollToMessageId(id);
+        });
+        androidx.core.view.ViewCompat.replaceAccessibilityAction(replyBarView,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+                        .AccessibilityActionCompat.ACTION_CLICK,
+                getString(R.string.chat_reply_bar_jump), null);
+
         int primary = com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor();
         View accent = root.findViewById(R.id.view_reply_accent);
         if (accent != null) accent.setBackgroundColor(primary);
         if (replyBarNameView != null) replyBarNameView.setTextColor(primary);
         return true;
+    }
+
+    /** v819: one rule-set for swipe AND the TalkBack "Reply" action. */
+    private boolean canSwipeReplyNow() {
+        boolean lockedForMe = sendPermissionAdminsOnly && !isAdmin;
+        return !lockedForMe && !isRecording
+                && (pagingAdapter == null || !pagingAdapter.isInMultiSelectMode());
     }
 
     private void ensureComposeLinkPreviewController() {
@@ -2945,21 +2996,32 @@ public class GroupChatActivity extends AppCompatActivity
     // REPLY (Feature 2)
     // ─────────────────────────────────────────────────────────────────────
 
-    private void startReply(Message m) {
+    private void startReply(Message m) { startReply(m, -1); }
+
+    /** @param galleryItemIndex item that was on-screen in the grouped-media gallery, or -1. */
+    private void startReply(Message m, int galleryItemIndex) {
         if (sendPermissionAdminsOnly && !isAdmin) return;
+        showReply(m, galleryItemIndex, true);
+    }
+
+    /** @param userTriggered false = silent restore after recreate (no keyboard, no analytics). */
+    private void showReply(Message m, int galleryItemIndex, boolean userTriggered) {
         replyingTo = m;
         if (!ensureReplyBarViews()) return;
         // v814: same WhatsApp-style preview as 1:1 (type icon + label, thumb, 3 lines).
+        // v819: gallery-item quote shared with 1:1 via ReplyPreviewBinder.describe(ctx, m, idx).
         final boolean replyToMine = currentUid != null && currentUid.equals(m.senderId);
         String who = replyToMine ? getString(R.string.chat_reply_you)
                 : (m.senderName != null ? m.senderName : "");
+        com.callx.app.chat.ui.ReplyPreviewBinder.Preview pv =
+                com.callx.app.chat.ui.ReplyPreviewBinder.describe(this, m, galleryItemIndex);
         com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, who,
-                com.callx.app.chat.ui.ReplyPreviewBinder.describe(this, m),
-                com.callx.app.chat.ui.ReplyPreviewBinder.thumbUrl(m),
+                pv, pv.thumbUrl,
                 replyToMine ? com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor()
                         : com.callx.app.chat.ui.ReplyPreviewBinder.colorFor(
                                 m.senderId != null ? m.senderId : who));
         replyBarView.setVisibility(View.VISIBLE);
+        if (!userTriggered) return;
         binding.etMessage.requestFocus();
         // WhatsApp-style: swipe-to-reply opens the keyboard right away (same as 1:1).
         binding.etMessage.post(() -> {
@@ -2969,6 +3031,7 @@ public class GroupChatActivity extends AppCompatActivity
             if (imm != null) imm.showSoftInput(binding.etMessage,
                     android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
         });
+        com.callx.app.chat.analytics.ReplyAnalyticsTracker.get().onSwipeTriggered(this);
     }
 
     private void clearReply() {

@@ -89,6 +89,19 @@ public final class AvatarCacheAnalytics {
     }
 
     /**
+     * v821: batched record() for very hot paths (e.g. the chat bubble avatar's in-memory hit, which
+     * fires on every scroll rebind). One call = n identical hits: same counters, same totals (so the
+     * hit ratio stays unbiased), but only ONE atomic add + ONE debounced-flush check instead of n.
+     */
+    public void recordMany(Tier tier, int n) {
+        if (tier == null || n <= 0) return;
+        counts.get(tier).addAndGet(n);
+        long total = totalLoads.addAndGet(n);
+        scheduleDebouncedFlush();
+        if (total / LOG_EVERY_N != (total - n) / LOG_EVERY_N) logSnapshot(); // crossed a log boundary
+    }
+
+    /**
      * Maps a Glide {@link DataSource} straight to a {@link Tier} — the one
      * choke point every RequestListener#onResourceReady across the app
      * should funnel through (see ReelUiController#loadOwnerAvatarNow), so
