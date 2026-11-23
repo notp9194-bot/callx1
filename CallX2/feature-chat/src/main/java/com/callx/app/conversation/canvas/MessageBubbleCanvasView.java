@@ -3518,11 +3518,20 @@ public class MessageBubbleCanvasView extends View {
     // v829: which bind*() last configured this view. KIND_TEXT is set only at the end of bind(); every
     // other bind*() clears it, so an identical plain-text rebind can be recognised safely.
     private boolean lastBindWasPlainText = false;
+    /** v834: night-mode bits this view's paints/bubble were last resolved for. A holder that missed a
+     *  PAYLOAD_THEME (outside the notified range / item-view-cache) must NOT take the identical-rebind
+     *  early return, or it would keep the previous theme's bubble fill even when the text color matches. */
+    private int boundUiNight = -1;
+    private int currentUiNight() {
+        return getContext().getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+    }
 
     public void bind(String text, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         // v829: identical rebind (tick/payload refresh, scroll back) on an already-recorded bubble:
         // don't reset flags, re-format, or invalidate() (which discards the cached RenderNode).
         if (lastBindWasPlainText && !fullBubbleDirty && !staticPictureDirty
+                && boundUiNight == currentUiNight()
                 && sent == isSent && read == isRead && delivered == isDelivered
                 && (text != null ? text : "").equals(messageText)
                 && (timeText != null ? timeText : "").equals(footerTimeText)
@@ -3572,6 +3581,7 @@ public class MessageBubbleCanvasView extends View {
             textLayout = null;
         }
         lastBindWasPlainText = true;
+        boundUiNight = currentUiNight();
         invalidate();
     }
 
@@ -5752,6 +5762,7 @@ public class MessageBubbleCanvasView extends View {
         // fill color into the next frame.
         bubbleDrawable = sharedBubbleDrawable(ctx, sent,
                 isMedia || isReelShare, density);
+        boundUiNight = currentUiNight();
         staticPictureDirty = true;
         invalidate();
     }

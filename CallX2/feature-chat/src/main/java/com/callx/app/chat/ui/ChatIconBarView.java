@@ -378,6 +378,32 @@ public class ChatIconBarView extends View {
         invalidate();
     }
 
+    /**
+     * v833: re-resolve the themed icon bitmaps after an in-place day/night flip. The icons are held in
+     * fields loaded once at construction; the Activity handles uiMode itself (no recreation), so
+     * without this they keep the previous theme's tint. IconTintCache is keyed on night-mode, so this
+     * is 5 cache lookups (one tint+draw per icon on the first flip only).
+     */
+    public void refreshTheme() {
+        initIcons();
+        invalidate();
+    }
+
+    /**
+     * v834: draw this bar's icons for ANOTHER configuration (the opposite day/night mode) into the shared
+     * IconTintCache, off the critical path (called from an idle/background task after the chat opened), so
+     * the first live theme flip is 5 cache hits instead of 5 drawable-tint-draw passes. Same size as the
+     * live path (the cache key ignores size, so a different size here would poison it).
+     */
+    public void prewarmIconsFor(android.content.Context themedCtx) {
+        final int size = Math.max(1, slotSizePx - iconInsetPx * 2);
+        IconTintCache.get(themedCtx, R.drawable.ic_attach, R.color.chat_input_text, size);
+        IconTintCache.get(themedCtx, R.drawable.ic_camera, R.color.chat_input_text, size);
+        IconTintCache.get(themedCtx, R.drawable.ic_schedule_message, R.color.chat_input_text, size);
+        IconTintCache.get(themedCtx, R.drawable.ic_mic, R.color.chat_input_text, size);
+        IconTintCache.get(themedCtx, R.drawable.ic_send, R.color.chat_input_text, size);
+    }
+
     /** Hides/shows the mic+send slot entirely (blocked-chat states, which
      *  used to set VISIBLE/GONE on the separate btnSend/btnMic). Attach
      *  and camera are unaffected — matches the original controller, which

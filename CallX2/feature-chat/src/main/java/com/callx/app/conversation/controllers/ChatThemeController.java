@@ -29,6 +29,15 @@ public class ChatThemeController {
     // ── Screen theme (static, no picker) ─────────────────────────────────
 
     public void applyScreenTheme() {
+        applyScreenTheme(true);
+    }
+
+    /** v834: day/night flip path — wallpaper is theme-independent, so skip the Glide reload/ColorDrawable churn. */
+    public void applyScreenThemeForNightFlip() {
+        applyScreenTheme(false);
+    }
+
+    private void applyScreenTheme(boolean reloadWallpaper) {
         ActivityChatBinding binding = delegate.getBinding();
         ChatThemeManager mgr = ChatThemeManager.get(delegate.getActivity());
 
@@ -47,7 +56,7 @@ public class ChatThemeController {
         binding.chatIconBar.setAccentColor(
                 com.callx.app.utils.FollowButtonStyler.primaryColor(delegate.getActivity()));
 
-        applyWallpaper();
+        if (reloadWallpaper) applyWallpaper();
     }
 
     // ── Wallpaper ─────────────────────────────────────────────────────────

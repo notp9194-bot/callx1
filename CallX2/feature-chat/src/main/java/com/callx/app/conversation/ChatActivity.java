@@ -1281,7 +1281,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         boolean isNight = newNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
 
-        if (themeController != null) themeController.applyScreenTheme();
+        if (themeController != null) themeController.applyScreenThemeForNightFlip();
+
+        // v833: header icons/text + input pill/EditText/icon bar resolve their colors at inflate time and
+        // this Activity is not recreated on uiMode, so re-resolve them here (see ChatNightModeRefresher).
+        if (binding != null) {
+            com.callx.app.chat.ui.ChatNightModeRefresher.refresh(this, binding);
+            if (binding.btnViewOnce != null) {
+                binding.btnViewOnce.setImageBitmap(
+                        com.callx.app.chat.ui.IconTintCache.get(this,
+                                com.callx.app.chat.R.drawable.ic_view_once,
+                                com.callx.app.chat.R.color.chat_input_text,
+                                dp(22)));
+                setViewOnceMode(isViewOnceModeOn); // restores idle/active color filter state
+            }
+        }
 
         androidx.core.view.WindowInsetsControllerCompat insetsController =
                 androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
@@ -4750,6 +4764,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         com.callx.app.chat.R.color.chat_input_text,
                         dp(22)));
         setViewOnceMode(false);
+        // v834: after the chat is up (idle, then background thread) pre-draw the OPPOSITE day/night icon
+        // bitmaps so a live theme flip does no drawable tint/draw work. Once per process; off the open path.
+        {
+            final android.content.Context appCtx = getApplicationContext();
+            final com.callx.app.chat.ui.ChatIconBarView iconBar = binding.chatIconBar;
+            final int viewOnceSize = dp(22);
+            android.os.Looper.myQueue().addIdleHandler(() -> {
+                safeIoExecute(() -> com.callx.app.chat.ui.ChatNightModeRefresher
+                        .prewarmOppositeTheme(appCtx, iconBar, viewOnceSize));
+                return false;
+            });
+        }
         binding.chatIconBar.setOnCameraClickListener(() -> mediaController.launchCamera());
 
         if (binding.etMessage instanceof GifAwareEditText) {
