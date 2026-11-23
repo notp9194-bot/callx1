@@ -2330,10 +2330,9 @@ public class MessagePagingAdapter
 
     /** My own photo (sent-side avatar). Defaults to the auth profile photo at construction. */
     public void setMyPhotoUrl(@Nullable Context ctx, @Nullable String url) {
+        // v832: sent-side avatar removed -> remember the value but don't prefetch / notify any row.
         final String v = url != null ? url : "";
-        if (v.equals(myPhotoUrl)) return;
         myPhotoUrl = v;
-        onChatAvatarUrlChanged(ctx, v);
     }
 
     /** Warm the one URL that changed (same pipeline/tier the bind uses, so the
@@ -2357,6 +2356,7 @@ public class MessagePagingAdapter
         for (int i = start; i <= end; i++) {
             Message m = peek(i);
             if (m == null || m.senderId == null) continue;
+            if (currentUid != null && currentUid.equals(m.senderId)) continue; // v832: own rows have no avatar
             if (isGroupAvatarRunTail(i, m)) notifyItemChanged(i, PAYLOAD_GROUP_SENDER);
         }
     }
@@ -2375,6 +2375,9 @@ public class MessagePagingAdapter
      *  received GROUP row only when it has a sender name; broadcasts never. */
     private boolean avatarEligible(@NonNull Message m, boolean sent) {
         if (Boolean.TRUE.equals(m.broadcast)) return false;
+        // v832: no avatar on MY OWN (sent) rows -> no reserved avatar column, so own bubbles get the
+        // full width, and no avatar load/measure/notify work for them. Received rows unchanged.
+        if (sent) return false;
         // v810: "Show avatars" setting off -> no avatar and NO reserved column (full bubble width).
         if (!ChatAvatarPrefs.isShowAvatars()) return false;
         // v807: avatar lives on the SAME bubble as the tail, so only tail-capable bubbles carry
@@ -2550,10 +2553,7 @@ public class MessagePagingAdapter
                         if (m.readBy.containsKey(cu)) { notifyItemChanged(i, PAYLOAD_READ_BY); break; }
                     }
                 }
-                // My own row's (sent-side) avatar follows my entry in the member map.
-                if (changedUids.contains(m.senderId) && isGroupAvatarRunTail(i, m)) {
-                    notifyItemChanged(i, PAYLOAD_GROUP_SENDER);
-                }
+                // v832: no sent-side avatar anymore -> nothing to refresh on my own row.
                 continue;
             }
             // Only run-tail rows draw an avatar — skip the rest (no payload bind).
@@ -2667,9 +2667,7 @@ public class MessagePagingAdapter
                         if (rp != null && !rp.isEmpty() && prefetchedSenderPhotoUrls.add(rp)) photos.add(rp);
                     }
                 }
-                String mine = avatarUrlFor(m, true);   // my sent-side avatar
-                if (mine != null && !mine.isEmpty() && prefetchedSenderPhotoUrls.add(mine)) photos.add(mine);
-                continue;
+                continue; // v832: no sent-side avatar to warm
             }
             String photo = groupMemberPhotos.get(m.senderId);
             if (photo == null || photo.isEmpty()) continue;
@@ -5010,6 +5008,10 @@ public class MessagePagingAdapter
             return;
         }
         if (pos >= getItemCount()) return;
+        { // v832: own rows carry neither name nor avatar -> no payload round-trip
+            final Message own = peek(pos);
+            if (own != null && currentUid != null && currentUid.equals(own.senderId)) return;
+        }
         if (!isGroup) {
             // 1:1: only the avatar's tail-bound state can be stale (no name row). If the row is
             // bound and already right, skip the payload round-trip (O(1) range check first).

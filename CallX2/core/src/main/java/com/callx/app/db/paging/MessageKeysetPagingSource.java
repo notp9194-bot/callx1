@@ -264,11 +264,16 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // REFRESH, no anchor — the normal "open a chat" case, always
                 // the most recent page; this app opens a chat scrolled to
                 // the bottom unless a jump-to-message anchor says otherwise.
-                List<MessageEntity> desc = dao.getMessagesLatestDesc(chatId, pageSize);
+                // v831: honour PagingConfig.initialLoadSize (20). It used to be ignored (this loaded
+                // pageSize=15), so the 20-row warm snapshot -> 15-row real generation diff REMOVED the 5
+                // oldest rows and the new row 0 (no known predecessor) flashed a wrong tail/avatar/name
+                // before the PREPEND corrected it. Now both generations have the same 20-row window.
+                final int firstLoad = Math.max(pageSize, params.getLoadSize());
+                List<MessageEntity> desc = dao.getMessagesLatestDesc(chatId, firstLoad);
                 page = new ArrayList<>(desc);
                 Collections.reverse(page); // DESC → ASC for display order
                 prevKey = page.isEmpty() ? null : cursorOf(page.get(0));
-                if (desc.size() < pageSize) prevKey = null;
+                if (desc.size() < firstLoad) prevKey = null;
                 nextKey = null; // already at the newest message that existed at load time
             } else {
                 // JUMP-TO-MESSAGE FIX (Telegram-style anchor REFRESH): a non-null
