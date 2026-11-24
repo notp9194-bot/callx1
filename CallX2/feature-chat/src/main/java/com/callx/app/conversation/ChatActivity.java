@@ -793,6 +793,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        t0 = android.os.SystemClock.elapsedRealtimeNanos();
+        com.callx.app.debug.OpenPerfLog.add("---- chat open: onCreate start ----");
         // TraceSectionMetric("ChatActivity#onCreate") — full cold-start cost from
         // Activity creation to end of onCreate. This is the top-level benchmark
         // section. Target: < 300ms. If > 300ms, drill into sub-sections:
@@ -851,6 +853,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        mark("inflate + setContentView");
 
         // Left/right screen-edge se swipe karke back jaane ke liye
         // (RecyclerView ke andar "swipe to reply" se clash nahi karta —
@@ -1009,7 +1012,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupProfileCard();
         themeController.applyScreenTheme();
         setupPagingRecyclerView();   // RecyclerView + adapter ready (no Room yet)
+        mark("toolbar+profileCard+paging RV done");
         setupInputBar();
+        mark("setupInputBar done");
         setupMentionController();
         setupBackPressHandler();
         setupSwipeToReply();
@@ -1083,6 +1088,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // synchronized null-check hai (no I/O) — isliye warm case mein use
         // SEEDHA main thread pe call karna safe hai. Sirf cold case mein
         // (SQLCipher load + migrations + file I/O) background thread chahiye.
+        mark("listeners attached, db warm=" + AppDatabase.isWarm());
         if (AppDatabase.isWarm()) {
             // FAST PATH: same frame, synchronous — koi thread-hop nahi.
             db = AppDatabase.getInstance(this);
@@ -1095,11 +1101,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 runOnUiThread(this::onDbReady);
             });
         }
+        mark("onCreate end (sync part)");
+        getWindow().getDecorView().post(() -> mark("first post-onCreate frame tick"));
         // Closes TraceSectionMetric("ChatActivity#onCreate") opened at top of method.
         android.os.Trace.endSection();
     }
 
+    // v835: chat-open timing marks (µs since onCreate start) → OpenPerfLog.
+    private long t0;
+    private void mark(String label) {
+        long us = (android.os.SystemClock.elapsedRealtimeNanos() - t0) / 1000L;
+        com.callx.app.debug.OpenPerfLog.add(label + " = " + us + " µs");
+    }
+
     private void onDbReady() {
+        mark("db ready (onDbReady)");
         if (isFinishing() || isDestroyed()) return;
 
         // Flush the Firebase replay before attaching the first Pager. This
@@ -3255,6 +3271,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void startPostponedContentTransition() {
         if (contentTransitionStarted) return;
         contentTransitionStarted = true;
+        mark("first data ready (transition armed)");
         // Wait one layout pass so the just-submitted RecyclerView content
         // is actually measured/laid out before the slide plays — otherwise
         // the transition can still start a frame too early.
@@ -3262,6 +3279,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 new android.view.ViewTreeObserver.OnPreDrawListener() {
                     @Override public boolean onPreDraw() {
                         binding.getRoot().getViewTreeObserver().removeOnPreDrawListener(this);
+                        mark("first real frame drawn (slide starts)");
                         startPostponedEnterTransition();
                         return true;
                     }
@@ -7024,7 +7042,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // cause is confirmed fixed.
     // ─────────────────────────────────────────────────────────────────────
     private void showPagingDebugLogDialog() {
-        String logText = com.callx.app.debug.DebugLogBuffer.getAll();
+        String logText = "== CHAT OPEN TIMING ==\n"
+                + com.callx.app.debug.OpenPerfLog.getAll()
+                + "\n== PAGING DEBUG ==\n"
+                + com.callx.app.debug.DebugLogBuffer.getAll();
 
         final android.widget.TextView tv = new android.widget.TextView(this);
         tv.setText(logText);
@@ -7044,12 +7065,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     if (cm != null) {
                         cm.setPrimaryClip(ClipData.newPlainText("ChatPagingDebug log",
-                                com.callx.app.debug.DebugLogBuffer.getAll()));
+                                com.callx.app.debug.OpenPerfLog.getAll() + "\n"
+                                + com.callx.app.debug.DebugLogBuffer.getAll()));
                         Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
                     }
                 })
                 .setNeutralButton("Clear", (d, w) -> {
                     com.callx.app.debug.DebugLogBuffer.clear();
+                    com.callx.app.debug.OpenPerfLog.clear();
                     Toast.makeText(this, "Log cleared", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Close", null)
