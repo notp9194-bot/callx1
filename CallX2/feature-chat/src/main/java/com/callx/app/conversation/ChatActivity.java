@@ -928,29 +928,46 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Now: force that build on the IO thread, then attach the (unchanged) gate on
         // main where it is cheap. The enter transition is held until this finishes, so
         // a locked chat is still never visible before its overlay is up.
-        lockCheckDone = false;
-        lockPendingStart = false;
-        final String lockUid = partnerUid, lockName = partnerName;
-        safeIoExecute(() -> {
-            try {
-                com.callx.app.lock.ChatLockManager.getInstance(getApplicationContext())
-                        .isLocked(lockUid);
-            } catch (Throwable ignored) { /* attachIfLocked below handles/retries */ }
-            mark("a6 lock prefs warm (IO thread)");
-            runOnUiThread(() -> {
-                if (!isFinishing() && !isDestroyed() && binding != null) {
-                    com.callx.app.lock.ChatLockGate.attachIfLocked(this, binding.getRoot(),
-                            lockUid, lockName, new com.callx.app.lock.ChatLockGate.UnlockCallback() {
-                                @Override public void onUnlocked() { /* overlay removed itself */ }
-                                @Override public void onCancelled() { finish(); }
-                            });
-                }
-                lockCheckDone = true;
-                mark("a6b lock gate attached (main)");
-                if (lockPendingStart) { lockPendingStart = false; startPostponedContentTransition(); }
+        // Fast path (normal case): prefs already built -> original synchronous gate, ~0ms,
+        // transition is not delayed. Slow path: build on IO thread, gate transition.
+        boolean lockPrefsReady = false;
+        try {
+            lockPrefsReady = com.callx.app.lock.ChatLockManager
+                    .getInstance(getApplicationContext()).isPrefsReady();
+        } catch (Throwable ignored) { }
+        if (lockPrefsReady) {
+            lockCheckDone = true;
+            com.callx.app.lock.ChatLockGate.attachIfLocked(this, binding.getRoot(),
+                    partnerUid, partnerName, new com.callx.app.lock.ChatLockGate.UnlockCallback() {
+                        @Override public void onUnlocked() { /* overlay removed itself */ }
+                        @Override public void onCancelled() { finish(); }
+                    });
+            mark("a6 lock gate sync (prefs warm)");
+        } else {
+            lockCheckDone = false;
+            lockPendingStart = false;
+            final String lockUid = partnerUid, lockName = partnerName;
+            safeIoExecute(() -> {
+                try {
+                    com.callx.app.lock.ChatLockManager.getInstance(getApplicationContext())
+                            .isLocked(lockUid);
+                } catch (Throwable ignored) { /* attachIfLocked below handles/retries */ }
+                mark("a6 lock prefs warm (IO thread)");
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed() && binding != null) {
+                        com.callx.app.lock.ChatLockGate.attachIfLocked(this, binding.getRoot(),
+                                lockUid, lockName, new com.callx.app.lock.ChatLockGate.UnlockCallback() {
+                                    @Override public void onUnlocked() { /* overlay removed itself */ }
+                                    @Override public void onCancelled() { finish(); }
+                                });
+                    }
+                    lockCheckDone = true;
+                    mark("a6b lock gate attached (main)");
+                    if (lockPendingStart) { lockPendingStart = false; startPostponedContentTransition(); }
+                });
             });
-        });
-        mark("a6 lock check submitted");
+            mark("a6 lock check submitted");
+        }
 
         // E2EE: kick off the X3DH handshake / resume the Double Ratchet
         // session for this partner in the background as soon as we know who
@@ -1379,6 +1396,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     protected void onResume() {
         mark("onResume begin");
         super.onResume();
+        mark("r1 super.onResume");
         // Re-assert chosen display mode (system can restore bars after
         // returning from a picker / dialog / app-switch).
         applyChatDisplayMode();
@@ -1405,6 +1423,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             presenceController.setOurInChatScreen(true);
             presenceController.onScreenResumed();
         }
+        mark("r3 docked+presence");
         if (recordingPreviewController != null) recordingPreviewController.onScreenResumed();
         if (screenshotNotifier != null) screenshotNotifier.onScreenResumed();
 

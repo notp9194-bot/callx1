@@ -37,8 +37,8 @@ public class ChatLockManager {
 
     private static ChatLockManager sInstance;
     private final Context appCtx;
-    private SharedPreferences prefs;
-    private String cachedUid;
+    private volatile SharedPreferences prefs;
+    private volatile String cachedUid;
 
     // In-memory only — cleared on process death and whenever the gate's
     // host Activity stops. Never persisted: "unlocked" must never survive
@@ -58,6 +58,13 @@ public class ChatLockManager {
 
     private ChatLockManager(@NonNull Context ctx) {
         this.appCtx = ctx;
+    }
+
+    /** Non-blocking: true when the encrypted prefs are already built for the current uid. */
+    public boolean isPrefsReady() {
+        SharedPreferences p = prefs;
+        String c = cachedUid;
+        return p != null && c != null && c.equals(currentUid());
     }
 
     private synchronized SharedPreferences prefs() {

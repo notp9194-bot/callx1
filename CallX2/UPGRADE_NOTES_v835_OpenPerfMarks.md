@@ -1,4 +1,4 @@
-# v835d — timing marks + adapter/bubble accumulators + ChatLockGate prefs build moved off main thread
+# v835e — lock gate fast-path sync when prefs warm, async only if cold; timing marks + adapter/bubble accumulators + ChatLockGate prefs build moved off main thread
 
 - New `core/.../debug/OpenPerfLog` (always on, debug + release, ~zero cost).
 - `ChatActivity`: `mark()` at onCreate start, inflate, RV setup, input bar, listeners/db warm,
