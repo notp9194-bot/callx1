@@ -1400,6 +1400,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Re-assert chosen display mode (system can restore bars after
         // returning from a picker / dialog / app-switch).
         applyChatDisplayMode();
+        mark("r2a applyChatDisplayMode");
 
         // E2EE: surface a "security code changed" system bubble if one
         // fired while this chat was closed/backgrounded (most commonly:
@@ -1410,17 +1411,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (messageSender != null && partnerUid != null && !partnerUid.isEmpty()) {
             messageSender.insertSecurityEventIfPending(partnerUid, partnerName);
         }
+        mark("r2b insertSecurityEventIfPending");
 
         // v8: pick the docked mini reel player back up if the user had one
         // playing when they opened this chat (handed off in ChatListAdapter
         // right before startActivity, or still active from an even earlier
         // screen). Same ExoPlayer instance, no reload — video keeps playing.
         com.callx.app.docked.DockedOverlayRegistry.attachIfActiveAndHidden(this);
+        mark("r2c DockedOverlay attach");
 
         // Publish that we currently have THIS chat screen open & foregrounded,
         // so the partner's chat header can show "active in this chat".
         if (presenceController != null) {
             presenceController.setOurInChatScreen(true);
+            mark("r3a setOurInChatScreen");
             presenceController.onScreenResumed();
         }
         mark("r3 docked+presence");
