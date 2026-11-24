@@ -912,8 +912,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         {
             final android.content.Context diskCtx = getApplicationContext();
             final String diskUid = currentUid, diskChat = chatId;
-            lastMsgDiskLoad = new java.util.concurrent.FutureTask<>(
-                    () -> LastMessagesDiskCache.loadIntoMemory(diskCtx, diskUid, diskChat));
+            // PERF v837: done() hook — if the disk snapshot isn't ready when onCreate reaches
+            // seedInstantRenderFromCache() (cold process: IO contended by Keystore warm-ups), we no
+            // longer block main for up to 250ms; the seed is applied here when the load finishes.
+            lastMsgDiskLoad = new java.util.concurrent.FutureTask<Boolean>(
+                    () -> LastMessagesDiskCache.loadIntoMemory(diskCtx, diskUid, diskChat)) {
+                @Override protected void done() {
+                    try { runOnUiThread(() -> seedFromCacheIfStillEmpty()); }
+                    catch (Throwable ignored) { }
+                }
+            };
             safeIoExecute(lastMsgDiskLoad);
         mark("a5 lastMsgDiskLoad submit");
         }
@@ -2829,7 +2837,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     private void setupPagingRecyclerView() {
+        mark("rv0 setupPagingRV enter");
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
+        mark("rv1 adapter constructed");
         pagingAdapter.setChatId(chatId);
         pagingAdapter.setPartnerUid(partnerUid);
         // Chat avatars beside bubbles (received = partner, sent = me): URLs the screen already
@@ -2962,6 +2972,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         llm.setInitialPrefetchItemCount(
                 messageScrollPolicy().initialPrefetchCount(
                         RecyclerView.SCROLL_STATE_IDLE, 0));
+        mark("rv2 listeners+llm built");
         binding.rvMessages.setLayoutManager(llm);
         // v2 FastFlingRecyclerView: a real touch-released fling now glides
         // noticeably further than a stock RecyclerView (see that class's
@@ -2980,6 +2991,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // PERF: build the 4 bubble-drawable combos now, before the first
         // layout pass — see ChatThemeManager.preWarm() for why.
         com.callx.app.utils.ChatThemeManager.get(this).preWarm(this);
+        mark("rv3 ChatThemeManager.preWarm");
         // PERF: setScrollingTouchSlop(TOUCH_SLOP_DEFAULT) — RV defaults to
         // TOUCH_SLOP_PAGING (larger tolerance, designed for ViewPagers).
         // TOUCH_SLOP_DEFAULT is the standard touch threshold used by ListView/ScrollView.
@@ -2990,6 +3002,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // its own size every time an item changes; valid because the RV fills
         // the screen and its own size never changes (only item content changes).
         binding.rvMessages.setHasFixedSize(true);
+        mark("rv4 setAdapter");
         // The policy raises this only for a settling fling and shrinks it
         // during idle/dragging to avoid retaining a 28-holder decode/layout
         // footprint all the time.
@@ -3010,6 +3023,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // inlined here (and a different one in GroupChatActivity) is the same table now.
         MessagePagingAdapter.configureSharedPool(this, pool);
         binding.rvMessages.setRecycledViewPool(pool);
+        mark("rv5 pool configured");
         // PERF (v176): warm the pool with a few TYPE_CANVAS_SENT/RECEIVED
         // holders BEFORE the user's first scroll, so the very first fling
         // never pays onCreateViewHolder() cost mid-gesture. Posted (not
@@ -3443,19 +3457,30 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // v828: background warm-frame cache load started in onCreate().
     private java.util.concurrent.FutureTask<Boolean> lastMsgDiskLoad;
 
+    private boolean seededFromCache;
+
     private void seedInstantRenderFromCache() {
         final java.util.concurrent.FutureTask<Boolean> pendingLoad = lastMsgDiskLoad;
         lastMsgDiskLoad = null;
         if (pendingLoad != null) {
-            // Normally already finished (it ran during ~100 lines of setup). Bounded wait:
-            // on timeout we simply fall back to the normal cold-open path (DB load).
-            try { pendingLoad.get(250, java.util.concurrent.TimeUnit.MILLISECONDS); }
+            // PERF v837: was get(250ms) — on a cold process that blocked main the FULL 250ms (and
+            // then seeded nothing). Wait at most ~25ms; a late result is applied by done().
+            try { pendingLoad.get(25, java.util.concurrent.TimeUnit.MILLISECONDS); }
             catch (Exception ignored) { }
         }
+        seedFromCacheIfStillEmpty();
+    }
+
+    /** Idempotent. Never overwrites real Room/Paging data: only seeds while Paging isn't attached yet. */
+    private void seedFromCacheIfStillEmpty() {
+        if (seededFromCache || isFinishing() || isDestroyed() || binding == null) return;
+        if (pagingMediator != null) return;
+        if (pagingAdapter != null && pagingAdapter.getItemCount() > 0) return;
         if (chatId == null || pagingAdapter == null) return;
         if (!LastMessagesCache.getInstance().has(chatId)) return; // nothing to seed — cold open, no shortcut
         java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
         if (cached.isEmpty()) return;
+        seededFromCache = true;
         pagingAdapter.submitData(getLifecycle(), PagingData.from(withDateSeparators(cached)));
     }
 

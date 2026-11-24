@@ -315,7 +315,7 @@ public class CallxApp extends Application implements Configuration.Provider {
             }
         }, "chatlock-warmup").start();
         new Thread(() -> {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT);
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             try {
                 // onActivityResumed() calls AppLockManager.getInstance(a) inside super.onResume()
                 // of EVERY activity — build its EncryptedSharedPreferences here, off main.
