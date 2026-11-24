@@ -1,4 +1,4 @@
-# v835c — Chat open timing marks (µs) + adapter/bubble accumulators
+# v835d — timing marks + adapter/bubble accumulators + ChatLockGate prefs build moved off main thread
 
 - New `core/.../debug/OpenPerfLog` (always on, debug + release, ~zero cost).
 - `ChatActivity`: `mark()` at onCreate start, inflate, RV setup, input bar, listeners/db warm,
