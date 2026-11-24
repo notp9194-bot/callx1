@@ -301,9 +301,13 @@ public class CallxApp extends Application implements Configuration.Provider {
         // MasterKey/EncryptedSharedPreferences are already built and those
         // calls just return the existing instance (cheap synchronized
         // null-check, same as AppDatabase.isWarm()'s fast path).
-        // PERF v836: was ONE sequential thread (E2E ~900ms, THEN lock) — the chat-lock gate (which
-        // holds the chat enter-transition) and AppLockManager (built on main in onActivityResumed,
-        // ~143ms) both queued behind E2E. Now 3 parallel threads, cheapest/most-blocking first.
+        // PERF v837: Android Keystore serialises every MasterKey/EncryptedSharedPreferences build, and
+        // E2E alone builds 4 prefs + EC keygen (~1.5-2s). v836 ran lock / applock / E2E in PARALLEL, so
+        // the two prefs that MAIN THREAD actually waits on (ChatLock gate -> holds the enter transition;
+        // AppLockManager -> built inside super.onResume) queued behind E2E on the Keystore + stole CPU
+        // from main during inflate (measured: super.onResume 433ms, lock gate 1290ms).
+        // Now ONE thread, strict priority order: chat lock -> app lock -> E2E last. E2E is never needed
+        // by main (ChatActivity builds/awaits it on its own IO thread), so it goes at the back.
         new Thread(() -> {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT);
             try {
@@ -313,9 +317,6 @@ public class CallxApp extends Application implements Configuration.Provider {
             } catch (Exception e) {
                 Log.w(TAG, "ChatLockManager warm-up failed (will retry on first use): " + e.getMessage());
             }
-        }, "chatlock-warmup").start();
-        new Thread(() -> {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             try {
                 // onActivityResumed() calls AppLockManager.getInstance(a) inside super.onResume()
                 // of EVERY activity — build its EncryptedSharedPreferences here, off main.
@@ -324,8 +325,7 @@ public class CallxApp extends Application implements Configuration.Provider {
             } catch (Exception e) {
                 Log.w(TAG, "AppLockManager warm-up failed (will retry on first use): " + e.getMessage());
             }
-        }, "applock-warmup").start();
-        new Thread(() -> {
+            // E2E (heavy, CPU + Keystore): lowest priority so it never competes with first-frame work.
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             try {
                 com.callx.app.utils.E2EEncryptionManager.getInstance(CallxApp.this);
@@ -333,7 +333,7 @@ public class CallxApp extends Application implements Configuration.Provider {
             } catch (Exception e) {
                 Log.w(TAG, "E2EEncryptionManager warm-up failed (will retry on first use): " + e.getMessage());
             }
-        }, "e2ee-warmup").start();
+        }, "keystore-warmup").start();
 
         // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
 
