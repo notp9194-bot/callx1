@@ -79,6 +79,7 @@ public class CallxApp extends Application implements Configuration.Provider {
     @Override
     public void onCreate() {
         super.onCreate();
+        com.callx.app.debug.TabOpenPerfLog.mark("CallxApp.onCreate start");
         // v803: cheap static assign so deferred video-cache init can be triggered lazily by any caller.
         UnifiedVideoCacheManager.registerAppContext(this);
 
@@ -310,13 +311,8 @@ public class CallxApp extends Application implements Configuration.Provider {
         // by main (ChatActivity builds/awaits it on its own IO thread), so it goes at the back.
         new Thread(() -> {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT);
-            try {
-                // forces the lazy MasterKey/EncryptedSharedPreferences build
-                com.callx.app.lock.ChatLockManager.getInstance(CallxApp.this).isLocked("__warmup__");
-                Log.d(TAG, "ChatLockManager warm-up complete");
-            } catch (Exception e) {
-                Log.w(TAG, "ChatLockManager warm-up failed (will retry on first use): " + e.getMessage());
-            }
+            // v843: AppLock FIRST — MainActivity (Chats tab cold start) needs it in super.onResume();
+            // ChatLock is only needed once a chat is opened, so it goes second.
             try {
                 // onActivityResumed() calls AppLockManager.getInstance(a) inside super.onResume()
                 // of EVERY activity — build its EncryptedSharedPreferences here, off main.
@@ -324,6 +320,13 @@ public class CallxApp extends Application implements Configuration.Provider {
                 Log.d(TAG, "AppLockManager warm-up complete");
             } catch (Exception e) {
                 Log.w(TAG, "AppLockManager warm-up failed (will retry on first use): " + e.getMessage());
+            }
+            try {
+                // forces the lazy MasterKey/EncryptedSharedPreferences build
+                com.callx.app.lock.ChatLockManager.getInstance(CallxApp.this).isLocked("__warmup__");
+                Log.d(TAG, "ChatLockManager warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "ChatLockManager warm-up failed (will retry on first use): " + e.getMessage());
             }
             // E2E (heavy, CPU + Keystore): lowest priority so it never competes with first-frame work.
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
@@ -370,6 +373,45 @@ public class CallxApp extends Application implements Configuration.Provider {
             try { Class.forName("com.callx.app.conversation.ChatActivity", false, cl); }
             catch (Throwable ignored) { }
         }, "chat-class-preload").start();
+
+        // v843 CHATS-TAB cold start: same trick as the chat screen (v841/v842). Load/verify the
+        // Chats-tab classes and warm the two plain SharedPreferences files ChatsFragment.onCreateView
+        // reads on MAIN (chat_list_snapshot via ChatSnapshotCache, chat_list_settings pinned/archived),
+        // so main never blocks on class verification or first-touch disk reads. Default priority on
+        // purpose (class-init lock priority inversion, see v841 note). All failures swallowed.
+        new Thread(() -> {
+            final ClassLoader cl = CallxApp.this.getClassLoader();
+            try {
+                getSharedPreferences("chat_list_snapshot", MODE_PRIVATE).getAll();
+                getSharedPreferences("chat_list_settings", MODE_PRIVATE).getAll();
+            } catch (Throwable ignored) { }
+            final String[] init = {
+                    "com.callx.app.adapters.ViewPagerAdapter",
+                    "com.callx.app.chatlist.ChatsFragment",
+                    "com.callx.app.chatlist.ChatListAdapter",
+                    "com.callx.app.chatlist.ChatListLayoutManager",
+                    "com.callx.app.chatlist.ChatListTextPrecompute",
+                    "com.callx.app.chatlist.ChatSnapshotCache",
+                    "com.callx.app.chatlist.ChatRowPrewarmPool",
+                    "com.callx.app.chatlist.canvas.ChatRowContentView",
+                    "com.callx.app.chatlist.canvas.ChatListNameTimeView",
+                    "com.callx.app.chatlist.canvas.ChatListLastMessageView",
+                    "com.callx.app.chatlist.canvas.ChatListUnreadBadgeView",
+                    "com.callx.app.chatlist.canvas.ChatListStoryRingView",
+                    "com.callx.app.chatlist.canvas.ChatListCallButtonsView",
+                    "com.google.android.material.bottomnavigation.BottomNavigationView",
+                    "com.google.android.material.appbar.AppBarLayout",
+                    "androidx.viewpager2.widget.ViewPager2",
+                    "com.callx.app.databinding.ActivityMainBinding"
+            };
+            for (String n : init) {
+                try { Class.forName(n, true, cl); }
+                catch (Throwable t) { Log.w(TAG, "chats class preload skipped: " + n + " (" + t + ")"); }
+            }
+            try { Class.forName("com.callx.app.activities.MainActivity", false, cl); }
+            catch (Throwable ignored) { }
+            com.callx.app.debug.TabOpenPerfLog.mark("chats class preload done");
+        }, "chats-class-preload").start();
 
         // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
 

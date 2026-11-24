@@ -262,7 +262,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
+        com.callx.app.debug.TabOpenPerfLog.mark("ChatsFragment.onCreateView start");
         View v = inflater.inflate(R.layout.fragment_chats, parent, false);
+        com.callx.app.debug.TabOpenPerfLog.mark("fragment_chats inflated");
         RecyclerView rv  = v.findViewById(R.id.rv_chats);
         rvChats = rv;
         emptyState       = v.findViewById(R.id.empty_state);
@@ -284,6 +286,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         archivedChatUids.clear();
         archivedChatUids.addAll(chatListPrefs.getStringSet(KEY_ARCHIVED_CHATS, Collections.emptySet()));
 
+        com.callx.app.debug.TabOpenPerfLog.mark("pinned/archived prefs read");
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
 
@@ -590,7 +593,36 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Groups arrived while the View was gone (or before first paint) —
         // make sure the fresh adapter shows them.
         if (!groupRows.isEmpty()) applyChatSearch();
-        ensureLiveListenersAttached();
+        com.callx.app.debug.TabOpenPerfLog.mark("snapshot/list seeded");
+        // v843: Firebase listeners (contacts / special requests / muted / groups) go AFTER the first
+        // frame when a list is already on screen (snapshot / in-memory). Only a genuinely empty
+        // first-ever open attaches right now, since there is nothing to show without data.
+        if (!contacts.isEmpty() || showingInstantSnapshotOnly) {
+            final View root = v;
+            root.getViewTreeObserver().addOnPreDrawListener(
+                    new android.view.ViewTreeObserver.OnPreDrawListener() {
+                        @Override public boolean onPreDraw() {
+                            if (root.getViewTreeObserver().isAlive()) {
+                                root.getViewTreeObserver().removeOnPreDrawListener(this);
+                            }
+                            com.callx.app.debug.TabOpenPerfLog.markOnce("chats first frame (pre-draw)");
+                            mainHandler.post(() -> {
+                                if (getContext() == null) return;
+                                ensureLiveListenersAttached();
+                                com.callx.app.debug.TabOpenPerfLog.markOnce("live listeners attached");
+                            });
+                            return true;
+                        }
+                    });
+            // Safety net: if no frame is ever drawn (view not visible), still attach soon.
+            mainHandler.postDelayed(() -> {
+                if (getContext() != null) ensureLiveListenersAttached();
+            }, 1500);
+        } else {
+            ensureLiveListenersAttached();
+            com.callx.app.debug.TabOpenPerfLog.markOnce("live listeners attached");
+        }
+        com.callx.app.debug.TabOpenPerfLog.mark("ChatsFragment.onCreateView end");
         return v;
     }
 
@@ -1807,7 +1839,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ensureLiveListenersAttached();
+        // v843: listeners are attached from onCreateView after the first frame (see there).
     }
 
     @Override
@@ -1909,6 +1941,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
      * regardless of whether it came from Room, the live window, or a page load.
      */
     private void diffUpdateContacts(List<User> newList) {
+        if (!newList.isEmpty()) com.callx.app.debug.TabOpenPerfLog.markOnce("first data applied (diffUpdateContacts)");
         contacts.clear();
         contacts.addAll(newList);
         chatSearchDataVersion++;

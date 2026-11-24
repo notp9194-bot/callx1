@@ -2703,3 +2703,27 @@ Lcom/callx/app/utils/StatusFeedHub;
 Lcom/callx/app/utils/StatusFeedHub$Entry;
 Lcom/callx/app/utils/StatusFeedHub$State;
 Lcom/callx/app/utils/StatusFeedHub$Listener;
+
+# v843: Chats-tab cold-open hot path (ViewPagerAdapter had 0 rules)
+HSPLcom/callx/app/adapters/ViewPagerAdapter;-><init>(Landroidx/fragment/app/FragmentActivity;)V
+HSPLcom/callx/app/adapters/ViewPagerAdapter;->createFragment(I)Landroidx/fragment/app/Fragment;
+HSPLcom/callx/app/adapters/ViewPagerAdapter;->getItemCount()I
+HSPLcom/callx/app/adapters/ViewPagerAdapter;->getItemId(I)J
+HSPLcom/callx/app/adapters/ViewPagerAdapter;->containsItem(J)Z
+HSPLcom/callx/app/chatlist/ChatsFragment;-><init>()V
+HSPLcom/callx/app/chatlist/ChatsFragment;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/callx/app/chatlist/ChatsFragment;->ensureLiveListenersAttached()V
+HSPLcom/callx/app/chatlist/ChatsFragment;->diffUpdateContacts(Ljava/util/List;)V
+HSPLcom/callx/app/chatlist/ChatsFragment;->applyChatSearch()V
+HSPLcom/callx/app/chatlist/ChatsFragment;->loadFromRoom()V
+HSPLcom/callx/app/chatlist/ChatsFragment;->sortContactsList(**)V
+HSPLcom/callx/app/chatlist/ChatSnapshotCache;->hasSnapshot(Landroid/content/Context;)Z
+HSPLcom/callx/app/chatlist/ChatSnapshotCache;->loadInstantSnapshot(Landroid/content/Context;)Ljava/util/List;
+HSPLcom/callx/app/chatlist/ChatListLayoutManager;-><init>(Landroid/content/Context;)V
+HSPLcom/callx/app/chatlist/ChatListAdapter$VH;->**(**)**
+HSPLcom/callx/app/chatlist/ChatRowPrewarmPool;->**(**)**
+HSPLcom/callx/app/chatlist/canvas/ChatRowContentView;->**(**)**
+HSPLcom/callx/app/chatlist/canvas/ChatListNameTimeView;->onMeasure(II)V
+HSPLcom/callx/app/chatlist/canvas/ChatListLastMessageView;->onMeasure(II)V
+HSPLcom/callx/app/debug/TabOpenPerfLog;->mark(Ljava/lang/String;)V
+HSPLcom/callx/app/debug/TabOpenPerfLog;->markOnce(Ljava/lang/String;)V

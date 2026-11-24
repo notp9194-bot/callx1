@@ -42,6 +42,11 @@
         app:showAsAction="never"/>
 
 
+    <!-- v843: Chats tab open timing log (cold start -> first frame) — chat tab pe hi dikhega -->
+    <item android:id="@+id/action_chats_open_log"
+        android:title="🐞 Chats Open Log"
+        app:showAsAction="never"/>
+
     <!-- Ultra Advanced Diagnostics — chat tab pe hi dikhega -->
     <item android:id="@+id/action_ultra_diagnostics"
         android:title="🔬 Ultra Advanced Diagnostics"

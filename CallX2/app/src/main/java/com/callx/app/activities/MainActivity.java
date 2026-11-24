@@ -236,6 +236,7 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        com.callx.app.debug.TabOpenPerfLog.mark("MainActivity.onCreate start");
         // ── FASTEST-OPEN FIX: install the system splash screen FIRST ──────
         // Must be called before super.onCreate(). This makes the OS keep
         // showing the Theme.CallX.Splash icon/background (already on
@@ -327,9 +328,21 @@ public class MainActivity extends AppCompatActivity
         new android.os.Handler(android.os.Looper.getMainLooper())
                 .postDelayed(com.callx.app.utils.AuthPhotoSync::sync, 3000);
 
+        com.callx.app.debug.TabOpenPerfLog.mark("main inflate start");
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         cacheHeaderViews();
+        com.callx.app.debug.TabOpenPerfLog.mark("main inflate done");
+        binding.getRoot().getViewTreeObserver().addOnPreDrawListener(
+                new android.view.ViewTreeObserver.OnPreDrawListener() {
+                    @Override public boolean onPreDraw() {
+                        binding.getRoot().getViewTreeObserver().removeOnPreDrawListener(this);
+                        com.callx.app.debug.TabOpenPerfLog.mark("main first frame (pre-draw)");
+                        binding.getRoot().post(() ->
+                                com.callx.app.debug.TabOpenPerfLog.mark("main first frame drawn"));
+                        return true;
+                    }
+                });
 
         // v391 WHATSAPP-LEVEL FIX — moved off the critical cold-start path.
         // See requestPermissions()'s own doc + OptionalPermissionPrefs for
@@ -382,6 +395,7 @@ public class MainActivity extends AppCompatActivity
         // now opens from the 3-dot overflow menu instead (see onOptionsItemSelected).
 
         binding.viewPager.setAdapter(new ViewPagerAdapter(this));
+        com.callx.app.debug.TabOpenPerfLog.mark("viewPager adapter set");
         // Keep ViewPager2's default adaptive retention. A fixed limit of 1
         // eagerly creates the adjacent Reels fragment (and its player) on
         // every cold start; the default lets RecyclerView retain only what
@@ -1987,6 +2001,8 @@ public class MainActivity extends AppCompatActivity
         android.view.MenuItem performance = menu.findItem(R.id.action_performance_report);
         if (performance != null) performance.setVisible(pos == TAB_CHATS);
         // "Ultra Advanced Diagnostics" sirf Chat tab pe visible ho
+        android.view.MenuItem chatsOpenLog = menu.findItem(R.id.action_chats_open_log);
+        if (chatsOpenLog != null) chatsOpenLog.setVisible(pos == TAB_CHATS);
         android.view.MenuItem ultraDiag = menu.findItem(R.id.action_ultra_diagnostics);
         if (ultraDiag != null) ultraDiag.setVisible(pos == TAB_CHATS);
         // v251: X / YouTube / Games — moved here from the Chats tab quick-access
@@ -2023,6 +2039,10 @@ public class MainActivity extends AppCompatActivity
             return true;
         }
 
+        if (id == R.id.action_chats_open_log) {
+            showChatsOpenLogDialog();
+            return true;
+        }
         if (id == R.id.action_performance_report) {
             startActivity(new Intent(this, PerformanceReportActivity.class));
             return true;
@@ -2114,5 +2134,40 @@ public class MainActivity extends AppCompatActivity
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    // v843: on-device viewer for the Chats-tab open timing log (no adb needed).
+    private void showChatsOpenLogDialog() {
+        final String logText = "== CHATS TAB OPEN TIMING (ms since process start) ==\n"
+                + com.callx.app.debug.TabOpenPerfLog.getAll();
+        final android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(logText);
+        tv.setTextIsSelectable(true);
+        tv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tv.setTextSize(11f);
+        int pad = (int) (12 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(tv);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("🐞 Chats Open Log")
+                .setView(scroll)
+                .setPositiveButton("Copy", (d, w) -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                            getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                "ChatsOpenLog", logText));
+                        android.widget.Toast.makeText(this, "Log copied",
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNeutralButton("Clear", (d, w) -> {
+                    com.callx.app.debug.TabOpenPerfLog.clear();
+                    android.widget.Toast.makeText(this, "Log cleared",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Close", null)
+                .show();
     }
 }
