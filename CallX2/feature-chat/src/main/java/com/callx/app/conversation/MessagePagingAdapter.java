@@ -3878,6 +3878,14 @@ public class MessagePagingAdapter
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        final long _t = System.nanoTime();
+        VH _r = onCreateViewHolderInner(parent, viewType);
+        com.callx.app.debug.OpenPerfLog.acc("adapter.onCreateVH", System.nanoTime() - _t);
+        return _r;
+    }
+
+    @NonNull
+    private VH onCreateViewHolderInner(@NonNull ViewGroup parent, int viewType) {
         if (viewType == TYPE_HIDDEN) {
             View v = new View(parent.getContext());
             v.setLayoutParams(new ViewGroup.LayoutParams(0, 0));
@@ -3969,6 +3977,13 @@ public class MessagePagingAdapter
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int position,
+                                 @NonNull java.util.List<Object> payloads) {
+        final long _t = System.nanoTime();
+        onBindViewHolderPayloadInner(h, position, payloads);
+        com.callx.app.debug.OpenPerfLog.acc("adapter.bind(payloads)", System.nanoTime() - _t);
+    }
+
+    private void onBindViewHolderPayloadInner(@NonNull VH h, int position,
                                  @NonNull java.util.List<Object> payloads) {
         boolean hasReadByPayload = false;
         boolean hasMemberAvatarPayload = false;
@@ -4223,6 +4238,12 @@ public class MessagePagingAdapter
 
     @Override
     public void onBindViewHolder(@NonNull VH h, int position) {
+        final long _t = System.nanoTime();
+        onBindViewHolderFullInner(h, position);
+        com.callx.app.debug.OpenPerfLog.acc("adapter.bind(full)", System.nanoTime() - _t);
+    }
+
+    private void onBindViewHolderFullInner(@NonNull VH h, int position) {
         // TraceSectionMetric("Msg#bind") -- full bind cost per message row.
         // Target: median < 2ms, P99 < 8ms.
         android.os.Trace.beginSection("Msg#bind");

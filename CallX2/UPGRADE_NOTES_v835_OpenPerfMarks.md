@@ -1,4 +1,4 @@
-# v835b — Chat open timing marks (µs, fine-grained a1..a13)
+# v835c — Chat open timing marks (µs) + adapter/bubble accumulators
 
 - New `core/.../debug/OpenPerfLog` (always on, debug + release, ~zero cost).
 - `ChatActivity`: `mark()` at onCreate start, inflate, RV setup, input bar, listeners/db warm,

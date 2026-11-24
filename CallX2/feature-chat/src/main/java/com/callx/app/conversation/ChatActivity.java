@@ -795,6 +795,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     protected void onCreate(Bundle savedInstanceState) {
         t0 = android.os.SystemClock.elapsedRealtimeNanos();
         com.callx.app.debug.OpenPerfLog.add("---- chat open: onCreate start ----");
+        com.callx.app.debug.OpenPerfLog.begin();
         // TraceSectionMetric("ChatActivity#onCreate") — full cold-start cost from
         // Activity creation to end of onCreate. This is the top-level benchmark
         // section. Target: < 300ms. If > 300ms, drill into sub-sections:
@@ -3303,7 +3304,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     @Override public boolean onPreDraw() {
                         binding.getRoot().getViewTreeObserver().removeOnPreDrawListener(this);
                         mark("first real frame drawn (slide starts)");
-                        binding.getRoot().post(() -> mark("first frame draw finished"));
+                        binding.getRoot().post(() -> {
+                            mark("first frame draw finished");
+                            com.callx.app.debug.OpenPerfLog.flushAccs();
+                        });
                         startPostponedEnterTransition();
                         return true;
                     }

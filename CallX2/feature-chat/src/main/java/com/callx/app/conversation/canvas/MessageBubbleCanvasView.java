@@ -6586,6 +6586,12 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        final long _t = System.nanoTime();
+        onMeasureInner(widthMeasureSpec, heightMeasureSpec);
+        com.callx.app.debug.OpenPerfLog.acc("bubble.onMeasure", System.nanoTime() - _t);
+    }
+
+    private void onMeasureInner(int widthMeasureSpec, int heightMeasureSpec) {
         int parentWidth = MeasureSpec.getSize(widthMeasureSpec);
         // WhatsApp-style group-avatar column — reserved only for received
         // group messages (hasGroupSenderAvatar, set by
@@ -8027,6 +8033,12 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        final long _t = System.nanoTime();
+        onDrawInner(canvas);
+        com.callx.app.debug.OpenPerfLog.acc("bubble.onDraw", System.nanoTime() - _t);
+    }
+
+    private void onDrawInner(Canvas canvas) {
         super.onDraw(canvas);
         // Guard: content we need to draw must exist
         if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce && !isSeenBubble && !isCallEntry) {
