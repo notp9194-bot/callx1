@@ -975,27 +975,38 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // see E2EEncryptionManager#ensureSession(). doSendTextMessage() and
         // the Firebase message listener both call encrypt()/decrypt() which
         // rely on this having run at least once.
-        com.callx.app.utils.E2EEncryptionManager.getInstance(this)
-                .ensureSession(currentUid, partnerUid, success -> {
-                    if (!success) {
-                        android.util.Log.w(TAG, "E2E: session setup with " + partnerUid
-                                + " did not complete yet — will retry on next send/receive");
-                    }
-                });
-        mark("a7 E2E ensureSession");
-
-        // WHATSAPP-LEVEL SELF-HEAL: when the session with partnerUid heals
-        // (fresh handshake decrypts successfully), retry every one of their
-        // messages in THIS chat still stuck on DECRYPT_FAILED_MARKER.
+        // PERF v836: E2EEncryptionManager.getInstance() builds 4 EncryptedSharedPreferences
+        // + EC identity keygen. On a fresh process the CallxApp warm-up thread still holds
+        // the class lock, so calling it on main blocked onCreate for ~500ms. Everything E2E
+        // here is background-only (ensureSession already runs on its own executor), so the
+        // whole block moves to the IO thread — main never waits on the singleton.
+        final String e2eOurUid = currentUid, e2ePartner = partnerUid;
         final String healPartner = partnerUid;
         sessionHealedListener = healedUid -> {
             if (healedUid != null && healedUid.equals(healPartner)) {
                 redecryptStuckMessagesFrom(healedUid);
             }
         };
-        com.callx.app.utils.E2EEncryptionManager.getInstance(this)
-                .addSessionHealedListener(sessionHealedListener);
-        mark("a8 E2E addHealedListener");
+        final com.callx.app.utils.E2EEncryptionManager.SessionHealedListener healL = sessionHealedListener;
+        safeIoExecute(() -> {
+            try {
+                com.callx.app.utils.E2EEncryptionManager e2e =
+                        com.callx.app.utils.E2EEncryptionManager.getInstance(getApplicationContext());
+                // WHATSAPP-LEVEL SELF-HEAL: retry stuck DECRYPT_FAILED messages when the
+                // session with this partner heals (listener registered BEFORE ensureSession).
+                e2e.addSessionHealedListener(healL);
+                e2e.ensureSession(e2eOurUid, e2ePartner, success -> {
+                    if (!success) {
+                        android.util.Log.w(TAG, "E2E: session setup with " + e2ePartner
+                                + " did not complete yet — will retry on next send/receive");
+                    }
+                });
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "E2E init failed (will retry on send/receive)", t);
+            }
+            mark("a7 E2E ensureSession+healedListener (IO thread)");
+        });
+        mark("a7/a8 E2E submitted");
 
         // ─────────────────────────────────────────────────────────────────────
         // PERF FIX v8: "Parallel init" — UI aur Firebase listener DB ke
@@ -1802,8 +1813,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         optimisticStatusFloor.clear();
 
         if (sessionHealedListener != null) {
-            com.callx.app.utils.E2EEncryptionManager.getInstance(this)
-                    .removeSessionHealedListener(sessionHealedListener);
+            // PERF v836: getInstance() may still be building on a fresh process — never block main.
+            final com.callx.app.utils.E2EEncryptionManager.SessionHealedListener rl = sessionHealedListener;
+            final android.content.Context appCtx = getApplicationContext();
+            new Thread(() -> {
+                try {
+                    com.callx.app.utils.E2EEncryptionManager.getInstance(appCtx)
+                            .removeSessionHealedListener(rl);
+                } catch (Throwable ignored) { }
+            }, "e2e-unlisten").start();
         }
 
         // PERF FIX: flush any buffered Firebase→Room writes immediately
@@ -2997,8 +3015,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // never pays onCreateViewHolder() cost mid-gesture. Posted (not
         // inline) so it runs after the current cold-open frame, not during
         // it — see MessagePagingAdapter.warmUpRecycledViewPool() doc.
-        binding.rvMessages.post(() ->
-                pagingAdapter.warmUpRecycledViewPool(binding.rvMessages, pool, 6));
+        // PERF v836: NOT posted here anymore — that ran 12 onCreateViewHolder (~100ms) BEFORE the
+        // first frame. Now stepped one holder per idle slot after "first frame draw finished"
+        // (see scheduleIdlePoolWarmup()).
+        warmupPool = pool;
         // PERF: scroll-ahead image preloading — fast fling ke dauran agli
         // ~14 items ki thumbnail Glide cache mein pehle se fetch ho jaati
         // hai, taaki late-load blank image na dikhe. Size (200,200) wahi
@@ -3345,6 +3365,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // screen frozen mid-transition forever.
     private static final long SAFETY_TRANSITION_TIMEOUT_MS = 3000L;
 
+    // PERF v836: idle-time, one-holder-at-a-time RecycledViewPool warm-up (post first frame).
+    private RecyclerView.RecycledViewPool warmupPool;
+    private boolean poolWarmupScheduled;
+    private void scheduleIdlePoolWarmup() {
+        if (poolWarmupScheduled || warmupPool == null) return;
+        poolWarmupScheduled = true;
+        android.os.Looper.myQueue().addIdleHandler(new android.os.MessageQueue.IdleHandler() {
+            @Override public boolean queueIdle() {
+                if (isFinishing() || isDestroyed() || binding == null || pagingAdapter == null) return false;
+                // stepped: ~3.5ms per idle slot, never one 100ms block
+                return pagingAdapter.warmUpRecycledViewPoolStep(binding.rvMessages, warmupPool, 6);
+            }
+        });
+    }
+
     private void startPostponedContentTransition() {
         if (!lockCheckDone) { lockPendingStart = true; return; }
         if (contentTransitionStarted) return;
@@ -3361,6 +3396,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         binding.getRoot().post(() -> {
                             mark("first frame draw finished");
                             com.callx.app.debug.OpenPerfLog.flushAccs();
+                            scheduleIdlePoolWarmup();
                         });
                         startPostponedEnterTransition();
                         return true;

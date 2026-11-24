@@ -301,6 +301,30 @@ public class CallxApp extends Application implements Configuration.Provider {
         // MasterKey/EncryptedSharedPreferences are already built and those
         // calls just return the existing instance (cheap synchronized
         // null-check, same as AppDatabase.isWarm()'s fast path).
+        // PERF v836: was ONE sequential thread (E2E ~900ms, THEN lock) — the chat-lock gate (which
+        // holds the chat enter-transition) and AppLockManager (built on main in onActivityResumed,
+        // ~143ms) both queued behind E2E. Now 3 parallel threads, cheapest/most-blocking first.
+        new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT);
+            try {
+                // forces the lazy MasterKey/EncryptedSharedPreferences build
+                com.callx.app.lock.ChatLockManager.getInstance(CallxApp.this).isLocked("__warmup__");
+                Log.d(TAG, "ChatLockManager warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "ChatLockManager warm-up failed (will retry on first use): " + e.getMessage());
+            }
+        }, "chatlock-warmup").start();
+        new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT);
+            try {
+                // onActivityResumed() calls AppLockManager.getInstance(a) inside super.onResume()
+                // of EVERY activity — build its EncryptedSharedPreferences here, off main.
+                AppLockManager.getInstance(CallxApp.this).isLockEnabled();
+                Log.d(TAG, "AppLockManager warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "AppLockManager warm-up failed (will retry on first use): " + e.getMessage());
+            }
+        }, "applock-warmup").start();
         new Thread(() -> {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             try {
@@ -309,18 +333,7 @@ public class CallxApp extends Application implements Configuration.Provider {
             } catch (Exception e) {
                 Log.w(TAG, "E2EEncryptionManager warm-up failed (will retry on first use): " + e.getMessage());
             }
-            try {
-                // getInstance() alone is cheap (just object construction) —
-                // prefs()/MasterKey build is lazy, only triggered by an
-                // actual isLocked()/setLocked() call. isLocked() with a
-                // throwaway id forces that build here instead of on
-                // ChatActivity's first real check.
-                com.callx.app.lock.ChatLockManager.getInstance(CallxApp.this).isLocked("__warmup__");
-                Log.d(TAG, "ChatLockManager warm-up complete");
-            } catch (Exception e) {
-                Log.w(TAG, "ChatLockManager warm-up failed (will retry on first use): " + e.getMessage());
-            }
-        }, "e2ee-lock-warmup").start();
+        }, "e2ee-warmup").start();
 
         // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
 

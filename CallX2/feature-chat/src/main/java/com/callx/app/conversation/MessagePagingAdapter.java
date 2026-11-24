@@ -3875,6 +3875,32 @@ public class MessagePagingAdapter
         }
     }
 
+    /**
+     * PERF v836: incremental variant of {@link #warmUpRecycledViewPool}. Creates AT MOST ONE
+     * missing canvas holder per call (~3.5ms) so the caller can spread the 12-holder warm-up
+     * (~100ms in one go) across idle slots after the first frame instead of one main-thread block.
+     * @return true if more work remains (call again), false when the pool is topped up.
+     */
+    public boolean warmUpRecycledViewPoolStep(@NonNull ViewGroup parent,
+                                              @NonNull RecyclerView.RecycledViewPool pool,
+                                              int countPerType) {
+        if (pool.getRecycledViewCount(TYPE_CANVAS_SENT) < countPerType) {
+            VH svh = onCreateViewHolder(parent, TYPE_CANVAS_SENT);
+            if (svh.canvasView != null) svh.canvasView.presetGroupSenderAvatarPlaceholder();
+            pool.putRecycledView(svh);
+            return true;
+        }
+        if (pool.getRecycledViewCount(TYPE_CANVAS_RECEIVED) < countPerType) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .prewarmGroupAvatarPlaceholder(parent.getContext());
+            VH vh = onCreateViewHolder(parent, TYPE_CANVAS_RECEIVED);
+            if (vh.canvasView != null) vh.canvasView.presetGroupSenderAvatarPlaceholder();
+            pool.putRecycledView(vh);
+            return true;
+        }
+        return false;
+    }
+
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
