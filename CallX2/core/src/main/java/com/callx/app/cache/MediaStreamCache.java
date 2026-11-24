@@ -36,7 +36,7 @@ public class MediaStreamCache {
 
     private MediaStreamCache(Context ctx) {
         mDisk     = DiskCache.getInstance(ctx);
-        mExecutor = Executors.newFixedThreadPool(2);
+        mExecutor = Executors.newFixedThreadPool(2, new com.callx.app.utils.PrioThreadFactory("media-stream", com.callx.app.utils.PrioThreadFactory.MILD));
     }
 
     public static synchronized MediaStreamCache getInstance(Context ctx) {

@@ -24,7 +24,7 @@ import java.util.concurrent.Executors;
  */
 public final class MediaDedupExecutor {
 
-    private static final Executor INSTANCE = Executors.newFixedThreadPool(2);
+    private static final Executor INSTANCE = Executors.newFixedThreadPool(2, new PrioThreadFactory("media-dedup", PrioThreadFactory.LOW));
 
     private MediaDedupExecutor() {}
 

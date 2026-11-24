@@ -51,7 +51,7 @@ public final class MediaForwardReEncryptor {
     // fixed cap) for bursty multi-forwards without ever queueing one job
     // behind another the way a fixed-size pool would.
     private static final java.util.concurrent.ExecutorService EXECUTOR =
-            java.util.concurrent.Executors.newCachedThreadPool();
+            java.util.concurrent.Executors.newCachedThreadPool(new PrioThreadFactory("fwd-reencrypt", PrioThreadFactory.MILD));
 
     public interface Callback {
         /** @param newThumbnailUrl null when the thumb was small enough to

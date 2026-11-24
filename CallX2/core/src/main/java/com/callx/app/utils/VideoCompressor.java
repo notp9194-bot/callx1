@@ -54,7 +54,7 @@ public class VideoCompressor {
     private static final int FRAME_RATE    = 30;
     private static final int KEY_FRAME_INT = 3;
 
-    private static final ExecutorService BG   = Executors.newCachedThreadPool();
+    private static final ExecutorService BG   = Executors.newCachedThreadPool(new PrioThreadFactory("video-compress", PrioThreadFactory.MILD));
     private static final Handler         MAIN = new Handler(Looper.getMainLooper());
 
     public interface Callback {

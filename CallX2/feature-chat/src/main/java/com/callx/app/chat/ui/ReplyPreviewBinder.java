@@ -113,8 +113,10 @@ public final class ReplyPreviewBinder {
         p.thumbSource = null; p.thumbFallbackUrl = null; p.thumbHash = null;
         Object u = item.get("thumbUrl");
         Object u2 = item.get("url");
+        Object lp = item.get("localPath");
         p.thumbUrl = (u instanceof String && !((String) u).isEmpty()) ? (String) u
-                : (u2 instanceof String ? (String) u2 : null);
+                : (u2 instanceof String && !((String) u2).isEmpty()) ? (String) u2
+                : (lp instanceof String && !((String) lp).isEmpty()) ? (String) lp : null;
         return p;
     }
 
@@ -174,6 +176,27 @@ public final class ReplyPreviewBinder {
     public static String thumbUrl(@NonNull Message m) {
         if ("image".equals(m.type)) return m.mediaUrl;
         if ("video".equals(m.type)) return m.thumbnailUrl;
+        // v839: gif / sticker / grouped media (multi_media) had NO thumb at all in the reply bar.
+        if ("gif".equals(m.type) || "sticker".equals(m.type)) {
+            return notEmpty(m.mediaUrl) ? m.mediaUrl : (notEmpty(m.imageUrl) ? m.imageUrl : null);
+        }
+        if ("multi_media".equals(m.type)) return firstItemThumb(m);
+        return null;
+    }
+
+    /** v839: thumb of the first usable item of a multi_media group (works for just-sent local items too). */
+    @Nullable
+    private static String firstItemThumb(@NonNull Message m) {
+        if (m.mediaItems == null) return null;
+        for (java.util.Map<String, Object> it : m.mediaItems) {
+            if (it == null) continue;
+            Object t = it.get("thumbUrl");
+            if (t instanceof String && !((String) t).isEmpty()) return (String) t;
+            Object u = it.get("url");
+            if (u instanceof String && !((String) u).isEmpty()) return (String) u;
+            Object lp = it.get("localPath");   // just-sent item, upload not finished yet
+            if (lp instanceof String && !((String) lp).isEmpty()) return (String) lp;
+        }
         return null;
     }
 
@@ -183,7 +206,8 @@ public final class ReplyPreviewBinder {
      * bubble's own getCachedFileFast() does — no decrypt, no network, no decode here.
      */
     private static void resolveThumb(@NonNull Context ctx, @NonNull Message m, @NonNull Preview p) {
-        final boolean isImage = "image".equals(m.type);
+        // v839: gif / sticker decode exactly like an image (same local-file -> cache -> plain-url order).
+        final boolean isImage = "image".equals(m.type) || "gif".equals(m.type) || "sticker".equals(m.type);
         final boolean isVideo = "video".equals(m.type);
         if (!isImage && !isVideo) return;
         if (Boolean.TRUE.equals(m.deleted)) { p.thumbUrl = null; return; }

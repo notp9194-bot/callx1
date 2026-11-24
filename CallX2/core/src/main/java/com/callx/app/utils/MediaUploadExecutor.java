@@ -26,7 +26,7 @@ import java.util.concurrent.Executors;
  */
 public final class MediaUploadExecutor {
 
-    private static final Executor INSTANCE = Executors.newFixedThreadPool(4);
+    private static final Executor INSTANCE = Executors.newFixedThreadPool(4, new PrioThreadFactory("media-upload", PrioThreadFactory.MILD));
 
     private MediaUploadExecutor() {}
 

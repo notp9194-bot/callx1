@@ -80,7 +80,8 @@ public class MediaDownloadQueue {
     private final Object lock = new Object();          // guards pending + running
     private final ArrayDeque<Job> pending = new ArrayDeque<>();
     private int running = 0;
-    private final ExecutorService pool = Executors.newCachedThreadPool();
+    private final ExecutorService pool = Executors.newCachedThreadPool(
+            new com.callx.app.utils.PrioThreadFactory("download-queue", com.callx.app.utils.PrioThreadFactory.MILD));
     private final ConcurrentHashMap<String, CountDownLatch> inFlight = new ConcurrentHashMap<>();
     private final ConnectivityManager.NetworkCallback networkCallback;
     private final ConnectivityManager cm;

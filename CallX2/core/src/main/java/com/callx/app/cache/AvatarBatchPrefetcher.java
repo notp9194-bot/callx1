@@ -67,7 +67,7 @@ public final class AvatarBatchPrefetcher {
     public static final int MAX_BATCH_SIZE = 6;
 
     private static final long SUBMIT_TIMEOUT_SEC = 12L;
-    private static final ExecutorService IO = Executors.newSingleThreadExecutor();
+    private static final ExecutorService IO = Executors.newSingleThreadExecutor(new com.callx.app.utils.PrioThreadFactory("avatar-prefetch", com.callx.app.utils.PrioThreadFactory.LOW));
 
     /** One avatar to warm — the same (photo, avatarVersion) pair every
      *  other prefetch path in this app already carries. */

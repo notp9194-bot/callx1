@@ -52,7 +52,7 @@ public class MediaCompressor {
     private static final int  VIDEO_FPS        = 30;
     private static final int  I_FRAME_SECS     = 2;
 
-    private static final ExecutorService sPool = Executors.newFixedThreadPool(2);
+    private static final ExecutorService sPool = Executors.newFixedThreadPool(2, new com.callx.app.utils.PrioThreadFactory("media-compress", com.callx.app.utils.PrioThreadFactory.MILD));
     private static final Handler         sMain = new Handler(Looper.getMainLooper());
 
     // ── Public interfaces ─────────────────────────────────────────

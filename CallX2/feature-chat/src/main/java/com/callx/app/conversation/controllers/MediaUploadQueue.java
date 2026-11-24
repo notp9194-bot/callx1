@@ -55,7 +55,8 @@ public class MediaUploadQueue {
     private final Semaphore semaphore;
     private volatile boolean paused = false;
     private final Object pauseLock = new Object();
-    private final ExecutorService pool = Executors.newCachedThreadPool();
+    private final ExecutorService pool = Executors.newCachedThreadPool(
+            new com.callx.app.utils.PrioThreadFactory("upload-queue", com.callx.app.utils.PrioThreadFactory.MILD));
     private final ConcurrentHashMap<String, CountDownLatch> inFlight = new ConcurrentHashMap<>();
 
     private final ConnectivityManager.NetworkCallback networkCallback;
