@@ -530,7 +530,7 @@ public class ChatPresenceController {
             new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingOffWrite;
     /** Last effective chat-presence value written to Firebase. */
-    private Boolean lastWrittenInChatPresence = null;
+    private volatile Boolean lastWrittenInChatPresence = null;
     /** Quick away-and-back navigation (e.g. rotation, brief app-switch) within
      *  this window won't flicker the "watching" banner for the partner. */
     private static final long PRESENCE_OFF_DEBOUNCE_MS = 1500;
@@ -554,7 +554,9 @@ public class ChatPresenceController {
 
         if (active) {
             // Becoming active: publish immediately so the banner shows promptly.
-            writePresence(true);
+            // v835g: measured 114-235ms ON MAIN in onResume (SecurityManager encrypted
+            // prefs read + Firebase setValue/onDisconnect). Nothing visual depends on it.
+            com.callx.app.utils.AppBgExecutor.execute(() -> writePresence(true));
         } else {
             // Becoming inactive: debounce. If the user comes right back
             // (e.g. screen rotation, quick app-switcher peek) before this
