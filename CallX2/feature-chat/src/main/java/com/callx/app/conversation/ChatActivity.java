@@ -859,6 +859,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // (RecyclerView ke andar "swipe to reply" se clash nahi karta —
         // sirf edge se shuru hone wala swipe hi back trigger karta hai).
         edgeSwipeBackHelper = new com.callx.app.utils.EdgeSwipeBackHelper(this, binding.getRoot());
+        mark("a1 edgeSwipeBack");
 
         // Reels-tab jaisa full-screen look: status bar transparent (behind
         // content) + nav bar hidden the moment chat screen khulti hai —
@@ -867,6 +868,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         applyChatDisplayMode();
         com.callx.app.utils.ImmersiveModeUtils.applyTopInsetPadding(binding.toolbar);
         com.callx.app.utils.ImmersiveModeUtils.applyImeBottomPaddingAnimated(binding.getRoot());
+        mark("a2 displayMode+insets");
 
         // First time the user EVER opens a chat: ask which display mode they
         // want, same UX as the Reels-tab first-visit chooser. Not cancelable.
@@ -878,6 +880,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // binding must exist first; presenceController hookup happens once
         // that controller is constructed below.
         mediaController.attachMicGesture();
+        mark("a3 attachMicGesture");
 
         // SKELETON REMOVED (by request): belt-and-suspenders — XML default
         // is now visibility="gone" too, but force it here as well in case
@@ -888,6 +891,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
 
         readIntentExtras();
+        mark("a4 readIntentExtras");
         if (partnerUid == null || partnerUid.isEmpty()) {
             android.util.Log.w(TAG, "partnerUid null — finishing");
             finish(); return;
@@ -904,6 +908,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             lastMsgDiskLoad = new java.util.concurrent.FutureTask<>(
                     () -> LastMessagesDiskCache.loadIntoMemory(diskCtx, diskUid, diskChat));
             safeIoExecute(lastMsgDiskLoad);
+        mark("a5 lastMsgDiskLoad submit");
         }
 
         // Chat Lock — if this 1:1 chat is locked, block the screen behind a
@@ -916,6 +921,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     @Override public void onUnlocked() { /* overlay removed itself */ }
                     @Override public void onCancelled() { finish(); }
                 });
+        mark("a6 ChatLockGate");
 
         // E2EE: kick off the X3DH handshake / resume the Double Ratchet
         // session for this partner in the background as soon as we know who
@@ -930,6 +936,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                                 + " did not complete yet — will retry on next send/receive");
                     }
                 });
+        mark("a7 E2E ensureSession");
 
         // WHATSAPP-LEVEL SELF-HEAL: when the session with partnerUid heals
         // (fresh handshake decrypts successfully), retry every one of their
@@ -942,6 +949,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         };
         com.callx.app.utils.E2EEncryptionManager.getInstance(this)
                 .addSessionHealedListener(sessionHealedListener);
+        mark("a8 E2E addHealedListener");
 
         // ─────────────────────────────────────────────────────────────────────
         // PERF FIX v8: "Parallel init" — UI aur Firebase listener DB ke
@@ -968,6 +976,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // STEP 1 [IMMEDIATE, MAIN THREAD]: Controllers + UI init
         // Yeh sab DB-independent hain
         presenceController = new ChatPresenceController(this);
+        mark("a9 presenceController new");
         mediaController.setRecordingListener(recording -> {
             // Publish voice-note recording state to Firebase so the partner
             // sees "Rahul is recording a voice message" on their screen.
@@ -996,6 +1005,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // mentionController is initialized later in setupMentionController() once
         // partnerUid / partnerName / partnerPhoto are known (after profile load).
         messageSender      = new ChatMessageSender(this);
+        mark("a10 themeCtrl+messageSender");
         // blockController, pinController, scheduledSendController,
         // recordingPreviewController, playbackPresenceController,
         // liveTypingController, screenshotNotifier: allocation moved into the
@@ -1009,8 +1019,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // the lazy-getter block near the field declarations above.
 
         setupToolbar();
+        mark("a11 setupToolbar");
         setupProfileCard();
+        mark("a12 setupProfileCard");
         themeController.applyScreenTheme();
+        mark("a13 applyScreenTheme");
         setupPagingRecyclerView();   // RecyclerView + adapter ready (no Room yet)
         mark("toolbar+profileCard+paging RV done");
         setupInputBar();
@@ -1103,6 +1116,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
         mark("onCreate end (sync part)");
         getWindow().getDecorView().post(() -> mark("first post-onCreate frame tick"));
+        {
+            final android.view.View dv = getWindow().getDecorView();
+            dv.getViewTreeObserver().addOnGlobalLayoutListener(
+                    new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                        @Override public void onGlobalLayout() {
+                            dv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                            mark("first measure+layout done");
+                        }
+                    });
+        }
         // Closes TraceSectionMetric("ChatActivity#onCreate") opened at top of method.
         android.os.Trace.endSection();
     }
@@ -3280,6 +3303,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     @Override public boolean onPreDraw() {
                         binding.getRoot().getViewTreeObserver().removeOnPreDrawListener(this);
                         mark("first real frame drawn (slide starts)");
+                        binding.getRoot().post(() -> mark("first frame draw finished"));
                         startPostponedEnterTransition();
                         return true;
                     }
