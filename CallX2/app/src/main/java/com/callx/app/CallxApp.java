@@ -335,6 +335,27 @@ public class CallxApp extends Application implements Configuration.Provider {
             }
         }, "keystore-warmup").start();
 
+        // PERF v841: cold-process chat open spent 50-130ms in `rv1 adapter constructed` and a large part
+        // of `inflate` just LOADING / VERIFYING two huge classes (MessagePagingAdapter ~12k lines,
+        // MessageBubbleCanvasView ~10k lines) on the main thread. Load them here, in parallel with
+        // app start. Default priority on purpose: if main needs the class first it blocks on this
+        // thread's class-init lock, so this thread must not be de-prioritised (priority inversion).
+        // Both static initialisers are Context/Looper-free (LruCache, Resources.getSystem()), so
+        // running them off-main is safe; every failure is swallowed (class then loads normally on main).
+        new Thread(() -> {
+            final ClassLoader cl = CallxApp.this.getClassLoader();
+            final String[] init = {
+                    "com.callx.app.conversation.MessagePagingAdapter",
+                    "com.callx.app.conversation.canvas.MessageBubbleCanvasView"
+            };
+            for (String n : init) {
+                try { Class.forName(n, true, cl); }
+                catch (Throwable t) { Log.w(TAG, "chat class preload skipped: " + n + " (" + t + ")"); }
+            }
+            try { Class.forName("com.callx.app.conversation.ChatActivity", false, cl); }
+            catch (Throwable ignored) { }
+        }, "chat-class-preload").start();
+
         // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
 
         // Notification channels moved to background thread below (see
