@@ -346,7 +346,22 @@ public class CallxApp extends Application implements Configuration.Provider {
             final ClassLoader cl = CallxApp.this.getClassLoader();
             final String[] init = {
                     "com.callx.app.conversation.MessagePagingAdapter",
-                    "com.callx.app.conversation.canvas.MessageBubbleCanvasView"
+                    "com.callx.app.conversation.canvas.MessageBubbleCanvasView",
+                    // v842: every custom / library view activity_chat.xml inflates. Their static
+                    // initialisers are constants only (checked: no Looper/Choreographer/Context in
+                    // statics), so they are safe off-main; this takes class load/verify out of `inflate`.
+                    "com.callx.app.chat.performance.FastFlingRecyclerView",
+                    "com.callx.app.chat.ui.ChatIconBarView",
+                    "com.callx.app.chat.ui.ChatInputBarContainer",
+                    "com.callx.app.chat.ui.GifAwareEditText",
+                    "com.callx.app.conversation.canvas.TypingStripCanvasView",
+                    "com.callx.app.conversation.canvas.WatchingBannerCanvasView",
+                    "com.callx.app.conversation.canvas.LiveTypingCanvasView",
+                    "com.callx.app.conversation.canvas.EmojiBurstCanvasView",
+                    "com.google.android.material.card.MaterialCardView",
+                    "com.google.android.material.floatingactionbutton.FloatingActionButton",
+                    "com.facebook.shimmer.ShimmerFrameLayout",
+                    "de.hdodenhof.circleimageview.CircleImageView"
             };
             for (String n : init) {
                 try { Class.forName(n, true, cl); }
