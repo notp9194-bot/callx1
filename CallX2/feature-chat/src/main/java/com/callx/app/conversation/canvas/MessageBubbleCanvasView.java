@@ -2405,6 +2405,12 @@ public class MessageBubbleCanvasView extends View {
     // the constructor (need density).
     private MiniAvatarStrip reactionAvatars;
     private MiniAvatarStrip pollVoterAvatars;
+    // v859: own snapshot of the last bound poll counts/myVote. The adapter hands in per-holder scratch
+    // buffers that it mutates in place, and bindPoll() keeps those references in pollCounts/pollMyVote,
+    // so the same-state guard must compare against private copies, never against the live arrays.
+    private int[]     pollSigCounts;
+    private boolean[] pollSigMyVote;
+    private boolean   pollSigValid;
     /** Where PollRenderer last drew the voters strip (hit-test target; empty = none). */
     final RectF pollVotersRect = new RectF();
     boolean hasSeenBy = false;
@@ -4747,6 +4753,14 @@ public class MessageBubbleCanvasView extends View {
 
     /** Dismisses the gate entirely — call once the real bitmap has been supplied via setMediaBitmap(). */
     public void clearMediaDownloadGate() {
+        // v861: already fully clear (no gate, no upload extras, no animator, no a11y delegate) -> nothing to
+        // reset and nothing to re-record. Any leftover state falls through to the full path below.
+        if (!mediaGated && !mediaDownloading && !mediaGateRetry && !mediaGateWaiting && !mediaIsUpload
+                && mediaUploadStage == 0 && mediaUploadSizeText.isEmpty() && mediaProgressAnimator == null
+                && mediaDownloadProgress == -1 && mediaDisplayProgress < 0f && !mediaUploadCancelable
+                && mediaGateA11y == null) {
+            return;
+        }
         this.mediaGated = false;
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
@@ -5311,6 +5325,8 @@ public class MessageBubbleCanvasView extends View {
 
     /** Updates the download-progress state on a file bubble. Call from adapter's download callback. */
     public void setFileDownloadState(boolean downloading, int percent) {
+        // v860: identical state (e.g. repeated idle (false,0) or a repeated percent) -> nothing to redraw.
+        if (downloading == this.fileIsDownloading && percent == this.fileDownloadPercent) return;
         final boolean wasDownloading = this.fileIsDownloading;
         this.fileIsDownloading   = downloading;
         this.fileDownloadPercent = percent;
@@ -5331,6 +5347,7 @@ public class MessageBubbleCanvasView extends View {
 
     /** Marks the file as cached (download complete). Redraws action button as ⬗. */
     public void setFileCached(boolean cached) {
+        if (this.fileIsCached == cached && !this.fileIsDownloading) return; // v860: no state change
         this.fileIsCached      = cached;
         this.fileIsDownloading = false;
         staticPictureDirty = true;
@@ -5442,6 +5459,36 @@ public class MessageBubbleCanvasView extends View {
             String timeText,
             boolean isRead,
             boolean isDelivered) {
+        // v859: same-state guard. A poll row is re-bound with identical content when e.g. a voter's avatar
+        // changes (FLAG_POLL payload) or a vote lands for someone else with no visible effect. Without this
+        // every such rebind re-recorded the whole poll card. Only taken when this view is ALREADY showing a
+        // poll (isPoll is reset by every other bind type, so recycle poll->text->poll never hits it) and
+        // every drawn input, incl. theme colours + bubble drawable, matches.
+        if (isPoll && pollSigValid && pollOptions != null) {
+            final int n0 = options != null ? options.size() : 0;
+            final Context c0 = getContext();
+            if (pollOptions.length == n0
+                    && pollSigCounts != null && pollSigCounts.length == n0
+                    && pollSigMyVote != null && pollSigMyVote.length == n0
+                    && pollClosed == closed && pollMultiChoice == multiChoice && pollTotal == total
+                    && sent == isSent && read == isRead && delivered == isDelivered
+                    && pollQuestion.equals(question != null ? question : "")
+                    && footerTimeText.equals(timeText != null ? timeText : "")
+                    && textPaint.getColor() == ChatThemeManager.get(c0).getTextColor(c0, isSent)
+                    && tickPaint.getColor() == ChatThemeManager.getTickColor(isRead)
+                    && bubbleDrawable == sharedBubbleDrawable(c0, isSent, false, density)) {
+                final boolean haveC = counts != null && counts.length >= n0;
+                final boolean haveV = myVote != null && myVote.length >= n0;
+                boolean same = true;
+                for (int i = 0; i < n0 && same; i++) {
+                    String o = options.get(i) != null ? options.get(i) : "";
+                    if (!o.equals(pollOptions[i])) same = false;
+                    else if ((haveC ? counts[i] : 0) != pollSigCounts[i]) same = false;
+                    else if ((haveV && myVote[i]) != pollSigMyVote[i]) same = false;
+                }
+                if (same) return;
+            }
+        }
         lastBindWasPlainText = false;
         this.isMedia       = false;
         this.isMediaGroup  = false;
@@ -5502,6 +5549,11 @@ public class MessageBubbleCanvasView extends View {
         if (this.pollOptions == null || this.pollOptions.length != n) this.pollOptions = new String[n];
         this.pollCounts   = counts  != null && counts.length  >= n ? counts  : new int[n];
         this.pollMyVote   = myVote  != null && myVote.length  >= n ? myVote  : new boolean[n];
+        if (pollSigCounts == null || pollSigCounts.length != n) pollSigCounts = new int[n];
+        if (pollSigMyVote == null || pollSigMyVote.length != n) pollSigMyVote = new boolean[n];
+        System.arraycopy(this.pollCounts, 0, pollSigCounts, 0, n);
+        System.arraycopy(this.pollMyVote, 0, pollSigMyVote, 0, n);
+        pollSigValid = true;
         if (this.pollIsLeader == null || this.pollIsLeader.length != n) this.pollIsLeader = new boolean[n];
         if (this.pollFillWidths == null || this.pollFillWidths.length != n) this.pollFillWidths = new float[n];
         for (int i = 0; i < n; i++) {
@@ -5641,8 +5693,22 @@ public class MessageBubbleCanvasView extends View {
 
     /** @param totalSizeText combined size of the pending cells (e.g. "4.2 MB") appended to the pill, or null to omit. */
     public void setGroupDownloadGate(@Nullable boolean[] cellNeedsDownload, @Nullable String totalSizeText) {
-        this.groupGatePendingSizeText = totalSizeText;
         int n = groupVisibleCount;
+        // v861: gate inactive before AND after (no cell needs a download), same size text, same cell count and
+        // no cell mid-download/failed -> the call would rebuild identical arrays; skip the re-record.
+        if (!groupGateActive && groupGatePendingCount == 0 && groupCellPending.length == n
+                && groupCellDownloading.length == n && groupCellFailed.length == n
+                && java.util.Objects.equals(totalSizeText, groupGatePendingSizeText)) {
+            boolean anyNew = false, anyLive = false;
+            if (cellNeedsDownload != null) {
+                for (int i = 0; i < n && i < cellNeedsDownload.length; i++) if (cellNeedsDownload[i]) { anyNew = true; break; }
+            }
+            for (int i = 0; i < n; i++) {
+                if (groupCellPending[i] || groupCellDownloading[i] || groupCellFailed[i]) { anyLive = true; break; }
+            }
+            if (!anyNew && !anyLive) return;
+        }
+        this.groupGatePendingSizeText = totalSizeText;
         this.groupCellPending = new boolean[n];
         this.groupCellDownloading = new boolean[n];
         this.groupCellProgress = new int[n];
@@ -6303,6 +6369,13 @@ public class MessageBubbleCanvasView extends View {
 
     /** 1:1 polls: makes the "N votes" footer tappable (shows a "›" cue) → onPollVotersClick(). */
     public void setPollFooterTappable(boolean tappable) {
+        // v859: called on every poll bind; no-op when state + footer cue already match (bindPoll() resets the
+        // footer text, so a missing/extra cue still falls through to the full path).
+        if (tappable == pollFooterTappable
+                && tappable == pollFooterText.endsWith(" \u203A")) {
+            if (!tappable && pollVoterAvatars.isEmpty()) pollVotersRect.setEmpty();
+            return;
+        }
         pollFooterTappable = tappable;
         if (tappable && !pollFooterText.endsWith(" \u203A")) pollFooterText = pollFooterText + " \u203A";
         if (!tappable && pollVoterAvatars.isEmpty()) pollVotersRect.setEmpty();
@@ -6614,6 +6687,14 @@ public class MessageBubbleCanvasView extends View {
      *                 resize again once setLinkPreviewThumbBitmap() lands.
      */
     public void setLinkPreview(String url, @Nullable String title, @Nullable String domain, boolean hasThumb) {
+        // v860: same card already showing -> keep it (and its decoded thumb); no null-thumb + re-record cycle.
+        if (this.hasLinkPreview && url != null && !url.isEmpty()
+                && url.equals(this.linkPreviewUrl)
+                && (title != null ? title : "").equals(this.linkTitle)
+                && (domain != null ? domain : "").equals(this.linkDomain)
+                && hasThumb == this.linkHasThumb) {
+            return;
+        }
         this.hasLinkPreview = url != null && !url.isEmpty();
         this.linkPreviewUrl = url != null ? url : "";
         this.linkTitle = title != null ? title : "";
@@ -6639,6 +6720,9 @@ public class MessageBubbleCanvasView extends View {
 
     /** Call when the message has no link, the URL has no OG data, or the fetch failed — clears any stale card state on a recycled view. */
     public void clearLinkPreview() {
+        // v860: already fully clear -> nothing to reset, nothing to re-record.
+        if (!this.hasLinkPreview && this.linkPreviewUrl.isEmpty() && this.linkThumbBitmap == null
+                && this.linkTitleLayout == null && this.linkCardHeight == 0) return;
         this.hasLinkPreview = false;
         this.linkPreviewUrl = "";
         this.linkTitle = "";
@@ -6793,7 +6877,12 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         final long _t = System.nanoTime();
-        onMeasureInner(widthMeasureSpec, heightMeasureSpec);
+        android.os.Trace.beginSection("Bubble#measure"); // v862: visible in Perfetto / TraceSectionMetric
+        try {
+            onMeasureInner(widthMeasureSpec, heightMeasureSpec);
+        } finally {
+            android.os.Trace.endSection();
+        }
         com.callx.app.debug.OpenPerfLog.acc("bubble.onMeasure", System.nanoTime() - _t);
     }
 

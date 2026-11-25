@@ -58,6 +58,11 @@ class MediaBubbleScrollBenchmark {
         TraceSectionMetric("BubbleBitmap#decode", TraceSectionMetric.Mode.Sum),
         TraceSectionMetric("BubbleBlur#compute", TraceSectionMetric.Mode.Sum),
         TraceSectionMetric("SpinnerClock#tick", TraceSectionMetric.Mode.Sum),
+        // v862: main-thread cost of bubble recording / measuring during scroll (Sum of ms per run).
+        // Slice COUNT of Bubble.record is read from the .perfetto-trace (ui.perfetto.dev) -> query
+        // `select count(*) from slice where name='Bubble.record'`; benchmark-macro 1.2.3 has no Count mode.
+        TraceSectionMetric("Bubble.record", TraceSectionMetric.Mode.Sum),
+        TraceSectionMetric("Bubble#measure", TraceSectionMetric.Mode.Sum),
         MemoryUsageMetric(MemoryUsageMetric.MemoryMetricType.HEAP),
     )
 
