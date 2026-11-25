@@ -2,6 +2,7 @@ package com.callx.app.conversation.controllers;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.WindowManager;
@@ -117,11 +118,24 @@ public class ChatViewOnceController {
      */
     private final Set<String> pendingDeleteIds = new HashSet<>();
 
+    // ── Maintenance (persisted retry queue + tombstone TTL purge) ─────────
+    private static final String MAINT_PREFS        = "view_once_maint";
+    private static final String KEY_PENDING        = "pending";       // Set<"chatId|msgId">
+    private static final String KEY_PURGE_PREFIX   = "purge_ts_";     // + chatId -> last purge ms
+    /** Tombstones (opened/expired/revoked) older than this are removed from Firebase. */
+    private static final long   TOMBSTONE_TTL_MS   = 7L * 24 * 60 * 60 * 1000;
+    /** Purge runs at most once per chat per this interval. */
+    private static final long   PURGE_INTERVAL_MS  = 24L * 60 * 60 * 1000;
+    private static final int    PURGE_BATCH        = 50;
+
+    private final Context appCtx;
+
     // ── Constructor ───────────────────────────────────────────────────────
 
     public ChatViewOnceController(@NonNull ChatActivityDelegate delegate) {
         this.delegate    = delegate;
         this.activityRef = new WeakReference<>(delegate.getActivity());
+        this.appCtx      = delegate.getActivity().getApplicationContext();
         this.mainHandler = new Handler(Looper.getMainLooper());
         this.ioExecutor  = Executors.newSingleThreadExecutor();
     }
@@ -202,9 +216,8 @@ public class ChatViewOnceController {
             currentlyViewingId = null;
         }
         disableSecureWindow();
-        // Mark opened in Firebase NOW (user has viewed) + immediately hard delete
-        markOpened(messageId);
-        hardDeleteFromFirebase(messageId);
+        // Mark opened + wipe in ONE Firebase write (was 2 back-to-back writes)
+        markOpenedAndWipe(messageId);
     }
 
     /**
@@ -219,8 +232,7 @@ public class ChatViewOnceController {
             currentlyViewingId = null;
         }
         disableSecureWindow();
-        markOpened(messageId);
-        hardDeleteFromFirebase(messageId);
+        markOpenedAndWipe(messageId);
 
         // Silent push to sender: "Your secret message was viewed"
         // Only send if sender != receiver (sanity guard — should never be equal)
@@ -243,7 +255,104 @@ public class ChatViewOnceController {
         Set<String> toFlush = new HashSet<>(pendingDeleteIds);
         pendingDeleteIds.clear();
         for (String id : toFlush) {
+            unpersistPending(id);   // re-queued (and re-persisted) by the write callback on failure
             hardDeleteFromFirebase(id);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MAINTENANCE — survive app kill + purge old tombstones
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Cheap, controller-free check (call from a background thread) so
+     * ChatActivity only builds this controller on chat open when there is
+     * real work: persisted pending deletes for this chat, or a daily
+     * tombstone purge that is due.
+     */
+    public static boolean isMaintenanceDue(@Nullable Context ctx, @Nullable String chatId) {
+        if (ctx == null || chatId == null) return false;
+        SharedPreferences sp = ctx.getSharedPreferences(MAINT_PREFS, Context.MODE_PRIVATE);
+        Set<String> pending = sp.getStringSet(KEY_PENDING, null);
+        if (pending != null) {
+            String prefix = chatId + "|";
+            for (String e : pending) if (e.startsWith(prefix)) return true;
+        }
+        long last = sp.getLong(KEY_PURGE_PREFIX + chatId, 0L);
+        return System.currentTimeMillis() - last >= PURGE_INTERVAL_MS;
+    }
+
+    /** Re-load persisted pending deletes for this chat, flush them, then purge old tombstones. */
+    public void runMaintenance() {
+        final String chatId = delegate.getChatId();
+        if (chatId == null) return;
+        try {
+            ioExecutor.execute(() -> {
+                SharedPreferences sp = appCtx.getSharedPreferences(MAINT_PREFS, Context.MODE_PRIVATE);
+                final java.util.List<String> reload = new java.util.ArrayList<>();
+                Set<String> persisted = sp.getStringSet(KEY_PENDING, null);
+                if (persisted != null) {
+                    String prefix = chatId + "|";
+                    for (String e : persisted) {
+                        if (e.startsWith(prefix)) reload.add(e.substring(prefix.length()));
+                    }
+                }
+                // pendingDeleteIds is main-thread state: mutate + flush there.
+                mainHandler.post(() -> {
+                    pendingDeleteIds.addAll(reload);
+                    flushPendingDeletes();
+                });
+                purgeOldTombstones(chatId, sp);
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // controller already released
+        }
+    }
+
+    /**
+     * Removes view-once tombstones older than TOMBSTONE_TTL_MS from Firebase so the
+     * chat listener / delta sync stops re-downloading them on every open.
+     * Local Room rows are kept (the \"Opened\" card stays); the resulting
+     * onChildRemoved just soft-deletes the already soft-deleted row.
+     * Runs on ioExecutor, at most once per chat per day.
+     */
+    private void purgeOldTombstones(@NonNull String chatId, @NonNull SharedPreferences sp) {
+        try {
+            long cutoff = System.currentTimeMillis() - TOMBSTONE_TTL_MS;
+            java.util.List<String> ids = com.callx.app.db.AppDatabase.getInstance(appCtx)
+                    .messageDao().getViewOnceTombstoneIdsOlderThan(chatId, cutoff, PURGE_BATCH);
+            for (String id : ids) {
+                DatabaseReference ref = getMessageRef(id);
+                if (ref != null) ref.removeValue();
+            }
+            // Full batch => more remain; leave the timer unset so the next open continues.
+            if (ids.size() < PURGE_BATCH) {
+                sp.edit().putLong(KEY_PURGE_PREFIX + chatId, System.currentTimeMillis()).apply();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void queuePending(@NonNull String msgId) {
+        pendingDeleteIds.add(msgId);
+        String chatId = delegate.getChatId();
+        if (chatId == null) return;
+        SharedPreferences sp = appCtx.getSharedPreferences(MAINT_PREFS, Context.MODE_PRIVATE);
+        synchronized (ChatViewOnceController.class) {
+            Set<String> cur = new HashSet<>(sp.getStringSet(KEY_PENDING, new HashSet<>()));
+            cur.add(chatId + "|" + msgId);
+            sp.edit().putStringSet(KEY_PENDING, cur).apply();
+        }
+    }
+
+    private void unpersistPending(@NonNull String msgId) {
+        String chatId = delegate.getChatId();
+        if (chatId == null) return;
+        SharedPreferences sp = appCtx.getSharedPreferences(MAINT_PREFS, Context.MODE_PRIVATE);
+        synchronized (ChatViewOnceController.class) {
+            Set<String> cur = new HashSet<>(sp.getStringSet(KEY_PENDING, new HashSet<>()));
+            if (cur.remove(chatId + "|" + msgId)) {
+                sp.edit().putStringSet(KEY_PENDING, cur).apply();
+            }
         }
     }
 
@@ -298,7 +407,7 @@ public class ChatViewOnceController {
     public void markExpiredByTimer(@NonNull String messageId) {
         DatabaseReference msgRef = getMessageRef(messageId);
         if (msgRef == null) {
-            pendingDeleteIds.add(messageId);
+            queuePending(messageId);
             return;
         }
 
@@ -313,12 +422,12 @@ public class ChatViewOnceController {
 
         msgRef.updateChildren(updates, (error, ref) -> {
             if (error != null) {
-                pendingDeleteIds.add(messageId);
+                queuePending(messageId);
             }
         });
 
         // Reflect locally immediately
-        softDeleteLocally(messageId);
+        softDeleteLocally(messageId, STATE_EXPIRED);
     }
 
     /**
@@ -337,7 +446,7 @@ public class ChatViewOnceController {
                                @Nullable Runnable onFailure) {
         DatabaseReference msgRef = getMessageRef(messageId);
         if (msgRef == null) {
-            pendingDeleteIds.add(messageId);
+            queuePending(messageId);
             if (onFailure != null) mainHandler.post(onFailure);
             return;
         }
@@ -353,7 +462,7 @@ public class ChatViewOnceController {
 
         msgRef.updateChildren(updates, (error, ref) -> {
             if (error != null) {
-                pendingDeleteIds.add(messageId);
+                queuePending(messageId);
                 if (onFailure != null) mainHandler.post(onFailure);
             } else {
                 if (onSuccess != null) mainHandler.post(onSuccess);
@@ -361,7 +470,7 @@ public class ChatViewOnceController {
         });
 
         // Reflect locally immediately
-        softDeleteLocally(messageId);
+        softDeleteLocally(messageId, STATE_REVOKED);
     }
 
     public void release() {
@@ -376,22 +485,32 @@ public class ChatViewOnceController {
     // ─────────────────────────────────────────────────────────────────────
 
     /**
-     * Batch-write viewOnceState + openedAt to Firebase.
-     * Single updateChildren() call — one network round-trip.
+     * Receiver closed the viewer: ONE updateChildren() that records openedAt,
+     * flips state to deleted and wipes all content (text, media, thumbnail,
+     * fileName, mediaItems). Replaces the old markOpened() + hardDelete pair —
+     * one network round-trip and one listener event on the sender instead of two.
+     * Node is kept as a tombstone; purgeOldTombstones() removes it after the TTL.
      */
-    private void markOpened(@NonNull String msgId) {
+    private void markOpenedAndWipe(@NonNull String msgId) {
         DatabaseReference msgRef = getMessageRef(msgId);
-        if (msgRef == null) return;
+        if (msgRef == null) {
+            queuePending(msgId);
+            softDeleteLocally(msgId);
+            return;
+        }
 
         Map<String, Object> updates = new HashMap<>();
-        updates.put(FIELD_VIEW_ONCE_STATE, STATE_OPENED);
-        updates.put(FIELD_OPENED_AT,       ServerValue.TIMESTAMP);
+        updates.put(FIELD_OPENED_AT,        ServerValue.TIMESTAMP);
+        updates.put(FIELD_VIEW_ONCE_STATE,  STATE_DELETED);
+        updates.put(FIELD_DELETED,          true);
+        updates.put(FIELD_TEXT,             "");
+        updates.put(FIELD_MEDIA_URL,        null);
+        updates.put(FIELD_THUMBNAIL_URL,    null);
+        updates.put("fileName",             null);
+        updates.put(FIELD_MEDIA_ITEMS,      null);
 
         msgRef.updateChildren(updates, (error, ref) -> {
-            if (error != null) {
-                // Queue for retry on reconnect
-                pendingDeleteIds.add(msgId);
-            }
+            if (error != null) queuePending(msgId); // retry on reconnect / next open
         });
 
         // Mirror in local Room DB immediately (optimistic update)
@@ -416,7 +535,7 @@ public class ChatViewOnceController {
     private void hardDeleteFromFirebase(@NonNull String msgId) {
         DatabaseReference msgRef = getMessageRef(msgId);
         if (msgRef == null) {
-            pendingDeleteIds.add(msgId); // offline — queue for later
+            queuePending(msgId); // offline — queue for later
             return;
         }
 
@@ -431,7 +550,7 @@ public class ChatViewOnceController {
 
         msgRef.updateChildren(wipe, (error, ref) -> {
             if (error != null) {
-                pendingDeleteIds.add(msgId); // retry on reconnect
+                queuePending(msgId); // retry on reconnect
             }
         });
     }
@@ -442,12 +561,16 @@ public class ChatViewOnceController {
      * → adapter removes bubble via DiffUtil (no notifyDataSetChanged).
      */
     private void softDeleteLocally(@NonNull String msgId) {
+        softDeleteLocally(msgId, STATE_DELETED);
+    }
+
+    private void softDeleteLocally(@NonNull String msgId, @NonNull String state) {
         ioExecutor.execute(() -> {
             Activity act = activityRef.get();
             if (act == null) return;
             com.callx.app.db.AppDatabase.getInstance(act)
                     .messageDao()
-                    .softDelete(msgId);
+                    .softDeleteViewOnce(msgId, state);
         });
     }
 

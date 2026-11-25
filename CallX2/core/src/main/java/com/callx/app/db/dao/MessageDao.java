@@ -463,6 +463,13 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE viewOnce = 1 AND viewOnceState = 'opened' AND (deleted IS NULL OR deleted = 0)")
     List<MessageEntity> getPendingViewOnceDeletes();
 
+    /** View-once tombstones (opened/expired/revoked => deleted=1) older than cutoff —
+     *  used by ChatViewOnceController to purge them from Firebase after the TTL. */
+    @WorkerThread
+    @Query("SELECT id FROM messages WHERE chatId = :chatId AND viewOnce = 1 AND deleted = 1 " +
+           "AND timestamp < :cutoff ORDER BY timestamp ASC LIMIT :limit")
+    List<String> getViewOnceTombstoneIdsOlderThan(String chatId, long cutoff, int limit);
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMessages(List<MessageEntity> messages);
 
@@ -521,8 +528,14 @@ public interface MessageDao {
     void updateMessage(MessageEntity message);
 
     @WorkerThread
-    @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL, thumbnailUrl = NULL, fileName = NULL, viewOnceState = 'deleted' WHERE id = :messageId")
+    @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL, thumbnailUrl = NULL, fileName = NULL, viewOnceState = 'deleted' WHERE id = :messageId AND (deleted IS NULL OR deleted = 0)")
     void softDelete(String messageId);
+
+    /** View-once expiry/revoke: same wipe but keeps the real state ('expired'/'revoked') so the
+     *  card label stays right. No-op (and no Room invalidation) if already deleted. */
+    @WorkerThread
+    @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL, thumbnailUrl = NULL, fileName = NULL, viewOnceState = :state WHERE id = :messageId AND (deleted IS NULL OR deleted = 0)")
+    void softDeleteViewOnce(String messageId, String state);
 
     /**
      * PERF FIX (chat-open jump/flicker): bulk soft-delete for messages
@@ -531,7 +544,7 @@ public interface MessageDao {
      * One UPDATE for N ids = one PagingSource invalidation, not N.
      */
     @WorkerThread
-    @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL, thumbnailUrl = NULL, fileName = NULL, viewOnceState = 'deleted' WHERE id IN (:ids)")
+    @Query("UPDATE messages SET deleted = 1, text = '', mediaUrl = NULL, thumbnailUrl = NULL, fileName = NULL, viewOnceState = 'deleted' WHERE id IN (:ids) AND (deleted IS NULL OR deleted = 0)")
     void softDeleteAll(List<String> ids);
 
     @WorkerThread

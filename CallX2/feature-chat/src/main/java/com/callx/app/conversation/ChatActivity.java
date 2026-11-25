@@ -1083,6 +1083,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // viewOnceController: now fully on-demand via getXController(), see
         // the lazy-getter block near the field declarations above.
 
+        // View-once maintenance: flush persisted pending deletes + daily tombstone purge.
+        // Cheap prefs check on a bg thread; controller is only built when work is due.
+        {
+            final String voChatId = chatId;
+            final android.content.Context voCtx = getApplicationContext();
+            com.callx.app.utils.AppBgExecutor.execute(() -> {
+                if (ChatViewOnceController.isMaintenanceDue(voCtx, voChatId)) {
+                    runOnUiThread(() -> {
+                        if (!isFinishing() && !isDestroyed()) getViewOnceController().runMaintenance();
+                    });
+                }
+            });
+        }
+
         setupToolbar();
         mark("a11 setupToolbar");
         setupProfileCard();

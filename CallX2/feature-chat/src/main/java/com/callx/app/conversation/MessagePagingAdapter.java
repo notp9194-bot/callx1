@@ -301,6 +301,9 @@ public class MessagePagingAdapter
                     && safeEquals(a.status, b.status)       // Read/delivered ticks
                     && longEquals(a.timestamp, b.timestamp)
                     && boolEquals(a.edited, b.edited)
+                    && boolEquals(a.deleted, b.deleted)             // view-once/delete tombstone flip
+                    && safeEquals(a.viewOnceState, b.viewOnceState) // sent/opened/expired/revoked label
+                    && longEquals(a.openedAt, b.openedAt)           // sender's "Opened · time"
                     && reactionsEqual(a.reactions, b.reactions)     // Emoji reactions
                     && pollVotesEqual(a.pollVotes, b.pollVotes)     // Poll updates
                     && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed));
@@ -379,7 +382,10 @@ public class MessagePagingAdapter
                 boolean structuralSame =
                         safeEquals(a.text, b.text) &&
                         safeEquals(a.type, b.type) &&
-                        longEquals(a.timestamp, b.timestamp);
+                        longEquals(a.timestamp, b.timestamp) &&
+                        boolEquals(a.deleted, b.deleted) &&
+                        safeEquals(a.viewOnceState, b.viewOnceState) &&
+                        longEquals(a.openedAt, b.openedAt);
                 if (!structuralSame) return null; // null → full rebind
 
                 // PERF: bit-flag combine — check each of the 4 fast-path
@@ -4223,6 +4229,8 @@ public class MessagePagingAdapter
                 || !java.util.Objects.equals(current.thumbnailUrl, incoming.thumbnailUrl)
                 || !java.util.Objects.equals(current.caption, incoming.caption)
                 || !java.util.Objects.equals(current.deleted, incoming.deleted)
+                || !java.util.Objects.equals(current.viewOnceState, incoming.viewOnceState)
+                || !java.util.Objects.equals(current.openedAt, incoming.openedAt)
                 || !java.util.Objects.equals(current.edited, incoming.edited)
                 || !java.util.Objects.equals(current.editedAt, incoming.editedAt);
         boolean statusChanged =
@@ -4252,6 +4260,8 @@ public class MessagePagingAdapter
         current.thumbnailUrl = incoming.thumbnailUrl;
         current.caption = incoming.caption;
         current.deleted = incoming.deleted;
+        if (incoming.viewOnceState != null) current.viewOnceState = incoming.viewOnceState;
+        if (incoming.openedAt != null) current.openedAt = incoming.openedAt;
         current.edited = incoming.edited;
         current.editedAt = incoming.editedAt;
         current.status = incoming.status;
@@ -6081,7 +6091,10 @@ public class MessagePagingAdapter
         cv.setQuickForwardVisible(showFwd);
 
         final long _c0 = com.callx.app.debug.BubblePerfStats.t();
-        if (isDeleted) {
+        // FIX: view-once tombstones (opened/expired/revoked) always carry deleted=true;
+        // let them fall through to the view-once branch below so the Opened/Expired/
+        // Removed card renders instead of the generic "deleted" placeholder.
+        if (isDeleted && !isViewOnceMsg) {
             // Mirrors bindMessage()'s deleted-message branch: always the
             // plain-text placeholder, regardless of the message's original
             // type — no media/group content is ever shown once deleted.

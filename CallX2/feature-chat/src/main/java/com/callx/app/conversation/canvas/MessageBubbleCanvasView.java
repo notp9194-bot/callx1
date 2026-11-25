@@ -3570,6 +3570,9 @@ public class MessageBubbleCanvasView extends View {
         this.read = isRead;
         this.delivered = isDelivered;
         tickPaint.setColor(ChatThemeManager.getTickColor(isRead));
+        // v871: view-once / seen / call-entry cards never draw a tick (footer is baked into the cached
+        // node, not live) -> a status flip must not force a full re-record.
+        if (isViewOnce || isSeenBubble || isCallEntry) return;
         invalidateExpiryRegion(false); // v853: live footer -> only the footer rect, cached node untouched
     }
 
@@ -5041,6 +5044,26 @@ public class MessageBubbleCanvasView extends View {
     public void bindViewOnce(int variant, @Nullable String sublabel, @Nullable String expiredLabel,
                               @Nullable String openedAtText, boolean showOpenedAt,
                               String timeText, boolean isSent) {
+        // v871: identical rebind (chat open / scroll back / tick payload refresh) on an already-recorded
+        // view-once card: nothing visible changed, so don't reset flags or invalidate() (which marks the
+        // cached node dirty and forces a re-record). Colours are fixed per variant -> no theme check needed.
+        {
+            final String sub = sublabel != null ? sublabel : "";
+            final String exp = (expiredLabel != null && !expiredLabel.isEmpty()) ? expiredLabel : "Opened";
+            final String opened = openedAtText != null ? openedAtText : "";
+            final String time = timeText != null ? timeText : "";
+            if (isViewOnce && !fullBubbleDirty && !staticPictureDirty
+                    && viewOnceVariant == variant
+                    && viewOnceShowOpenedAt == showOpenedAt
+                    && sent == isSent
+                    && viewOnceSublabel.equals(sub)
+                    && viewOnceExpiredLabel.equals(exp)
+                    && viewOnceOpenedAtText.equals(opened)
+                    && footerTimeText.equals(time)) {
+                if (requestLayoutIfSizeChanged()) invalidate();
+                return;
+            }
+        }
         lastBindWasPlainText = false;
         this.isMedia = false;
         this.isMediaGroup = false;

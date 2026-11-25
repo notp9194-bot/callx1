@@ -66,6 +66,7 @@ public class ViewOnceExpiryWorker extends Worker {
         updates.put(ChatViewOnceController.FIELD_MEDIA_URL,       null);
         updates.put(ChatViewOnceController.FIELD_THUMBNAIL_URL,   null);
         updates.put("fileName",                                   null);
+        updates.put(ChatViewOnceController.FIELD_MEDIA_ITEMS,     null); // multi_media wipe
 
         CountDownLatch writeLatch = new CountDownLatch(1);
         final boolean[] writeOk = {false};
