@@ -6883,7 +6883,9 @@ public class MessageBubbleCanvasView extends View {
         } finally {
             android.os.Trace.endSection();
         }
-        com.callx.app.debug.OpenPerfLog.acc("bubble.onMeasure", System.nanoTime() - _t);
+        final long _dt = System.nanoTime() - _t;
+        com.callx.app.debug.OpenPerfLog.acc("bubble.onMeasure", _dt);
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.measure(_dt);
     }
 
     private void onMeasureInner(int widthMeasureSpec, int heightMeasureSpec) {
@@ -8264,6 +8266,7 @@ public class MessageBubbleCanvasView extends View {
             if (fullBubbleRenderNode == null) fullBubbleRenderNode = new android.graphics.RenderNode("bubble");
             if (!fullBubbleDirty && w == fullBubblePictureW && h == fullBubblePictureH
                     && fullBubbleRenderNode.hasDisplayList()) return;      // already cached
+            final long _pre = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
             android.os.Trace.beginSection("Bubble.preRecord");
             fullBubbleRenderNode.setPosition(0, 0, w, h);
             android.graphics.RecordingCanvas rc = fullBubbleRenderNode.beginRecording();
@@ -8277,6 +8280,7 @@ public class MessageBubbleCanvasView extends View {
             fullBubblePictureW = w;
             fullBubblePictureH = h;
             sRenderCachePreRecorded++;
+            if (_pre != 0L) com.callx.app.debug.BubblePerfStats.pre(System.nanoTime() - _pre);
         } catch (RuntimeException e) {
             fullBubbleDirty = true;                         // fall back to normal onDraw record
         }
@@ -8386,17 +8390,20 @@ public class MessageBubbleCanvasView extends View {
                     // Cache hit: replay the GPU-side display list — no CPU
                     // draw-op walk at all, cheaper than canvas.drawPicture().
                     sRenderCacheHits++;
+                    if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.hit();
                     canvas.drawRenderNode(fullBubbleRenderNode);
                     drawDynamicOverlayLayer(canvas);
                     return;
                 }
                 sRenderCacheMisses++;
+                final long _pt = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
                 android.os.Trace.beginSection("Bubble.record");
                 fullBubbleRenderNode.setPosition(0, 0, w, h);
                 android.graphics.RecordingCanvas rc = fullBubbleRenderNode.beginRecording();
                 drawBubbleContent(rc);
                 fullBubbleRenderNode.endRecording();
                 android.os.Trace.endSection();
+                if (_pt != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt);
                 fullBubbleDirty    = false;
                 fullBubblePictureW = w;
                 fullBubblePictureH = h;
@@ -8407,15 +8414,18 @@ public class MessageBubbleCanvasView extends View {
             if (!fullBubbleDirty && fullBubblePicture != null
                     && w == fullBubblePictureW && h == fullBubblePictureH) {
                 // Cache hit: replay the recorded Picture — ~0 CPU cost
+                if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.hit();
                 canvas.drawPicture(fullBubblePicture);
                 drawDynamicOverlayLayer(canvas);
                 return;
             }
             // Cache miss or stale: record fresh
             if (fullBubblePicture == null) fullBubblePicture = new android.graphics.Picture();
+            final long _pt2 = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
             Canvas pc = fullBubblePicture.beginRecording(w, h);
             drawBubbleContent(pc);
             fullBubblePicture.endRecording();
+            if (_pt2 != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt2);
             fullBubbleDirty    = false;
             fullBubblePictureW = w;
             fullBubblePictureH = h;

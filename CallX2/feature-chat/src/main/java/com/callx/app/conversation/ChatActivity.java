@@ -1766,6 +1766,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     protected void onDestroy() {
+        com.callx.app.debug.BubblePerfStats.stop(this);
         chatUiEventBatcher.cancel();
         super.onDestroy();
         flushDraftSave();
@@ -7174,6 +7175,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (id == R.id.action_small_window)          { openSmallWindow();                          return true; }
         if (id == R.id.action_display_mode)          { showChatDisplayModePicker();                return true; }
         if (id == R.id.action_paging_debug_log)      { showPagingDebugLogDialog();                 return true; }
+        if (id == R.id.action_bubble_perf)           { showBubblePerfDialog();                     return true; }
         return super.onOptionsItemSelected(item);
     }
 
@@ -7184,6 +7186,41 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // to go. Safe to delete this method + its menu item once the root
     // cause is confirmed fixed.
     // ─────────────────────────────────────────────────────────────────────
+    /** v863: Start collecting -> use the chat -> reopen: shows numbers + Copy. */
+    private void showBubblePerfDialog() {
+        if (!com.callx.app.debug.BubblePerfStats.on && !com.callx.app.debug.BubblePerfStats.hasData()) {
+            com.callx.app.debug.BubblePerfStats.start(this);
+            Toast.makeText(this, "Collecting. Ab chat scroll/send karo, phir ye menu dobara kholo.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final String text = com.callx.app.debug.BubblePerfStats.report();
+        final android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(text);
+        tv.setTextIsSelectable(true);
+        tv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tv.setTextSize(11f);
+        int pad = (int) (12 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(tv);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("📊 Bubble Perf")
+                .setView(scroll)
+                .setPositiveButton("Copy", (d, w) -> {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("Bubble Perf", text));
+                        Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNeutralButton("Restart", (d, w) -> {
+                    com.callx.app.debug.BubblePerfStats.start(this);
+                    Toast.makeText(this, "Restarted", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
     private void showPagingDebugLogDialog() {
         String logText = "== CHAT OPEN TIMING ==\n"
                 + com.callx.app.debug.OpenPerfLog.getAll()

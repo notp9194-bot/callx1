@@ -71,4 +71,9 @@
         android:title="🐞 Paging Debug Log"
         app:showAsAction="never"/>
 
+    <!-- v863: bubble performance numbers (Start -> use chat -> open again -> Copy). -->
+    <item android:id="@+id/action_bubble_perf"
+        android:title="📊 Bubble Perf"
+        app:showAsAction="never"/>
+
 </menu>

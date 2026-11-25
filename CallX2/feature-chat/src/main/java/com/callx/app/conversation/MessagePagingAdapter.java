@@ -4266,7 +4266,9 @@ public class MessagePagingAdapter
     public void onBindViewHolder(@NonNull VH h, int position) {
         final long _t = System.nanoTime();
         onBindViewHolderFullInner(h, position);
-        com.callx.app.debug.OpenPerfLog.acc("adapter.bind(full)", System.nanoTime() - _t);
+        final long _dt = System.nanoTime() - _t;
+        com.callx.app.debug.OpenPerfLog.acc("adapter.bind(full)", _dt);
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.bind(_dt);
     }
 
     private void onBindViewHolderFullInner(@NonNull VH h, int position) {
