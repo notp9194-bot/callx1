@@ -310,7 +310,7 @@ final class MediaRenderer {
             // — and, for a sent message still uploading/failed, the pending
             // clock — never disappears. The caption row + footer stay hidden
             // while gated, exactly as before.
-            drawMediaDownloadGate(canvas, spinnerHandledSeparately);
+            drawMediaGateScrim(canvas); // v853: the pill (bg/ring/%/label) is live — drawMediaGatePillLive()
             if (host.mediaHasCaption && host.textLayout != null) return;
         }
 
@@ -334,26 +334,34 @@ final class MediaRenderer {
             host.readMoreRect.setEmpty(); // v845: time/ticks already drawn inside the voice strip
         } else {
             host.readMoreRect.setEmpty();
-            // v850: captionless image/video/gif — time + tick in a slim strip BELOW the photo
-            // (nothing drawn over the pixels). No pill background / border / round-rect.
-            if (!host.hasFooterStrip()) return;
-            final float d = host.density;
-            final RectF f = host.mediaFooterRect;
-            f.set(host.mediaRect.left, host.mediaRect.bottom, host.mediaRect.right,
-                    host.mediaRect.bottom + MessageBubbleCanvasView.MEDIA_FOOTER_STRIP_DP * d);
-            final float pad = 4f * d;
-            final float cy = f.centerY();
-            final float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * d : 0f;
-            final float rightX = f.right - pad;
-            host.footerPaint.getFontMetrics(host.footerFmScratch);
-            final float base = cy - (host.footerFmScratch.ascent + host.footerFmScratch.descent) / 2f;
-            final float timeX = rightX - host.footerTimeTextWidth() - tickReserve;
-            canvas.drawText(host.footerTimeText, timeX, base, host.footerPaint);
-            if (host.hasExpiry) canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), base, host.expiryPaint);
-            if (host.sent) {
-                // Sent + gated = upload queued/running/failed -> pending clock instead of the tick.
-                host.drawTick(canvas, rightX - MessageBubbleCanvasView.TICK_SIZE_DP * d, base, host.mediaGated, true);
-            }
+            // v852: the footer strip (time + tick) is NOT part of the cached bubble node any more —
+            // it is drawn live from drawDynamicOverlayLayer() via drawFooterStrip().
+        }
+    }
+
+    /**
+     * v852: captionless image/video/gif — time + tick in a slim strip BELOW the photo, drawn in the
+     * live overlay layer so a tick/expiry/clock change only redraws this rect (the cached bubble node
+     * with the photo is never re-recorded). Plain text + tick, no background/border.
+     */
+    void drawFooterStrip(Canvas canvas) {
+        if (!host.hasFooterStrip()) return;
+        final float d = host.density;
+        final RectF f = host.mediaFooterRect;
+        f.set(host.mediaRect.left, host.mediaRect.bottom, host.mediaRect.right,
+                host.mediaRect.bottom + MessageBubbleCanvasView.MEDIA_FOOTER_STRIP_DP * d);
+        final float pad = 4f * d;
+        final float cy = f.centerY();
+        final float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * d : 0f;
+        final float rightX = f.right - pad;
+        host.footerPaint.getFontMetrics(host.footerFmScratch);
+        final float base = cy - (host.footerFmScratch.ascent + host.footerFmScratch.descent) / 2f;
+        final float timeX = rightX - host.footerTimeTextWidth() - tickReserve;
+        canvas.drawText(host.footerTimeText, timeX, base, host.footerPaint);
+        if (host.hasExpiry) canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), base, host.expiryPaint);
+        if (host.sent) {
+            // Sent + gated = upload queued/running/failed -> pending clock instead of the tick.
+            host.drawTick(canvas, rightX - MessageBubbleCanvasView.TICK_SIZE_DP * d, base, host.mediaGated, true);
         }
     }
 
@@ -591,11 +599,15 @@ final class MediaRenderer {
      * or a live spinner/percentage ring while mediaDownloading is true. See
      * setMediaDownloadGate()/setMediaDownloadProgress().
      */
-    private void drawMediaDownloadGate(Canvas canvas, boolean spinnerHandledSeparately) {
+    private void drawMediaGateScrim(Canvas canvas) {
         float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
         canvas.drawRoundRect(host.mediaRect, r, r, host.mediaGateScrimPaint);
         squareTailCorner(canvas, host.mediaGateScrimPaint, r);
+    }
 
+    /** v853: gate pill, drawn from the host's overlay layer on every progress/spinner tick. */
+    void drawMediaGatePillLive(Canvas canvas) {
+        final boolean spinnerHandledSeparately = false;
         final int drawnPercent = host.mediaDownloadProgress >= 0
                 ? Math.max(0, Math.min(100, Math.round(host.mediaDisplayProgress))) : -1;
         String label = host.mediaDownloading

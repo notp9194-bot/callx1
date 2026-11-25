@@ -175,6 +175,11 @@ final class ReelShareRenderer {
 
         canvas.restore();
 
+        // v853: timestamp/tick pill is drawn LIVE from the overlay layer (drawPill()).
+    }
+
+    /** v853: reel-card time/tick pill — called from the host's dynamic overlay layer. */
+    void drawPill(Canvas canvas) {
         // ── Timestamp/tick pill — always shown, bottom-end corner ──
         float rr = MessageBubbleCanvasView.MEDIA_PILL_CORNER_DP * host.density;
         canvas.drawRoundRect(host.mediaPillRect, rr, rr, host.mediaPillBgPaint);

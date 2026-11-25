@@ -245,34 +245,7 @@ final class MediaGroupRenderer {
                         host.groupMoreTextPaint);
             }
 
-            // Per-cell download badge — only drawn once the master gate
-            // pill (below) has been dismissed; while the gate is up it
-            // alone covers the whole grid, same as the old View-based
-            // master overlay sitting on top of every per-cell overlay.
-            if (!host.groupGateActive && !isLastOverlay
-                    && i < host.groupCellPending.length && host.groupCellPending[i]) {
-                canvas.drawRoundRect(rect, cellR, cellR, host.groupCellGateDimPaint);
-                float cx = rect.centerX(), cy = rect.centerY();
-                float badgeR = (MessageBubbleCanvasView.GROUP_CELL_GATE_BADGE_DP * host.density) / 2f;
-                canvas.drawCircle(cx, cy, badgeR, host.groupCellGateBadgeBgPaint);
-                boolean downloading = i < host.groupCellDownloading.length && host.groupCellDownloading[i];
-                if (downloading) {
-                    int prog = i < host.groupCellProgress.length ? host.groupCellProgress[i] : -1;
-                    // Indeterminate (<0) is skipped here ONLY when the caller is
-                    // recording this into a cached Picture/RenderNode
-                    // (spinnerHandledSeparately) — it will draw the ring itself,
-                    // live, every frame, via drawIndeterminateSpinnersOnly() on
-                    // top of that cache.
-                    if (prog >= 0 || !spinnerHandledSeparately) {
-                        host.drawProgressRing(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint, prog);
-                    }
-                } else if (i < host.groupCellFailed.length && host.groupCellFailed[i]) {
-                    // v603: SENT cell whose upload failed — retry arrow, not the download arrow.
-                    host.drawRetryIcon(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint);
-                } else {
-                    host.drawGateIcon(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint);
-                }
-            }
+            // v854: per-cell download/upload badge (dim + circle + ring/icon) is drawn LIVE — drawCellBadgesLive().
         }
 
         if (host.groupGateActive) {
@@ -339,7 +312,14 @@ final class MediaGroupRenderer {
             host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.groupContentRect.right);
         } else {
             host.readMoreRect.setEmpty();
-            // Captionless group: translucent timestamp/tick pill overlaid
+            // v853: the captionless time/tick pill is drawn LIVE from the overlay layer (drawPill()).
+        }
+    }
+
+    /** v853: captionless album time/tick pill — called from the host's dynamic overlay layer. */
+    void drawPill(Canvas canvas) {
+        {
+            // Translucent timestamp/tick pill overlaid
             // on the grid's bottom-right corner — same treatment as the
             // single-image bubble's captionless pill.
             float rr = MessageBubbleCanvasView.MEDIA_PILL_CORNER_DP * host.density;
@@ -438,6 +418,36 @@ final class MediaGroupRenderer {
      * MessageBubbleCanvasView#drawMediaGroupWithOptionalCache(). Mirrors
      * MediaRenderer#drawIndeterminateSpinnerOnly() for the single-media case.
      */
+    /**
+     * v854: per-cell dim + badge circle + progress ring / retry / download icon, painted from the host's
+     * overlay layer, so progress ticks, spinner frames and pending/downloading flips never re-record the grid.
+     */
+    void drawCellBadgesLive(Canvas canvas) {
+        if (host.groupGateActive) return; // master pill covers the grid (baked in the cached node)
+        final float cellR = MessageBubbleCanvasView.GROUP_CORNER_R * host.density;
+        final int last = host.groupVisibleCount - 1;
+        final boolean lastIsOverlay = host.groupRemaining > 0;
+        for (int i = 0; i < host.groupVisibleCount; i++) {
+            if (lastIsOverlay && i == last) continue;
+            if (i >= host.groupCellPending.length || !host.groupCellPending[i]) continue;
+            RectF rect = host.groupRects[i];
+            canvas.drawRoundRect(rect, cellR, cellR, host.groupCellGateDimPaint);
+            float cx = rect.centerX(), cy = rect.centerY();
+            float badgeR = (MessageBubbleCanvasView.GROUP_CELL_GATE_BADGE_DP * host.density) / 2f;
+            canvas.drawCircle(cx, cy, badgeR, host.groupCellGateBadgeBgPaint);
+            final float icon = MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density;
+            boolean downloading = i < host.groupCellDownloading.length && host.groupCellDownloading[i];
+            if (downloading) {
+                int prog = i < host.groupCellProgress.length ? host.groupCellProgress[i] : -1;
+                host.drawProgressRing(canvas, cx, cy, icon, host.groupCellGateIconPaint, prog);
+            } else if (i < host.groupCellFailed.length && host.groupCellFailed[i]) {
+                host.drawRetryIcon(canvas, cx, cy, icon, host.groupCellGateIconPaint);
+            } else {
+                host.drawGateIcon(canvas, cx, cy, icon, host.groupCellGateIconPaint);
+            }
+        }
+    }
+
     void drawIndeterminateSpinnersOnly(Canvas canvas) {
         if (host.groupGateActive) return;
         int last = host.groupVisibleCount - 1;

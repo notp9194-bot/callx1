@@ -131,9 +131,7 @@ final class FileBubbleRenderer {
             // (spinnerHandledSeparately) — it will draw the ring itself,
             // live, every frame, via drawIndeterminateSpinnerOnly() on top
             // of that cache.
-            if (host.fileDownloadPercent >= 0 || !spinnerHandledSeparately) {
-                host.drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actionIconPaint, host.fileDownloadPercent);
-            }
+            // v853: ring is drawn live from the overlay layer (drawRingLive()).
         } else if (host.fileIsCached) {
             // Open icon — simple right-pointing arrow
             actionArrowPath.reset();
@@ -225,6 +223,14 @@ final class FileBubbleRenderer {
      * baked in — see MessageBubbleCanvasView#drawFileBubbleWithOptionalCache().
      * No-ops unless still actually in the indeterminate-downloading state.
      */
+    /** v853: progress / spinner ring on the action button, painted from the host's overlay layer. */
+    void drawRingLive(Canvas canvas) {
+        if (!host.fileIsDownloading) return;
+        actionIconPaint.setColor(host.sent ? 0xFF555555 : 0xFF008069);
+        actionIconPaint.setStyle(Paint.Style.FILL);
+        host.drawProgressRing(canvas, lastActionCx, lastActionCy, lastActionR * 1.4f, actionIconPaint, host.fileDownloadPercent);
+    }
+
     void drawIndeterminateSpinnerOnly(Canvas canvas) {
         if (!host.fileIsDownloading || host.fileDownloadPercent >= 0) return;
         actionIconPaint.setColor(host.sent ? 0xFF555555 : 0xFF008069);

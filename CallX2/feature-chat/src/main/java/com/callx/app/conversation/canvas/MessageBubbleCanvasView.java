@@ -1903,8 +1903,9 @@ public class MessageBubbleCanvasView extends View {
     /** v846: while the clip plays, the strip is drawn LIVE in drawDynamicOverlayLayer() and is
      *  left out of the cached bubble node (same scheme as v828's audio row), so a 250 ms tick
      *  never re-records the whole bubble / photo — it only redraws the strip rect. */
+    // v853: ALWAYS live (idle too), so a tick flip / expiry tick / play-state flip never re-records the photo.
     boolean voiceStripLive() {
-        return isVoicePlaying && !voiceStripRect.isEmpty() && !mediaGated;
+        return !voiceStripRect.isEmpty();
     }
     boolean hasVoiceStrip() {
         return isMedia && !isVideoMedia && voiceUrl != null && !voiceUrl.isEmpty();
@@ -1917,6 +1918,21 @@ public class MessageBubbleCanvasView extends View {
     boolean hasFooterStrip() {
         return isMedia && !mediaHasCaption && !hasVoiceStrip();
     }
+    // v853: every other footer (text / caption media / caption album / audio / file) is also drawn LIVE.
+    // drawFooter() now only records where the footer goes (anchor); drawFooterLive() paints it from the
+    // overlay layer. The cached bubble node therefore never contains time / expiry / tick.
+    boolean footerLiveValid = false;
+    float footerLiveBaseY, footerLiveRightX;
+    // inner (media/file/group) cache keeps its own copy: an inner-cache hit does not re-run drawFooter()
+    private boolean innerFooterValid;
+    private float innerFooterBaseY, innerFooterRightX;
+    private void saveInnerFooterAnchor() {
+        innerFooterValid = footerLiveValid; innerFooterBaseY = footerLiveBaseY; innerFooterRightX = footerLiveRightX;
+    }
+    private void restoreInnerFooterAnchor() {
+        footerLiveValid = innerFooterValid; footerLiveBaseY = innerFooterBaseY; footerLiveRightX = innerFooterRightX;
+    }
+    private final RectF liveFooterRectF = new RectF();
     // Feature: Playback speed control on the voice caption badge — mirrors
     // the standalone audio bubble's btnAudioSpeed chip (1x → 1.5x → 2x →
     // 0.5x → 1x). Drawn as a small tappable segment appended to the pill,
@@ -2917,8 +2933,9 @@ public class MessageBubbleCanvasView extends View {
      * field javadoc above for the full invalidation contract.
      */
     private void drawMediaWithOptionalCache(Canvas canvas, int hPad, int vPad) {
-        boolean indeterminateSpinnerActive =
-                mediaGated && mediaDownloading && mediaDownloadProgress < 0;
+        // v853: gate pill (bg + ring + %) is live in the overlay layer, so the outer cache stays valid
+        // for the whole download and no inner cache is needed.
+        boolean indeterminateSpinnerActive = false;
         if (!indeterminateSpinnerActive) {
             mediaRenderer.draw(canvas, hPad, vPad);
             // Next indeterminate-spinner episode (this bind or a future
@@ -2953,10 +2970,12 @@ public class MessageBubbleCanvasView extends View {
                 android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
                 mediaRenderer.draw(rc, hPad, vPad, true /* spinnerHandledSeparately */);
                 cachedMediaRenderNode.endRecording();
+                saveInnerFooterAnchor();
                 staticPictureDirty = false;
                 cachedMediaPictureWidth = w;
                 cachedMediaPictureHeight = h;
             }
+            restoreInnerFooterAnchor();
             canvas.drawRenderNode(cachedMediaRenderNode);
             mediaRenderer.drawIndeterminateSpinnerOnly(canvas);
             return;
@@ -2967,10 +2986,12 @@ public class MessageBubbleCanvasView extends View {
             Canvas pictureCanvas = cachedMediaPicture.beginRecording(w, h);
             mediaRenderer.draw(pictureCanvas, hPad, vPad, true /* spinnerHandledSeparately */);
             cachedMediaPicture.endRecording();
+            saveInnerFooterAnchor();
             staticPictureDirty = false;
             cachedMediaPictureWidth = w;
             cachedMediaPictureHeight = h;
         }
+        restoreInnerFooterAnchor();
         canvas.drawPicture(cachedMediaPicture);
         mediaRenderer.drawIndeterminateSpinnerOnly(canvas);
     }
@@ -2989,7 +3010,7 @@ public class MessageBubbleCanvasView extends View {
      * view, so there's no risk of the two caches colliding.
      */
     private void drawMediaGroupWithOptionalCache(Canvas canvas, float vPad) {
-        boolean indeterminateActive = mediaGroupRenderer.hasActiveIndeterminateSpinner();
+        boolean indeterminateActive = false; // v854: cell badges/rings are live in the overlay layer
         if (!indeterminateActive) {
             mediaGroupRenderer.draw(canvas, vPad, false);
             staticPictureDirty = true;
@@ -3013,10 +3034,12 @@ public class MessageBubbleCanvasView extends View {
                 android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
                 mediaGroupRenderer.draw(rc, vPad, true /* spinnerHandledSeparately */);
                 cachedMediaRenderNode.endRecording();
+                saveInnerFooterAnchor();
                 staticPictureDirty = false;
                 cachedMediaPictureWidth = w;
                 cachedMediaPictureHeight = h;
             }
+            restoreInnerFooterAnchor();
             canvas.drawRenderNode(cachedMediaRenderNode);
             mediaGroupRenderer.drawIndeterminateSpinnersOnly(canvas);
             return;
@@ -3027,10 +3050,12 @@ public class MessageBubbleCanvasView extends View {
             Canvas pictureCanvas = cachedMediaPicture.beginRecording(w, h);
             mediaGroupRenderer.draw(pictureCanvas, vPad, true /* spinnerHandledSeparately */);
             cachedMediaPicture.endRecording();
+            saveInnerFooterAnchor();
             staticPictureDirty = false;
             cachedMediaPictureWidth = w;
             cachedMediaPictureHeight = h;
         }
+        restoreInnerFooterAnchor();
         canvas.drawPicture(cachedMediaPicture);
         mediaGroupRenderer.drawIndeterminateSpinnersOnly(canvas);
     }
@@ -3044,7 +3069,7 @@ public class MessageBubbleCanvasView extends View {
      * fileBubbleRenderer.drawIndeterminateSpinnerOnly().
      */
     private void drawFileBubbleWithOptionalCache(Canvas canvas) {
-        boolean indeterminateActive = fileIsDownloading && fileDownloadPercent < 0;
+        boolean indeterminateActive = false; // v853: file ring is live in the overlay layer
         if (!indeterminateActive) {
             fileBubbleRenderer.draw(canvas, false);
             staticPictureDirty = true;
@@ -3068,10 +3093,12 @@ public class MessageBubbleCanvasView extends View {
                 android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
                 fileBubbleRenderer.draw(rc, true /* spinnerHandledSeparately */);
                 cachedMediaRenderNode.endRecording();
+                saveInnerFooterAnchor();
                 staticPictureDirty = false;
                 cachedMediaPictureWidth = w;
                 cachedMediaPictureHeight = h;
             }
+            restoreInnerFooterAnchor();
             canvas.drawRenderNode(cachedMediaRenderNode);
             fileBubbleRenderer.drawIndeterminateSpinnerOnly(canvas);
             return;
@@ -3082,10 +3109,12 @@ public class MessageBubbleCanvasView extends View {
             Canvas pictureCanvas = cachedMediaPicture.beginRecording(w, h);
             fileBubbleRenderer.draw(pictureCanvas, true /* spinnerHandledSeparately */);
             cachedMediaPicture.endRecording();
+            saveInnerFooterAnchor();
             staticPictureDirty = false;
             cachedMediaPictureWidth = w;
             cachedMediaPictureHeight = h;
         }
+        restoreInnerFooterAnchor();
         canvas.drawPicture(cachedMediaPicture);
         fileBubbleRenderer.drawIndeterminateSpinnerOnly(canvas);
     }
@@ -3531,7 +3560,58 @@ public class MessageBubbleCanvasView extends View {
         this.read = isRead;
         this.delivered = isDelivered;
         tickPaint.setColor(ChatThemeManager.getTickColor(isRead));
-        invalidateExpiryRegion(); // reuses the footer-band dirty rect the tick lives inside
+        invalidateExpiryRegion(false); // v853: live footer -> only the footer rect, cached node untouched
+    }
+
+    /**
+     * v853: padded bounds of this bubble's footer when ALL of its footer pieces are drawn in the live
+     * overlay layer (voice strip, captionless media strip, album/reel pill, anchor footer). Returns false
+     * when anything is still baked into the cached node -> caller falls back to a full re-record.
+     */
+    private boolean computeLiveFooterRect(RectF r) {
+        final float d = density;
+        boolean any = false;
+        r.setEmpty();
+        boolean needAnchor = true;
+        if (isMedia) {
+            if (hasVoiceStrip()) {
+                if (voiceStripRect.isEmpty()) return false;
+                r.set(voiceStripRect.left, voiceStripRect.top - 2f * d, voiceStripRect.right, voiceStripRect.bottom + 2f * d);
+                any = true;
+                needAnchor = mediaHasCaption;
+            } else if (hasFooterStrip()) {
+                if (mediaFooterRect.isEmpty()) return false;
+                r.set(mediaFooterRect.left - 16f * d, mediaFooterRect.top - 4f * d,
+                        mediaFooterRect.right + 16f * d, mediaFooterRect.bottom + 4f * d);
+                return true;
+            }
+        } else if (isMediaGroup && !groupHasCaption) {
+            if (mediaPillRect.isEmpty()) return false;
+            r.set(mediaPillRect.left - 4f * d, mediaPillRect.top - 4f * d, mediaPillRect.right + 4f * d, mediaPillRect.bottom + 4f * d);
+            return true;
+        } else if (isReelShare) {
+            if (mediaPillRect.isEmpty()) return false;
+            r.set(mediaPillRect.left - 4f * d, mediaPillRect.top - 4f * d, mediaPillRect.right + 4f * d, mediaPillRect.bottom + 4f * d);
+            return true;
+        }
+        if (needAnchor) {
+            if (!footerLiveValid) return false;
+            footerPaint.getFontMetrics(footerFmScratch);
+            final float tick = TICK_SIZE_DP * d;
+            float right = footerLiveRightX + 4f * d;
+            float left = footerLiveRightX - footerTimeTextWidth() - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * d : 0f)
+                    - expiryReserveWidth() - 64f * d; // slack: an expiry label that just shrank / vanished
+            left = Math.max(left, Math.min(0f, bubbleRect.left));
+            float top = Math.min(footerLiveBaseY + footerFmScratch.ascent, footerLiveBaseY - 0.9f * tick) - 4f * d;
+            float bottom = Math.max(footerLiveBaseY + footerFmScratch.descent, footerLiveBaseY + 0.34f * tick) + 4f * d;
+            if (any) {
+                r.left = Math.min(r.left, left); r.top = Math.min(r.top, top);
+                r.right = Math.max(r.right, right); r.bottom = Math.max(r.bottom, bottom);
+            } else {
+                r.set(left, top, right, bottom);
+            }
+        }
+        return true;
     }
 
     /**
@@ -4074,13 +4154,13 @@ public class MessageBubbleCanvasView extends View {
      * cached recording instead of picking up the new isVoicePlaying state.
      */
     private void invalidateVoiceBadgeRegion() {
-        fullBubbleDirty = true;
-        staticPictureDirty = true;
-        if (!voiceStripRect.isEmpty()) { // v845: strip layout — redraw just the strip
+        if (!voiceStripRect.isEmpty()) { // v845/v853: strip is always live — redraw just the strip, cache stays valid
             invalidate((int) voiceStripRect.left, (int) voiceStripRect.top,
                     (int) Math.ceil(voiceStripRect.right), (int) Math.ceil(voiceStripRect.bottom));
             return;
         }
+        fullBubbleDirty = true;
+        staticPictureDirty = true;
         // Union of both hit-rects — the pill background/glyph/speed chip
         // are all drawn together as one visual unit, so any of the three
         // setters above needs the WHOLE pill (not just its own half)
@@ -4129,11 +4209,14 @@ public class MessageBubbleCanvasView extends View {
 
     /** Resets the bubble to its idle state (button back to ▶, progress to 0, elapsed label cleared) — call when playback stops/completes/errors, or right before rebinding a recycled holder to a different message. */
     public void resetAudioPlayback() {
+        final boolean audioStateWasSet = audioPlaying || audioProgress != 0f || !audioElapsedText.isEmpty();
         this.audioPlaying = false;
         this.audioProgress = 0f;
         this.audioElapsedText = "";
-        fullBubbleDirty = true;   // v828
-        invalidateAudioRow();
+        if (isAudio || audioStateWasSet) { // v853: a photo/text bubble has no audio row — nothing to redraw
+            fullBubbleDirty = true;   // v828
+            invalidateAudioRow();
+        }
         // BUG FIX: a voice-caption-on-photo bubble (isMedia + voiceUrl,
         // not isAudio) never reached any reset here before — the two
         // fields above are the standalone audio row's, and this method
@@ -4205,22 +4288,18 @@ public class MessageBubbleCanvasView extends View {
      * first layout pass has run.
      */
     private void invalidateMediaDownloadRegion() {
-        if (mediaRect.isEmpty() && mediaGatePillRect.isEmpty()) {
+        if (mediaRect.isEmpty()) {
             invalidate();
             return;
         }
-        float pad = 6f * density; // covers the download ring's stroke + AA bleed
-        float left = mediaRect.left - pad;
-        float top = mediaRect.top - pad;
-        float right = mediaRect.right + pad;
-        float bottom = mediaRect.bottom + pad;
+        // v853: only the pill row, across the media width (the pill can grow/shrink with its label).
+        float pad = 6f * density; // ring stroke + AA bleed
+        float top = mediaRect.top, bottom = mediaRect.bottom;
         if (!mediaGatePillRect.isEmpty()) {
-            left = Math.min(left, mediaGatePillRect.left - pad);
-            top = Math.min(top, mediaGatePillRect.top - pad);
-            right = Math.max(right, mediaGatePillRect.right + pad);
-            bottom = Math.max(bottom, mediaGatePillRect.bottom + pad);
+            top = Math.max(mediaRect.top, mediaGatePillRect.top - pad);
+            bottom = Math.min(mediaRect.bottom, mediaGatePillRect.bottom + pad);
         }
-        mediaDownloadDirtyRect.set((int) left, (int) top, (int) Math.ceil(right), (int) Math.ceil(bottom));
+        mediaDownloadDirtyRect.set((int) mediaRect.left, (int) top, (int) Math.ceil(mediaRect.right), (int) Math.ceil(bottom));
         invalidate(mediaDownloadDirtyRect);
     }
 
@@ -4508,8 +4587,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaIsUpload = true;
         this.mediaUploadStage = stage;
         this.mediaUploadSizeText = st;
-        this.staticPictureDirty = true;
-        invalidate();
+        invalidateMediaDownloadRegion(); // v853: label is in the live pill
         refreshGateA11y();
     }
 
@@ -4536,8 +4614,7 @@ public class MessageBubbleCanvasView extends View {
         va.addUpdateListener(a -> {
             if (!mediaDownloading || !isAttachedToWindow()) { a.cancel(); return; }
             mediaDisplayProgress = (float) a.getAnimatedValue();
-            staticPictureDirty = true;
-            invalidate();
+            invalidateMediaDownloadRegion(); // v853: pill is live — rect only
         });
         mediaProgressAnimator = va;
         va.start();
@@ -4608,18 +4685,18 @@ public class MessageBubbleCanvasView extends View {
     public void setMediaUploadCancelable(boolean cancelable) {
         if (this.mediaUploadCancelable == cancelable) return;
         this.mediaUploadCancelable = cancelable;
-        this.staticPictureDirty = true;
-        invalidate();
+        invalidateMediaDownloadRegion(); // v853: cancel X is in the live pill
     }
 
     /** Updates just the live percentage while a download is already in flight (call on every onProgress tick). */
     public void setMediaDownloadProgress(int progressPercent) {
+        final boolean wasGated = mediaGated;
         this.mediaGated = true;
         this.mediaDownloading = true;
         this.mediaGateWaiting = false;
         this.mediaDownloadProgress = progressPercent;
         animateMediaProgressTo(progressPercent);
-        this.staticPictureDirty = true;
+        if (!wasGated) { this.staticPictureDirty = true; invalidate(); return; } // scrim appears -> re-record once
         // onDraw's mediaDownloadActive bypass keeps the outer full-bubble
         // cache out of the picture for the whole download, so a dirty-rect
         // invalidate here is safe: no stale-cache replay risk, just a
@@ -5186,10 +5263,11 @@ public class MessageBubbleCanvasView extends View {
 
     /** Updates the download-progress state on a file bubble. Call from adapter's download callback. */
     public void setFileDownloadState(boolean downloading, int percent) {
+        final boolean wasDownloading = this.fileIsDownloading;
         this.fileIsDownloading   = downloading;
         this.fileDownloadPercent = percent;
         staticPictureDirty = true;
-        if (downloading) {
+        if (downloading && wasDownloading) { // v853: ring is live; only the transition re-records
             // onDraw's fileDownloadActive bypass keeps the outer full-bubble
             // cache out of the picture for as long as fileIsDownloading is
             // true, so a dirty-rect invalidate is safe here — same reasoning
@@ -5541,8 +5619,7 @@ public class MessageBubbleCanvasView extends View {
         if (index < 0 || index >= groupCellDownloading.length) return;
         groupCellDownloading[index] = downloading;
         if (downloading && index < groupCellProgress.length) groupCellProgress[index] = -1;
-        staticPictureDirty = true;
-        invalidate();
+        invalidateGroupCellRegion(index); // v854: badge is live — cell rect only
     }
 
     /** Updates the live download percentage for one in-flight group cell (call on every onProgress
@@ -5576,8 +5653,7 @@ public class MessageBubbleCanvasView extends View {
         if (index < groupCellDownloading.length) groupCellDownloading[index] = false;
         if (index < groupCellProgress.length) groupCellProgress[index] = -1;
         if (index < groupCellFailed.length) groupCellFailed[index] = false;
-        staticPictureDirty = true;
-        invalidate();
+        invalidateGroupCellRegion(index); // v854: badge is live — cell rect only
     }
 
     /**
@@ -5623,10 +5699,18 @@ public class MessageBubbleCanvasView extends View {
         this.groupCellProgress = prog;
         this.groupCellFailed = failed;
         // Upload overlays are per-cell only — the master "Download N photos" pill is a RECEIVED-side thing.
+        final boolean gateWas = this.groupGateActive;
         this.groupGateActive = false;
         this.groupGatePendingCount = 0;
-        staticPictureDirty = true;
-        invalidate();
+        if (gateWas) { staticPictureDirty = true; invalidate(); } // master pill leaves the cached node
+        else invalidateGroupGrid();                                  // v854: badges + pill clock are live
+    }
+
+    /** v854: redraw only the album grid rect (cell badges / pill live in the overlay). */
+    private void invalidateGroupGrid() {
+        if (groupContentRect.isEmpty()) { invalidate(); return; }
+        invalidate((int) groupContentRect.left - 2, (int) groupContentRect.top - 2,
+                (int) Math.ceil(groupContentRect.right) + 2, (int) Math.ceil(groupContentRect.bottom) + 2);
     }
 
     /** Circular retry arrow for failed upload cells (shared with the single-media failed gate). */
@@ -6105,7 +6189,7 @@ public class MessageBubbleCanvasView extends View {
         // A late async load can land after the row stopped being the run
         // tail (setGroupSenderAvatarShown(false)) — don't pin it then.
         this.groupSenderAvatarBitmap = groupSenderAvatarShown ? bitmap : null;
-        invalidate();
+        invalidateGroupAvatar();
     }
 
     /**
@@ -6115,11 +6199,18 @@ public class MessageBubbleCanvasView extends View {
      * just an invalidate — never a re-measure — so the adapter can move the
      * avatar from the previous tail bubble to a new one cheaply.
      */
+    /** v854: avatar is drawn in the overlay layer — redraw just its rect, cached bubble stays valid. */
+    private void invalidateGroupAvatar() {
+        if (groupSenderAvatarRect.isEmpty()) { super.invalidate(); return; }
+        invalidate((int) groupSenderAvatarRect.left - 2, (int) groupSenderAvatarRect.top - 2,
+                (int) Math.ceil(groupSenderAvatarRect.right) + 2, (int) Math.ceil(groupSenderAvatarRect.bottom) + 2);
+    }
+
     public void setGroupSenderAvatarShown(boolean shown) {
         if (this.groupSenderAvatarShown == shown) return;
         this.groupSenderAvatarShown = shown;
         if (!shown) this.groupSenderAvatarBitmap = null;
-        invalidate();
+        invalidateGroupAvatar();
     }
 
     /** True when this row currently draws its avatar circle (run tail). */
@@ -6342,7 +6433,7 @@ public class MessageBubbleCanvasView extends View {
         // drawn, so a same-state call cannot leave a stale location behind.
         if (this.showForwardBtn == visible) return;
         this.showForwardBtn = visible;
-        invalidate();
+        super.invalidate(); // v853: button lives in the overlay layer — keep the cached node valid
     }
 
     /**
@@ -6383,8 +6474,7 @@ public class MessageBubbleCanvasView extends View {
         if (this.hasExpiry == nextHasExpiry && this.expiryText.equals(nextText)) return;
         this.hasExpiry = nextHasExpiry;
         this.expiryText = nextText;
-        requestLayoutIfSizeChanged();
-        invalidateExpiryRegion();
+        invalidateExpiryRegion(requestLayoutIfSizeChanged());
     }
 
     /**
@@ -6407,15 +6497,20 @@ public class MessageBubbleCanvasView extends View {
      * so the padding here is intentionally generous to absorb the few
      * pixels a digit-count change (e.g. "1:00" → "0:59") can shift things by.
      */
-    private void invalidateExpiryRegion() {
-        // PERF ADV: this path draws real content changes (tick color in
-        // setDeliveryStatus(), countdown text in setExpiryText()) that live
-        // inside the outer full-bubble cache. Without marking it dirty, a
-        // same-size cache hit on the next draw would replay the stale
-        // pre-change Picture/RenderNode — the tick/countdown update would
-        // never actually appear on screen. These are low-frequency changes
-        // (a tick flips once, a countdown ticks ~1/sec), so re-recording the
-        // cache here is cheap — same trade as the audio-row fix above.
+    private void invalidateExpiryRegion() { invalidateExpiryRegion(true); }
+
+    /**
+     * @param layoutChanged true when the footer's reserved width changed (requestLayout was issued) ->
+     *        always re-record. v853: otherwise, if the footer is drawn live, invalidate only its rect and
+     *        leave the cached node (text / photo / grid) valid.
+     */
+    private void invalidateExpiryRegion(boolean layoutChanged) {
+        if (!layoutChanged && !fullBubbleDirty && computeLiveFooterRect(liveFooterRectF)) {
+            expiryDirtyRect.set((int) liveFooterRectF.left, (int) liveFooterRectF.top,
+                    (int) Math.ceil(liveFooterRectF.right), (int) Math.ceil(liveFooterRectF.bottom));
+            invalidate(expiryDirtyRect);
+            return;
+        }
         fullBubbleDirty = true;
         float pad = 16f * density;
         float footerBandH = spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density;
@@ -7965,7 +8060,7 @@ public class MessageBubbleCanvasView extends View {
         boolean groupDownloadActive = isMediaGroup
                 && (mediaGroupRenderer.hasActiveIndeterminateSpinner() || hasActiveGroupCellDownload());
         // v828: playing audio no longer bypasses the cache — its live row is drawn in the overlay.
-        return mediaDownloadActive || fileDownloadActive || groupDownloadActive;
+        return false; // v854: single media, file AND album progress are live-overlay now
     }
 
     // ── v827: idle-time record-ahead ─────────────────────────────────────
@@ -8202,6 +8297,7 @@ public class MessageBubbleCanvasView extends View {
     /** All bubble drawing logic, called from onDraw. Extracted so we can draw
      *  into either a Picture-recording canvas or the real canvas. */
     private void drawBubbleContent(Canvas canvas) {
+        footerLiveValid = false; // v853: re-armed by drawFooter() only if this bind really has a footer row
         if (!isContact && !isLocation && !isReelShare && !isViewOnce && !isSeenBubble && !isCallEntry) {
             // Contact, location, and reel-share cards are bubbleless
             // (matches WhatsApp/Instagram — the card itself is the full
@@ -8229,9 +8325,6 @@ public class MessageBubbleCanvasView extends View {
             drawGroupSenderName(canvas);
         }
 
-        if (hasGroupSenderAvatar && groupSenderAvatarShown) {
-            drawGroupSenderAvatar(canvas);
-        }
 
         if (hasForwarded) {
             drawForwardedLabel(canvas);
@@ -8325,9 +8418,26 @@ public class MessageBubbleCanvasView extends View {
     }
 
     private void drawDynamicOverlayLayer(Canvas canvas) {
-        if (isMedia && voiceStripLive()) {
-            mediaRenderer.drawVoiceStrip(canvas);
+        // v853: footer pieces first (z-order = where they used to sit inside the cached node).
+        if (isMedia) {
+            if (voiceStripLive()) mediaRenderer.drawVoiceStrip(canvas);
+            if (!mediaFooterRect.isEmpty() && hasFooterStrip()) {
+                mediaRenderer.drawFooterStrip(canvas); // v852: live — never baked into the cached node
+            }
+        } else if (isMediaGroup) {
+            mediaGroupRenderer.drawCellBadgesLive(canvas); // v854
+            if (!groupHasCaption && !mediaPillRect.isEmpty()) mediaGroupRenderer.drawPill(canvas);
+        } else if (isReelShare) {
+            if (!mediaPillRect.isEmpty()) reelShareRenderer.drawPill(canvas);
         }
+        if (isMedia && mediaGated) {
+            mediaRenderer.drawMediaGatePillLive(canvas);   // v853
+        } else if (isFileBubble && fileIsDownloading) {
+            fileBubbleRenderer.drawRingLive(canvas);       // v853
+        }
+        if (hasReply && replyPressed) drawReplyPressedOverlay(canvas);
+        if (hasGroupSenderAvatar && groupSenderAvatarShown) drawGroupSenderAvatar(canvas); // v854: live
+        if (footerLiveValid) drawFooterLive(canvas);
         if (isAudio && audioPlaying) {
             audioRenderer.drawRow(canvas, Math.round(H_PADDING_DP * density),
                     Math.round(V_PADDING_DP * density));
@@ -8883,29 +8993,32 @@ public class MessageBubbleCanvasView extends View {
         return changed;
     }
 
+    /**
+     * v853: does NOT paint. Records where the footer row goes (and its tap rect); the actual time /
+     * expiry / tick are painted by drawFooterLive() from the overlay layer, so the cached bubble node
+     * (text, photo, grid) is never re-recorded for a tick flip or an expiry countdown tick.
+     */
     void drawFooter(Canvas canvas, float footerBaselineY, float footerRightX) {
+        footerLiveValid = true;
+        footerLiveBaseY = footerBaselineY;
+        footerLiveRightX = footerRightX;
+        // Tap rect of the "edited" tag — same value the old drawFooter() computed.
         float timeX = footerRightX - footerTimeTextWidth()
                 - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
-        canvas.drawText(footerTimeText, timeX, footerBaselineY, footerPaint);
-
-        // Record the footer text's bounding box so onTouchEvent can hit-test
-        // taps on the "✏️ edited" tag (baked into footerTimeText by the
-        // caller) — recomputed on every draw so it always tracks the
-        // footer's actual on-screen position for this bind.
-        // PERF: getFontMetrics() with no args allocates a fresh FontMetrics
-        // object every call — drawFooter() now runs for media/media-group
-        // captions too (not just text bubbles/audio/file), so this fires
-        // on every newly-recorded bubble during a fling. The (FontMetrics)
-        // overload fills a reused instance instead, so this line no longer
-        // allocates at all.
         footerPaint.getFontMetrics(footerFmScratch);
         footerTextRect.set(timeX, footerBaselineY + footerFmScratch.ascent,
                 timeX + footerTimeTextWidth(), footerBaselineY + footerFmScratch.descent);
+    }
 
+    /** v853: paints the footer row at the anchor recorded by drawFooter() (overlay layer, never cached). */
+    void drawFooterLive(Canvas canvas) {
+        final float footerBaselineY = footerLiveBaseY, footerRightX = footerLiveRightX;
+        float timeX = footerRightX - footerTimeTextWidth()
+                - (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0);
+        canvas.drawText(footerTimeText, timeX, footerBaselineY, footerPaint);
         if (hasExpiry) {
             canvas.drawText(expiryText, timeX - expiryReserveWidth(), footerBaselineY, expiryPaint);
         }
-
         if (sent && !isDeletedStyle) {
             // v811: text-aligned — tick centre sits on the time digits' centre (same footer row).
             drawTick(canvas, footerRightX - TICK_SIZE_DP * density, footerBaselineY, false, true);
@@ -8974,16 +9087,26 @@ public class MessageBubbleCanvasView extends View {
         canvas.drawText(callEntryTime, x, rowCenterY - (ctfm.ascent + ctfm.descent) / 2f, callEntryTimePaint);
     }
 
+    /** v853: reply-box press/release redraws only the box rect; cached bubble node stays valid. */
+    private void invalidateReplyBox() {
+        if (replyBoxRect.isEmpty()) { invalidate(); return; }
+        invalidate((int) replyBoxRect.left - 2, (int) replyBoxRect.top - 2,
+                (int) Math.ceil(replyBoxRect.right) + 2, (int) Math.ceil(replyBoxRect.bottom) + 2);
+    }
+
+    private void drawReplyPressedOverlay(Canvas canvas) {
+        if (replyPressedPaint == null) {
+            replyPressedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            replyPressedPaint.setColor(0x24000000);
+        }
+        float r = REPLY_CORNER_RADIUS_DP * density;
+        canvas.drawRoundRect(replyBoxRect, r, r, replyPressedPaint);
+    }
+
     private void drawReplyPreview(Canvas canvas) {
         float r = REPLY_CORNER_RADIUS_DP * density;
         canvas.drawRoundRect(replyBoxRect, r, r, replyBgPaint);
-        if (replyPressed) {
-            if (replyPressedPaint == null) {
-                replyPressedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-                replyPressedPaint.setColor(0x24000000);
-            }
-            canvas.drawRoundRect(replyBoxRect, r, r, replyPressedPaint);
-        }
+        // v853: pressed tint is drawn in the overlay layer (drawReplyPressedOverlay)
 
         int replyBar = Math.round(REPLY_BAR_WIDTH_DP * density);
         canvas.drawRect(replyBoxRect.left, replyBoxRect.top,
@@ -9270,7 +9393,10 @@ public class MessageBubbleCanvasView extends View {
     boolean consumeSpinnerTick() {
         if (!indeterminateDrawnSinceTick) return false;
         indeterminateDrawnSinceTick = false;
-        invalidate();
+        if (isMedia && mediaGated) invalidateMediaDownloadRegion();      // v853: ring is live
+        else if (isFileBubble && fileIsDownloading) invalidateFileDownloadRegion();
+        else if (isMediaGroup && !groupGateActive) invalidateGroupGrid();
+        else invalidate();
         return true;
     }
 
@@ -9445,13 +9571,13 @@ public class MessageBubbleCanvasView extends View {
         if (hasReply) {
             int ra = event.getActionMasked();
             if (ra == MotionEvent.ACTION_DOWN) {
-                if (replyBoxRect.contains(event.getX(), event.getY())) { replyPressed = true; invalidate(); }
+                if (replyBoxRect.contains(event.getX(), event.getY())) { replyPressed = true; invalidateReplyBox(); }
             } else if (replyPressed) {   // only pressed state pays for any further work
                 if (ra == MotionEvent.ACTION_UP || ra == MotionEvent.ACTION_CANCEL
                         || (ra == MotionEvent.ACTION_MOVE
                             && !replyBoxRect.contains(event.getX(), event.getY()))) {
                     replyPressed = false;
-                    invalidate();
+                    invalidateReplyBox();
                 }
             }
         }
