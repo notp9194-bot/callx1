@@ -24,18 +24,18 @@ public final class ChatPaymentBottomSheet {
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(24, 18, 24, 28);
-        root.setBackgroundColor(Color.rgb(7, 27, 22));
+        root.setBackgroundColor(androidx.core.content.ContextCompat.getColor(activity, com.callx.app.core.R.color.surface_card));
 
         TextView title = new TextView(activity);
         title.setText("Payments in chat");
-        title.setTextColor(Color.WHITE);
+        title.setTextColor(androidx.core.content.ContextCompat.getColor(activity, com.callx.app.core.R.color.text_primary));
         title.setTextSize(20);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         root.addView(title, new LinearLayout.LayoutParams(-1, 56));
 
         TextView subtitle = new TextView(activity);
         subtitle.setText("Choose an action. Real payments are disabled in demo mode.");
-        subtitle.setTextColor(Color.rgb(174, 207, 192));
+        subtitle.setTextColor(androidx.core.content.ContextCompat.getColor(activity, com.callx.app.core.R.color.text_secondary));
         root.addView(subtitle, new LinearLayout.LayoutParams(-1, 48));
 
         addAction(root, "Send Money", v -> launch(activity, SendMoneyActivity.class,

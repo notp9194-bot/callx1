@@ -8,7 +8,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#FFFFFF"
+    android:background="@color/surface_card"
     android:paddingBottom="24dp">
 
     <!-- Drag handle -->
@@ -18,7 +18,7 @@
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="10dp"
         android:layout_marginBottom="6dp"
-        android:background="#CCCCCC"
+        android:background="@color/sheet_drag_handle"
         android:layout_margin="10dp"/>
 
     <!-- Header -->
@@ -53,7 +53,7 @@
                 android:text="Encryption"
                 android:textSize="17sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
 
             <TextView
                 android:id="@+id/tv_partner_name"
@@ -61,13 +61,13 @@
                 android:layout_height="wrap_content"
                 android:text="Chat"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
     </LinearLayout>
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginBottom="16dp"/>
+        android:background="@color/sheet_divider" android:layout_marginBottom="16dp"/>
 
     <!-- Explanation -->
     <TextView
@@ -78,7 +78,7 @@
         android:text="Messages and calls in this chat are secured with end-to-end encryption, so no one outside this chat — not even CallX2 — can read or listen to them. Tap Verify below and compare this number with your contact's, in person or over another trusted channel, to confirm you're talking directly to them."
         android:textSize="13sp"
         android:lineSpacingExtra="3dp"
-        android:textColor="#555555"/>
+        android:textColor="@color/sheet_text_secondary"/>
 
     <!-- Verified badge -->
     <LinearLayout
@@ -96,7 +96,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="✓"
-            android:textColor="#2E7D32"
+            android:textColor="@color/sec_ok_green"
             android:textStyle="bold"
             android:textSize="16sp"/>
 
@@ -105,7 +105,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:text="You've verified this safety number"
-            android:textColor="#2E7D32"
+            android:textColor="@color/sec_ok_green"
             android:textSize="13sp"
             android:textStyle="bold"/>
     </LinearLayout>
@@ -123,7 +123,7 @@
         android:fontFamily="monospace"
         android:gravity="center"
         android:text="— — — — —"
-        android:textColor="#1A1A2E"
+        android:textColor="@color/sheet_text_primary"
         android:textSize="16sp"
         android:letterSpacing="0.05"/>
 
@@ -138,7 +138,7 @@
         android:text="Your key: —"
         android:fontFamily="monospace"
         android:textSize="11sp"
-        android:textColor="#888888"/>
+        android:textColor="@color/sheet_text_secondary"/>
 
     <TextView
         android:id="@+id/tv_partner_fingerprint"
@@ -150,7 +150,7 @@
         android:text="Their key: —"
         android:fontFamily="monospace"
         android:textSize="11sp"
-        android:textColor="#888888"/>
+        android:textColor="@color/sheet_text_secondary"/>
 
     <!-- Verify button -->
     <LinearLayout
@@ -183,7 +183,7 @@
         android:gravity="center"
         android:text="Reset Security Code"
         android:textSize="13sp"
-        android:textColor="#C62828"
+        android:textColor="@color/sec_danger_red"
         android:background="?attr/selectableItemBackground"
         android:padding="10dp"/>
 

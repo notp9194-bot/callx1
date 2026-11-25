@@ -121,7 +121,7 @@ public class StatusAnalyticsBottomSheet {
         card.setLayoutParams(lp);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(dp(ctx, 12));
-        bg.setColor(Color.parseColor("#F5F0FF"));
+        bg.setColor(androidx.core.content.ContextCompat.getColor(card.getContext(), com.callx.app.core.R.color.sheet_card_lavender));
         card.setBackground(bg);
         TextView tvIcon = new TextView(ctx);
         tvIcon.setText(icon);

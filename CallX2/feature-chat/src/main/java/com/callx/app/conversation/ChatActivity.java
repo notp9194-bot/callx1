@@ -5484,7 +5484,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         android.widget.TextView tvHeader = new android.widget.TextView(this);
         tvHeader.setText("🔒  View Once");
         tvHeader.setTextSize(13f);
-        tvHeader.setTextColor(0xFF888888);
+        tvHeader.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.dialog_text_secondary));
         tvHeader.setGravity(android.view.Gravity.CENTER);
         tvHeader.setPadding(0, 0, 0, 12);
         container.addView(tvHeader);
@@ -5553,6 +5553,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 long durMs = message.duration != null ? message.duration : 0L;
                 tvDur.setText(durMs > 0 ? formatDurationVo(durMs) : "--:--");
                 tvDur.setTextSize(16f);
+                tvDur.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.dialog_text_primary)); // theme-aware (was theme default on a forced-dark panel)
                 tvDur.setPadding(16, 0, 0, 0);
                 row.addView(tvDur);
                 container.addView(row);
@@ -5632,7 +5633,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     if (items.size() > 1) {
                         android.widget.TextView tvCounter = new android.widget.TextView(this);
                         tvCounter.setTextSize(11f);
-                        tvCounter.setTextColor(0xFF888888);
+                        tvCounter.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.dialog_text_secondary));
                         tvCounter.setGravity(android.view.Gravity.CENTER);
                         tvCounter.setPadding(0, 6, 0, 0);
                         tvCounter.setText("1 / " + items.size());
@@ -5648,6 +5649,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     android.widget.TextView tvEmpty = new android.widget.TextView(this);
                     tvEmpty.setText("\uD83D\uDCF7 Photos");
                     tvEmpty.setTextSize(16f);
+                    tvEmpty.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.dialog_text_primary)); // theme-aware (was theme default on a forced-dark panel)
                     tvEmpty.setGravity(android.view.Gravity.CENTER);
                     container.addView(tvEmpty);
                 }
@@ -5658,6 +5660,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 android.widget.TextView tvFile = new android.widget.TextView(this);
                 tvFile.setText("📄  " + (message.fileName != null ? message.fileName : "File"));
                 tvFile.setTextSize(16f);
+                tvFile.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.dialog_text_primary)); // theme-aware (was theme default on a forced-dark panel)
                 tvFile.setGravity(android.view.Gravity.CENTER);
                 tvFile.setPadding(0, 8, 0, 8);
                 container.addView(tvFile);
@@ -5669,6 +5672,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 android.widget.TextView tvContent = new android.widget.TextView(this);
                 tvContent.setText(message.text != null ? message.text : "");
                 tvContent.setTextSize(17f);
+                tvContent.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.dialog_text_primary)); // theme-aware (was theme default on a forced-dark panel)
                 tvContent.setGravity(android.view.Gravity.CENTER);
                 tvContent.setPadding(0, 8, 0, 8);
                 container.addView(tvContent);
@@ -5680,7 +5684,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         android.widget.TextView tvWarn = new android.widget.TextView(this);
         tvWarn.setText("⚠️  This message will be permanently deleted when you close this dialog.");
         tvWarn.setTextSize(11f);
-        tvWarn.setTextColor(0xFFAA4444);
+        tvWarn.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sec_danger_red));
         tvWarn.setGravity(android.view.Gravity.CENTER);
         tvWarn.setPadding(0, 20, 0, 0);
         container.addView(tvWarn);

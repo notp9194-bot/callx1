@@ -105,7 +105,7 @@ public class ChatDisplayModeBottomSheet extends BottomSheetDialogFragment {
         hp.gravity = Gravity.CENTER;
         handle.setLayoutParams(hp);
         GradientDrawable handleBg = new GradientDrawable();
-        handleBg.setColor(0x55FFFFFF);
+        handleBg.setColor(tc(com.callx.app.core.R.color.sheet_drag_handle));
         handleBg.setCornerRadius(dp(2));
         handle.setBackground(handleBg);
         handle.setVisibility(firstTime ? View.INVISIBLE : View.VISIBLE);
@@ -121,7 +121,7 @@ public class ChatDisplayModeBottomSheet extends BottomSheetDialogFragment {
         header.setLayoutParams(hp2);
         header.setText("🖥️  Chat Display Mode");
         header.setTextSize(17f);
-        header.setTextColor(0xFFFFFFFF);
+        header.setTextColor(tc(com.callx.app.core.R.color.sheet_text_primary));
         header.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         root.addView(header);
 
@@ -133,7 +133,7 @@ public class ChatDisplayModeBottomSheet extends BottomSheetDialogFragment {
         sub.setLayoutParams(subLp);
         sub.setText("Choose how chat looks when opened");
         sub.setTextSize(12.5f);
-        sub.setTextColor(0x99FFFFFF);
+        sub.setTextColor(tc(com.callx.app.core.R.color.sheet_text_secondary));
         root.addView(sub);
 
         LinearLayout optionsContainer = new LinearLayout(ctx);
@@ -217,13 +217,13 @@ public class ChatDisplayModeBottomSheet extends BottomSheetDialogFragment {
         TextView titleView = new TextView(ctx);
         titleView.setText(title);
         titleView.setTextSize(15f);
-        titleView.setTextColor(Color.WHITE);
+        titleView.setTextColor(tc(com.callx.app.core.R.color.sheet_text_primary));
         titleView.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
 
         TextView subtitleView = new TextView(ctx);
         subtitleView.setText(subtitle);
         subtitleView.setTextSize(12.5f);
-        subtitleView.setTextColor(0x99FFFFFF);
+        subtitleView.setTextColor(tc(com.callx.app.core.R.color.sheet_text_secondary));
         subtitleView.setPadding(0, dp(2), 0, 0);
 
         textCol.addView(titleView);
@@ -263,7 +263,7 @@ public class ChatDisplayModeBottomSheet extends BottomSheetDialogFragment {
             bg.setStroke(dp(1), 0x66A855F7);
         } else {
             bg = new GradientDrawable();
-            bg.setColor(0x14FFFFFF);
+            bg.setColor(tc(com.callx.app.core.R.color.sheet_option_fill));
         }
         bg.setCornerRadius(dp(14));
         return bg;
@@ -272,9 +272,14 @@ public class ChatDisplayModeBottomSheet extends BottomSheetDialogFragment {
     private GradientDrawable buildSheetBackground() {
         GradientDrawable gd = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFF1A1A2E, 0xFF0F0F1A});
+                new int[]{tc(com.callx.app.core.R.color.sheet_grad_start), tc(com.callx.app.core.R.color.sheet_grad_end)});
         gd.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
         return gd;
+    }
+
+    /** Theme-aware colour lookup (values / values-night in :core). */
+    private int tc(int resId) {
+        return androidx.core.content.ContextCompat.getColor(requireContext(), resId);
     }
 
     private int dp(int dp) {

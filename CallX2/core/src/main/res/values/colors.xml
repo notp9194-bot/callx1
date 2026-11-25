@@ -193,4 +193,28 @@
     <color name="trim_circle_btn_bg_on_photo">#4D000000</color>
     <color name="trim_tooltip_bg">#E6141420</color>
     <color name="trim_tooltip_text">#FFFFFF</color>
+
+    <!-- ═══ Theme-aware sheet / dialog tokens (dialog theme-fix pass) ═══
+         Light values == the literals the sheets used to hardcode, so light
+         mode looks unchanged; values-night gives the dark counterpart. -->
+    <color name="sheet_drag_handle">#CCCCCC</color>
+    <color name="sheet_divider">#F0F0F0</color>
+    <color name="sheet_divider_strong">#E0E0E0</color>
+    <color name="sheet_text_primary">#1A1A2E</color>
+    <color name="sheet_text_secondary">#888888</color>
+    <color name="sheet_text_hint">#CCCCCC</color>
+    <color name="sheet_card_bg">#F5F5FA</color>
+    <color name="sec_row_blue_bg">#E3F2FD</color>
+    <color name="sec_row_purple_bg">#EDE7F6</color>
+    <color name="sec_row_dark_bg">#E8EAF6</color>
+    <color name="sec_row_red_bg">#FFEBEE</color>
+    <color name="sec_row_orange_bg">#FFF3E0</color>
+    <color name="sec_row_green_bg">#E8F5E9</color>
+    <color name="sec_ok_green">#2E7D32</color>
+    <color name="sec_danger_red">#C62828</color>
+    <color name="sheet_grad_start">#FFFFFF</color>
+    <color name="sheet_grad_end">#F5F6FA</color>
+    <color name="sheet_option_fill">#0F000000</color>
+    <color name="sheet_card_lavender">#F5F0FF</color>
+    <color name="sheet_row_lilac">#F2F0F8</color>
 </resources>

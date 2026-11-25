@@ -6132,7 +6132,7 @@ public class NewStatusActivity extends AppCompatActivity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(24));
         final GradientDrawable sheetBg = new GradientDrawable();
-        sheetBg.setColor(0xFFFFFFFF);
+        sheetBg.setColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.surface_card));
         sheetBg.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
         root.setBackground(sheetBg);
 
@@ -6140,19 +6140,19 @@ public class NewStatusActivity extends AppCompatActivity {
         title.setText("Trim video");
         title.setTextSize(18f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(0xFF111111);
+        title.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_text_primary));
         root.addView(title);
 
         final TextView sub = new TextView(this);
         sub.setTextSize(13f);
-        sub.setTextColor(0x99000000);
+        sub.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_text_secondary));
         sub.setPadding(0, dp(4), 0, dp(12));
         sub.setText("Box " + (vp.boxMs / 1000) + "s dikhata hai · clip " + mmss(vp.clipMs));
         root.addView(sub);
 
         final ImageView preview = new ImageView(this);
         preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        preview.setBackgroundColor(0xFFF1EEFB);
+        preview.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_card_lavender));
         preview.setClipToOutline(true);
         preview.setOutlineProvider(new android.view.ViewOutlineProvider() {
             @Override public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(16)); }
@@ -6214,7 +6214,7 @@ public class NewStatusActivity extends AppCompatActivity {
         lenLbl.setText("Box length");
         lenLbl.setTextSize(13f);
         lenLbl.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        lenLbl.setTextColor(0xFF111111);
+        lenLbl.setTextColor(androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_text_primary));
         lenLbl.setPadding(0, dp(14), 0, dp(6));
         root.addView(lenLbl);
         final HorizontalScrollView lenScroll = new HorizontalScrollView(this);
@@ -6227,11 +6227,11 @@ public class NewStatusActivity extends AppCompatActivity {
             chip.setText((ms / 1000) + "s");
             chip.setTextSize(13f);
             chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            chip.setTextColor(on ? 0xFFFFFFFF : 0xFF111111);
+            chip.setTextColor(on ? 0xFFFFFFFF : androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_text_primary));
             chip.setPadding(dp(14), dp(8), dp(14), dp(8));
             final GradientDrawable cg = new GradientDrawable();
             cg.setCornerRadius(dp(18));
-            cg.setColor(on ? 0xFF6A3DE8 : 0x14000000);
+            cg.setColor(on ? 0xFF6A3DE8 : androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_divider));
             chip.setBackground(cg);
             chip.setOnClickListener(v -> {
                 if (ms == vp.boxMs) return;
@@ -6258,9 +6258,9 @@ public class NewStatusActivity extends AppCompatActivity {
             t.setPadding(dp(10), dp(13), dp(10), dp(13));
             final GradientDrawable g = new GradientDrawable();
             g.setCornerRadius(dp(26));
-            g.setColor(t == done ? 0xFF6A3DE8 : 0x14000000);
+            g.setColor(t == done ? 0xFF6A3DE8 : androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_divider));
             t.setBackground(g);
-            t.setTextColor(t == done ? 0xFFFFFFFF : 0xFF111111);
+            t.setTextColor(t == done ? 0xFFFFFFFF : androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.sheet_text_primary));
             final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
             lp.setMargins(dp(6), 0, dp(6), 0);
             btns.addView(t, lp);

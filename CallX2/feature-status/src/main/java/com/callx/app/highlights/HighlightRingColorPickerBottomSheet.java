@@ -74,7 +74,7 @@ public class HighlightRingColorPickerBottomSheet {
         TextView sub = new TextView(ctx);
         sub.setText("Choose a color for this highlight's ring");
         sub.setTextSize(13);
-        sub.setTextColor(Color.GRAY);
+        sub.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_text_secondary));
         sub.setPadding(0, 0, 0, dp(ctx, 16));
         root.addView(sub);
 
@@ -96,7 +96,7 @@ public class HighlightRingColorPickerBottomSheet {
         gapLp.gravity = Gravity.CENTER;
         GradientDrawable gapBg = new GradientDrawable();
         gapBg.setShape(GradientDrawable.OVAL);
-        gapBg.setColor(Color.WHITE);
+        gapBg.setColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.surface_card));
         previewGap.setBackground(gapBg);
         previewGap.setLayoutParams(gapLp);
         previewFrame.addView(previewGap);
@@ -105,7 +105,7 @@ public class HighlightRingColorPickerBottomSheet {
         centerLp.gravity = Gravity.CENTER;
         GradientDrawable centerBg = new GradientDrawable();
         centerBg.setShape(GradientDrawable.OVAL);
-        centerBg.setColor(Color.parseColor("#EEEEEE"));
+        centerBg.setColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_divider));
         previewCenter.setBackground(centerBg);
         previewCenter.setLayoutParams(centerLp);
         previewFrame.addView(previewCenter);
@@ -177,7 +177,7 @@ public class HighlightRingColorPickerBottomSheet {
         TextView rainbowLabel = new TextView(ctx);
         rainbowLabel.setText("Or tap anywhere for any color");
         rainbowLabel.setTextSize(12);
-        rainbowLabel.setTextColor(Color.GRAY);
+        rainbowLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_text_secondary));
         rainbowLabel.setPadding(0, 0, 0, dp(ctx, 8));
         root.addView(rainbowLabel);
 
@@ -299,7 +299,7 @@ public class HighlightRingColorPickerBottomSheet {
             gd.setShape(GradientDrawable.OVAL);
             gd.setColor(colors[pos]);
             gd.setStroke(pos == selectedPos ? dp(h.itemView.getContext(), 3) : dp(h.itemView.getContext(), 1),
-                    pos == selectedPos ? Color.BLACK : 0x22000000);
+                    pos == selectedPos ? androidx.core.content.ContextCompat.getColor(h.itemView.getContext(), com.callx.app.core.R.color.sheet_text_primary) : androidx.core.content.ContextCompat.getColor(h.itemView.getContext(), com.callx.app.core.R.color.sheet_divider_strong));
             h.swatch.setBackground(gd);
             h.itemView.setOnClickListener(v -> {
                 int prev = selectedPos;
@@ -348,9 +348,9 @@ public class HighlightRingColorPickerBottomSheet {
     private static void styleModeButton(Button b, boolean selected) {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(b.getContext(), 8));
-        bg.setColor(selected ? Color.parseColor("#6200EE") : Color.parseColor("#F0F0F0"));
+        bg.setColor(selected ? Color.parseColor("#6200EE") : androidx.core.content.ContextCompat.getColor(b.getContext(), com.callx.app.core.R.color.sheet_divider));
         b.setBackground(bg);
-        b.setTextColor(selected ? Color.WHITE : Color.parseColor("#333333"));
+        b.setTextColor(selected ? Color.WHITE : androidx.core.content.ContextCompat.getColor(b.getContext(), com.callx.app.core.R.color.sheet_text_primary));
     }
 
     private static int dp(Context ctx, int v) {

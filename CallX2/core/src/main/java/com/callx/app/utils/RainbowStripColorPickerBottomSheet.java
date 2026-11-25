@@ -89,7 +89,7 @@ public class RainbowStripColorPickerBottomSheet {
         TextView sub = new TextView(ctx);
         sub.setText("Pick a preset, tap the box, or fine-tune with sliders");
         sub.setTextSize(13);
-        sub.setTextColor(Color.GRAY);
+        sub.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_text_secondary));
         sub.setPadding(0, 0, 0, dp(ctx, 14));
         root.addView(sub);
 
@@ -129,7 +129,7 @@ public class RainbowStripColorPickerBottomSheet {
             TextView recentsLabel = new TextView(ctx);
             recentsLabel.setText("Recent");
             recentsLabel.setTextSize(12);
-            recentsLabel.setTextColor(Color.GRAY);
+            recentsLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_text_secondary));
             recentsLabel.setPadding(0, dp(ctx, 10), 0, dp(ctx, 6));
             gridPanel.addView(recentsLabel);
             recentGrid = buildSwatchGrid(ctx, recentsArr, "Recent", color -> selectedColor[0] = color);
@@ -271,9 +271,9 @@ public class RainbowStripColorPickerBottomSheet {
     private static void styleTab(TextView t, boolean selected) {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(t.getContext(), 8));
-        bg.setColor(selected ? Color.parseColor("#6200EE") : Color.parseColor("#F0F0F0"));
+        bg.setColor(selected ? Color.parseColor("#6200EE") : androidx.core.content.ContextCompat.getColor(t.getContext(), com.callx.app.core.R.color.sheet_divider));
         t.setBackground(bg);
-        t.setTextColor(selected ? Color.WHITE : Color.parseColor("#333333"));
+        t.setTextColor(selected ? Color.WHITE : androidx.core.content.ContextCompat.getColor(t.getContext(), com.callx.app.core.R.color.sheet_text_primary));
         t.setTypeface(null, selected ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
     }
 

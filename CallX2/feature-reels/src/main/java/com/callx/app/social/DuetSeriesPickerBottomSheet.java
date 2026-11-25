@@ -139,7 +139,7 @@ package com.callx.app.social;
           public void onBindViewHolder(@NonNull VH h, int pos) {
               SeriesEntry entry = seriesList.get(pos);
               h.tv.setText(entry.title);
-              h.tv.setTextColor(0xFF000000);
+              h.tv.setTextColor(0xFFFFFFFF); // sheet bg is always dark (background_dark) — black text was unreadable
               h.itemView.setOnClickListener(v -> {
                   // Fetch current episode count for this series to determine next episode number
                   FirebaseDatabase.getInstance(Constants.DB_URL)

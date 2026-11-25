@@ -78,7 +78,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         hp.gravity = Gravity.CENTER;
         handle.setLayoutParams(hp);
         GradientDrawable handleBg = new GradientDrawable();
-        handleBg.setColor(0x55FFFFFF);
+        handleBg.setColor(tc(com.callx.app.core.R.color.sheet_drag_handle));
         handleBg.setCornerRadius(dp(2));
         handle.setBackground(handleBg);
         handleBar.addView(handle);
@@ -93,7 +93,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         header.setLayoutParams(hp2);
         header.setText("🖼️  Chat Wallpaper");
         header.setTextSize(17f);
-        header.setTextColor(0xFFFFFFFF);
+        header.setTextColor(tc(com.callx.app.core.R.color.sheet_text_primary));
         header.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         root.addView(header);
 
@@ -204,13 +204,13 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         TextView nameTv = new TextView(ctx);
         nameTv.setText(title);
         nameTv.setTextSize(15f);
-        nameTv.setTextColor(0xFFFFFFFF);
+        nameTv.setTextColor(tc(com.callx.app.core.R.color.sheet_text_primary));
         nameTv.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
 
         TextView descTv = new TextView(ctx);
         descTv.setText(desc);
         descTv.setTextSize(11.5f);
-        descTv.setTextColor(0x99FFFFFF);
+        descTv.setTextColor(tc(com.callx.app.core.R.color.sheet_text_secondary));
         LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -223,7 +223,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         TextView arrow = new TextView(ctx);
         arrow.setText("›");
         arrow.setTextSize(24f);
-        arrow.setTextColor(0x55FFFFFF);
+        arrow.setTextColor(tc(com.callx.app.core.R.color.sheet_text_hint));
         LinearLayout.LayoutParams arLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -240,9 +240,14 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
     private GradientDrawable buildSheetBackground() {
         GradientDrawable gd = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFF1A1A2E, 0xFF0F0F1A});
+                new int[]{tc(com.callx.app.core.R.color.sheet_grad_start), tc(com.callx.app.core.R.color.sheet_grad_end)});
         gd.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
         return gd;
+    }
+
+    /** Theme-aware colour lookup (values / values-night in :core). */
+    private int tc(int resId) {
+        return androidx.core.content.ContextCompat.getColor(requireContext(), resId);
     }
 
     private int dp(int dp) {

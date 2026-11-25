@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Always-dark secondary button — for screens that are dark by design (e.g. activity_reel_qr_code on #121212).
+     The shared bg_btn_secondary is now theme-aware (surface_input). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#333333"/>
+    <corners android:radius="8dp"/>
+</shape>

@@ -39,7 +39,7 @@ public class StatusAddToHighlightBottomSheet {
         TextView sub = new TextView(ctx);
         sub.setText("Choose an existing album or create new");
         sub.setTextSize(13);
-        sub.setTextColor(Color.GRAY);
+        sub.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_text_secondary));
         sub.setPadding(0, 0, 0, dp(ctx, 16));
         root.addView(sub);
         // Existing albums section
@@ -58,7 +58,7 @@ public class StatusAddToHighlightBottomSheet {
         View divider = new View(ctx);
         divider.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        divider.setBackgroundColor(Color.parseColor("#22000000"));
+        divider.setBackgroundColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_divider_strong));
         LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1);
         divLp.topMargin = dp(ctx, 16);
@@ -140,7 +140,7 @@ public class StatusAddToHighlightBottomSheet {
                         TextView empty = new TextView(ctx);
                         empty.setText("No existing albums");
                         empty.setTextSize(13);
-                        empty.setTextColor(Color.GRAY);
+                        empty.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_text_secondary));
                         albumList.addView(empty);
                         return;
                     }
@@ -165,7 +165,7 @@ public class StatusAddToHighlightBottomSheet {
                         android.graphics.drawable.GradientDrawable rowBg =
                             new android.graphics.drawable.GradientDrawable();
                         rowBg.setCornerRadius(dp(ctx, 10));
-                        rowBg.setColor(Color.parseColor("#F5F5F5"));
+                        rowBg.setColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_card_bg));
                         row.setBackground(rowBg);
                         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
                                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -190,7 +190,7 @@ public class StatusAddToHighlightBottomSheet {
                         TextView tvCount = new TextView(ctx);
                         tvCount.setText(count + " item" + (count != 1 ? "s" : ""));
                         tvCount.setTextSize(12);
-                        tvCount.setTextColor(Color.GRAY);
+                        tvCount.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.sheet_text_secondary));
                         info.addView(tvName);
                         info.addView(tvCount);
                         row.addView(info);

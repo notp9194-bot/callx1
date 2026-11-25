@@ -32,9 +32,9 @@
             android:background="@drawable/bg_btn_primary" android:layout_marginEnd="8dp"/>
         <Button android:id="@+id/btn_qr_save" android:layout_width="0dp" android:layout_height="48dp"
             android:layout_weight="1" android:text="Save" android:textColor="#FFFFFF"
-            android:background="@drawable/bg_btn_secondary" android:layout_marginEnd="8dp"/>
+            android:background="@drawable/bg_btn_secondary_dark" android:layout_marginEnd="8dp"/>
         <Button android:id="@+id/btn_qr_copy" android:layout_width="0dp" android:layout_height="48dp"
             android:layout_weight="1" android:text="Copy Link" android:textColor="#FFFFFF"
-            android:background="@drawable/bg_btn_secondary"/>
+            android:background="@drawable/bg_btn_secondary_dark"/>
     </LinearLayout>
 </LinearLayout>

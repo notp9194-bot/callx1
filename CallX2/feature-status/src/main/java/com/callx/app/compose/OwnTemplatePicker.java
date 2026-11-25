@@ -66,14 +66,14 @@ final class OwnTemplatePicker {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Math.round(18 * d), Math.round(18 * d), Math.round(18 * d), Math.round(22 * d));
         final GradientDrawable bgd = new GradientDrawable();
-        bgd.setColor(0xFFFFFFFF);
+        bgd.setColor(androidx.core.content.ContextCompat.getColor(a, com.callx.app.core.R.color.surface_card));
         bgd.setCornerRadii(new float[]{24 * d, 24 * d, 24 * d, 24 * d, 0, 0, 0, 0});
         root.setBackground(bgd);
         final TextView title = new TextView(a);
         title.setText(titleRes);
         title.setTextSize(18f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(0xFF14142B);
+        title.setTextColor(androidx.core.content.ContextCompat.getColor(a, com.callx.app.core.R.color.sheet_text_primary));
         title.setPadding(0, 0, 0, Math.round(10 * d));
         root.addView(title);
 
@@ -91,7 +91,7 @@ final class OwnTemplatePicker {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(Math.round(8 * d), Math.round(8 * d), Math.round(8 * d), Math.round(8 * d));
             final GradientDrawable rb = new GradientDrawable();
-            rb.setColor(0xFFF2F0F8);
+            rb.setColor(androidx.core.content.ContextCompat.getColor(a, com.callx.app.core.R.color.sheet_row_lilac));
             rb.setCornerRadius(16 * d);
             row.setBackground(rb);
             final ImageView th = new ImageView(a);
@@ -105,11 +105,11 @@ final class OwnTemplatePicker {
             nm.setText(a.getString(R.string.tpl_pick_item, n));
             nm.setTextSize(15f);
             nm.setTypeface(Typeface.DEFAULT_BOLD);
-            nm.setTextColor(0xFF14142B);
+            nm.setTextColor(androidx.core.content.ContextCompat.getColor(a, com.callx.app.core.R.color.sheet_text_primary));
             mid.addView(nm);
             final TextView sub = new TextView(a);
             sub.setTextSize(12f);
-            sub.setTextColor(0xFF8A8AA3);
+            sub.setTextColor(androidx.core.content.ContextCompat.getColor(a, com.callx.app.core.R.color.sheet_text_secondary));
             sub.setPadding(0, Math.round(4 * d), 0, 0);
             sub.setText(it.ts > 0 ? DateUtils.getRelativeTimeSpanString(it.ts, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS) : "");
             mid.addView(sub);

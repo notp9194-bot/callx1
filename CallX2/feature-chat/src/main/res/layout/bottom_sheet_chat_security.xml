@@ -8,7 +8,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#FFFFFF"
+    android:background="@color/surface_card"
     android:paddingBottom="24dp">
 
     <!-- Drag handle -->
@@ -18,7 +18,7 @@
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="10dp"
         android:layout_marginBottom="6dp"
-        android:background="#CCCCCC"
+        android:background="@color/sheet_drag_handle"
         android:layout_margin="10dp"/>
 
     <!-- Header with gradient background -->
@@ -53,20 +53,20 @@
                 android:text="Privacy Settings"
                 android:textSize="17sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Quick controls for this chat"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
     </LinearLayout>
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginBottom="8dp"/>
+        android:background="@color/sheet_divider" android:layout_marginBottom="8dp"/>
 
     <!-- ── Toggle Rows ─────────────────────────────────────────────────── -->
 
@@ -101,13 +101,13 @@
                 android:text="Read Receipts"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Blue tick when message is read"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <androidx.appcompat.widget.SwitchCompat
@@ -147,13 +147,13 @@
                 android:text="Incognito Mode"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Hide typing &amp; online status"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <androidx.appcompat.widget.SwitchCompat
@@ -193,13 +193,13 @@
                 android:text="Ghost Mode"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Complete invisibility — no last seen, typing"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <androidx.appcompat.widget.SwitchCompat
@@ -239,13 +239,13 @@
                 android:text="Screenshot Lock"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Block screenshots inside CallX"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <androidx.appcompat.widget.SwitchCompat
@@ -285,14 +285,14 @@
                 android:text="Chat Lock"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_chat_lock_desc"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Lock this chat with fingerprint or PIN"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <androidx.appcompat.widget.SwitchCompat
@@ -303,7 +303,7 @@
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
+        android:background="@color/sheet_divider" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
 
     <!-- ── Visibility Rows (tappable) ─────────────────────────────────── -->
 
@@ -338,14 +338,14 @@
                 android:text="Last Seen"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_last_seen_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Everyone"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -353,7 +353,7 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
@@ -388,14 +388,14 @@
                 android:text="Profile Photo"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_profile_photo_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Everyone"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -403,14 +403,14 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
+        android:background="@color/sheet_divider" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
 
     <!-- Status Updates -->
     <LinearLayout
@@ -443,14 +443,14 @@
                 android:text="Status Updates"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_status_privacy_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Everyone"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -458,7 +458,7 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
@@ -493,14 +493,14 @@
                 android:text="About / Bio"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_about_privacy_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Everyone"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -508,7 +508,7 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
@@ -543,14 +543,14 @@
                 android:text="Who Can Call Me"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_call_permission_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Everyone"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -558,7 +558,7 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
@@ -593,14 +593,14 @@
                 android:text="Who Can Add Me to Groups"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_group_add_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Everyone"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -608,13 +608,13 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
+        android:background="@color/sheet_divider" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
 
     <!-- Disappearing Messages -->
     <LinearLayout
@@ -647,14 +647,14 @@
                 android:text="Disappearing Messages"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_disappearing_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Off"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -662,7 +662,7 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
@@ -697,13 +697,13 @@
                 android:text="Silence Unknown Callers"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Auto-reject calls from non-contacts"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <androidx.appcompat.widget.SwitchCompat
@@ -714,7 +714,7 @@
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
+        android:background="@color/sheet_divider" android:layout_marginTop="4dp" android:layout_marginBottom="4dp"/>
 
     <!-- Encryption / Safety Number -->
     <LinearLayout
@@ -747,14 +747,14 @@
                 android:text="Encryption"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_encryption_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Messages are end-to-end encrypted. Tap to verify."
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -762,13 +762,13 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
+        android:background="@color/sheet_divider" android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
 
     <LinearLayout
         android:id="@+id/row_linked_devices"
@@ -800,14 +800,14 @@
                 android:text="Linked Devices"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#1A1A2E"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:id="@+id/tv_linked_devices_val"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Use CallX2 on the web"
                 android:textSize="12sp"
-                android:textColor="#888888"/>
+                android:textColor="@color/sheet_text_secondary"/>
         </LinearLayout>
 
         <TextView
@@ -815,13 +815,13 @@
             android:layout_height="wrap_content"
             android:text="›"
             android:textSize="22sp"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/sheet_text_hint"
             android:paddingEnd="4dp"/>
     </LinearLayout>
 
     <!-- Divider -->
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#F0F0F0" android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
+        android:background="@color/sheet_divider" android:layout_marginTop="8dp" android:layout_marginBottom="12dp"/>
 
     <!-- Full Settings Button -->
     <LinearLayout

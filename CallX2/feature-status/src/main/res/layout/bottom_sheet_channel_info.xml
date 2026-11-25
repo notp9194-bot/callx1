@@ -7,7 +7,7 @@
     android:paddingHorizontal="24dp"
     android:paddingTop="20dp"
     android:paddingBottom="24dp"
-    android:background="@android:color/white">
+    android:background="@color/surface_card">
 
     <!-- Drag handle -->
     <View
@@ -15,7 +15,7 @@
         android:layout_height="4dp"
         android:layout_gravity="center_horizontal"
         android:layout_marginBottom="20dp"
-        android:background="#CCCCCC"/>
+        android:background="@color/sheet_drag_handle"/>
 
     <!-- Broadcast icon -->
     <ImageView
@@ -33,7 +33,7 @@
         android:text="Create a channel to reach unlimited followers"
         android:textSize="18sp"
         android:textStyle="bold"
-        android:textColor="#111111"
+        android:textColor="@color/sheet_text_primary"
         android:gravity="center"
         android:layout_marginBottom="20dp"/>
 
@@ -63,13 +63,13 @@
                 android:text="Anyone can discover your channel"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#111111"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Channels are public, so anyone can find them and see 30 days of history."
                 android:textSize="13sp"
-                android:textColor="#666666"
+                android:textColor="@color/sheet_text_secondary"
                 android:layout_marginTop="2dp"/>
         </LinearLayout>
     </LinearLayout>
@@ -100,13 +100,13 @@
                 android:text="People see your channel, not you"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#111111"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Followers can't see your phone number, profile picture or name, but other admins can."
                 android:textSize="13sp"
-                android:textColor="#666666"
+                android:textColor="@color/sheet_text_secondary"
                 android:layout_marginTop="2dp"/>
         </LinearLayout>
     </LinearLayout>
@@ -137,13 +137,13 @@
                 android:text="You're responsible for your channel"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="#111111"/>
+                android:textColor="@color/sheet_text_primary"/>
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Your channel needs to follow our guidelines and is reviewed against them."
                 android:textSize="13sp"
-                android:textColor="#666666"
+                android:textColor="@color/sheet_text_secondary"
                 android:layout_marginTop="2dp"/>
         </LinearLayout>
     </LinearLayout>

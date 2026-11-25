@@ -123,4 +123,26 @@
     <color name="trim_circle_btn_bg_on_photo">#66000000</color>
     <color name="trim_tooltip_bg">#E6FFFFFF</color>
     <color name="trim_tooltip_text">#14141A</color>
+
+    <!-- Night counterparts of the sheet / dialog tokens (see values/colors.xml) -->
+    <color name="sheet_drag_handle">#4A4A4A</color>
+    <color name="sheet_divider">#2A2A2A</color>
+    <color name="sheet_divider_strong">#333333</color>
+    <color name="sheet_text_primary">#ECECEC</color>
+    <color name="sheet_text_secondary">#A0A0A0</color>
+    <color name="sheet_text_hint">#5A5A5A</color>
+    <color name="sheet_card_bg">#1A1A1A</color>
+    <color name="sec_row_blue_bg">#1B2A3D</color>
+    <color name="sec_row_purple_bg">#2A2238</color>
+    <color name="sec_row_dark_bg">#222638</color>
+    <color name="sec_row_red_bg">#3A2024</color>
+    <color name="sec_row_orange_bg">#3A2D1A</color>
+    <color name="sec_row_green_bg">#1B3322</color>
+    <color name="sec_ok_green">#66BB6A</color>
+    <color name="sec_danger_red">#EF5350</color>
+    <color name="sheet_grad_start">#1A1A2E</color>
+    <color name="sheet_grad_end">#0F0F1A</color>
+    <color name="sheet_option_fill">#14FFFFFF</color>
+    <color name="sheet_card_lavender">#241B33</color>
+    <color name="sheet_row_lilac">#221F30</color>
 </resources>

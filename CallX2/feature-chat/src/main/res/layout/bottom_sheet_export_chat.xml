@@ -12,7 +12,7 @@
         android:layout_marginTop="8dp"
         android:gravity="center"
         android:text="Export chat"
-        android:textColor="#212121"
+        android:textColor="@color/sheet_text_primary"
         android:textSize="16sp"
         android:textStyle="bold"/>
 
@@ -26,35 +26,35 @@
         android:paddingStart="24dp"
         android:paddingEnd="24dp"
         android:text="Messages will be exported as a text file"
-        android:textColor="#757575"
+        android:textColor="@color/sheet_text_secondary"
         android:textSize="12sp"/>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#E0E0E0"/>
+        android:background="@color/sheet_divider_strong"/>
 
     <TextView android:id="@+id/action_export_with_media"
         android:layout_width="match_parent" android:layout_height="52dp"
         android:gravity="center_vertical" android:paddingStart="20dp"
         android:text="📎  Include media (attach files)"
-        android:textSize="15sp" android:textColor="#212121"
+        android:textSize="15sp" android:textColor="@color/sheet_text_primary"
         android:background="?attr/selectableItemBackground"/>
 
     <TextView android:id="@+id/action_export_without_media"
         android:layout_width="match_parent" android:layout_height="52dp"
         android:gravity="center_vertical" android:paddingStart="20dp"
         android:text="📄  Without media (text only)"
-        android:textSize="15sp" android:textColor="#212121"
+        android:textSize="15sp" android:textColor="@color/sheet_text_primary"
         android:background="?attr/selectableItemBackground"/>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:layout_marginTop="4dp"
-        android:background="#E0E0E0"/>
+        android:background="@color/sheet_divider_strong"/>
 
     <TextView android:id="@+id/action_export_cancel"
         android:layout_width="match_parent" android:layout_height="52dp"
         android:gravity="center_vertical" android:paddingStart="20dp"
         android:text="✕  Cancel"
-        android:textSize="15sp" android:textColor="#757575"
+        android:textSize="15sp" android:textColor="@color/sheet_text_secondary"
         android:background="?attr/selectableItemBackground"/>
 
 </LinearLayout>
