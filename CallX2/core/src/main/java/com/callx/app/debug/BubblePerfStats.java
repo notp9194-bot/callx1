@@ -38,6 +38,14 @@ public final class BubblePerfStats {
     private static final float[] frameMs = new float[CAP];
     private static int frameN;
     private static long fTotal, fLayout, fDraw, fSync;
+    // v864 full stage breakdown: 0 input,1 anim,2 layout,3 draw,4 sync,5 cmdIssue,6 swap,7 unknownDelay,8 gpu(API31+)
+    private static final String[] STAGE = {"input", "animation", "layout/measure", "draw", "sync",
+            "cmdIssue", "swap", "unknownDelay", "gpu"};
+    private static final long[] stAll = new long[9];
+    private static final long[] stSlow = new long[9];     // frames > 2x budget
+    private static final int[] domSlow = new int[9];      // dominant stage count among over-budget frames
+    private static int slowN;
+    private static boolean debuggable;
     private static float budgetMs = 16.67f;
     private static int over1, over2;
     private static Object listener;       // Window.OnFrameMetricsAvailableListener (API 24+)
@@ -51,7 +59,11 @@ public final class BubblePerfStats {
         startMs = System.currentTimeMillis();
         synchronized (FL) {
             frameN = 0; fTotal = fLayout = fDraw = fSync = 0; over1 = over2 = 0;
+            Arrays.fill(stAll, 0L); Arrays.fill(stSlow, 0L); Arrays.fill(domSlow, 0); slowN = 0;
         }
+        try {
+            debuggable = (a.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        } catch (Throwable ignored) { }
         try {
             float hz = a.getWindowManager().getDefaultDisplay().getRefreshRate();
             if (hz > 20f) budgetMs = 1000f / hz;
@@ -71,8 +83,27 @@ public final class BubblePerfStats {
                         fDraw += fm.getMetric(FrameMetrics.DRAW_DURATION);
                         fSync += fm.getMetric(FrameMetrics.SYNC_DURATION);
                         float ms = total / 1e6f;
-                        if (ms > budgetMs) over1++;
-                        if (ms > budgetMs * 2f) over2++;
+                        final long[] st = new long[9];
+                        st[0] = fm.getMetric(FrameMetrics.INPUT_HANDLING_DURATION);
+                        st[1] = fm.getMetric(FrameMetrics.ANIMATION_DURATION);
+                        st[2] = fm.getMetric(FrameMetrics.LAYOUT_MEASURE_DURATION);
+                        st[3] = fm.getMetric(FrameMetrics.DRAW_DURATION);
+                        st[4] = fm.getMetric(FrameMetrics.SYNC_DURATION);
+                        st[5] = fm.getMetric(FrameMetrics.COMMAND_ISSUE_DURATION);
+                        st[6] = fm.getMetric(FrameMetrics.SWAP_BUFFERS_DURATION);
+                        st[7] = fm.getMetric(FrameMetrics.UNKNOWN_DELAY_DURATION);
+                        if (Build.VERSION.SDK_INT >= 31) st[8] = fm.getMetric(FrameMetrics.GPU_DURATION);
+                        for (int i = 0; i < 9; i++) stAll[i] += st[i];
+                        if (ms > budgetMs) {
+                            over1++;
+                            int dom = 0;
+                            for (int i = 1; i < 9; i++) if (st[i] > st[dom]) dom = i;
+                            domSlow[dom]++;
+                        }
+                        if (ms > budgetMs * 2f) {
+                            over2++; slowN++;
+                            for (int i = 0; i < 9; i++) stSlow[i] += st[i];
+                        }
                     }
                 };
                 listener = l;
@@ -112,6 +143,7 @@ public final class BubblePerfStats {
         sb.append("device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
           .append(" | Android ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
         sb.append("collected: ").append(secs).append(" s | collecting=").append(on).append('\n');
+        sb.append("build: ").append(debuggable ? "DEBUG (R8/baseline-profile off -> numbers pessimistic)" : "release").append('\n');
         sb.append("budget: ").append(String.format(Locale.US, "%.2f", budgetMs)).append(" ms/frame\n\n");
 
         sb.append("-- Bubble.record (cache miss; re-record) --\n");
@@ -146,8 +178,25 @@ public final class BubblePerfStats {
                 sb.append("over budget=").append(over1).append(" (")
                   .append(100 * over1 / Math.max(1, frameN)).append("%)  over 2x budget=").append(over2)
                   .append(" (").append(100 * over2 / Math.max(1, frameN)).append("%)\n");
-                sb.append(String.format(Locale.US, "avg ms per frame: layout/measure=%.2f  draw=%.2f  sync=%.2f\n",
-                        fLayout / 1e6 / frameN, fDraw / 1e6 / frameN, fSync / 1e6 / frameN));
+                sb.append("avg ms per frame, ALL frames:\n ");
+                for (int i = 0; i < 9; i++) {
+                    if (i == 8 && Build.VERSION.SDK_INT < 31) continue;
+                    sb.append(String.format(Locale.US, " %s=%.2f", STAGE[i], stAll[i] / 1e6 / frameN));
+                }
+                sb.append('\n');
+                if (slowN > 0) {
+                    sb.append("avg ms per frame, frames over 2x budget (").append(slowN).append("):\n ");
+                    for (int i = 0; i < 9; i++) {
+                        if (i == 8 && Build.VERSION.SDK_INT < 31) continue;
+                        sb.append(String.format(Locale.US, " %s=%.2f", STAGE[i], stSlow[i] / 1e6 / slowN));
+                    }
+                    sb.append('\n');
+                }
+                sb.append("slowest stage in over-budget frames (count):\n ");
+                for (int i = 0; i < 9; i++) {
+                    if (domSlow[i] > 0) sb.append(' ').append(STAGE[i]).append('=').append(domSlow[i]);
+                }
+                sb.append('\n');
             }
         }
         return sb.toString();
