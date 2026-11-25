@@ -273,7 +273,7 @@ public class MediaEditActivity extends AppCompatActivity {
     // just driven from this preview screen instead of the chat input bar.
     // Only offered for a single-item send — see attachVoiceCaptureUi().
     private final com.callx.app.utils.VoiceRecorder voiceCaptureRecorder =
-            new com.callx.app.utils.VoiceRecorder();
+            new com.callx.app.utils.VoiceRecorder().setCompact(true); // v848: smaller clip for speech
     private ImageButton btnEditMic;
     private View        llVoiceCaptureAttached;
     private TextView    tvVoiceCaptureDuration;
@@ -1518,19 +1518,27 @@ public class MediaEditActivity extends AppCompatActivity {
             Toast.makeText(this, "Hold the mic to record a voice caption", Toast.LENGTH_SHORT).show();
             return;
         }
-        File finalFile = voiceCaptureRecorder.stopToFile(this);
-        if (finalFile == null) {
-            Toast.makeText(this, "Recording was empty", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        recordedVoiceUri = FileProvider.getUriForFile(
-                this, getPackageName() + ".fileprovider", finalFile);
-        recordedVoiceDurationMs = durationMs;
+        // v848: MediaRecorder.stop() + segment merge/file move blocked the UI thread on mic release —
+        // do it on a background thread, then attach on the UI thread.
+        final long durMs = durationMs;
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            final File finalFile = voiceCaptureRecorder.stopToFile(MediaEditActivity.this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (finalFile == null) {
+                    Toast.makeText(this, "Recording was empty", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                recordedVoiceUri = FileProvider.getUriForFile(
+                        this, getPackageName() + ".fileprovider", finalFile);
+                recordedVoiceDurationMs = durMs;
 
-        if (llVoiceCaptureAttached != null && tvVoiceCaptureDuration != null) {
-            tvVoiceCaptureDuration.setText("\uD83C\uDFA4 Voice caption \u00b7 " + formatVoiceCaptureDuration(durationMs));
-            llVoiceCaptureAttached.setVisibility(View.VISIBLE);
-        }
+                if (llVoiceCaptureAttached != null && tvVoiceCaptureDuration != null) {
+                    tvVoiceCaptureDuration.setText("\uD83C\uDFA4 Voice caption \u00b7 " + formatVoiceCaptureDuration(durMs));
+                    llVoiceCaptureAttached.setVisibility(View.VISIBLE);
+                }
+            });
+        });
     }
 
     private String formatVoiceCaptureDuration(long ms) {

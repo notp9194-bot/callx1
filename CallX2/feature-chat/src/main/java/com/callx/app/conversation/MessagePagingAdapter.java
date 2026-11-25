@@ -6427,6 +6427,7 @@ public class MessagePagingAdapter
                 cv.setVoiceCaption(m.voiceUrl, voiceDurText);
                 boolean isThisVoicePlaying = playingPos == h.getAdapterPosition() && player != null && isPlayerPlaying;
                 cv.setAudioPlaying(isThisVoicePlaying);
+                scheduleVoicePrefetch(h, m); // v847: warm the (tiny) clip so tap-to-sound is instant
 
                 // BUG FIX: this used to auto-play the receiver's voice
                 // caption once per message (walkie-talkie style). Removed —
@@ -9440,6 +9441,61 @@ public class MessagePagingAdapter
      * Save-to-gallery on the image/video. Runs entirely off the main
      * thread; only the two Toasts hop back to it.
      */
+    // ── v847: voice-caption warm-up + off-main player release ───────────────
+    private final java.util.Set<String> voicePrefetched = java.util.Collections.newSetFromMap(
+            new java.util.concurrent.ConcurrentHashMap<String, Boolean>());
+
+    /** After the bubble has stayed bound for 400 ms (skips fast flings), download+decrypt the received
+     *  clip into MediaCache on a background thread, so toggleAudio()'s cache-hit path plays at once. */
+    private void scheduleVoicePrefetch(@NonNull VH h, @NonNull Message m) {
+        if (m.voiceUrl == null || m.voiceUrl.isEmpty()) return;
+        if (currentUid != null && currentUid.equals(m.senderId)) return; // own clip is already cached via put()
+        final String mid = midOf(m);
+        if (mid == null || voicePrefetched.contains(mid)) return;
+        final String url = m.voiceUrl, keyEnc = m.voiceKeyEnc, sender = m.senderId;
+        h.itemView.postDelayed(() -> {
+            int pos = h.getAdapterPosition();
+            if (pos < 0 || !h.itemView.isAttachedToWindow()) return;
+            Message cur = getItem(pos);
+            if (cur == null || !mid.equals(midOf(cur))) return;
+            if (!voicePrefetched.add(mid)) return;
+            final Context app = h.itemView.getContext().getApplicationContext();
+            com.callx.app.utils.AppBgExecutor.execute(() -> {
+                try {
+                    // v848: respect the user's own auto-download policy for audio (default Wi-Fi only),
+                    // so a metered / data-saver connection never pulls clips unprompted.
+                    if (!com.callx.app.utils.MediaAutoDownloadPolicy.shouldAutoDownload(app, "audio")) {
+                        voicePrefetched.remove(mid); // allow a later retry once the policy allows it
+                        return;
+                    }
+                    if (com.callx.app.utils.MediaCache.getCached(app, url) != null) return;
+                    byte[] key = null;
+                    if (keyEnc != null) {
+                        key = com.callx.app.utils.MediaE2ECrypto.decryptVoiceCaptionKeyOnly(app, keyEnc, sender, mid);
+                        if (key == null) { voicePrefetched.remove(mid); return; }
+                    }
+                    com.callx.app.utils.MediaCache.Callback cb = new com.callx.app.utils.MediaCache.Callback() {
+                        @Override public void onReady(java.io.File file) { }
+                        @Override public void onError(String reason) { voicePrefetched.remove(mid); }
+                    };
+                    if (key != null) com.callx.app.utils.MediaCache.get(app, url, key, cb);
+                    else com.callx.app.utils.MediaCache.get(app, url, cb);
+                } catch (Throwable t) {
+                    voicePrefetched.remove(mid);
+                }
+            });
+        }, 400);
+    }
+
+    /** MediaPlayer.stop()/release() can block for tens of ms — never do it on the tap's main-thread path. */
+    private static void releasePlayerAsync(@Nullable MediaPlayer p) {
+        if (p == null) return;
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            try { p.stop(); } catch (Exception ignored) { }
+            try { p.release(); } catch (Exception ignored) { }
+        });
+    }
+
     private void saveVoiceCaptionToDevice(@NonNull Context ctx, @NonNull Message m) {
         final String url = m.voiceUrl;
         if (url == null || url.isEmpty()) return;
@@ -9512,7 +9568,7 @@ public class MessagePagingAdapter
             notifyPlaybackChanged(getItem(playingPos), false);
         }
         if (player != null) {
-            try { player.stop(); player.release(); } catch (Exception ignored) {}
+            releasePlayerAsync(player);
             player = null;
         }
         isPlayerPlaying = false;
@@ -9639,7 +9695,7 @@ public class MessagePagingAdapter
                 seekHandler.removeCallbacks(seekUpdater);
                 resetAudioUi(playingVH);
             }
-            if (player != null) { try { player.release(); } catch (Exception ignored) {} }
+            if (player != null) { releasePlayerAsync(player); }
             player = new MediaPlayer();
             playingVH = h;
 
@@ -9723,6 +9779,7 @@ public class MessagePagingAdapter
                                         // this compact badge (see setVoiceCaption's
                                         // javadoc) — just the live elapsed label.
                                         h.canvasView.setVoiceElapsedText(elapsed);
+                                        if (durationMs > 0) h.canvasView.setVoiceProgress((float) cur / durationMs);
                                     } else {
                                         if (durationMs > 0) h.canvasView.setAudioProgress((float) cur / durationMs);
                                         h.canvasView.setAudioElapsedText(elapsed);

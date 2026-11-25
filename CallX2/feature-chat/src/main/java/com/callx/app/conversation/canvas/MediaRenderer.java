@@ -304,7 +304,10 @@ final class MediaRenderer {
         // with it either way. The bottom inset still widens a little when
         // a caption is present so the badge doesn't sit flush against the
         // exact edge where the caption block begins right underneath.
-        if (host.voiceUrl != null && !host.voiceUrl.isEmpty()) {
+        if (!host.voiceStripRect.isEmpty()) {
+            // v845: screenshot-2 layout — separate strip under the photo, static waveform.
+            if (!host.voiceStripLive()) drawVoiceStrip(canvas); // live: drawn in the overlay layer
+        } else if (host.voiceUrl != null && !host.voiceUrl.isEmpty()) {
             if (!host.mediaGated) {
                 float badgeBottomInset = (host.mediaHasCaption ? 10f : 6f) * host.density;
                 float badgeX = host.mediaRect.left + 6f * host.density;
@@ -332,7 +335,8 @@ final class MediaRenderer {
         }
 
         if (host.mediaHasCaption && host.textLayout != null) {
-            float captionTop = host.mediaRect.bottom + MessageBubbleCanvasView.MEDIA_CAPTION_GAP_DP * host.density;
+            float captionTop = host.mediaRect.bottom + host.voiceStripRect.height()
+                    + MessageBubbleCanvasView.MEDIA_CAPTION_GAP_DP * host.density;
             canvas.save();
             canvas.translate(host.bubbleLeft + hPad, captionTop);
             host.textLayout.draw(canvas);
@@ -346,6 +350,8 @@ final class MediaRenderer {
             }
 
             host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.bubbleRect.right - hPad);
+        } else if (!host.voiceStripRect.isEmpty()) {
+            host.readMoreRect.setEmpty(); // v845: time/ticks already drawn inside the voice strip
         } else {
             host.readMoreRect.setEmpty();
             // Captionless image: translucent timestamp/tick pill overlaid
@@ -527,6 +533,155 @@ final class MediaRenderer {
             float downloadPadH = 8f * density;
             cachedVoicePillW = cachedVoiceSpeedSegmentEndW + sepGap + downloadIconD + downloadPadH;
         }
+    }
+
+
+    // ── v845: voice-on-photo strip (static waveform) ────────────────────────
+    // Perf notes: zero allocations per draw; waveform is ONE cached Path in local coords
+    // (rebuilt only when bar count / seed changes); played part = clipRect over the same
+    // Path, so playback costs one extra drawPath, and nothing at all while idle.
+    private Paint stripCirclePaint, stripWaveIdlePaint, stripWavePlayedPaint, stripLinePaint;
+    private android.text.TextPaint stripDurPaint;
+    // v846: waveform = shared ALPHA_8 mask bitmap (1 byte/px), tinted at draw time. One drawBitmap
+    // for idle + one clipped drawBitmap for the played part; built once per (seed, size).
+    private static final android.util.LruCache<String, android.graphics.Bitmap> sWaveMasks =
+            new android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 8) {
+                @Override protected int sizeOf(String k, android.graphics.Bitmap b) { return b.getByteCount(); }
+            };
+    private String stripDurKeyTotal, stripDurKeySpeed;
+    private float stripDurW;
+
+    private void ensureStripRes() {
+        if (stripCirclePaint != null) return;
+        ensureVoiceRes();
+        stripCirclePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stripCirclePaint.setColor(MessageBubbleCanvasView.AUDIO_BTN_BG_COLOR);
+        stripWaveIdlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stripWavePlayedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stripWavePlayedPaint.setColor(MessageBubbleCanvasView.AUDIO_BTN_BG_COLOR);
+        stripLinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stripLinePaint.setStrokeWidth(Math.max(1f, host.density));
+        stripDurPaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+        stripDurPaint.setTextSize(host.spToPx(12f));
+    }
+
+    private android.graphics.Bitmap waveMask(int wPx, int hPx, float barW, float step, int seed) {
+        final String key = seed + "_" + wPx + "_" + hPx;
+        android.graphics.Bitmap m = sWaveMasks.get(key);
+        if (m != null) return m;
+        m = android.graphics.Bitmap.createBitmap(wPx, hPx, android.graphics.Bitmap.Config.ALPHA_8);
+        Canvas c = new Canvas(m);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xFFFFFFFF);
+        int bars = Math.max(1, (int) (wPx / step));
+        float realStep = wPx / (float) bars;
+        float r = barW / 2f, cy = hPx / 2f;
+        int s = seed;
+        for (int i = 0; i < bars; i++) {
+            s = s * 1103515245 + 12345;
+            float f = 0.25f + 0.75f * (((s >>> 16) & 0x7FFF) / 32767f);
+            float h = Math.max(barW, hPx * f);
+            float x = i * realStep;
+            c.drawRoundRect(x, cy - h / 2f, x + barW, cy + h / 2f, r, r, p);
+        }
+        sWaveMasks.put(key, m);
+        return m;
+    }
+
+    void drawVoiceStrip(Canvas canvas) {
+        ensureStripRes();
+        final float d = host.density;
+        final RectF s = host.voiceStripRect;
+        final boolean downloading = host.voiceDownloading;
+        final float pad = 8f * d, gap = 8f * d, circleD = 34f * d;
+        final float cy = s.centerY();
+        final int textColor = host.textPaint.getColor();
+
+        // 1. play/pause circle
+        final float cx = s.left + pad + circleD / 2f;
+        canvas.drawCircle(cx, cy, circleD / 2f, stripCirclePaint);
+        if (downloading) {
+            float base = cy - (voiceBadgeDurPaint.ascent() + voiceBadgeDurPaint.descent()) / 2f;
+            canvas.drawText(DOWNLOADING_LABEL, cx - voiceBadgeDurPaint.measureText(DOWNLOADING_LABEL) / 2f,
+                    base, voiceBadgeDurPaint);
+        } else if (host.isVoicePlaying) {
+            float barW = circleD * 0.11f, barH = circleD * 0.38f, barGap = circleD * 0.13f, br = 1.5f * d;
+            canvas.drawRoundRect(cx - barGap / 2f - barW, cy - barH / 2f, cx - barGap / 2f, cy + barH / 2f, br, br, voiceBadgeIconPaint);
+            canvas.drawRoundRect(cx + barGap / 2f, cy - barH / 2f, cx + barGap / 2f + barW, cy + barH / 2f, br, br, voiceBadgeIconPaint);
+        } else {
+            float t = circleD * 0.22f;
+            voiceBadgeGlyphPath.reset();
+            voiceBadgeGlyphPath.moveTo(cx - t * 0.55f, cy - t * 0.85f);
+            voiceBadgeGlyphPath.lineTo(cx - t * 0.55f, cy + t * 0.85f);
+            voiceBadgeGlyphPath.lineTo(cx + t * 0.95f, cy);
+            voiceBadgeGlyphPath.close();
+            canvas.drawPath(voiceBadgeGlyphPath, voiceBadgeIconPaint);
+        }
+
+        // 2. right side: time + ticks (what used to be the pill on the photo)
+        final float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * d : 0f;
+        final float timeW = host.footerTimeTextWidth() + tickReserve + host.expiryReserveWidth();
+        final float rightX = s.right - pad;
+        final float timeLeft = rightX - timeW;
+        host.footerPaint.getFontMetrics(host.footerFmScratch);
+        final float timeBase = cy - (host.footerFmScratch.ascent + host.footerFmScratch.descent) / 2f;
+        final float timeX = rightX - host.footerTimeTextWidth() - tickReserve;
+        canvas.drawText(host.footerTimeText, timeX, timeBase, host.footerPaint);
+        if (host.hasExpiry) canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), timeBase, host.expiryPaint);
+        if (host.sent) host.drawTick(canvas, rightX - MessageBubbleCanvasView.TICK_SIZE_DP * d, timeBase, host.mediaGated, true);
+
+        // 3. divider + m:ss (elapsed while playing, else total; speed only when != 1x)
+        final float dividerX = timeLeft - gap;
+        stripLinePaint.setColor(textColor);
+        stripLinePaint.setAlpha(60);
+        canvas.drawLine(dividerX, s.top + 12f * d, dividerX, s.bottom - 12f * d, stripLinePaint);
+        final String total = host.voiceDuration != null ? host.voiceDuration : "0:00";
+        final String speed = host.voiceSpeedLabel != null ? host.voiceSpeedLabel : "1×";
+        final boolean showSpeed = !"1×".equals(speed);
+        if (!total.equals(stripDurKeyTotal) || !speed.equals(stripDurKeySpeed)) {
+            stripDurKeyTotal = total;
+            stripDurKeySpeed = speed;
+            stripDurW = stripDurPaint.measureText(showSpeed ? total + " " + speed : total);
+        }
+        String cur = (host.isVoicePlaying && host.voiceElapsedText != null && !host.voiceElapsedText.isEmpty())
+                ? host.voiceElapsedText : total;
+        if (showSpeed) cur = cur + " " + speed;
+        stripDurPaint.setColor(textColor);
+        stripDurPaint.setAlpha(200);
+        final float durRight = dividerX - gap;
+        final float durLeft = durRight - stripDurW;
+        final float durBase = cy - (stripDurPaint.ascent() + stripDurPaint.descent()) / 2f;
+        canvas.drawText(cur, durLeft, durBase, stripDurPaint);
+
+        // 4. static waveform between the circle and the duration
+        final float waveLeft = cx + circleD / 2f + gap;
+        final float waveRight = durLeft - gap;
+        final float waveW = waveRight - waveLeft;
+        if (waveW > 8f * d) {
+            final int wPx = Math.round(waveW);
+            final int hPx = Math.round(24f * d);
+            final int seed = host.voiceUrl != null ? host.voiceUrl.hashCode() : 1;
+            final android.graphics.Bitmap mask = waveMask(wPx, hPx, 2.5f * d, 4.5f * d, seed);
+            final float top = cy - hPx / 2f;
+            stripWaveIdlePaint.setColor(textColor);
+            stripWaveIdlePaint.setAlpha(90);
+            canvas.drawBitmap(mask, waveLeft, top, stripWaveIdlePaint);
+            if (host.voiceProgress > 0f) {
+                canvas.save();
+                canvas.clipRect(waveLeft, top, waveLeft + wPx * host.voiceProgress, top + hPx);
+                canvas.drawBitmap(mask, waveLeft, top, stripWavePlayedPaint);
+                canvas.restore();
+            }
+        }
+
+        // 5. hit rects: circle + waveform = play/pause; duration = speed. No download button here.
+        host.voiceBadgeRect.set(s.left, s.top, Math.max(waveRight, cx + circleD / 2f + pad), s.bottom);
+        if (downloading) {
+            host.voiceSpeedRect.setEmpty();
+        } else {
+            host.voiceSpeedRect.set(durLeft - 6f * d, s.top, durRight + 6f * d, s.bottom);
+        }
+        host.voiceDownloadRect.setEmpty();
     }
 
     private static final String DOWNLOADING_LABEL = "\u2026"; // "…" — fetching, nothing to show yet

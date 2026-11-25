@@ -559,6 +559,7 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override protected void onResume() {
+        com.callx.app.debug.TabOpenPerfLog.markOnce("MainActivity.onResume start");
         super.onResume();
         int currentTab = binding.viewPager.getCurrentItem();
         boolean isReelsTab = currentTab == TAB_REELS;
@@ -589,9 +590,11 @@ public class MainActivity extends AppCompatActivity
         // while this Activity wasn't the one on screen (e.g. was paused
         // behind ChatActivity when playback state last changed).
         updateVoiceMiniPlayer();
+        com.callx.app.debug.TabOpenPerfLog.markOnce("MainActivity.onResume end");
     }
 
     @Override protected void onStart() {
+        com.callx.app.debug.TabOpenPerfLog.markOnce("MainActivity.onStart");
         super.onStart();
         CallForegroundService.addStateListener(callStateListener);
         // First start: badges are attached by startup stage 3 (after the Chats tab drew). Later starts: immediately.

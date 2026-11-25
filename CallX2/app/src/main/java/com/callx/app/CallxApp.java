@@ -98,6 +98,7 @@ public class CallxApp extends Application implements Configuration.Provider {
         // by markFirstScreenPainted() below (first Activity resume) or its
         // own safety-ceiling timeout — see AvatarColdStartQueue.
         com.callx.app.cache.AvatarColdStartQueue.onProcessStart();
+        com.callx.app.debug.TabOpenPerfLog.mark("app: tracker/avatarQueue done");
 
         // PERF: warm up ProcessCameraProvider now instead of paying its
         // ~100-300ms cold-resolve cost the first time a camera screen opens
@@ -196,6 +197,7 @@ public class CallxApp extends Application implements Configuration.Provider {
                             .build());
         }
 
+        com.callx.app.debug.TabOpenPerfLog.mark("app: crash handler + strictmode done");
         // ── PERF FIX v33: Firebase Realtime Database disk persistence ─────
         // Root cause of "chat khulne ke 2 sec baad messages load hote hain":
         // setPersistenceEnabled(false) tha (see old comment: "we use our own
@@ -444,11 +446,17 @@ public class CallxApp extends Application implements Configuration.Provider {
         // Activity lifecycle + AppLock wiring — must stay on main thread
         // (registerActivityLifecycleCallbacks has to be registered before
         // any Activity can start, so this can't be deferred).
+        com.callx.app.debug.TabOpenPerfLog.mark("app: before presence init");
         com.callx.app.utils.PresenceManager.getInstance().init(this);
+        com.callx.app.debug.TabOpenPerfLog.mark("app: presence init done");
         registerForegroundTracking();
+        com.callx.app.debug.TabOpenPerfLog.mark("app: foreground tracking done");
 
-        // Domain verification check — async internally, safe on main thread
-        checkAndRequestDomainVerification();
+        // v843: getDomainVerificationUserState() is a binder IPC (API 31+) — was on MAIN in
+        // Application.onCreate. Nothing needs it for first frame: run it later, off main.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                () -> new Thread(this::checkAndRequestDomainVerification, "domain-verify").start(),
+                5000);
 
         // ── BACKGROUND THREAD: heavy init ─────────────────────────────
         new Thread(() -> {
@@ -639,6 +647,13 @@ public class CallxApp extends Application implements Configuration.Provider {
 
             Log.d(TAG, "Background init complete");
         }, "app-init-bg").start();
+        com.callx.app.debug.TabOpenPerfLog.mark("app: onCreate end");
+    }
+
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        com.callx.app.debug.TabOpenPerfLog.mark("app: attachBaseContext");
+        super.attachBaseContext(base);
     }
 
     // ──────────────────────────────────────────────────────────────

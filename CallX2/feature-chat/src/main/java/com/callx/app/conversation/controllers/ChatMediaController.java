@@ -1566,6 +1566,9 @@ public class ChatMediaController {
      *  new one.
      *  @param isHD Feature 3: true → HD tier (WhatsApp-style HD toggle); false → standard. */
     private void startImageUpload(Uri uri, Message pending, boolean isHD) {
+        // v847: voice-caption E2E-encrypt + upload now runs IN PARALLEL with the photo's
+        // compress+upload (was strictly sequential: total = photo + voice).
+        startVoiceCaptionUploadEarly(pending);
         // Feature 2 & 6: run through the queue (max-3-concurrent, network-aware)
         String msgId = pending.messageId != null ? pending.messageId : pending.id;
         getUploadQueue().enqueue(msgId, cancelledIds, () -> {
@@ -1790,32 +1793,74 @@ public class ChatMediaController {
         // voice clip and attach it to this SAME message before finalizing,
         // so the bubble appears exactly once, already carrying both.
         if (pending.voiceLocalPath != null && !pending.voiceLocalPath.isEmpty()) {
-            uploadVoiceCaptionThenFinalize(pending);
+            attachVoiceThenFinalize(pending);
             return;
         }
 
         delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");
     }
 
-    /** Uploads the recorded voice-caption clip and attaches
-     *  mediaUrl/duration to `pending` before finalizing. If the voice
-     *  upload fails, the photo is still sent on its own rather than
-     *  blocking/losing the whole message.
-     *
-     *  ── Media E2E (voice caption) ──────────────────────────────────────
-     *  Mirrors doUpload()'s "Media E2E (audio)" block for standalone voice
-     *  notes: a fresh random master key is generated, the PURPOSE_FULL
-     *  HKDF subkey encrypts the whole clip, a SHA-256 digest of the
-     *  ciphertext travels in the envelope for the receiver's file-hash
-     *  check, and the envelope itself is wrapped through the same Double
-     *  Ratchet session as the photo (E2EEncryptionManager#encrypt) and
-     *  carried in the NEW Message#voiceKeyEnc field — deliberately
-     *  separate from Message#mediaKeyEnc, which belongs to the photo's own
-     *  envelope and is set/unset independently of whether a voice caption
-     *  is attached (see toggleAudio()'s decrypt-key guard). Falls back to
-     *  plaintext upload if there's no E2E session yet with this partner,
-     *  same graceful-fallback pattern used everywhere else in this file. */
-    private void uploadVoiceCaptionThenFinalize(Message pending) {
+    // ── v847: parallel voice-caption upload ───────────────────────────────
+    /** Outcome of the early voice upload. url == null once done => voice failed (photo sent alone). */
+    private static final class VoiceUp {
+        volatile boolean done;
+        volatile String url;
+        volatile String keyEnc;
+        Runnable waiter; // guarded by this
+    }
+    private final java.util.concurrent.ConcurrentHashMap<String, VoiceUp> voiceUps =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static String voiceUpId(Message m) { return m.messageId != null ? m.messageId : m.id; }
+
+    /** Kicks off the voice clip's E2E encrypt + upload on a background thread (idempotent per message). */
+    private void startVoiceCaptionUploadEarly(Message pending) {
+        if (pending.voiceLocalPath == null || pending.voiceLocalPath.isEmpty()) return;
+        final String id = voiceUpId(pending);
+        if (id == null) return;
+        final VoiceUp st = new VoiceUp();
+        if (voiceUps.putIfAbsent(id, st) != null) return; // already running / finished for this message
+        com.callx.app.utils.AppBgExecutor.execute(() -> runVoiceCaptionUpload(pending, st));
+    }
+
+    private void completeVoice(VoiceUp st, String url, String keyEnc) {
+        Runnable w;
+        synchronized (st) {
+            st.url = url;
+            st.keyEnc = keyEnc;
+            st.done = true;
+            w = st.waiter;
+            st.waiter = null;
+        }
+        if (w != null) w.run();
+    }
+
+    /** Called when the photo has finished uploading: waits (usually zero time) for the voice, then finalizes ONCE. */
+    private void attachVoiceThenFinalize(Message pending) {
+        final String id = voiceUpId(pending);
+        startVoiceCaptionUploadEarly(pending); // no-op if already started (normal case); safety for odd entry paths
+        final VoiceUp st = id != null ? voiceUps.get(id) : null;
+        if (st == null) { delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo"); return; }
+        final Runnable fin = () -> {
+            voiceUps.remove(id);
+            if (st.url != null) {
+                pending.voiceUrl    = st.url;
+                pending.voiceKeyEnc = st.keyEnc;
+                delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7\uD83C\uDFA4 Photo");
+            } else {
+                delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");
+            }
+        };
+        synchronized (st) {
+            if (!st.done) { st.waiter = fin; return; }
+        }
+        fin.run();
+    }
+
+    /** Runs on a background thread. Mirrors the old uploadVoiceCaptionThenFinalize()'s Media-E2E block
+     *  (master key -> PURPOSE_FULL subkey -> encryptStream -> sha256 digest -> envelope via the
+     *  Double Ratchet session -> Message#voiceKeyEnc), falling back to plaintext upload without a session. */
+    private void runVoiceCaptionUpload(Message pending, VoiceUp st) {
         Uri voiceUri = Uri.parse(pending.voiceLocalPath);
         String fileNameHint = FileUtils.fileName(activity, voiceUri);
 
@@ -1830,12 +1875,16 @@ public class ChatMediaController {
                         .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_FULL);
                 java.io.File tmp = new java.io.File(activity.getCacheDir(),
                         "e2e_voicecap_" + System.currentTimeMillis() + ".enc");
+                // v848: SHA-256 of the ciphertext is computed WHILE it is written (DigestOutputStream),
+                // instead of re-reading the whole .enc file afterwards.
+                final java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
                 try (java.io.InputStream in = activity.getContentResolver().openInputStream(voiceUri);
-                     java.io.OutputStream out = new java.io.FileOutputStream(tmp)) {
+                     java.io.OutputStream out = new java.security.DigestOutputStream(
+                             new java.io.BufferedOutputStream(new java.io.FileOutputStream(tmp)), md)) {
                     if (in == null) throw new java.io.IOException("Can't open voice caption for encryption");
                     com.callx.app.utils.MediaE2ECrypto.encryptStream(in, out, subKey);
                 }
-                byte[] fullDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(tmp);
+                byte[] fullDigest = md.digest();
                 String envelopeJson = com.callx.app.utils.MediaE2ECrypto
                         .buildKeyEnvelopeJson(masterKey, null, fullDigest, null);
                 voiceKeyEnc = com.callx.app.utils.E2EEncryptionManager
@@ -1856,33 +1905,26 @@ public class ChatMediaController {
 
         CloudinaryUploader.upload(activity, uploadUri, "callx/voice_caption", "raw", fileNameHint,
                 new CloudinaryUploader.UploadCallback() {
-                    @Override public void onProgress(int percent) { /* image progress already reported 100% */ }
+                    @Override public void onProgress(int percent) { /* photo drives the progress ring */ }
                     @Override public void onSuccess(CloudinaryUploader.Result result) {
                         if (finalEncVoiceFile != null) finalEncVoiceFile.delete();
-                        pending.voiceUrl    = result.secureUrl;
-                        pending.voiceKeyEnc = finalVoiceKeyEnc;
-                        // Seed the local media cache with our own plaintext
-                        // clip (the original `voiceUri`, never the encrypted
-                        // temp file) so we can self-play the bubble we just
-                        // sent immediately — same reasoning as the
-                        // standalone-audio path in doUpload().
+                        // Seed the local media cache with our own plaintext clip so the sent bubble
+                        // self-plays immediately (same reasoning as the standalone-audio path).
                         com.callx.app.utils.MediaCache.put(activity, result.secureUrl, voiceUri);
-                        // pending.voiceDuration is already set by the caller
-                        // (see uploadAndSend's image+voice branch below) from
-                        // the recorder's own reported duration at capture time.
-                        delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7\uD83C\uDFA4 Photo");
+                        completeVoice(st, result.secureUrl, finalVoiceKeyEnc);
                     }
                     @Override public void onError(String err) {
                         if (finalEncVoiceFile != null) finalEncVoiceFile.delete();
                         android.util.Log.w("ChatMediaController",
                                 "Voice caption upload failed, sending photo without it: " + err);
-                        delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");
+                        completeVoice(st, null, null);
                     }
                 });
     }
 
     private void finishImageUploadFailure(Message pending, String err) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
+        if (id != null) voiceUps.remove(id); // v847: retry restarts the voice upload from scratch
         // PERF FIX: this — not the moment startImageUpload posted to the UI
         // thread — is the real end of this item's pipeline, so this is where
         // the queue's concurrency slot actually gets freed.

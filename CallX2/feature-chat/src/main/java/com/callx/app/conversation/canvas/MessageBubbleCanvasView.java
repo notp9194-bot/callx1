@@ -1589,7 +1589,7 @@ public class MessageBubbleCanvasView extends View {
         return footerTimeTextWidthCache;
     }
     // Reused across every drawFooter() call — see its PERF comment.
-    private final Paint.FontMetrics footerFmScratch = new Paint.FontMetrics();
+    final Paint.FontMetrics footerFmScratch = new Paint.FontMetrics();
     // PERF: same zero-alloc pattern as footerFmScratch above, applied to the
     // 3 remaining onDraw() call sites that were still using the no-arg
     // getFontMetrics() (each allocates a fresh FontMetrics object every
@@ -1894,6 +1894,21 @@ public class MessageBubbleCanvasView extends View {
      *  it left off instead of snapping back to the total. */
     @Nullable String voiceElapsedText;
     final RectF voiceBadgeRect = new RectF();
+    // v845: "voice on photo" layout = photo (NO overlay) + a separate opaque strip BELOW it
+    // [play circle | static waveform | m:ss | time+ticks]. Strip is part of bubbleHeight.
+    static final float VOICE_STRIP_HEIGHT_DP = 48f;
+    final RectF voiceStripRect = new RectF();
+    /** 0..1 playback position — only ticks while the clip plays (see setVoiceProgress). */
+    float voiceProgress = 0f;
+    /** v846: while the clip plays, the strip is drawn LIVE in drawDynamicOverlayLayer() and is
+     *  left out of the cached bubble node (same scheme as v828's audio row), so a 250 ms tick
+     *  never re-records the whole bubble / photo — it only redraws the strip rect. */
+    boolean voiceStripLive() {
+        return isVoicePlaying && !voiceStripRect.isEmpty() && !mediaGated;
+    }
+    boolean hasVoiceStrip() {
+        return isMedia && !isVideoMedia && voiceUrl != null && !voiceUrl.isEmpty();
+    }
     // Feature: Playback speed control on the voice caption badge — mirrors
     // the standalone audio bubble's btnAudioSpeed chip (1x → 1.5x → 2x →
     // 0.5x → 1x). Drawn as a small tappable segment appended to the pill,
@@ -3647,6 +3662,8 @@ public class MessageBubbleCanvasView extends View {
         this.voiceDuration = null;
         this.isVoicePlaying = false;
         this.voiceElapsedText = null;
+        this.voiceProgress = 0f;
+        this.voiceStripRect.setEmpty();
         this.voiceBadgeRect.setEmpty();
         this.voiceSpeedLabel = "1×";
         this.voiceSpeedRect.setEmpty();
@@ -3790,9 +3807,12 @@ public class MessageBubbleCanvasView extends View {
         }
         prevVoiceUrl = null;
         prevVoiceDuration = null;
+        final boolean hadVoice = this.voiceUrl != null;
         this.voiceUrl = has ? voiceUrl : null;
         this.voiceDuration = has ? durationText : null;
+        if (hadVoice != has) requestLayout(); // v845: strip adds/removes bubble height
         if (!has) {
+            this.voiceProgress = 0f;
             this.isVoicePlaying = false;
             this.voiceElapsedText = null;
             this.voiceBadgeRect.setEmpty();
@@ -3802,6 +3822,26 @@ public class MessageBubbleCanvasView extends View {
             this.voiceDownloading = false;
         }
         invalidate();
+    }
+
+    /** v845: playback position for the voice-on-photo waveform. Draw-only; called by the
+     *  adapter's 250ms ticker ONLY while the clip plays, so nothing animates when idle. */
+    public void setVoiceProgress(float fraction) {
+        float c = Math.max(0f, Math.min(1f, fraction));
+        if (c == voiceProgress) return;
+        voiceProgress = c;
+        if (!hasVoiceStrip()) return;
+        invalidateVoiceTick();
+    }
+
+    /** v846: per-tick redraw — strip rect only, cache stays valid while the strip is live. */
+    private void invalidateVoiceTick() {
+        if (voiceStripLive()) {
+            invalidate((int) voiceStripRect.left, (int) voiceStripRect.top,
+                    (int) Math.ceil(voiceStripRect.right), (int) Math.ceil(voiceStripRect.bottom));
+        } else {
+            invalidateVoiceBadgeRegion();
+        }
     }
 
     /** Playback-speed chip on the voice caption badge — mirrors the
@@ -4020,6 +4060,11 @@ public class MessageBubbleCanvasView extends View {
     private void invalidateVoiceBadgeRegion() {
         fullBubbleDirty = true;
         staticPictureDirty = true;
+        if (!voiceStripRect.isEmpty()) { // v845: strip layout — redraw just the strip
+            invalidate((int) voiceStripRect.left, (int) voiceStripRect.top,
+                    (int) Math.ceil(voiceStripRect.right), (int) Math.ceil(voiceStripRect.bottom));
+            return;
+        }
         // Union of both hit-rects — the pill background/glyph/speed chip
         // are all drawn together as one visual unit, so any of the three
         // setters above needs the WHOLE pill (not just its own half)
@@ -4063,7 +4108,7 @@ public class MessageBubbleCanvasView extends View {
         String next = (text != null && !text.isEmpty()) ? text : null;
         if (java.util.Objects.equals(next, voiceElapsedText)) return;
         this.voiceElapsedText = next;
-        invalidateVoiceBadgeRegion();
+        if (hasVoiceStrip()) invalidateVoiceTick(); else invalidateVoiceBadgeRegion();
     }
 
     /** Resets the bubble to its idle state (button back to ▶, progress to 0, elapsed label cleared) — call when playback stops/completes/errors, or right before rebinding a recycled holder to a different message. */
@@ -4087,6 +4132,7 @@ public class MessageBubbleCanvasView extends View {
                 && (isVoicePlaying || voiceElapsedText != null)) {
             this.isVoicePlaying = false;
             this.voiceElapsedText = null;
+            this.voiceProgress = 0f;
             invalidateVoiceBadgeRegion();
         }
     }
@@ -6846,7 +6892,8 @@ public class MessageBubbleCanvasView extends View {
             // overlay is skipped when there's a caption — see onDraw —
             // matching the text-bubble footer placement).
             int mediaTightVPad = Math.round(MEDIA_TIGHT_INSET_DP * density);
-            bubbleHeight = replyBoxHeight + replyGap + mediaTightVPad + mediaH + mediaTightVPad + captionBlockHeight;
+            final int voiceStripH = hasVoiceStrip() ? Math.round(VOICE_STRIP_HEIGHT_DP * density) : 0;
+            bubbleHeight = replyBoxHeight + replyGap + mediaTightVPad + mediaH + voiceStripH + mediaTightVPad + captionBlockHeight;
 
         } else if (isReelShare) {
             // ── Reel-share card — bubbleless (matches legacy
@@ -7588,8 +7635,15 @@ public class MessageBubbleCanvasView extends View {
             int mediaWActual = Math.max(mediaW, mediaWidthAvailable);
             float mediaTop = bubbleTop + replyBoxHeight + replyGap + mediaPadV;
             mediaRect.set(mediaLeft, mediaTop, mediaLeft + mediaWActual, mediaTop + mediaH);
+            if (hasVoiceStrip()) {
+                voiceStripRect.set(mediaRect.left, mediaRect.bottom, mediaRect.right,
+                        mediaRect.bottom + Math.round(VOICE_STRIP_HEIGHT_DP * density));
+                mediaPillRect.setEmpty(); // time + ticks live inside the strip, not on the photo
+            } else {
+                voiceStripRect.setEmpty();
+            }
 
-            if (!mediaHasCaption) {
+            if (!mediaHasCaption && voiceStripRect.isEmpty()) {
                 float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
                 float pillPadV = MEDIA_PILL_PADDING_V_DP * density;
                 float pillMargin = MEDIA_PILL_MARGIN_DP * density;
@@ -8255,6 +8309,9 @@ public class MessageBubbleCanvasView extends View {
     }
 
     private void drawDynamicOverlayLayer(Canvas canvas) {
+        if (isMedia && voiceStripLive()) {
+            mediaRenderer.drawVoiceStrip(canvas);
+        }
         if (isAudio && audioPlaying) {
             audioRenderer.drawRow(canvas, Math.round(H_PADDING_DP * density),
                     Math.round(V_PADDING_DP * density));

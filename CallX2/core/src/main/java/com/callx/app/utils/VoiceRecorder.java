@@ -119,8 +119,7 @@ public class VoiceRecorder {
             mr.setAudioSource(MediaRecorder.AudioSource.MIC);
             mr.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mr.setAudioEncodingBitRate(64000);
-            mr.setAudioSamplingRate(44100);
+            applyAudioParams(mr);
             mr.setOutputFile(currentSegmentFile.getAbsolutePath());
             mr.prepare();
             mr.start();
@@ -176,8 +175,7 @@ public class VoiceRecorder {
             mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mediaRecorder.setAudioEncodingBitRate(64000);
-            mediaRecorder.setAudioSamplingRate(44100);
+            applyAudioParams(mediaRecorder);
             mediaRecorder.setOutputFile(currentSegmentFile.getAbsolutePath());
             mediaRecorder.prepare();
             mediaRecorder.start();
@@ -188,6 +186,27 @@ public class VoiceRecorder {
         } catch (IOException | RuntimeException e) {
             cleanup();
             return false;
+        }
+    }
+
+    // v848: compact profile for SHORT voice captions (voice-on-photo): AAC mono, 32 kbps, 22.05 kHz —
+    // about half the bytes of the default 64 kbps / 44.1 kHz, so upload, download and decrypt are
+    // ~2x faster; still clear for speech. Default (voice messages) is unchanged.
+    private boolean compact = false;
+
+    public VoiceRecorder setCompact(boolean compact) {
+        this.compact = compact;
+        return this;
+    }
+
+    private void applyAudioParams(MediaRecorder mr) {
+        if (compact) {
+            mr.setAudioChannels(1);
+            mr.setAudioEncodingBitRate(32000);
+            mr.setAudioSamplingRate(22050);
+        } else {
+            mr.setAudioEncodingBitRate(64000);
+            mr.setAudioSamplingRate(44100);
         }
     }
 
