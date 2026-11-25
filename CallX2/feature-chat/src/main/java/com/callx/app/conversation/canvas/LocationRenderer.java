@@ -136,8 +136,6 @@ final class LocationRenderer {
         // so the expiry pill is a small floating badge over the map header
         // instead of sharing a footer row. Drawn after canvas.restore() so
         // it isn't clipped to the card's rounded shape. ──
-        if (host.hasExpiry) {
-            host.drawCornerExpiryPill(canvas, host.locationMapRect);
-        }
+        // v858: the pill is drawn in the dynamic overlay layer (drawDynamicOverlayLayer).
     }
 }

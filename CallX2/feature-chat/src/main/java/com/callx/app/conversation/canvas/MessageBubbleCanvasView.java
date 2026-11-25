@@ -3593,6 +3593,13 @@ public class MessageBubbleCanvasView extends View {
             if (mediaPillRect.isEmpty()) return false;
             r.set(mediaPillRect.left - 4f * d, mediaPillRect.top - 4f * d, mediaPillRect.right + 4f * d, mediaPillRect.bottom + 4f * d);
             return true;
+        } else if (isContact || isLocation) {
+            // v858: floating corner expiry pill is drawn in the overlay layer; its rect is the
+            // top-end corner of the card (generous width: the label can shrink between ticks).
+            final RectF a = isContact ? contactCardRect : locationMapRect;
+            if (a.isEmpty()) return false;
+            r.set(Math.max(a.left, a.right - 168f * d), a.top, a.right, a.top + 48f * d);
+            return true;
         }
         if (needAnchor) {
             if (!footerLiveValid) return false;
@@ -3972,6 +3979,20 @@ public class MessageBubbleCanvasView extends View {
      * recycled cell doesn't snap back to the square placeholder while a
      * new load for the same rebind is still in flight.
      */
+    // v856: progressive download frames (early Range preview + 20/45/70% partials) each cost a full
+    // bubble re-record. When a real bitmap is already on screen, drop partials arriving < 140ms after
+    // the previous one; the final bitmap (setMediaBitmap from onReady) is never throttled.
+    private long lastPartialBitmapUptimeMs;
+    public void setMediaBitmapPartial(@Nullable Bitmap partial) {
+        final long now = android.os.SystemClock.uptimeMillis();
+        if (this.mediaBitmap != null && !this.mediaBitmapIsPlaceholder
+                && now - lastPartialBitmapUptimeMs < 140L) {
+            return;
+        }
+        lastPartialBitmapUptimeMs = now;
+        setMediaBitmap(partial);
+    }
+
     public void setMediaBitmap(@Nullable Bitmap bitmap) {
         setMediaBitmap(bitmap, false);
     }
@@ -3986,8 +4007,17 @@ public class MessageBubbleCanvasView extends View {
      * single-arg overload, which always passes false.
      */
     public void setMediaBitmap(@Nullable Bitmap bitmap, boolean isLowResPlaceholder) {
+        // v856: identical bitmap instance (same placeholder flag) = identical pixels (MediaRenderer's
+        // shader cache already relies on that identity) -> nothing to re-record. Glide/pool paths often
+        // deliver the same instance twice (sync L2 hit, then the async callback). Only skip when the
+        // aspect ratio is already known, so the first real bitmap still primes mediaAspectRatio.
+        final boolean nextPlaceholder = bitmap != null && isLowResPlaceholder;
+        if (this.mediaBitmap == bitmap && this.mediaBitmapIsPlaceholder == nextPlaceholder
+                && (bitmap == null || nextPlaceholder || mediaAspectRatio > 0f)) {
+            return;
+        }
         this.mediaBitmap = bitmap;
-        this.mediaBitmapIsPlaceholder = bitmap != null && isLowResPlaceholder;
+        this.mediaBitmapIsPlaceholder = nextPlaceholder;
         this.staticPictureDirty = true;
         // BUG FIX: a ThumbHash placeholder is ALWAYS decoded at a fixed
         // square size (ThumbHashPlaceholder.get(hash, 32, 32)), no matter
@@ -4543,6 +4573,17 @@ public class MessageBubbleCanvasView extends View {
      *                  string or "Photo"/"Tap to retry"); ignored while downloading.
      */
     public void setMediaDownloadGate(boolean downloading, int progressPercent, @Nullable String idleLabel) {
+        // v857: the adapter's auto/tap download paths call this on EVERY onProgress tick. When the gate is
+        // already an in-flight plain download (not upload / retry / waiting / idle label), a tick is only a
+        // percentage change -> route to the live-pill path (rect redraw) instead of a full re-record.
+        // Transitions (idle->downloading, indeterminate, upload, retry) still take the full path below.
+        if (downloading && progressPercent >= 0 && idleLabel == null
+                && mediaGated && mediaDownloading
+                && !mediaGateRetry && !mediaGateWaiting && !mediaIsUpload
+                && mediaDownloadLabel.isEmpty()) {
+            setMediaDownloadProgress(progressPercent);
+            return;
+        }
         this.mediaGated = true;
         this.mediaDownloading = downloading;
         this.mediaDownloadProgress = progressPercent;
@@ -4856,12 +4897,14 @@ public class MessageBubbleCanvasView extends View {
 
     /** Swap in a decoded reel-thumbnail Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
     public void setReelShareThumbBitmap(@Nullable Bitmap bitmap) {
+        if (this.reelThumbBitmap == bitmap) return; // v856: same instance -> no re-record
         this.reelThumbBitmap = bitmap;
         invalidate();
     }
 
     /** Swap in a decoded reel-owner avatar Bitmap once Glide (or the Firebase fallback) resolves it. */
     public void setReelShareAvatarBitmap(@Nullable Bitmap bitmap) {
+        if (this.reelAvatarBitmap == bitmap) return; // v856: same instance -> no re-record
         this.reelAvatarBitmap = bitmap;
         invalidate();
     }
@@ -4873,7 +4916,9 @@ public class MessageBubbleCanvasView extends View {
      */
     public void setReelShareUsername(@Nullable String username) {
         if (username != null && !username.isEmpty()) {
-            this.reelUsername = "@" + username;
+            final String next = "@" + username;
+            if (next.equals(this.reelUsername)) return; // v856
+            this.reelUsername = next;
             invalidate();
         }
     }
@@ -4934,6 +4979,7 @@ public class MessageBubbleCanvasView extends View {
 
     /** Swap in a decoded contact-photo Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
     public void setContactAvatarBitmap(@Nullable Bitmap bitmap) {
+        if (this.contactAvatarBitmap == bitmap) return; // v856: same instance -> no re-record
         this.contactAvatarBitmap = bitmap;
         invalidate();
     }
@@ -5057,12 +5103,14 @@ public class MessageBubbleCanvasView extends View {
 
     /** Swap in a decoded avatar Bitmap once Glide finishes — no re-measure needed (bindSeenBubble only). */
     public void setSeenAvatarBitmap(@Nullable Bitmap bitmap) {
+        if (this.seenAvatarBitmap == bitmap) return; // v856: same instance -> no re-record
         this.seenAvatarBitmap = bitmap;
         invalidate();
     }
 
     /** Swap in a decoded reel/status thumbnail Bitmap once Glide finishes (bindSeenBubble only). */
     public void setSeenThumbBitmap(@Nullable Bitmap bitmap) {
+        if (this.seenThumbBitmap == bitmap) return; // v856: same instance -> no re-record
         this.seenThumbBitmap = bitmap;
         invalidate();
     }
@@ -5561,12 +5609,14 @@ public class MessageBubbleCanvasView extends View {
 
     /** Swap in a decoded Google Static Maps Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
     public void setLocationMapBitmap(@Nullable Bitmap bitmap) {
+        if (this.locationMapBitmap == bitmap) return; // v856: same instance -> no re-record
         this.locationMapBitmap = bitmap;
         invalidate();
     }
 
     public void setMediaGroupBitmap(int index, @Nullable Bitmap bitmap) {
         if (index < 0 || index >= groupBitmaps.length) return;
+        if (groupBitmaps[index] == bitmap) return; // v856: same instance -> no re-record
         groupBitmaps[index] = bitmap;
         invalidate();
     }
@@ -5800,16 +5850,11 @@ public class MessageBubbleCanvasView extends View {
             new android.view.animation.OvershootInterpolator(2.2f);
 
     private void startReplyThumbFade() {
-        if (replyFadeAnim == null) {
-            android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
-            a.setDuration(160);
-            a.addUpdateListener(an -> { replyThumbAlpha = (float) an.getAnimatedValue(); invalidate(); });
-            replyFadeAnim = a;
-        } else if (replyFadeAnim.isRunning()) {
-            replyFadeAnim.cancel();
-        }
-        replyThumbAlpha = 0f;
-        replyFadeAnim.start();
+        // v856: the 160ms fade called invalidate() every frame (~10 full-bubble re-records per reply
+        // thumb, because the thumb lives in the cached node). The thumb now just appears; the single
+        // invalidate at the end of setReply() records it once.
+        if (replyFadeAnim != null && replyFadeAnim.isRunning()) replyFadeAnim.cancel();
+        replyThumbAlpha = 1f;
     }
 
     private void cancelReplyThumbFade() {
@@ -8438,6 +8483,10 @@ public class MessageBubbleCanvasView extends View {
         if (hasReply && replyPressed) drawReplyPressedOverlay(canvas);
         if (hasGroupSenderAvatar && groupSenderAvatarShown) drawGroupSenderAvatar(canvas); // v854: live
         if (footerLiveValid) drawFooterLive(canvas);
+        if (hasExpiry) { // v858: contact/location corner countdown pill is live (was baked into the cached node)
+            if (isContact) drawCornerExpiryPill(canvas, contactCardRect);
+            else if (isLocation) drawCornerExpiryPill(canvas, locationMapRect);
+        }
         if (isAudio && audioPlaying) {
             audioRenderer.drawRow(canvas, Math.round(H_PADDING_DP * density),
                     Math.round(V_PADDING_DP * density));

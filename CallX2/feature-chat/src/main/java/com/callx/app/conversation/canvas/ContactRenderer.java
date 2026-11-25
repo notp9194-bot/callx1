@@ -174,8 +174,7 @@ final class ContactRenderer {
         // the expiry pill is a small floating badge in the card's top-end
         // corner instead of sharing a footer row. Drawn after canvas.restore()
         // so it isn't clipped to the card's rounded shape. ──
-        if (host.hasExpiry) {
-            host.drawCornerExpiryPill(canvas, host.contactCardRect);
-        }
+        // v858: the pill is drawn in the dynamic overlay layer (drawDynamicOverlayLayer), so the
+        // once-a-second countdown tick never re-records the cached card.
     }
 }

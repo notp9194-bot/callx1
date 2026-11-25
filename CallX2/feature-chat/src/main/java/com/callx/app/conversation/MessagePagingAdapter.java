@@ -5510,7 +5510,7 @@ public class MessagePagingAdapter
                 if (tapDlKey == null) {
                     com.callx.app.utils.MediaCache.fetchEarlyPreview(tapFetchUrl, partial -> {
                         if (h.canvasBindToken != myToken || tapFullyLoaded[0]) return;
-                        cv.setMediaBitmap(partial);
+                        cv.setMediaBitmapPartial(partial);
                     });
                 }
                 com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapFetchUrl, tapDlKey, tapDlDigest,
@@ -5525,7 +5525,7 @@ public class MessagePagingAdapter
                         // Coarse-to-sharp in-place preview while still
                         // downloading — the gate/percentage overlay stays up
                         // (cleared only in onReady below) on top of it.
-                        cv.setMediaBitmap(partial);
+                        cv.setMediaBitmapPartial(partial);
                     }
                     @Override public void onReady(java.io.File file) {
                         downloadingMediaUrls.remove(fullUrl);
@@ -6659,7 +6659,7 @@ public class MessagePagingAdapter
                         if (autoDlKey == null) {
                             com.callx.app.utils.MediaCache.fetchEarlyPreview(autoFetchUrl, partial -> {
                                 if (h.canvasBindToken != myToken || autoFullyLoaded[0]) return;
-                                cv.setMediaBitmap(partial);
+                                cv.setMediaBitmapPartial(partial);
                             });
                         }
                         com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoFetchUrl, autoDlKey, autoDlDigest,
@@ -6671,7 +6671,7 @@ public class MessagePagingAdapter
                             @Override public void onPartialBitmap(android.graphics.Bitmap partial) {
                                 if (h.canvasBindToken != myToken) return;
                                 autoFullyLoaded[0] = true;
-                                cv.setMediaBitmap(partial);
+                                cv.setMediaBitmapPartial(partial);
                             }
                             @Override public void onReady(java.io.File file) {
                                 MediaDownloadQueue.getInstance(ctx).markComplete(capturedUrl);
