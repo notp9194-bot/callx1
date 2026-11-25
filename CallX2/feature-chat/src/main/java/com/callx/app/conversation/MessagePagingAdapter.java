@@ -602,6 +602,21 @@ public class MessagePagingAdapter
     // is what makes it safe to use this on every bind, not just GIF/sticker.
     private static volatile int cachedFileGenSeen = -1;
 
+    private static final java.util.concurrent.ExecutorService FILE_CHECK_EXEC =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "FileCachedCheck");
+                t.setPriority(Thread.NORM_PRIORITY - 1);
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** v867: main-thread-safe variant — memo only, never touches disk. */
+    private static java.io.File getCachedFileMemoOnly(String url) {
+        if (url == null || url.isEmpty()) return null;
+        if (com.callx.app.utils.MediaCache.generation() != cachedFileGenSeen) return null; // stale memo -> verify off-thread
+        return CACHED_FILE_CHECK.get(url);
+    }
+
     private static java.io.File getCachedFileFast(android.content.Context ctx, String url) {
         if (url == null || url.isEmpty()) return null;
         final int gen = com.callx.app.utils.MediaCache.generation();
@@ -7371,7 +7386,18 @@ public class MessagePagingAdapter
             final String sizeStr  = sizeRaw > 0
                     ? android.text.format.Formatter.formatShortFileSize(ctx, sizeRaw) : "";
 
-            boolean fileCached = !fileUrl.isEmpty() && getCachedFileFast(ctx, fileUrl) != null;
+            // v867: positive memo only on the main thread (no disk stat in bind: measured 33 ms avg / 74 ms max
+            // on file binds). A memo miss is verified on a background thread and flips the card to "cached".
+            boolean fileCached = !fileUrl.isEmpty() && getCachedFileMemoOnly(fileUrl) != null;
+            if (!fileCached && !fileUrl.isEmpty()) {
+                final String fu = fileUrl;
+                FILE_CHECK_EXEC.execute(() -> {
+                    if (getCachedFileFast(ctx, fu) == null) return;
+                    BubbleBitmapPipeline.postMain(() -> {
+                        if (h.canvasBindToken == myToken) cv.setFileCached(true);
+                    });
+                });
+            }
             cv.bindFile(fileName, mime, sizeStr, fileCached, sent, isRead, isDelivered);
             cv.setDeletedStyle(false);
             // NOTE: the download button (onFileDownloadClick) and open

@@ -2931,6 +2931,9 @@ public class MessageBubbleCanvasView extends View {
     private static final boolean SUPPORTS_RENDER_NODE =
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q;
     private android.graphics.RenderNode fullBubbleRenderNode;
+    // v867: the last recording produced NO display list (nothing drawn into the cached layer, e.g. overlay-only
+    // rows). hasDisplayList() is then false forever, which made every draw look like a cache miss and re-record.
+    private boolean fullBubbleEmptyRecord;
 
     /**
      * Draws a single-image/video bubble, using a cached Picture for
@@ -3166,6 +3169,7 @@ public class MessageBubbleCanvasView extends View {
     public void releaseRenderCaches() {
         if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
         if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
+        fullBubbleEmptyRecord = false;
         staticPictureDirty = true;
         fullBubbleDirty = true;
     }
@@ -8304,7 +8308,7 @@ public class MessageBubbleCanvasView extends View {
             }
             if (fullBubbleRenderNode == null) fullBubbleRenderNode = new android.graphics.RenderNode("bubble");
             if (!fullBubbleDirty && w == fullBubblePictureW && h == fullBubblePictureH
-                    && fullBubbleRenderNode.hasDisplayList()) {            // already cached
+                    && (fullBubbleEmptyRecord || fullBubbleRenderNode.hasDisplayList())) {            // already cached
                 if (_st) com.callx.app.debug.BubblePerfStats.preCached();
                 return;
             }
@@ -8318,6 +8322,7 @@ public class MessageBubbleCanvasView extends View {
                 fullBubbleRenderNode.endRecording();
                 android.os.Trace.endSection();
             }
+            fullBubbleEmptyRecord = !fullBubbleRenderNode.hasDisplayList();
             fullBubbleDirty = false;
             fullBubblePictureW = w;
             fullBubblePictureH = h;
@@ -8431,7 +8436,7 @@ public class MessageBubbleCanvasView extends View {
                 }
                 boolean hit = !fullBubbleDirty
                         && w == fullBubblePictureW && h == fullBubblePictureH
-                        && fullBubbleRenderNode.hasDisplayList();
+                        && (fullBubbleEmptyRecord || fullBubbleRenderNode.hasDisplayList());
                 if (hit) {
                     // Cache hit: replay the GPU-side display list — no CPU
                     // draw-op walk at all, cheaper than canvas.drawPicture().
@@ -8452,6 +8457,7 @@ public class MessageBubbleCanvasView extends View {
                 android.graphics.RecordingCanvas rc = fullBubbleRenderNode.beginRecording();
                 drawBubbleContent(rc);
                 fullBubbleRenderNode.endRecording();
+                fullBubbleEmptyRecord = !fullBubbleRenderNode.hasDisplayList();
                 android.os.Trace.endSection();
                 if (_pt != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt);
                 fullBubbleDirty    = false;
