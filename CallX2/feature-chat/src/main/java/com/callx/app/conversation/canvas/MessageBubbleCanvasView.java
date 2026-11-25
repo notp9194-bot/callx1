@@ -8233,20 +8233,56 @@ public class MessageBubbleCanvasView extends View {
     /** Main thread only. {@code wSpec} must be the EXACTLY width spec RecyclerView will use. */
     public void schedulePreRecord(int wSpec) {
         if (!PRERECORD_ENABLED || !SUPPORTS_RENDER_NODE || preRecordQueued) return;
-        if (sPreQ.size() >= 12) return;                    // bounded
+        if (sPreQ.size() >= 12) {                          // bounded
+            if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preFullQ();
+            return;
+        }
         preRecordQueued = true;
         sPreQ.addLast(new PreRecordJob(this, wSpec));
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preSched();
         if (!sPreIdleHooked) {
             sPreIdleHooked = true;
             android.os.Looper.myQueue().addIdleHandler(PRE_IDLE);
         }
+        // v865: during fling the main looper is rarely truly idle, so the idle handler may never fire.
+        // Backstop: one short drain ~1.5 frames later (budgeted 2 ms/run, runs BETWEEN frames, not in onDraw).
+        if (!sPreDrainPosted) {
+            sPreDrainPosted = true;
+            sPreHandler.postDelayed(PRE_DRAIN, 24);
+        }
+    }
+
+    private static boolean sPreDrainPosted;
+    private static final android.os.Handler sPreHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final Runnable PRE_DRAIN = MessageBubbleCanvasView::drainPreQueue;
+
+    private static void drainPreQueue() {
+        sPreDrainPosted = false;
+        if (sPreQ.isEmpty()) return;
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preFallback();
+        final long t0 = android.os.SystemClock.uptimeMillis();
+        while (!sPreQ.isEmpty() && android.os.SystemClock.uptimeMillis() - t0 < 2) {
+            PreRecordJob j = sPreQ.pollFirst();
+            MessageBubbleCanvasView v = j.v.get();
+            if (v != null) v.runPreRecord(j.wSpec);
+        }
+        if (!sPreQ.isEmpty()) { sPreDrainPosted = true; sPreHandler.postDelayed(PRE_DRAIN, 24); }
     }
 
     private void runPreRecord(int wSpec) {
         preRecordQueued = false;
-        if (!SUPPORTS_RENDER_NODE || getVisibility() == GONE) return;
-        if (shouldSkipFullCache()) return;
+        final boolean _st = com.callx.app.debug.BubblePerfStats.on;
+        if (_st) com.callx.app.debug.BubblePerfStats.preRun();
+        if (!SUPPORTS_RENDER_NODE || getVisibility() == GONE) { if (_st) com.callx.app.debug.BubblePerfStats.preEarly(); return; }
+        if (shouldSkipFullCache()) { if (_st) com.callx.app.debug.BubblePerfStats.preEarly(); return; }
         try {
+            // v865: attached to RV but a layout is still pending (bound mid-scroll-fill): the geometry
+            // (bubbleRect/textLayout) is stale -> recording now would cache the wrong picture. RV's own
+            // measure + first draw handles it.
+            if (getParent() != null && isLayoutRequested()) {
+                if (_st) com.callx.app.debug.BubblePerfStats.preStale();
+                return;
+            }
             if (getParent() == null) {
                 // Detached prefetched view: lay it out ourselves (RV will re-use the
                 // cached measure when its specs match, else it re-measures as usual).
@@ -8257,15 +8293,21 @@ public class MessageBubbleCanvasView extends View {
                 }
             }
             final int w = getWidth(), h = getHeight();
-            if (w <= 0 || h <= 0) return;
+            if (w <= 0 || h <= 0) { if (_st) com.callx.app.debug.BubblePerfStats.preEarly(); return; }
             if (!isReelShare && !isContact && !isLocation && !isFileBubble && !isViewOnce
                     && !isSeenBubble && !isCallEntry) {
-                if (bubbleDrawable == null) return;
-                if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) return;
+                if (bubbleDrawable == null) { if (_st) com.callx.app.debug.BubblePerfStats.preEarly(); return; }
+                if (!isMedia && !isMediaGroup && !isAudio && !isPoll && textLayout == null) {
+                    if (_st) com.callx.app.debug.BubblePerfStats.preEarly();
+                    return;
+                }
             }
             if (fullBubbleRenderNode == null) fullBubbleRenderNode = new android.graphics.RenderNode("bubble");
             if (!fullBubbleDirty && w == fullBubblePictureW && h == fullBubblePictureH
-                    && fullBubbleRenderNode.hasDisplayList()) return;      // already cached
+                    && fullBubbleRenderNode.hasDisplayList()) {            // already cached
+                if (_st) com.callx.app.debug.BubblePerfStats.preCached();
+                return;
+            }
             final long _pre = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
             android.os.Trace.beginSection("Bubble.preRecord");
             fullBubbleRenderNode.setPosition(0, 0, w, h);
@@ -8282,6 +8324,7 @@ public class MessageBubbleCanvasView extends View {
             sRenderCachePreRecorded++;
             if (_pre != 0L) com.callx.app.debug.BubblePerfStats.pre(System.nanoTime() - _pre);
         } catch (RuntimeException e) {
+            if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preErr();
             fullBubbleDirty = true;                         // fall back to normal onDraw record
         }
     }
@@ -8296,6 +8339,9 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     public void invalidate() {
+        if (!fullBubbleDirty && com.callx.app.debug.BubblePerfStats.on) {
+            com.callx.app.debug.BubblePerfStats.dirtiedWhileClean();   // v865: who re-dirties a clean cached bubble
+        }
         fullBubbleDirty = true;
         super.invalidate();
     }
@@ -8396,6 +8442,10 @@ public class MessageBubbleCanvasView extends View {
                     return;
                 }
                 sRenderCacheMisses++;
+                if (com.callx.app.debug.BubblePerfStats.on) {
+                    com.callx.app.debug.BubblePerfStats.missWhy(fullBubbleDirty,
+                            w != fullBubblePictureW || h != fullBubblePictureH, !fullBubbleRenderNode.hasDisplayList());
+                }
                 final long _pt = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
                 android.os.Trace.beginSection("Bubble.record");
                 fullBubbleRenderNode.setPosition(0, 0, w, h);

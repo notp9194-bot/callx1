@@ -4276,6 +4276,7 @@ public class MessagePagingAdapter
         // Target: median < 2ms, P99 < 8ms.
         android.os.Trace.beginSection("Msg#bind");
         try {
+        final long _sp = com.callx.app.debug.BubblePerfStats.t();
         Message m = getItem(position);
         if (m == null) {
             // Placeholder — show shimmer or empty
@@ -4385,8 +4386,13 @@ public class MessagePagingAdapter
         // getItemViewType's TYPE_CANVAS_SENT/RECEIVED routing actually
         // takes effect for them (status_seen/reel_seen/view_once included).
         if (h.canvasView != null) {
+            com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_PRE, _sp);
+            final long _t1 = com.callx.app.debug.BubblePerfStats.t();
             applyGroupedSpacing(h, position, m);
+            com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_SPACING, _t1);
+            final long _t2 = com.callx.app.debug.BubblePerfStats.t();
             bindCanvasMessage(h, m, position);
+            com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_CANVAS, _t2);
             return;
         }
         // ── STATUS SEEN BUBBLE — special system event row (legacy fallback,
@@ -6054,6 +6060,7 @@ public class MessagePagingAdapter
                     || ("text".equals(type) && textHasUrl(m)));
         cv.setQuickForwardVisible(showFwd);
 
+        final long _c0 = com.callx.app.debug.BubblePerfStats.t();
         if (isDeleted) {
             // Mirrors bindMessage()'s deleted-message branch: always the
             // plain-text placeholder, regardless of the message's original
@@ -7542,6 +7549,8 @@ public class MessagePagingAdapter
         // first — a cache hit renders the thumb in the very same frame as
         // the text, with zero flash. Only a genuine cache miss falls back
         // to the async Glide load, exactly like the media-bitmap path above.
+        com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_TYPE, _c0);
+        final long _cr = com.callx.app.debug.BubblePerfStats.t();
         if (m.replyToId != null && !m.replyToId.isEmpty()) {
             final String replyThumbUrl = m.replyToMediaUrl;
             final String replyThumbB64 = m.replyToThumbBase64;
@@ -7609,6 +7618,8 @@ public class MessagePagingAdapter
         // see StatusViewerActivity#sendReactionToChat. Every other reply
         // (normal text/media replies, and reactions whose text isn't a
         // lone emoji) keeps the plain small quote-box text as before.
+        com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_REPLY, _cr);
+        final long _c1 = com.callx.app.debug.BubblePerfStats.t();
         final boolean storyReaction = isStoryReactionEmojiMessage(m);
         cv.setBigReactionEmoji(storyReaction ? m.text : null);
         if (storyReaction && m.id != null && m.timestamp != null
@@ -7652,13 +7663,19 @@ public class MessagePagingAdapter
         } else {
             cv.clearGroupSender();
         }
+        com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_RX, _c1);
         // Chat avatar beside the bubble (both sides, 1:1 + group; on the same bubble as the tail).
+        final long _c2 = com.callx.app.debug.BubblePerfStats.t();
         bindChatAvatar(h, cv, position, m, sent, myToken);
+        com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_AVATAR, _c2);
 
         // ── "Seen by" reader-avatar strip (sent group rows only; clears
         // itself on every other row so a recycled holder never keeps one) ──
+        final long _c3 = com.callx.app.debug.BubblePerfStats.t();
         bindSeenByAvatars(h, m, position);
+        com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_SEENBY, _c3);
 
+        final long _c4 = com.callx.app.debug.BubblePerfStats.t();
         // ── Forwarded label ──
         if (m.forwardedFrom != null && !m.forwardedFrom.isEmpty()) {
             cv.setForwardedFrom(m.forwardedFrom);
@@ -7734,6 +7751,7 @@ public class MessagePagingAdapter
             final int pw = preRv.getWidth() - preRv.getPaddingLeft() - preRv.getPaddingRight() - pm;
             if (pw > 0) cv.schedulePreRecord(View.MeasureSpec.makeMeasureSpec(pw, View.MeasureSpec.EXACTLY));
         }
+        com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_TAIL, _c4);
     }
 
     /**

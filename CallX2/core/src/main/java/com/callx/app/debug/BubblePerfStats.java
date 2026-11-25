@@ -32,6 +32,56 @@ public final class BubblePerfStats {
     public static void measure(long ns) { measN++; measNs += ns; if (ns > measMax) measMax = ns; }
     public static void bind(long ns)    { bindN++; bindNs += ns; if (ns > bindMax) bindMax = ns; }
 
+    // v865: bind sub-sections (main thread). Use: long t = BubblePerfStats.t(); ...; BubblePerfStats.sec(SEC_X, t);
+    public static final int SEC_PRE = 0, SEC_SPACING = 1, SEC_CANVAS = 2, SEC_TYPE = 3, SEC_REPLY = 4,
+            SEC_RX = 5, SEC_AVATAR = 6, SEC_SEENBY = 7, SEC_TAIL = 8;
+    private static final String[] SEC_NAME = {"bind.pre (cancel/index/spacing-before)", "bind.spacing",
+            "bind.canvas (total bindCanvasMessage)", "  canvas.typeBind (text/media/etc)", "  canvas.reply",
+            "  canvas.reactions/pinned/fwd", "  canvas.avatar", "  canvas.seenBy", "  canvas.tail (expiry/sel/layer/preRec sched)"};
+    private static final long[] secNs = new long[9], secMax = new long[9];
+    private static final long[] secN = new long[9];
+    public static long t() { return on ? System.nanoTime() : 0L; }
+    public static void sec(int id, long t0) {
+        if (t0 == 0L) return;
+        long d = System.nanoTime() - t0;
+        secN[id]++; secNs[id] += d; if (d > secMax[id]) secMax[id] = d;
+    }
+
+    // v865: preRecord pipeline diagnostics (why was count=0?)
+    private static long pSched, pFull, pRun, pStale, pEarly, pCached, pErr, pDrainFallback;
+    public static void preSched()    { pSched++; }
+    public static void preFullQ()    { pFull++; }
+    public static void preRun()      { pRun++; }
+    public static void preStale()    { pStale++; }
+    public static void preEarly()    { pEarly++; }
+    public static void preCached()   { pCached++; }
+    public static void preErr()      { pErr++; }
+    public static void preFallback() { pDrainFallback++; }
+
+    // v865: why each Bubble.record happened
+    private static long mDirty, mSize, mNoDL;
+    public static void missWhy(boolean dirty, boolean sizeChanged, boolean noDisplayList) {
+        if (dirty) mDirty++; else if (sizeChanged) mSize++; else if (noDisplayList) mNoDL++;
+    }
+
+    // v865: who dirtied a CLEAN cached bubble via invalidate() (the generator of re-records)
+    private static final java.util.HashMap<String, int[]> dirtiers = new java.util.HashMap<>();
+    private static long dirtiedClean;
+    public static void dirtiedWhileClean() {
+        dirtiedClean++;
+        StackTraceElement[] st = new Throwable().getStackTrace();
+        String key = "?";
+        for (int i = 2; i < st.length && i < 8; i++) {
+            String c = st[i].getClassName();
+            if (c.startsWith("android.") || c.startsWith("androidx.recyclerview")) continue;
+            key = c.substring(c.lastIndexOf('.') + 1) + "." + st[i].getMethodName() + ":" + st[i].getLineNumber();
+            break;
+        }
+        int[] c = dirtiers.get(key);
+        if (c == null) { if (dirtiers.size() >= 80) return; dirtiers.put(key, c = new int[1]); }
+        c[0]++;
+    }
+
     // frame metrics (background thread)
     private static final int CAP = 8000;
     private static final Object FL = new Object();
@@ -56,6 +106,9 @@ public final class BubblePerfStats {
     public static void start(Activity a) {
         stop(a);
         recN = recNs = recMax = hitN = preN = preNs = measN = measNs = measMax = bindN = bindNs = bindMax = 0;
+        Arrays.fill(secN, 0L); Arrays.fill(secNs, 0L); Arrays.fill(secMax, 0L);
+        pSched = pFull = pRun = pStale = pEarly = pCached = pErr = pDrainFallback = 0;
+        mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
         startMs = System.currentTimeMillis();
         synchronized (FL) {
             frameN = 0; fTotal = fLayout = fDraw = fSync = 0; over1 = over2 = 0;
@@ -152,7 +205,21 @@ public final class BubblePerfStats {
         long draws = recN + hitN;
         sb.append("cache hits=").append(hitN).append("  hit-rate=")
           .append(draws == 0 ? "-" : (100 * hitN / draws) + "%").append('\n');
-        sb.append("preRecord count=").append(preN).append("  total=").append(ms(preNs)).append(" ms\n\n");
+        sb.append("miss reason: dirty=").append(mDirty).append(" sizeChanged=").append(mSize)
+          .append(" noDisplayList=").append(mNoDL).append('\n');
+        sb.append("preRecord done=").append(preN).append("  total=").append(ms(preNs)).append(" ms\n");
+        sb.append("preRecord pipeline: sched=").append(pSched).append(" queueFull=").append(pFull)
+          .append(" run=").append(pRun).append(" staleSkip=").append(pStale).append(" earlySkip=").append(pEarly)
+          .append(" alreadyCached=").append(pCached).append(" err=").append(pErr)
+          .append(" fallbackDrain=").append(pDrainFallback).append("\n");
+        sb.append("invalidate() on CLEAN bubble=").append(dirtiedClean).append(" (top callers):\n");
+        {
+            java.util.ArrayList<java.util.Map.Entry<String, int[]>> es = new java.util.ArrayList<>(dirtiers.entrySet());
+            java.util.Collections.sort(es, (a, b) -> b.getValue()[0] - a.getValue()[0]);
+            for (int i = 0; i < es.size() && i < 8; i++)
+                sb.append("  ").append(es.get(i).getValue()[0]).append("x ").append(es.get(i).getKey()).append('\n');
+        }
+        sb.append('\n');
 
         sb.append("-- onMeasure --\n");
         sb.append("count=").append(measN).append("  total=").append(ms(measNs)).append(" ms  avg=")
@@ -161,6 +228,13 @@ public final class BubblePerfStats {
         sb.append("-- onBindViewHolder (full) --\n");
         sb.append("count=").append(bindN).append("  total=").append(ms(bindNs)).append(" ms  avg=")
           .append(us(bindN, bindNs)).append(" us  max=").append(ms(bindMax)).append(" ms\n\n");
+
+        sb.append("-- bind sections (count / total ms / avg us / max ms) --\n");
+        for (int i = 0; i < 9; i++) {
+            sb.append(SEC_NAME[i]).append(": n=").append(secN[i]).append(" total=").append(ms(secNs[i]))
+              .append(" avg=").append(us(secN[i], secNs[i])).append(" max=").append(ms(secMax[i])).append('\n');
+        }
+        sb.append('\n');
 
         sb.append("-- Frames --\n");
         synchronized (FL) {
