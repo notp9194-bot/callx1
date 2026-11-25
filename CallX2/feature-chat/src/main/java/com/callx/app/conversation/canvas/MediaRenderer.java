@@ -92,33 +92,22 @@ final class MediaRenderer {
     // white icon+text combo doesn't match either of those exactly.
     // v425 PERF: all voice-badge draw resources are lazily created on the
     // first voice-caption draw (ensureVoiceRes()) instead of eagerly per view.
-    private Paint voiceBadgeBgPaint;
     private Paint voiceBadgeIconPaint;
     private android.text.TextPaint voiceBadgeDurPaint;
-    private RectF voiceBadgePillRectF;
     private android.graphics.Path voiceBadgeGlyphPath;
-    // Feature: Save-audio button glyph (down-arrow-into-tray, reused for
-    // both the arrow-head and the tray strokes within one drawVoiceBadge()
-    // call — same reuse-not-realloc precedent as voiceBadgeGlyphPath above).
-    private android.graphics.Path voiceBadgeDownloadArrowPath;
 
     /** Builds the voice-badge Paints/Paths/RectF once, on first use. */
     private void ensureVoiceRes() {
-        if (voiceBadgeBgPaint != null) return;
-        Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        bg.setColor(0xCC000000);
+        if (voiceBadgeIconPaint != null) return;
         Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
         icon.setColor(0xFFFFFFFF);
         icon.setStyle(Paint.Style.FILL);
         android.text.TextPaint dur = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
         dur.setColor(0xFFFFFFFF);
         dur.setTextSize(host.spToPx(11f));
-        voiceBadgePillRectF = new RectF();
         voiceBadgeGlyphPath = new android.graphics.Path();
-        voiceBadgeDownloadArrowPath = new android.graphics.Path();
-        voiceBadgeIconPaint = icon;
         voiceBadgeDurPaint = dur;
-        voiceBadgeBgPaint = bg; // assigned last — doubles as the "ready" flag
+        voiceBadgeIconPaint = icon; // assigned last — doubles as the "ready" flag
     }
 
     void draw(Canvas canvas, int hPad, int vPad) {
@@ -304,22 +293,13 @@ final class MediaRenderer {
         // with it either way. The bottom inset still widens a little when
         // a caption is present so the badge doesn't sit flush against the
         // exact edge where the caption block begins right underneath.
+        // v849: ONLY the photo + static-waveform strip layout exists now. The old dark
+        // pill (play | m:ss | 1x | download) drawn over the photo was removed.
         if (!host.voiceStripRect.isEmpty()) {
-            // v845: screenshot-2 layout — separate strip under the photo, static waveform.
             if (!host.voiceStripLive()) drawVoiceStrip(canvas); // live: drawn in the overlay layer
-        } else if (host.voiceUrl != null && !host.voiceUrl.isEmpty()) {
-            if (!host.mediaGated) {
-                float badgeBottomInset = (host.mediaHasCaption ? 10f : 6f) * host.density;
-                float badgeX = host.mediaRect.left + 6f * host.density;
-                float badgeY = host.mediaRect.bottom - badgeBottomInset;
-                drawVoiceBadge(canvas, badgeX, badgeY);
-            } else {
-                host.voiceBadgeRect.setEmpty();
-                host.voiceSpeedRect.setEmpty();
-                host.voiceDownloadRect.setEmpty();
-            }
         } else {
             host.voiceBadgeRect.setEmpty();
+            host.voiceSpeedRect.setEmpty();
             host.voiceDownloadRect.setEmpty();
         }
 
@@ -354,37 +334,25 @@ final class MediaRenderer {
             host.readMoreRect.setEmpty(); // v845: time/ticks already drawn inside the voice strip
         } else {
             host.readMoreRect.setEmpty();
-            // Captionless image: translucent timestamp/tick pill overlaid
-            // on the image's bottom-right corner, WhatsApp-style.
-            float rr = MessageBubbleCanvasView.MEDIA_PILL_CORNER_DP * host.density;
-            canvas.drawRoundRect(host.mediaPillRect, rr, rr, host.mediaPillBgPaint);
-            canvas.drawRoundRect(host.mediaPillRect, rr, rr, host.mediaPillBorderPaint);
-            float pillPadH = MessageBubbleCanvasView.MEDIA_PILL_PADDING_H_DP * host.density;
-            float textBaselineY = host.mediaPillRect.bottom - (host.mediaPillRect.height()
-                    - (host.mediaPillTextPaint.descent() - host.mediaPillTextPaint.ascent())) / 2f
-                    - host.mediaPillTextPaint.descent();
-            float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * host.density : 0;
-            float timeX = host.mediaPillRect.right - pillPadH - tickReserve - host.mediaPillTextPaint.measureText(host.footerTimeText);
-            canvas.drawText(host.footerTimeText, timeX, textBaselineY, host.mediaPillTextPaint);
-            if (host.hasExpiry) {
-                canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), textBaselineY, host.expiryPaint);
-            }
+            // v850: captionless image/video/gif — time + tick in a slim strip BELOW the photo
+            // (nothing drawn over the pixels). No pill background / border / round-rect.
+            if (!host.hasFooterStrip()) return;
+            final float d = host.density;
+            final RectF f = host.mediaFooterRect;
+            f.set(host.mediaRect.left, host.mediaRect.bottom, host.mediaRect.right,
+                    host.mediaRect.bottom + MessageBubbleCanvasView.MEDIA_FOOTER_STRIP_DP * d);
+            final float pad = 4f * d;
+            final float cy = f.centerY();
+            final float tickReserve = host.sent ? (MessageBubbleCanvasView.TICK_SIZE_DP + MessageBubbleCanvasView.TICK_GAP_DP) * d : 0f;
+            final float rightX = f.right - pad;
+            host.footerPaint.getFontMetrics(host.footerFmScratch);
+            final float base = cy - (host.footerFmScratch.ascent + host.footerFmScratch.descent) / 2f;
+            final float timeX = rightX - host.footerTimeTextWidth() - tickReserve;
+            canvas.drawText(host.footerTimeText, timeX, base, host.footerPaint);
+            if (host.hasExpiry) canvas.drawText(host.expiryText, timeX - host.expiryReserveWidth(), base, host.expiryPaint);
             if (host.sent) {
-                // BUG FIX: this used to force the tick to always draw in
-                // MEDIA_PILL_TEXT (solid white) "so it reads on the pill" —
-                // but that meant the tick never visually changed color when
-                // a message went delivered -> read, because host.tickPaint
-                // already carries the correct grey/gold color (set by
-                // bind()/setDeliveryStatus() from ChatThemeManager
-                // .getTickColor(read)) and this was overwriting it with
-                // white on every single draw. Both real tick colors
-                // (0xFF8FAF9F grey, 0xFFD4AF37 gold) read perfectly fine
-                // against the pill's translucent black background — same
-                // as the WhatsApp-style pill this mirrors — so just draw
-                // with the paint as-is instead of hijacking its color.
-                // Sent + gated = upload still queued/running (or failed, retry
-                // shown): pending clock instead of a sent tick.
-                host.drawTick(canvas, host.mediaPillRect.right - pillPadH - MessageBubbleCanvasView.TICK_SIZE_DP * host.density, textBaselineY, host.mediaGated, true);
+                // Sent + gated = upload queued/running/failed -> pending clock instead of the tick.
+                host.drawTick(canvas, rightX - MessageBubbleCanvasView.TICK_SIZE_DP * d, base, host.mediaGated, true);
             }
         }
     }
@@ -448,94 +416,6 @@ final class MediaRenderer {
         }
     }
 
-    /**
-     * PERF (ultra): Paint.measureText() walks every glyph in the string —
-     * cheap once, but this badge can redraw on every full-bubble
-     * cache rebuild (any unrelated field on the bubble changing) PLUS
-     * every isVoicePlaying toggle's own dirty-rect redraw (see
-     * MessageBubbleCanvasView#invalidateVoiceBadgeRegion). The duration
-     * string itself is static for the whole lifetime of a bind — only
-     * isVoicePlaying ticks, never voiceDuration (see setVoiceCaption's
-     * javadoc) — so both the measured text width AND the pill's derived
-     * width/height (same inputs → same output, every single time) are
-     * cached here and only ever recomputed when the string actually
-     * changes. Same precedent as measureDurationText()'s video-duration
-     * cache just above. After the first draw of a given duration string,
-     * every subsequent draw call pays zero measureText cost — pure field
-     * reads instead.
-     */
-    private String cachedVoiceDurText;
-    private String cachedVoiceSpeedLabel;
-    private boolean cachedVoiceDownloading;
-    private float cachedVoiceDurTextWidth;
-    private float cachedVoiceSpeedTextWidth;
-    private float cachedVoicePillW, cachedVoicePillH;
-    /** Where the play/pause segment ends and the separator/speed segment
-     *  begins, relative to the pill's left edge — lets drawVoiceBadge()
-     *  split host.voiceBadgeRect / host.voiceSpeedRect without recomputing
-     *  layout math twice. */
-    private float cachedVoiceBadgeSegmentW;
-    /** Where the speed segment ends and the download-button segment
-     *  begins, relative to the pill's left edge — mirrors
-     *  cachedVoiceBadgeSegmentW's role one segment further right. Only
-     *  meaningful while !downloading (no download button shown yet for a
-     *  clip that hasn't finished fetching for playback). */
-    private float cachedVoiceSpeedSegmentEndW;
-    // PERF ULTRA: "elapsed / total" concat cache. While a voice caption is
-    // playing, drawVoiceBadge() runs on every playback tick (several times
-    // a second) — without this, `host.voiceElapsedText + " / " + totalText`
-    // allocated a brand-new String on every single one of those draws even
-    // though the elapsed label itself typically only changes once a second.
-    // Distinct from ensureVoiceBadgeGeometry()'s cache above: that one
-    // guards the (expensive) measureText/layout math, this one guards the
-    // (cheap but constant) String concat that feeds into it.
-    private String cachedVoiceElapsedIn;
-    private String cachedVoiceTotalIn;
-    private String cachedVoiceCombinedDur;
-
-    private void ensureVoiceBadgeGeometry(String durText, String speedLabel, boolean downloading, float density) {
-        ensureVoiceRes();
-        // Cache hit — nothing that affects geometry changed since last draw.
-        if (durText.equals(cachedVoiceDurText) && speedLabel.equals(cachedVoiceSpeedLabel)
-                && downloading == cachedVoiceDownloading) {
-            return;
-        }
-        cachedVoiceDurText = durText;
-        cachedVoiceSpeedLabel = speedLabel;
-        cachedVoiceDownloading = downloading;
-        cachedVoiceDurTextWidth = voiceBadgeDurPaint.measureText(
-                downloading ? DOWNLOADING_LABEL : durText);
-        float iconD = 22f * density;
-        float padH = 8f * density;
-        float padV = 5f * density;
-        float gap = 6f * density;
-        float textH = voiceBadgeDurPaint.descent() - voiceBadgeDurPaint.ascent();
-        cachedVoicePillH = Math.max(iconD, textH) + padV * 2;
-        // Play/pause segment: icon + gap + duration text, padded both ends.
-        cachedVoiceBadgeSegmentW = padH + iconD + gap + cachedVoiceDurTextWidth + padH;
-        if (downloading) {
-            // No speed chip (or download button — nothing decrypted/fetched
-            // yet to save) while still fetching for playback.
-            cachedVoiceSpeedTextWidth = 0f;
-            cachedVoicePillW = cachedVoiceBadgeSegmentW;
-            cachedVoiceSpeedSegmentEndW = cachedVoiceBadgeSegmentW;
-        } else {
-            cachedVoiceSpeedTextWidth = voiceBadgeDurPaint.measureText(speedLabel);
-            // Separator (thin divider) + speed text + trailing pad.
-            float sepGap = 8f * density;
-            cachedVoiceSpeedSegmentEndW = cachedVoiceBadgeSegmentW + sepGap + cachedVoiceSpeedTextWidth + padH;
-            // Feature: Save-audio button — a 3rd segment appended after the
-            // speed chip: another thin divider + a small download glyph,
-            // same icon language as ic_download_reel.xml (down-arrow into a
-            // tray), sized like a compact square button rather than a
-            // text+icon segment (nothing to measureText here).
-            float downloadIconD = 16f * density;
-            float downloadPadH = 8f * density;
-            cachedVoicePillW = cachedVoiceSpeedSegmentEndW + sepGap + downloadIconD + downloadPadH;
-        }
-    }
-
-
     // ── v845: voice-on-photo strip (static waveform) ────────────────────────
     // Perf notes: zero allocations per draw; waveform is ONE cached Path in local coords
     // (rebuilt only when bar count / seed changes); played part = clipRect over the same
@@ -545,10 +425,11 @@ final class MediaRenderer {
     // v846: waveform = shared ALPHA_8 mask bitmap (1 byte/px), tinted at draw time. One drawBitmap
     // for idle + one clipped drawBitmap for the played part; built once per (seed, size).
     private static final android.util.LruCache<String, android.graphics.Bitmap> sWaveMasks =
-            new android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 8) {
+            new android.util.LruCache<String, android.graphics.Bitmap>(2560 * 1024) {
                 @Override protected int sizeOf(String k, android.graphics.Bitmap b) { return b.getByteCount(); }
             };
     private String stripDurKeyTotal, stripDurKeySpeed;
+    private String stripCurIn, stripCurSpeedIn, stripCurOut;
     private float stripDurW;
 
     private void ensureStripRes() {
@@ -565,10 +446,20 @@ final class MediaRenderer {
         stripDurPaint.setTextSize(host.spToPx(12f));
     }
 
-    private android.graphics.Bitmap waveMask(int wPx, int hPx, float barW, float step, int seed) {
+    // v851: per-draw zero-alloc lookup. The last mask used by THIS view is remembered by
+    // (seed, w, h) ints, so a redraw (progress tick, tick-color change) never builds the String
+    // key nor touches the LRU. Seeds are bucketed into 64 shared patterns: a fast scroll over
+    // many voice photos reuses the same few ALPHA_8 masks instead of building one per message.
+    private android.graphics.Bitmap lastMask;
+    private int lastMaskSeed, lastMaskW, lastMaskH;
+
+    private android.graphics.Bitmap waveMask(int wPx, int hPx, float barW, float step, int seedIn) {
+        final int seed = (seedIn ^ (seedIn >>> 16)) & 63;
+        if (lastMask != null && seed == lastMaskSeed && wPx == lastMaskW && hPx == lastMaskH
+                && !lastMask.isRecycled()) return lastMask;
         final String key = seed + "_" + wPx + "_" + hPx;
         android.graphics.Bitmap m = sWaveMasks.get(key);
-        if (m != null) return m;
+        if (m != null) { lastMask = m; lastMaskSeed = seed; lastMaskW = wPx; lastMaskH = hPx; return m; }
         m = android.graphics.Bitmap.createBitmap(wPx, hPx, android.graphics.Bitmap.Config.ALPHA_8);
         Canvas c = new Canvas(m);
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -585,6 +476,7 @@ final class MediaRenderer {
             c.drawRoundRect(x, cy - h / 2f, x + barW, cy + h / 2f, r, r, p);
         }
         sWaveMasks.put(key, m);
+        lastMask = m; lastMaskSeed = seed; lastMaskW = wPx; lastMaskH = hPx;
         return m;
     }
 
@@ -645,7 +537,13 @@ final class MediaRenderer {
         }
         String cur = (host.isVoicePlaying && host.voiceElapsedText != null && !host.voiceElapsedText.isEmpty())
                 ? host.voiceElapsedText : total;
-        if (showSpeed) cur = cur + " " + speed;
+        if (showSpeed) {
+            // v851: elapsed text changes ~1/s but we draw ~4/s while playing — reuse the concat.
+            if (!cur.equals(stripCurIn) || !speed.equals(stripCurSpeedIn)) {
+                stripCurIn = cur; stripCurSpeedIn = speed; stripCurOut = cur + " " + speed;
+            }
+            cur = stripCurOut;
+        }
         stripDurPaint.setColor(textColor);
         stripDurPaint.setAlpha(200);
         final float durRight = dividerX - gap;
@@ -686,171 +584,6 @@ final class MediaRenderer {
 
     private static final String DOWNLOADING_LABEL = "\u2026"; // "…" — fetching, nothing to show yet
 
-    /**
-     * Feature: Voice Caption on Photo (Canvas). Draws a play/pause +
-     * duration pill (bg_voice_duration_pill's look, drawn manually here
-     * instead of a Drawable) whose bottom-start corner anchors at (x, y).
-     * Mirrors the legacy fl_voice_on_image treatment: dark translucent
-     * pill, white glyph, white "m:ss" duration label. Records the pill's
-     * final bounds into host.voiceBadgeRect so onTouchEvent can hit-test
-     * taps on it (see MessageBubbleCanvasView#onTouchEvent's voiceBadgeRect
-     * block, checked BEFORE the general mediaRect tap).
-     *
-     * While host.voiceDownloading is true (clip still being fetched/
-     * decrypted — see MessagePagingAdapter#toggleAudio), the icon/duration
-     * segment is replaced with a plain "…" and no speed chip is drawn —
-     * same idea as the photo's own mediaDownloading gate, just a lighter
-     * weight treatment sized for this small pill instead of a full scrim.
-     * Otherwise a second segment shows the current speed (host.
-     * voiceSpeedLabel, e.g. "1×") separated by a thin divider, hit-tested
-     * against host.voiceSpeedRect independently of the play/pause segment.
-     */
-    private void drawVoiceBadge(Canvas canvas, float x, float y) {
-        ensureVoiceRes();
-        float density = host.density;
-        float iconD = 22f * density;
-        float padH = 8f * density;
-        float gap = 6f * density;
-        String totalText = host.voiceDuration != null ? host.voiceDuration : "0:00";
-        // Feature: elapsed/total while playing — "0:03 / 0:12" instead of
-        // just the static total, so the user can see where playback is.
-        // Falls back to just the total the instant isVoicePlaying/
-        // voiceElapsedText clears (pause keeps the last elapsed value —
-        // see voiceElapsedText's javadoc; a genuine stop clears it).
-        boolean showElapsed = host.isVoicePlaying && host.voiceElapsedText != null && !host.voiceElapsedText.isEmpty();
-        String durText;
-        if (!showElapsed) {
-            durText = totalText;
-        } else if (host.voiceElapsedText.equals(cachedVoiceElapsedIn) && totalText.equals(cachedVoiceTotalIn)
-                && cachedVoiceCombinedDur != null) {
-            // PERF ULTRA: same elapsed+total as last tick's draw — reuse the
-            // already-built "0:03 / 0:12" String instead of concatenating again.
-            durText = cachedVoiceCombinedDur;
-        } else {
-            cachedVoiceElapsedIn = host.voiceElapsedText;
-            cachedVoiceTotalIn = totalText;
-            cachedVoiceCombinedDur = host.voiceElapsedText + " / " + totalText;
-            durText = cachedVoiceCombinedDur;
-        }
-        String speedLabel = host.voiceSpeedLabel != null ? host.voiceSpeedLabel : "1×";
-        boolean downloading = host.voiceDownloading;
-        ensureVoiceBadgeGeometry(durText, speedLabel, downloading, density); // PERF: no-op (field reads only) unless something changed
-        float pillH = cachedVoicePillH;
-        float pillW = cachedVoicePillW;
-
-        // (x, y) is the bottom-start anchor point of the pill.
-        voiceBadgePillRectF.set(x, y - pillH, x + pillW, y);
-        float r = pillH / 2f;
-        canvas.drawRoundRect(voiceBadgePillRectF, r, r, voiceBadgeBgPaint);
-
-        float iconCx = voiceBadgePillRectF.left + padH + iconD / 2f;
-        float iconCy = voiceBadgePillRectF.centerY();
-        if (downloading) {
-            // Fetching — a plain static ellipsis instead of a play/pause
-            // glyph, so the badge never claims to be "playing" before
-            // there's actually anything to play.
-            float textBaseline = voiceBadgePillRectF.centerY()
-                    - (voiceBadgeDurPaint.ascent() + voiceBadgeDurPaint.descent()) / 2f;
-            canvas.drawText(DOWNLOADING_LABEL, voiceBadgePillRectF.left + padH, textBaseline, voiceBadgeDurPaint);
-        } else if (host.isVoicePlaying) {
-            // Pause glyph — two rounded vertical bars.
-            float barW = iconD * 0.16f;
-            float barH = iconD * 0.55f;
-            float barGap = iconD * 0.18f;
-            float barR = 1.5f * density;
-            canvas.drawRoundRect(iconCx - barGap / 2f - barW, iconCy - barH / 2f,
-                    iconCx - barGap / 2f, iconCy + barH / 2f, barR, barR, voiceBadgeIconPaint);
-            canvas.drawRoundRect(iconCx + barGap / 2f, iconCy - barH / 2f,
-                    iconCx + barGap / 2f + barW, iconCy + barH / 2f, barR, barR, voiceBadgeIconPaint);
-        } else {
-            // Play glyph — filled triangle, same construction as
-            // drawVideoPlayOverlay's triangle just below/left of center.
-            float triR = iconD * 0.32f;
-            voiceBadgeGlyphPath.reset();
-            voiceBadgeGlyphPath.moveTo(iconCx - triR * 0.55f, iconCy - triR * 0.85f);
-            voiceBadgeGlyphPath.lineTo(iconCx - triR * 0.55f, iconCy + triR * 0.85f);
-            voiceBadgeGlyphPath.lineTo(iconCx + triR * 0.95f, iconCy);
-            voiceBadgeGlyphPath.close();
-            canvas.drawPath(voiceBadgeGlyphPath, voiceBadgeIconPaint);
-        }
-
-        if (!downloading) {
-            float textBaseline = voiceBadgePillRectF.centerY()
-                    - (voiceBadgeDurPaint.ascent() + voiceBadgeDurPaint.descent()) / 2f;
-            canvas.drawText(durText, iconCx + iconD / 2f + gap, textBaseline, voiceBadgeDurPaint);
-        }
-
-        // Play/pause hit-rect: everything up to the end of the duration
-        // segment (or the whole pill while downloading — no speed chip
-        // to carve out yet).
-        float badgeSegRight = voiceBadgePillRectF.left + cachedVoiceBadgeSegmentW;
-        host.voiceBadgeRect.set(voiceBadgePillRectF.left, voiceBadgePillRectF.top,
-                badgeSegRight, voiceBadgePillRectF.bottom);
-
-        if (downloading) {
-            host.voiceSpeedRect.setEmpty();
-            host.voiceDownloadRect.setEmpty();
-            return;
-        }
-
-        // Speed segment: thin divider, then the speed label, right-aligned
-        // to the pill's own right edge.
-        float dividerX = badgeSegRight + (4f * density);
-        float dividerPad = 5f * density;
-        canvas.drawLine(dividerX, voiceBadgePillRectF.top + dividerPad,
-                dividerX, voiceBadgePillRectF.bottom - dividerPad, voiceBadgeIconPaint);
-        float speedTextX = dividerX + (4f * density);
-        float textBaseline = voiceBadgePillRectF.centerY()
-                - (voiceBadgeDurPaint.ascent() + voiceBadgeDurPaint.descent()) / 2f;
-        canvas.drawText(speedLabel, speedTextX, textBaseline, voiceBadgeDurPaint);
-        float speedSegRight = voiceBadgePillRectF.left + cachedVoiceSpeedSegmentEndW;
-        host.voiceSpeedRect.set(dividerX, voiceBadgePillRectF.top,
-                speedSegRight, voiceBadgePillRectF.bottom);
-
-        // ── Feature: Save-audio button — 3rd segment ─────────────────────
-        // Own thin divider (same treatment as the speed chip's), then a
-        // compact down-arrow-into-tray glyph (ic_download_reel.xml's shape,
-        // hand-drawn since this whole badge is Canvas-drawn, no Drawable
-        // inflation anywhere else in it) centered in the remaining pill
-        // width out to its right edge.
-        float downloadDividerX = speedSegRight + (4f * density);
-        canvas.drawLine(downloadDividerX, voiceBadgePillRectF.top + dividerPad,
-                downloadDividerX, voiceBadgePillRectF.bottom - dividerPad, voiceBadgeIconPaint);
-        host.voiceDownloadRect.set(downloadDividerX, voiceBadgePillRectF.top,
-                voiceBadgePillRectF.right, voiceBadgePillRectF.bottom);
-        float dlIconD = 16f * density;
-        float dlCx = (downloadDividerX + voiceBadgePillRectF.right) / 2f;
-        float dlCy = voiceBadgePillRectF.centerY();
-        float strokeW = 1.6f * density;
-        Paint.Style prevStyle = voiceBadgeIconPaint.getStyle();
-        float prevStrokeW = voiceBadgeIconPaint.getStrokeWidth();
-        voiceBadgeIconPaint.setStyle(Paint.Style.STROKE);
-        voiceBadgeIconPaint.setStrokeWidth(strokeW);
-        voiceBadgeIconPaint.setStrokeCap(Paint.Cap.ROUND);
-        voiceBadgeIconPaint.setStrokeJoin(Paint.Join.ROUND);
-        // Down arrow (shaft + chevron head), mirrors the vector's first path.
-        float shaftTop = dlCy - dlIconD * 0.42f;
-        float shaftBottom = dlCy + dlIconD * 0.12f;
-        canvas.drawLine(dlCx, shaftTop, dlCx, shaftBottom, voiceBadgeIconPaint);
-        voiceBadgeDownloadArrowPath.reset();
-        voiceBadgeDownloadArrowPath.moveTo(dlCx - dlIconD * 0.28f, dlCy - dlIconD * 0.14f);
-        voiceBadgeDownloadArrowPath.lineTo(dlCx, dlCy + dlIconD * 0.12f);
-        voiceBadgeDownloadArrowPath.lineTo(dlCx + dlIconD * 0.28f, dlCy - dlIconD * 0.14f);
-        canvas.drawPath(voiceBadgeDownloadArrowPath, voiceBadgeIconPaint);
-        // Tray (open-top rounded rect), mirrors the vector's second path.
-        float trayY = dlCy + dlIconD * 0.30f;
-        float trayHalfW = dlIconD * 0.38f;
-        voiceBadgeDownloadArrowPath.reset();
-        voiceBadgeDownloadArrowPath.moveTo(dlCx - trayHalfW, trayY);
-        voiceBadgeDownloadArrowPath.lineTo(dlCx - trayHalfW, trayY + dlIconD * 0.22f);
-        voiceBadgeDownloadArrowPath.lineTo(dlCx + trayHalfW, trayY + dlIconD * 0.22f);
-        voiceBadgeDownloadArrowPath.lineTo(dlCx + trayHalfW, trayY);
-        canvas.drawPath(voiceBadgeDownloadArrowPath, voiceBadgeIconPaint);
-        // Restore the shared icon paint to its normal filled style — every
-        // other glyph on this badge (play triangle, pause bars) draws FILL.
-        voiceBadgeIconPaint.setStyle(prevStyle);
-        voiceBadgeIconPaint.setStrokeWidth(prevStrokeW);
-    }
 
     /**
      * Draws the single-media download gate: a dim scrim over mediaRect plus

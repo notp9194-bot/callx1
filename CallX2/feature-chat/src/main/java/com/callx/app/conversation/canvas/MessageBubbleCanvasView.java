@@ -1869,9 +1869,8 @@ public class MessageBubbleCanvasView extends View {
     // can also carry a short attached voice note — set via
     // setVoiceCaption() right after bindMedia(). null/empty voiceUrl means
     // this image has no attached voice note (the overwhelming majority).
-    // Drawn by MediaRenderer.drawVoiceBadge() as a play/pause + duration
-    // pill in the media rect's bottom-start corner; hit-tested against
-    // voiceBadgeRect in onTouchEvent. isVoicePlaying is driven by the same
+    // Drawn by MediaRenderer.drawVoiceStrip() (photo + strip below it, v845+);
+    // hit-tested against voiceBadgeRect in onTouchEvent. isVoicePlaying is driven by the same
     // public setAudioPlaying() the standalone audio bubble uses (see that
     // method's branch) so the caller's existing MediaPlayer wiring needs
     // no new plumbing.
@@ -1898,6 +1897,7 @@ public class MessageBubbleCanvasView extends View {
     // [play circle | static waveform | m:ss | time+ticks]. Strip is part of bubbleHeight.
     static final float VOICE_STRIP_HEIGHT_DP = 48f;
     final RectF voiceStripRect = new RectF();
+    private final RectF prevVoiceStripRect = new RectF(); // v851
     /** 0..1 playback position — only ticks while the clip plays (see setVoiceProgress). */
     float voiceProgress = 0f;
     /** v846: while the clip plays, the strip is drawn LIVE in drawDynamicOverlayLayer() and is
@@ -1908,6 +1908,14 @@ public class MessageBubbleCanvasView extends View {
     }
     boolean hasVoiceStrip() {
         return isMedia && !isVideoMedia && voiceUrl != null && !voiceUrl.isEmpty();
+    }
+    // v850: captionless single media (image/video/gif): time + ticks live in a slim strip BELOW the
+    // photo (no translucent pill over the pixels). Voice strip already carries time/ticks itself,
+    // and a caption puts them in the caption footer, so those two cases never get this strip.
+    static final float MEDIA_FOOTER_STRIP_DP = 22f;
+    final RectF mediaFooterRect = new RectF();
+    boolean hasFooterStrip() {
+        return isMedia && !mediaHasCaption && !hasVoiceStrip();
     }
     // Feature: Playback speed control on the voice caption badge — mirrors
     // the standalone audio bubble's btnAudioSpeed chip (1x → 1.5x → 2x →
@@ -3658,6 +3666,7 @@ public class MessageBubbleCanvasView extends View {
         // new image actually has an attached voice note.
         this.prevVoiceUrl = this.voiceUrl;           // v425: see prevVoiceUrl doc
         this.prevVoiceDuration = this.voiceDuration;
+        this.prevVoiceStripRect.set(this.voiceStripRect); // v851: restored on same-clip re-arm (no relayout)
         this.voiceUrl = null;
         this.voiceDuration = null;
         this.isVoicePlaying = false;
@@ -3798,6 +3807,13 @@ public class MessageBubbleCanvasView extends View {
                 this.voiceDuration = durationText;
                 prevVoiceUrl = null;
                 prevVoiceDuration = null;
+                // v849/v851: bindMedia() emptied voiceStripRect; the size signature has no voice
+                // part, so it may skip its relayout (same photo size) and the strip would stay
+                // empty. Restore the parked rect instead of forcing a whole measure pass.
+                // If the signature DID change, bindMedia already requested a layout which
+                // simply overwrites this rect.
+                voiceStripRect.set(prevVoiceStripRect);
+                if (voiceStripRect.isEmpty()) requestLayout(); // nothing to restore -> measure
                 return;
             }
         } else if (this.voiceUrl == null) {
@@ -6413,6 +6429,10 @@ public class MessageBubbleCanvasView extends View {
             right = Math.max(right, mediaPillRect.right + pad);
             bottom = Math.max(bottom, mediaPillRect.bottom + pad);
         }
+        if (!mediaFooterRect.isEmpty()) { // v850: time/tick strip under the photo
+            top = Math.min(top, mediaFooterRect.top - pad);
+            bottom = Math.max(bottom, mediaFooterRect.bottom + pad);
+        }
         if (isContact) {
             top = Math.min(top, contactCardRect.top - pad);
         }
@@ -6892,7 +6912,8 @@ public class MessageBubbleCanvasView extends View {
             // overlay is skipped when there's a caption — see onDraw —
             // matching the text-bubble footer placement).
             int mediaTightVPad = Math.round(MEDIA_TIGHT_INSET_DP * density);
-            final int voiceStripH = hasVoiceStrip() ? Math.round(VOICE_STRIP_HEIGHT_DP * density) : 0;
+            final int voiceStripH = hasVoiceStrip() ? Math.round(VOICE_STRIP_HEIGHT_DP * density)
+                    : (hasFooterStrip() ? Math.round(MEDIA_FOOTER_STRIP_DP * density) : 0);
             bubbleHeight = replyBoxHeight + replyGap + mediaTightVPad + mediaH + voiceStripH + mediaTightVPad + captionBlockHeight;
 
         } else if (isReelShare) {
@@ -7643,19 +7664,14 @@ public class MessageBubbleCanvasView extends View {
                 voiceStripRect.setEmpty();
             }
 
-            if (!mediaHasCaption && voiceStripRect.isEmpty()) {
-                float pillPadH = MEDIA_PILL_PADDING_H_DP * density;
-                float pillPadV = MEDIA_PILL_PADDING_V_DP * density;
-                float pillMargin = MEDIA_PILL_MARGIN_DP * density;
-                float pillTextW = mediaPillTextPaint.measureText(footerTimeText)
-                        + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
-                        + expiryReserveWidth();
-                float pillH = spToPx(FOOTER_TEXT_SP) + pillPadV * 2;
-                mediaPillRect.set(
-                        mediaRect.right - pillMargin - pillTextW - pillPadH * 2,
-                        mediaRect.bottom - pillMargin - pillH,
-                        mediaRect.right - pillMargin,
-                        mediaRect.bottom - pillMargin);
+            // v850: no overlay pill on the photo any more — time/ticks are drawn in the strip below
+            // (see hasFooterStrip()/MediaRenderer). mediaPillRect stays empty for single media.
+            mediaPillRect.setEmpty();
+            if (hasFooterStrip()) {
+                mediaFooterRect.set(mediaRect.left, mediaRect.bottom, mediaRect.right,
+                        mediaRect.bottom + Math.round(MEDIA_FOOTER_STRIP_DP * density));
+            } else {
+                mediaFooterRect.setEmpty();
             }
         }
 

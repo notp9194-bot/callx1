@@ -8270,11 +8270,6 @@ public class MessagePagingAdapter
                         h.fl_download_overlay.setVisibility(View.GONE);
                     }
 
-                    // ── Voice Caption on Photo (image + attached voice note) ──
-                    // Only reached at all when isCanvasEligible() routed this
-                    // message here for exactly this reason (m.voiceUrl set).
-                    bindVoiceOnImage(h, m, position);
-
                     // GAP FIX: this legacy bubble is the ONLY place a
                     // combined image+voice+caption send ever renders (see
                     // isCanvasEligible), but it had no caption view at all —
@@ -9664,8 +9659,6 @@ public class MessagePagingAdapter
             h.canvasView.setAudioPlaying(playing);
         } else if (h.btnPlayPause != null) {
             h.btnPlayPause.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
-        } else if (h.ivVoicePlayOnImage != null) {
-            h.ivVoicePlayOnImage.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
         }
     }
 
@@ -9676,10 +9669,6 @@ public class MessagePagingAdapter
         } else if (h.btnPlayPause != null) {
             h.btnPlayPause.setImageResource(R.drawable.ic_play);
             if (h.seekAudio != null) h.seekAudio.setProgress(0f);
-        } else if (h.ivVoicePlayOnImage != null) {
-            // Feature: Voice Caption on Photo — no seekbar on the compact
-            // image overlay, just the glyph back to "play".
-            h.ivVoicePlayOnImage.setImageResource(R.drawable.ic_play);
         }
     }
 
@@ -9830,52 +9819,6 @@ public class MessagePagingAdapter
     }
 
     /**
-     * Feature: Voice Caption on Photo — play-badge + duration pill overlaid
-     * on an image bubble that also carries a short attached voice note
-     * (m.voiceUrl). Reuses the adapter's existing shared-MediaPlayer
-     * toggleAudio()/playAudioFromPath() machinery (same one standalone
-     * voice-message bubbles use) — tap toggles play/pause, and the glyph
-     * is driven by setPlayPauseIcon()/resetAudioUi() (both already know
-     * about h.ivVoicePlayOnImage). BUG FIX: this used to auto-play once
-     * for the receiver (walkie-talkie style), tracked in a set on the
-     * adapter instance — which meant every fresh chat-screen open (a new
-     * adapter) forgot the set and replayed an already-heard caption the
-     * moment its bubble scrolled into view. Removed; tap-to-play only now,
-     * same as a standalone voice message.
-     */
-    private void bindVoiceOnImage(@NonNull VH h, @NonNull Message m, int position) {
-        boolean hasVoice = m.voiceUrl != null && !m.voiceUrl.isEmpty();
-        if (h.flVoiceOnImage == null) {
-            // v425: overlay lives behind a ViewStub — only pay for it if this
-            // bind actually has a voice caption to show.
-            if (!hasVoice || !ensureLegacyVoiceOverlay(h)) return;
-        }
-        if (!hasVoice) {
-            h.flVoiceOnImage.setVisibility(View.GONE);
-            return;
-        }
-        h.flVoiceOnImage.setVisibility(View.VISIBLE);
-
-        // Duration pill text — mirrors the audio bubble's mm:ss formatting.
-        if (h.tvVoiceDurationOnImage != null) {
-            long ms = m.voiceDuration != null ? m.voiceDuration : 0L;
-            // v425 PERF: was String.format() per bind — shared cached formatter.
-            h.tvVoiceDurationOnImage.setText(formatVoiceDuration(ms));
-        }
-
-        // Icon reflects whether THIS message's voice note is the one
-        // currently playing (matches how the standalone audio bubble icon
-        // is kept in sync across rebinds).
-        boolean isThisPlaying = playingPos == position && player != null && isPlayerPlaying;
-        if (h.ivVoicePlayOnImage != null) {
-            h.ivVoicePlayOnImage.setImageResource(isThisPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
-        }
-
-        // Click listener is set ONCE, when ensureLegacyVoiceOverlay() inflates
-        // the overlay (v425) — no per-bind allocation here.
-    }
-
-    /**
      * v425 PERF: inflates the legacy voice-badge + caption-strip overlay
      * (layout_msg_voice_on_image.xml) the first time a legacy holder truly
      * needs it, wires the tap listener that used to be set eagerly in
@@ -9883,7 +9826,7 @@ public class MessagePagingAdapter
      * @return true if the overlay views are now available.
      */
     private boolean ensureLegacyVoiceOverlay(@NonNull VH h) {
-        if (h.flVoiceOnImage != null) return true;
+        if (h.tvImageCaption != null && h.viewImageCaptionScrim != null) return true;
         final android.view.ViewStub stub = h.stubVoiceOnImage;
         if (stub == null) return false;
         h.stubVoiceOnImage = null; // ViewStub.inflate() is one-shot
@@ -9893,23 +9836,9 @@ public class MessagePagingAdapter
         } catch (RuntimeException e) {
             return false;
         }
-        h.flVoiceOnImage         = root.findViewById(R.id.fl_voice_on_image);
-        h.ivVoicePlayOnImage     = root.findViewById(R.id.iv_voice_play_on_image);
-        h.tvVoiceDurationOnImage = root.findViewById(R.id.tv_voice_duration_on_image);
         h.viewImageCaptionScrim  = root.findViewById(R.id.view_image_caption_scrim);
         h.tvImageCaption         = root.findViewById(R.id.tv_image_caption);
-        if (h.flVoiceOnImage != null) {
-            // Same listener onCreateViewHolder used to build eagerly: reads
-            // h.boundMessage + the live adapter position at CLICK time.
-            h.flVoiceOnImage.setOnClickListener(badgeView -> {
-                Message cm = h.boundMessage;
-                if (cm == null || cm.voiceUrl == null || cm.voiceUrl.isEmpty()) return;
-                int pos = h.getBindingAdapterPosition();
-                MessagePagingAdapter ad = h.canvasListenerOwner != null ? h.canvasListenerOwner : this;
-                if (pos != RecyclerView.NO_POSITION) ad.toggleAudio(h, cm.voiceUrl, pos);
-            });
-        }
-        return h.flVoiceOnImage != null;
+        return h.tvImageCaption != null && h.viewImageCaptionScrim != null;
     }
 
     /**
@@ -9936,41 +9865,11 @@ public class MessagePagingAdapter
         if (!hasCaption) {
             h.tvImageCaption.setVisibility(View.GONE);
             h.viewImageCaptionScrim.setVisibility(View.GONE);
-            resetVoiceOnImageBottomMargin(h);
             return;
         }
         h.viewImageCaptionScrim.setVisibility(View.VISIBLE);
         h.tvImageCaption.setText(m.caption);
         h.tvImageCaption.setVisibility(View.VISIBLE);
-
-        // Nudge the play-badge pill up above the caption strip (its own
-        // bottom-gravity margin is 8dp normally — see fl_voice_on_image in
-        // item_message_sent/received.xml) so a captioned voice-photo shows
-        // both without the badge sitting on top of the caption text.
-        if (h.flVoiceOnImage != null
-                && h.flVoiceOnImage.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
-            android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) h.flVoiceOnImage.getLayoutParams();
-            int marginPx = (int) (52 * h.itemView.getResources().getDisplayMetrics().density);
-            if (lp.bottomMargin < marginPx) {
-                lp.bottomMargin = marginPx;
-                h.flVoiceOnImage.setLayoutParams(lp);
-            }
-        }
-    }
-
-    /** Restores fl_voice_on_image's default 8dp bottom margin for a
-     *  recycled holder whose PREVIOUS bind had a caption (and so bumped the
-     *  margin up) but this one doesn't — otherwise the badge stays
-     *  incorrectly raised after scrolling past a captioned bubble. */
-    private void resetVoiceOnImageBottomMargin(@NonNull VH h) {
-        if (h.flVoiceOnImage == null
-                || !(h.flVoiceOnImage.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams)) return;
-        android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) h.flVoiceOnImage.getLayoutParams();
-        int defaultPx = (int) (8 * h.itemView.getResources().getDisplayMetrics().density);
-        if (lp.bottomMargin != defaultPx) {
-            lp.bottomMargin = defaultPx;
-            h.flVoiceOnImage.setLayoutParams(lp);
-        }
     }
 
     /**
@@ -12009,9 +11908,6 @@ public class MessagePagingAdapter
         // shown only for image messages carrying m.voiceUrl. See
         // isCanvasEligible()'s image branch for why these route here
         // instead of Canvas, and bindMessage()'s "image" case for the bind.
-        View      flVoiceOnImage;
-        ImageView ivVoicePlayOnImage;
-        TextView  tvVoiceDurationOnImage;
         // Feature: Voice Caption on Photo — WhatsApp-style caption strip on
         // the legacy image bubble. See bindImageCaptionOnLegacyBubble().
         View      viewImageCaptionScrim;
@@ -12179,9 +12075,6 @@ public class MessagePagingAdapter
             // v425 PERF: these five are now behind a ViewStub (null until
             // ensureLegacyVoiceOverlay() inflates it) — see layout_msg_voice_on_image.xml.
             stubVoiceOnImage      = v.findViewById(R.id.stub_voice_on_image);
-            flVoiceOnImage        = null;
-            ivVoicePlayOnImage    = null;
-            tvVoiceDurationOnImage = null;
             viewImageCaptionScrim = null;
             tvImageCaption        = null;
             fl_download_overlay = v.findViewById(R.id.fl_download_overlay);
