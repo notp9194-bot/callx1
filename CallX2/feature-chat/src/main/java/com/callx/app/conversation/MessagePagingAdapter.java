@@ -4866,15 +4866,20 @@ public class MessagePagingAdapter
         if (lp.topMargin != newTop || lp.bottomMargin != bottomGap) {
             lp.topMargin = newTop;
             lp.bottomMargin = bottomGap;
-            v.setLayoutParams(lp);
+            // v866: a holder being bound for (re)attach has no parent yet; RecyclerView measures it with
+            // these LayoutParams anyway, so skip setLayoutParams()'s requestLayout() in that case.
+            if (v.getParent() != null) v.setLayoutParams(lp);
         }
     }
 
     /** True if `m` should visually group with the message immediately above it. */
     private boolean isGroupedWithPrevious(int position, @NonNull Message m) {
         if (m.senderId == null || isNonGroupingRow(m.type)) return false;
+        if (position <= 0) return false;
         Message prev;
-        try { prev = getItem(position - 1); } catch (Exception e) { return false; }
+        // v866: peek(), not getItem(): getItem() fires a Paging load hint (loadAround) on every bind;
+        // measured bind.spacing avg 561 us / 437 ms per 60 s. The row at `position` already hinted.
+        try { prev = peek(position - 1); } catch (Exception e) { return false; }
         if (prev == null || prev.senderId == null || isNonGroupingRow(prev.type)) return false;
         return prev.senderId.equals(m.senderId);
     }
@@ -7549,6 +7554,7 @@ public class MessagePagingAdapter
         // first — a cache hit renders the thumb in the very same frame as
         // the text, with zero flash. Only a genuine cache miss falls back
         // to the async Glide load, exactly like the media-bitmap path above.
+        com.callx.app.debug.BubblePerfStats.secType(type, _c0);
         com.callx.app.debug.BubblePerfStats.sec(com.callx.app.debug.BubblePerfStats.SEC_TYPE, _c0);
         final long _cr = com.callx.app.debug.BubblePerfStats.t();
         if (m.replyToId != null && !m.replyToId.isEmpty()) {

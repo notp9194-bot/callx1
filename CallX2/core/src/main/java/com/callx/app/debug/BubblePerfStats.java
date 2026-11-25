@@ -47,6 +47,17 @@ public final class BubblePerfStats {
         secN[id]++; secNs[id] += d; if (d > secMax[id]) secMax[id] = d;
     }
 
+    // v866: typeBind cost per message type (text / image / multi_media / ...)
+    private static final java.util.HashMap<String, long[]> typeStat = new java.util.HashMap<>();
+    public static void secType(String type, long t0) {
+        if (t0 == 0L) return;
+        long d = System.nanoTime() - t0;
+        String k = type == null ? "?" : type;
+        long[] a = typeStat.get(k);
+        if (a == null) { if (typeStat.size() >= 24) return; typeStat.put(k, a = new long[3]); }
+        a[0]++; a[1] += d; if (d > a[2]) a[2] = d;
+    }
+
     // v865: preRecord pipeline diagnostics (why was count=0?)
     private static long pSched, pFull, pRun, pStale, pEarly, pCached, pErr, pDrainFallback;
     public static void preSched()    { pSched++; }
@@ -108,6 +119,7 @@ public final class BubblePerfStats {
         recN = recNs = recMax = hitN = preN = preNs = measN = measNs = measMax = bindN = bindNs = bindMax = 0;
         Arrays.fill(secN, 0L); Arrays.fill(secNs, 0L); Arrays.fill(secMax, 0L);
         pSched = pFull = pRun = pStale = pEarly = pCached = pErr = pDrainFallback = 0;
+        typeStat.clear();
         mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
         startMs = System.currentTimeMillis();
         synchronized (FL) {
@@ -233,6 +245,12 @@ public final class BubblePerfStats {
         for (int i = 0; i < 9; i++) {
             sb.append(SEC_NAME[i]).append(": n=").append(secN[i]).append(" total=").append(ms(secNs[i]))
               .append(" avg=").append(us(secN[i], secNs[i])).append(" max=").append(ms(secMax[i])).append('\n');
+        }
+        sb.append("typeBind by message type:\n");
+        for (java.util.Map.Entry<String, long[]> e : typeStat.entrySet()) {
+            long[] a = e.getValue();
+            sb.append("  ").append(e.getKey()).append(": n=").append(a[0]).append(" total=").append(ms(a[1]))
+              .append(" avg=").append(us(a[0], a[1])).append(" max=").append(ms(a[2])).append('\n');
         }
         sb.append('\n');
 
