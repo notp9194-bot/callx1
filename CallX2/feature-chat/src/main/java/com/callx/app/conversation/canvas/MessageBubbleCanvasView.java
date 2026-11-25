@@ -4026,6 +4026,7 @@ public class MessageBubbleCanvasView extends View {
                 && (bitmap == null || nextPlaceholder || mediaAspectRatio > 0f)) {
             return;
         }
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.bitmap(bitmap, nextPlaceholder);
         this.mediaBitmap = bitmap;
         this.mediaBitmapIsPlaceholder = nextPlaceholder;
         this.staticPictureDirty = true;
@@ -5673,6 +5674,7 @@ public class MessageBubbleCanvasView extends View {
     public void setMediaGroupBitmap(int index, @Nullable Bitmap bitmap) {
         if (index < 0 || index >= groupBitmaps.length) return;
         if (groupBitmaps[index] == bitmap) return; // v856: same instance -> no re-record
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.bitmap(bitmap, false);
         groupBitmaps[index] = bitmap;
         invalidate();
     }

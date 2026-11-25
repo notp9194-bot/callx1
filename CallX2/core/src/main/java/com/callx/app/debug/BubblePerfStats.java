@@ -58,6 +58,17 @@ public final class BubblePerfStats {
         a[0]++; a[1] += d; if (d > a[2]) a[2] = d;
     }
 
+    // v868: what kind of bitmaps reach the bubbles (software ones are uploaded to the GPU on first draw)
+    private static long bmHw, bmSw, bmPh, bmSwBytes, bmSwMax;
+    public static void bitmap(android.graphics.Bitmap b, boolean placeholder) {
+        if (b == null) return;
+        if (placeholder) { bmPh++; return; }
+        if (android.os.Build.VERSION.SDK_INT >= 26 && b.getConfig() == android.graphics.Bitmap.Config.HARDWARE) { bmHw++; return; }
+        bmSw++;
+        long by = b.getAllocationByteCount();
+        bmSwBytes += by; if (by > bmSwMax) bmSwMax = by;
+    }
+
     // v865: preRecord pipeline diagnostics (why was count=0?)
     private static long pSched, pFull, pRun, pStale, pEarly, pCached, pErr, pDrainFallback;
     public static void preSched()    { pSched++; }
@@ -120,6 +131,7 @@ public final class BubblePerfStats {
         Arrays.fill(secN, 0L); Arrays.fill(secNs, 0L); Arrays.fill(secMax, 0L);
         pSched = pFull = pRun = pStale = pEarly = pCached = pErr = pDrainFallback = 0;
         typeStat.clear();
+        bmHw = bmSw = bmPh = bmSwBytes = bmSwMax = 0;
         mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
         startMs = System.currentTimeMillis();
         synchronized (FL) {
@@ -246,6 +258,9 @@ public final class BubblePerfStats {
             sb.append(SEC_NAME[i]).append(": n=").append(secN[i]).append(" total=").append(ms(secNs[i]))
               .append(" avg=").append(us(secN[i], secNs[i])).append(" max=").append(ms(secMax[i])).append('\n');
         }
+        sb.append("bitmaps set on bubbles: hardware=").append(bmHw).append(" software=").append(bmSw)
+          .append(" (").append(bmSwBytes / 1024).append(" KB, max ").append(bmSwMax / 1024)
+          .append(" KB) thumbhash-placeholder=").append(bmPh).append("\n\n");
         sb.append("typeBind by message type:\n");
         for (java.util.Map.Entry<String, long[]> e : typeStat.entrySet()) {
             long[] a = e.getValue();
