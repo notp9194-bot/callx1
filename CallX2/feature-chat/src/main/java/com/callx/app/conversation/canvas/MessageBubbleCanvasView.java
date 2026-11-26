@@ -3027,17 +3027,22 @@ public class MessageBubbleCanvasView extends View {
      * @return false -> caller falls back to the per-view path.
      */
     private boolean acquireSharedNode(int w, int h) {
-        if (sharedNode != null && !fullBubbleDirty && w == sharedNodeW && h == sharedNodeH) return true;
+        // v886: HWUI discards display lists of every node reachable from a window's tree on
+        // trim / window destroy (activity stop, chat close). A shared node can therefore be alive in
+        // SHARED_NODES with an EMPTY display list -> draws nothing (bubble bg + text vanish on reopen).
+        // Always verify hasDisplayList(); if lost, re-record the same node in place (same key => same content).
+        if (sharedNode != null && !fullBubbleDirty && w == sharedNodeW && h == sharedNodeH
+                && sharedNode.hasDisplayList()) return true;
         final SharedKey key = buildSharedKey(w, h);
         android.graphics.RenderNode n = SHARED_NODES.get(key);
-        if (n != null) {
+        if (n != null && n.hasDisplayList()) {
             restoreTextBubbleLiveState();
             sRenderCacheHits++;
             if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.hit();
         } else {
             final long _pt = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
             android.os.Trace.beginSection("Bubble.record");
-            n = new android.graphics.RenderNode("tb");
+            if (n == null) n = new android.graphics.RenderNode("tb");   // else: reuse node whose DL was discarded
             n.setPosition(0, 0, w, h);
             android.graphics.RecordingCanvas rc = n.beginRecording();
             try {
