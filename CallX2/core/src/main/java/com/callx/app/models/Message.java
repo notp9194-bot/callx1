@@ -199,6 +199,23 @@ public class Message {
      */
     public String blurHash;
 
+    /**
+     * v873 — inline JPEG poster for VIDEO bubbles (WhatsApp-style): a tiny
+     * (~160px, ~3-6 KB) Base64 JPEG frame that rides INSIDE the message doc,
+     * so the receiver sees the real first frame instantly with ZERO extra
+     * upload / download / Cloudinary call (previously a separate thumb file
+     * was uploaded and then re-downloaded via thumbnailUrl).
+     *
+     * Wire rules (see VideoInlineThumb#stripForWire):
+     *  - plaintext chat : sent in the clear in this field.
+     *  - E2E chat       : NOT sent in the clear; it rides inside the
+     *                     encrypted key envelope (MediaE2ECrypto "jt").
+     *                     The sender keeps this field LOCALLY only (Room
+     *                     column thumbInlineData) so its own bubble can render.
+     * Persisted in Room column {@code thumbInlineData} (no schema change).
+     */
+    public String inlineThumbB64;
+
     // ── Media E2E (image) ───────────────────────────────────────────────────
     /**
      * Present only on 1:1 IMAGE messages sent through the media-E2E path

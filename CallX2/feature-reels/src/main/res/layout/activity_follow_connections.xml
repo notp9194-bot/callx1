@@ -27,8 +27,8 @@
 
         <ImageButton
             android:id="@+id/btn_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="1dp"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"/>
@@ -106,14 +106,14 @@
 
         <ImageButton
             android:id="@+id/btn_search_clear"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_gravity="center_vertical|end"
             android:layout_marginEnd="4dp"
             android:src="@drawable/ic_close"
             android:tint="?attr/colorOnSurfaceVariant"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="14dp"
+            android:padding="8dp"
             android:visibility="gone"
             android:contentDescription="Clear search"/>
     </FrameLayout>

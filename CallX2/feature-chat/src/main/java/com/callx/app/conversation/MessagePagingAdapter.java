@@ -1290,6 +1290,39 @@ public class MessagePagingAdapter
         });
     }
 
+    /** v873: like {@link #resolveVideoBlurHashAsync} but hands back the whole
+     *  decrypted envelope (ThumbHash "b" + inline JPEG poster "jt") from ONE
+     *  off-main-thread ratchet decrypt. Same stale-bind-token rule. */
+    private void resolveVideoEnvelopeAsync(Context ctx, Message m, boolean sent, VH h, int token,
+            java.util.function.Consumer<com.callx.app.utils.MediaE2ECrypto.KeyEnvelope> cb) {
+        if (sent || m.mediaKeyEnc == null) { cb.accept(null); return; }
+        final String encKey = m.mediaKeyEnc;
+        final String senderId = m.senderId;
+        final String msgId = m.messageId != null ? m.messageId : m.id;
+        com.callx.app.utils.E2eeDecryptExecutor.execute(senderId, () -> {
+            com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                    com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, encKey, senderId, msgId);
+            MEDIA_KEY_MAIN_HANDLER.post(() -> {
+                if (h.canvasBindToken != token) return;
+                cb.accept(env);
+            });
+        });
+    }
+
+    /** v873: decode the inline Base64 JPEG video poster off the main thread
+     *  (pooled by content hash) and show it, unless a sharper real frame
+     *  already landed (state[0] == 2). state: 0 none, 1 inline poster, 2 real frame. */
+    private void applyVideoInlineJpeg(String b64, VH h, int token,
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView cv, int[] state) {
+        final String key = "vinl:" + b64.length() + ":" + b64.hashCode();
+        decodeB64ThumbAsync(b64, key, MEDIA_BITMAP_CACHE, bmp -> {
+            if (h.canvasBindToken != token || bmp == null || bmp.isRecycled()) return;
+            if (state[0] >= 2) return;
+            state[0] = 1;
+            cv.setMediaBitmap(bmp, true); // smooth the tiny JPEG with the adaptive blur
+        });
+    }
+
     /** Async counterpart of {@code MediaE2ECrypto.decryptKeyOnly()}. */
     private void resolveFullMediaKeyOnlyAsync(Context ctx, Message m, boolean sent, VH h, int token,
             java.util.function.Consumer<byte[]> cb) {
@@ -4222,11 +4255,17 @@ public class MessagePagingAdapter
         Message current = getItem(position);
         if (current == null || !messageHasId(current, incomingId)) return false;
 
+        // v873: keep the sender's local file:// video poster when the server echo
+        // (which never carries it) has none.
+        final String effThumbUrl =
+                ((incoming.thumbnailUrl == null || incoming.thumbnailUrl.isEmpty())
+                        && current.thumbnailUrl != null && current.thumbnailUrl.startsWith("file://"))
+                        ? current.thumbnailUrl : incoming.thumbnailUrl;
         boolean contentChanged =
                 !java.util.Objects.equals(current.text, incoming.text)
                 || !java.util.Objects.equals(current.type, incoming.type)
                 || !java.util.Objects.equals(current.mediaUrl, incoming.mediaUrl)
-                || !java.util.Objects.equals(current.thumbnailUrl, incoming.thumbnailUrl)
+                || !java.util.Objects.equals(current.thumbnailUrl, effThumbUrl)
                 || !java.util.Objects.equals(current.caption, incoming.caption)
                 || !java.util.Objects.equals(current.deleted, incoming.deleted)
                 || !java.util.Objects.equals(current.viewOnceState, incoming.viewOnceState)
@@ -4257,7 +4296,7 @@ public class MessagePagingAdapter
         current.text = incoming.text;
         current.type = incoming.type;
         current.mediaUrl = incoming.mediaUrl;
-        current.thumbnailUrl = incoming.thumbnailUrl;
+        current.thumbnailUrl = effThumbUrl;
         current.caption = incoming.caption;
         current.deleted = incoming.deleted;
         if (incoming.viewOnceState != null) current.viewOnceState = incoming.viewOnceState;
@@ -6978,17 +7017,33 @@ public class MessagePagingAdapter
             // applies inline/instant, a miss decodes off the main thread
             // and posts back; canvasBindToken guard skips a stale result
             // if the row got recycled/rebound before the decode finished.
+            // v873 — INLINE JPEG POSTER: video preview frame that rides inside the
+            // message (plaintext field / E2E envelope "jt") — zero network. State:
+            // 0 = nothing yet, 1 = inline poster shown, 2 = real (sharper) frame
+            // shown. ThumbHash and the poster never override a higher state.
+            final int[] vThumbState = {0};
+            final String vInlineLocal = m.inlineThumbB64;
+            if (vInlineLocal != null && !vInlineLocal.isEmpty()) {
+                applyVideoInlineJpeg(vInlineLocal, h, myToken, cv, vThumbState);
+            }
             if (vBlurHash != null && !vBlurHash.isEmpty()) {
                 ThumbHashPlaceholder.getAsync(vBlurHash, 32, 32, vBlurhashBmp -> {
                     if (h.canvasBindToken != myToken) return;
+                    if (vThumbState[0] >= 1) return;
                     // isLowResPlaceholder=true — same adaptive-blur reasoning as the image block above.
                     if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
                 });
             } else if (!sent && m.mediaKeyEnc != null) {
-                resolveVideoBlurHashAsync(ctx, m, sent, h, myToken, decryptedHash -> {
+                resolveVideoEnvelopeAsync(ctx, m, sent, h, myToken, vEnv -> {
+                    if (vEnv == null) return;
+                    if (vEnv.inlineJpegB64 != null && !vEnv.inlineJpegB64.isEmpty()) {
+                        applyVideoInlineJpeg(vEnv.inlineJpegB64, h, myToken, cv, vThumbState);
+                    }
+                    final String decryptedHash = vEnv.blurHash;
                     if (decryptedHash == null || decryptedHash.isEmpty()) return;
                     ThumbHashPlaceholder.getAsync(decryptedHash, 32, 32, vBlurhashBmp -> {
                         if (h.canvasBindToken != myToken) return;
+                        if (vThumbState[0] >= 1) return;
                         if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
                     });
                 });
@@ -7011,6 +7066,7 @@ public class MessagePagingAdapter
                                 .cacheAspectRatio(vThumbUrl, (float) vPoolHit.getWidth() / vPoolHit.getHeight());
                     }
                     dashboardRecordHit(ctx, vPoolKey);
+                    vThumbState[0] = 2;
                     cv.setMediaBitmap(vPoolHit);
                 } else {
                 // LAZY VIDEO FRAME LOAD (see VIDEO_FRAME_LAZY_HANDLER doc):
@@ -7049,6 +7105,7 @@ public class MessagePagingAdapter
                                             }
                                             putBitmapSafely(MEDIA_BITMAP_CACHE, vThumbUrlF, resource);
                                             if (h.canvasBindToken != myToken) return;
+                                            vThumbState[0] = 2;
                                             cv.setMediaBitmap(resource);
                                         }
                                     }, null);
@@ -7081,6 +7138,7 @@ public class MessagePagingAdapter
                                 putBitmapSafely(MEDIA_BITMAP_CACHE, vPoolKey, resource);
                                 dashboardRecordDecoded(ctx, vPoolKey, resource);
                                 if (h.canvasBindToken != myToken) return;
+                                vThumbState[0] = 2;
                                 cv.setMediaBitmap(resource);
                             }
                         }, new BitmapClearedCallback() {

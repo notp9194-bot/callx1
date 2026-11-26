@@ -17,8 +17,8 @@
 
         <ImageButton
             android:id="@+id/btn_sound_search_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="2dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@drawable/ic_back"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"/>
@@ -41,8 +41,8 @@
 
         <ImageButton
             android:id="@+id/btn_sound_search_clear"
-            android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="4dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Clear"

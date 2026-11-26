@@ -243,7 +243,8 @@ public class SyncWorker extends Worker {
         payload.put("text",         msg.text);
         payload.put("type",         msg.type);
         payload.put("mediaUrl",     cdnUrl);
-        payload.put("thumbnailUrl", msg.thumbnailUrl);
+        // v873: never push a device-local file:// thumb to the server.
+        payload.put("thumbnailUrl", (msg.thumbnailUrl != null && msg.thumbnailUrl.startsWith("file://")) ? null : msg.thumbnailUrl);
         payload.put("fileName",     msg.fileName);
         payload.put("fileSize",     msg.fileSize);
         payload.put("duration",     msg.duration);

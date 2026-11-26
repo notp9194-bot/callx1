@@ -702,12 +702,12 @@
                         android:fontFamily="sans-serif-medium"
                         android:maxLines="1" android:ellipsize="end" android:layout_marginStart="10dp"/>
                     <ImageButton android:id="@+id/btn_mini_play_pause"
-                        android:layout_width="48dp" android:layout_height="48dp" android:padding="4dp"
+                        android:layout_width="40dp" android:layout_height="40dp"
                         android:src="@drawable/ic_pause" android:tint="@color/brand_primary"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Mini play/pause"/>
                     <ImageButton android:id="@+id/btn_mini_close"
-                        android:layout_width="48dp" android:layout_height="48dp" android:padding="4dp"
+                        android:layout_width="40dp" android:layout_height="40dp"
                         android:src="@drawable/ic_close" android:tint="@color/icon_tint"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Close mini player"/>

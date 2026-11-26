@@ -83,11 +83,11 @@
 
                 <ImageButton
                     android:id="@+id/btn_countdown_minus"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp" android:padding="4dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:text="−"
                     android:src="@drawable/ic_volume_off"
-                    android:background="@drawable/bg_speed_chip_t4"
+                    android:background="@drawable/bg_speed_chip"
                     android:tint="@color/text_primary"
                     android:contentDescription="Decrease countdown"/>
 
@@ -104,10 +104,10 @@
 
                 <ImageButton
                     android:id="@+id/btn_countdown_plus"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp" android:padding="4dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:src="@drawable/ic_volume_on"
-                    android:background="@drawable/bg_speed_chip_t4"
+                    android:background="@drawable/bg_speed_chip"
                     android:tint="@color/text_primary"
                     android:contentDescription="Increase countdown"/>
             </LinearLayout>

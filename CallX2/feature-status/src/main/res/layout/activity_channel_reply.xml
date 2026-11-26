@@ -147,9 +147,8 @@
 
         <ImageButton
             android:id="@+id/btn_clear_quote"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-        android:padding="8dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#888888"

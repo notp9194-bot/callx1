@@ -73,14 +73,14 @@
 
                 <ImageButton
                     android:id="@+id/btn_status_search_clear"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
                     android:layout_gravity="center_vertical|end"
                     android:layout_marginEnd="4dp"
                     android:src="@drawable/ic_close"
                     android:tint="?attr/colorOnSurfaceVariant"
                     android:background="?attr/selectableItemBackgroundBorderless"
-                    android:padding="14dp"
+                    android:padding="8dp"
                     android:contentDescription="@string/status_search_close"/>
             </FrameLayout>
 
@@ -163,13 +163,13 @@
     <!-- Archive shortcut: subtle icon-only, WhatsApp keeps this understated -->
     <ImageButton
         android:id="@+id/btn_status_archive"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:layout_gravity="bottom|start"
         android:layout_margin="16dp"
         android:src="@drawable/ic_status_archive"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:padding="12dp"
+        android:padding="8dp"
         android:tint="?attr/colorOnSurfaceVariant"
         android:contentDescription="@string/status_archive_cd"
         android:visibility="visible"/>
@@ -177,14 +177,14 @@
     <!-- Scheduled statuses shortcut: sits right next to the Archive icon -->
     <ImageButton
         android:id="@+id/btn_status_scheduled"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="64dp"
         android:layout_margin="16dp"
         android:src="@drawable/ic_schedule"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:padding="12dp"
+        android:padding="8dp"
         android:tint="?attr/colorOnSurfaceVariant"
         android:contentDescription="@string/status_scheduled_cd"
         android:visibility="visible"/>
@@ -192,14 +192,14 @@
     <!-- v749: Templates shortcut (live photo templates from your tray) -->
     <ImageButton
         android:id="@+id/btn_status_templates"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="112dp"
         android:layout_margin="16dp"
         android:src="@drawable/ic_layer_plus"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:padding="12dp"
+        android:padding="8dp"
         android:tint="?attr/colorOnSurfaceVariant"
         android:contentDescription="Templates"
         android:visibility="visible"/>

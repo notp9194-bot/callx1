@@ -4,8 +4,8 @@
     android:orientation="vertical" android:background="#121212">
     <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
         android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
-        <ImageButton android:id="@+id/btn_mod_back" android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="4dp" android:background="?attr/selectableItemBackgroundBorderless"
+        <ImageButton android:id="@+id/btn_mod_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_arrow_back" android:tint="#FFFFFF"/>
         <TextView android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:text="Comment Moderation" android:textColor="#FFFFFF"
@@ -33,9 +33,9 @@
             android:layout_weight="1" android:hint="Add keyword..." android:textColor="#FFFFFF"
             android:textColorHint="#666666" android:background="@drawable/bg_search_field"
             android:paddingHorizontal="12dp" android:inputType="text"/>
-        <ImageButton android:id="@+id/btn_mod_add_keyword" android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="2dp" android:src="@drawable/ic_add_reels"
-            android:background="@drawable/bg_btn_primary_t2" android:tint="#FFFFFF"
+        <ImageButton android:id="@+id/btn_mod_add_keyword" android:layout_width="44dp"
+            android:layout_height="44dp" android:src="@drawable/ic_add_reels"
+            android:background="@drawable/bg_btn_primary" android:tint="#FFFFFF"
             android:layout_marginStart="8dp"/>
     </LinearLayout>
     <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_mod_keywords"

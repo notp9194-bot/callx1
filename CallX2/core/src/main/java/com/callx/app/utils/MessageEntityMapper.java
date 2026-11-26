@@ -69,6 +69,7 @@ public final class MessageEntityMapper {
         m.mediaAspectRatio = e.mediaAspectRatio;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         m.blurHash = e.blurHash;
+        m.inlineThumbB64 = e.thumbInlineData; // v873 inline video poster
         // v46: Media E2E (image) — see AppDatabase.MIGRATION_45_46.
         m.mediaKeyEnc = e.mediaKeyEnc;
         // BUG FIX: mediaLocalPath was never copied from entity → model, so
@@ -188,6 +189,7 @@ public final class MessageEntityMapper {
         e.mediaAspectRatio = (m.mediaWidth != null && m.mediaHeight != null && m.mediaHeight > 0)
                 ? (float) m.mediaWidth / m.mediaHeight : null;
         e.blurHash = m.blurHash;
+        e.thumbInlineData = m.inlineThumbB64; // v873 inline video poster
         e.mediaKeyEnc = m.mediaKeyEnc;
         e.topicId = m.topicId;
         e.topicName = m.topicName;

@@ -103,9 +103,10 @@ public class MessageEntity {
     // download). See AppDatabase.MIGRATION_45_46.
     public String mediaKeyEnc;
 
-    // v67: unused column, kept only so Room's schema validation matches
-    // devices that already upgraded to v67 (see AppDatabase.MIGRATION_66_67).
-    // Not populated or read by any current feature.
+    // v873: this previously-unused column (added in v67) now stores
+    // Message#inlineThumbB64 — the inline Base64 JPEG poster of a video
+    // bubble. Reusing it means NO Room migration / schema bump is needed.
+    // MessageMergePolicy already preserves it across server echoes.
     public String thumbInlineData;
 
     public String fileName;

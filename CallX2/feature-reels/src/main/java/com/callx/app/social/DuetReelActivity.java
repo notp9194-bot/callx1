@@ -345,10 +345,6 @@ public class DuetReelActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_duet_reel);
-        com.callx.app.utils.TouchTargets.expand(findViewById(android.R.id.content),
-                R.id.btn_duet_close, R.id.btn_duet_flip, R.id.btn_layout_pip, R.id.btn_layout_reaction_bubble,
-                R.id.btn_layout_side_by_side, R.id.btn_layout_top_bottom, R.id.btn_tool_beauty, R.id.btn_tool_filter,
-                R.id.btn_tool_layout, R.id.btn_tool_sticker, R.id.btn_tool_text, R.id.btn_tool_timer, R.id.btn_view_duets);
 
         reelId         = getIntent().getStringExtra(EXTRA_REEL_ID);
         videoUrl       = getIntent().getStringExtra(EXTRA_VIDEO_URL);

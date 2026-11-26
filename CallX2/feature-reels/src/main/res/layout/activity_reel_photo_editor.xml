@@ -203,13 +203,13 @@
             android:layout_marginBottom="22dp">
             <ImageButton
                 android:id="@+id/rail_icon_filter"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:src="@drawable/ic_filter"
                 android:scaleType="center"
-                android:padding="13dp"
+                android:padding="12dp"
                 android:tint="#FFFFFF"
-                android:background="@drawable/bg_editor_rail_icon_t1"
+                android:background="@drawable/bg_editor_rail_icon"
                 android:contentDescription="Filter"/>
             <TextView
                 android:layout_width="wrap_content"
@@ -233,13 +233,13 @@
             android:layout_marginBottom="22dp">
             <ImageButton
                 android:id="@+id/rail_icon_effect"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:src="@drawable/ic_beauty"
                 android:scaleType="center"
-                android:padding="13dp"
+                android:padding="12dp"
                 android:tint="#FFFFFF"
-                android:background="@drawable/bg_editor_rail_icon_t1"
+                android:background="@drawable/bg_editor_rail_icon"
                 android:contentDescription="Effect"/>
             <TextView
                 android:layout_width="wrap_content"
@@ -263,13 +263,13 @@
             android:layout_marginBottom="22dp">
             <ImageButton
                 android:id="@+id/rail_icon_caption"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:src="@drawable/ic_caption"
                 android:scaleType="center"
-                android:padding="13dp"
+                android:padding="12dp"
                 android:tint="#FFFFFF"
-                android:background="@drawable/bg_editor_rail_icon_t1"
+                android:background="@drawable/bg_editor_rail_icon"
                 android:contentDescription="Caption"/>
             <TextView
                 android:layout_width="wrap_content"
@@ -293,13 +293,13 @@
             android:layout_marginBottom="22dp">
             <ImageButton
                 android:id="@+id/rail_icon_sticker"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:src="@drawable/ic_sparkle"
                 android:scaleType="center"
-                android:padding="13dp"
+                android:padding="12dp"
                 android:tint="#FFFFFF"
-                android:background="@drawable/bg_editor_rail_icon_t1"
+                android:background="@drawable/bg_editor_rail_icon"
                 android:contentDescription="Stickers"/>
             <TextView
                 android:layout_width="wrap_content"
@@ -322,13 +322,13 @@
             android:gravity="center_horizontal">
             <ImageButton
                 android:id="@+id/rail_icon_adjust"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:src="@drawable/ic_settings"
                 android:scaleType="center"
-                android:padding="13dp"
+                android:padding="12dp"
                 android:tint="#FFFFFF"
-                android:background="@drawable/bg_editor_rail_icon_t1"
+                android:background="@drawable/bg_editor_rail_icon"
                 android:contentDescription="Adjust"/>
             <TextView
                 android:layout_width="wrap_content"

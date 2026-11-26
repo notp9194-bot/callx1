@@ -175,9 +175,6 @@
 
         <TextView
             android:id="@+id/btn_quick_reply_1"
-            android:minHeight="48dp"
-            android:minWidth="48dp"
-            android:gravity="center"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Can't talk"
@@ -192,9 +189,6 @@
 
         <TextView
             android:id="@+id/btn_quick_reply_2"
-            android:minHeight="48dp"
-            android:minWidth="48dp"
-            android:gravity="center"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Call later"
@@ -209,9 +203,6 @@
 
         <TextView
             android:id="@+id/btn_quick_reply_3"
-            android:minHeight="48dp"
-            android:minWidth="48dp"
-            android:gravity="center"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="On my way"
@@ -247,10 +238,10 @@
 
             <ImageButton
                 android:id="@+id/btn_reject_voice_note"
-                android:layout_width="48dp"
-                android:layout_height="48dp" android:padding="1dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:src="@drawable/ic_mic"
-                android:background="@drawable/bg_quick_reply_chip_t1"
+                android:background="@drawable/bg_quick_reply_chip"
                 android:tint="#FF9EFF"
                 android:elevation="4dp"
                 android:contentDescription="Reject with Voice Note"/>
@@ -273,10 +264,10 @@
 
             <ImageButton
                 android:id="@+id/btn_reject_video_note"
-                android:layout_width="48dp"
-                android:layout_height="48dp" android:padding="1dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:src="@drawable/ic_video"
-                android:background="@drawable/bg_quick_reply_chip_t1"
+                android:background="@drawable/bg_quick_reply_chip"
                 android:tint="#FFB347"
                 android:elevation="4dp"
                 android:contentDescription="Reject with Video Note"/>

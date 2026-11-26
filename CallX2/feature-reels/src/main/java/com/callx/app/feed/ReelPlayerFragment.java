@@ -261,9 +261,6 @@ public class ReelPlayerFragment extends Fragment
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_reel_player, container, false);
-        // dense action column: keep the 28dp look, give every button a 48dp touch area
-        com.callx.app.utils.TouchTargets.expand(v, R.id.btn_like, R.id.btn_comment, R.id.btn_repost,
-                R.id.btn_share, R.id.btn_save, R.id.btn_more, R.id.btn_mute, R.id.btn_create_audio);
 
         // Bind views in all controllers
         playerController.bindViews(v);

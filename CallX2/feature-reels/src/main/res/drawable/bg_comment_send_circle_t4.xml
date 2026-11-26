@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- bg_comment_send_circle visual size kept; touch target 48dp (auto touch-target pass) -->
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/bg_comment_send_circle"
-    android:inset="4dp"/>

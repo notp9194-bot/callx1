@@ -53,6 +53,12 @@ public final class MessageMergePolicy {
         if (notEmpty(local.mediaLocalPath) && isEmpty(incoming.mediaLocalPath)) {
             incoming.mediaLocalPath = local.mediaLocalPath;
         }
+        // v873: the sender's device-local video poster (file://) is never sent to the server
+        // (VideoInlineThumb#stripForWire), so the echo has an empty thumbnailUrl — keep ours.
+        if (!Boolean.TRUE.equals(incoming.deleted) && isEmpty(incoming.thumbnailUrl)
+                && local.thumbnailUrl != null && local.thumbnailUrl.startsWith("file://")) {
+            incoming.thumbnailUrl = local.thumbnailUrl;
+        }
         // Keep the encrypted wire copy until the durable send is acknowledged.
         if (notEmpty(local.wireText) && isEmpty(incoming.wireText)) {
             incoming.wireText = local.wireText;

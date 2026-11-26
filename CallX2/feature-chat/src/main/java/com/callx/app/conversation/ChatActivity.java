@@ -3066,10 +3066,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     Message m = pagingAdapter.peek(position);
                     if (m == null || m.type == null) return null;
                     switch (m.type) {
+                        case "video":
+                            // v873: new videos carry an inline poster and no thumbnailUrl —
+                            // never fall back to the raw mp4 URL for scroll preloading.
+                            return (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
+                                    ? m.thumbnailUrl
+                                    : null;
                         case "image":
                         case "gif":
                         case "sticker":
-                        case "video":
                             return (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                                     ? m.thumbnailUrl
                                     : m.mediaUrl;

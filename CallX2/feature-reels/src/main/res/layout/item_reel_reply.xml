@@ -148,13 +148,13 @@
              thin-stroke ic_comment_heart. -->
         <ImageButton
             android:id="@+id/btn_like_reply"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:src="@drawable/ic_comment_heart"
             android:scaleType="fitCenter"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/reel_c_like_reply"
-            android:padding="17dp"/>
+            android:padding="13dp"/>
 
         <TextView
             android:id="@+id/tv_likes_count"

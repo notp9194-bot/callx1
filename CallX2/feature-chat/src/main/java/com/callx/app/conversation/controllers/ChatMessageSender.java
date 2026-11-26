@@ -132,6 +132,9 @@ public class ChatMessageSender {
         String plainTextBackup = m.text;
         boolean sentEncrypted = m.e2eWireText != null;
         if (sentEncrypted) m.text = m.e2eWireText;
+        // v873: keep device-local video poster data (file:// thumb, E2E inline
+        // JPEG mirror) off the wire — restored right after setValue snapshots m.
+        final String[] thumbBackup = com.callx.app.utils.VideoInlineThumb.stripForWire(m);
 
         delegate.getMessagesRef().child(key).setValue(m)
                 .addOnSuccessListener(unused -> {
@@ -188,6 +191,7 @@ public class ChatMessageSender {
         // restore plaintext immediately here — nothing after this point
         // should ever read m.text as ciphertext.
         if (sentEncrypted) m.text = plainTextBackup;
+        com.callx.app.utils.VideoInlineThumb.restoreAfterWire(m, thumbBackup);
 
         long ts = m.timestamp;
         String currentUid = delegate.getCurrentUid();
@@ -397,6 +401,7 @@ public class ChatMessageSender {
         e.caption             = m.caption;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         e.blurHash            = m.blurHash;
+        e.thumbInlineData     = m.inlineThumbB64; // v873 inline video poster
         // v46: Media E2E (image) — see AppDatabase.MIGRATION_45_46.
         e.mediaKeyEnc         = m.mediaKeyEnc;
         e.contactName         = m.contactName;

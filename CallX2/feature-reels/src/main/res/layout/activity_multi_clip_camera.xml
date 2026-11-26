@@ -31,8 +31,8 @@
 
         <ImageButton
             android:id="@+id/btn_multi_close"
-            android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="2dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white"
@@ -50,8 +50,8 @@
 
         <ImageButton
             android:id="@+id/btn_multi_flash"
-            android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="2dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@drawable/ic_volume_off"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white"
@@ -59,8 +59,8 @@
 
         <ImageButton
             android:id="@+id/btn_multi_flip"
-            android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="2dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@drawable/ic_camera"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white"

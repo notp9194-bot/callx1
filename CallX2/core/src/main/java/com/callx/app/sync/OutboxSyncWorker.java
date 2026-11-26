@@ -16,6 +16,7 @@ import com.callx.app.models.Message;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MessageEntityMapper;
+import com.callx.app.utils.VideoInlineThumb;
 import com.google.firebase.database.DatabaseReference;
 import com.google.android.gms.tasks.Task;
 import com.google.gson.Gson;
@@ -153,10 +154,13 @@ public class OutboxSyncWorker extends Worker {
         // only way to preserve the existing encrypted wire format here.
         if (wireText != null && !wireText.isEmpty()) message.text = wireText;
         boolean success;
+        // v873: same wire hygiene as ChatMessageSender#firebasePushMessage.
+        final String[] thumbBackup = VideoInlineThumb.stripForWire(message);
         try {
             success = createIfAbsent(messageRef(op), message);
         } finally {
             message.text = plainText;
+            VideoInlineThumb.restoreAfterWire(message, thumbBackup);
         }
         if (success) db.messageDao().updateStatus(entity.id, "sent");
         return success;

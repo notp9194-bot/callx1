@@ -2234,6 +2234,7 @@ public class GroupChatActivity extends AppCompatActivity
         m.mediaWidth = e.mediaWidth;
         m.mediaHeight = e.mediaHeight;
         m.blurHash = e.blurHash;
+        m.inlineThumbB64 = e.thumbInlineData; // v873 inline video poster
         m.topicId = e.topicId;
         m.topicName = e.topicName;
         // PERF: same background StaticLayout precompute as 1:1 ChatActivity
@@ -2351,6 +2352,7 @@ public class GroupChatActivity extends AppCompatActivity
         e.mediaHeight            = m.mediaHeight;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         e.blurHash              = m.blurHash;
+        e.thumbInlineData       = m.inlineThumbB64; // v873 inline video poster
         e.pollQuestion          = m.pollQuestion;
         e.pollOptionsJson       = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);

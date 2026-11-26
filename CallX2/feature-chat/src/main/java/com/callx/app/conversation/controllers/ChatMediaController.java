@@ -2077,9 +2077,43 @@ public class ChatMediaController {
                 // image E2E (see MediaE2ECrypto / Message#mediaKeyEnc) — and,
                 // as of this fix, now carries the BlurHash payload too, same
                 // as the image envelope does.
+                // v873 — INLINE JPEG POSTER (WhatsApp-style): derive a tiny JPEG
+                // from the already-extracted frame (vr.thumbFile, no extra
+                // extraction) and embed it in the message instead of uploading a
+                // separate thumb file. Plaintext chat -> Message#inlineThumbB64 in
+                // the clear; E2E chat -> inside the encrypted key envelope ("jt").
+                // Zero thumb upload for the sender, zero thumb download for the
+                // receiver, zero Cloudinary calls/credits. If the JPEG can't be
+                // built, the legacy upload branch below runs unchanged.
+                final String inlineJpegB64 =
+                        com.callx.app.utils.VideoInlineThumb.buildInlineJpegB64(vr.thumbFile);
                 byte[] thumbKey = null;
                 java.io.File encThumb = null;
-                if (vr.thumbFile != null && vr.thumbFile.exists()) {
+                if (inlineJpegB64 != null) {
+                    String partnerUidInl = delegate.getPartnerUid();
+                    // Local mirror: lets the SENDER's own bubble render the poster
+                    // (stripped from the wire for E2E by VideoInlineThumb#stripForWire).
+                    pending.inlineThumbB64 = inlineJpegB64;
+                    if (partnerUidInl != null && !partnerUidInl.isEmpty()) {
+                        try {
+                            byte[] masterKeyInl = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                            String envelopeJsonInl = com.callx.app.utils.MediaE2ECrypto
+                                    .buildKeyEnvelopeJsonInlineJpeg(masterKeyInl, blurHash, inlineJpegB64);
+                            pending.mediaKeyEnc = com.callx.app.utils.E2EEncryptionManager
+                                    .getInstance(activity).encrypt(envelopeJsonInl, partnerUidInl);
+                            // ThumbHash + poster now travel ONLY inside the envelope.
+                            pending.blurHash = null;
+                        } catch (Exception e) {
+                            android.util.Log.w("ChatMediaController",
+                                    "Video inline-poster E2E envelope failed, plaintext inline: " + e.getMessage());
+                            pending.mediaKeyEnc = null;
+                            pending.blurHash = blurHash;
+                        }
+                    } else {
+                        // No E2E session yet — plaintext (same fallback as the image path).
+                        pending.blurHash = blurHash;
+                    }
+                } else if (vr.thumbFile != null && vr.thumbFile.exists()) {
                     String partnerUid = delegate.getPartnerUid();
                     if (partnerUid != null && !partnerUid.isEmpty()) {
                         try {
@@ -2128,7 +2162,7 @@ public class ChatMediaController {
                 final String thumbResourceType = (finalThumbKey != null) ? "raw" : "image";
 
                 reportUploadTotal(pending, vr.compressedBytes);
-                VideoUploader.upload(activity, vr, finalEncThumb, thumbResourceType,
+                final VideoUploader.UploadCallback videoUploadCb =
                         new VideoUploader.UploadCallback() {
                     @Override public void onProgress(int percent) {
                         // Upload = second half (50–100 %)
@@ -2138,7 +2172,10 @@ public class ChatMediaController {
                                                     int durationMs, int width, int height) {
                         if (finalEncThumb != null) finalEncThumb.delete();
                         pending.mediaUrl     = videoUrl;
-                        pending.thumbnailUrl = thumbUrl;
+                        // v873: thumbUrl is null when the inline poster is used —
+                        // keep the sender's local first-frame (file://) in that case
+                        // (stripped from the wire by VideoInlineThumb#stripForWire).
+                        if (thumbUrl != null) pending.thumbnailUrl = thumbUrl;
                         pending.duration     = (long) durationMs;
                         if (width  > 0) pending.mediaWidth  = width;
                         if (height > 0) pending.mediaHeight = height;
@@ -2149,7 +2186,12 @@ public class ChatMediaController {
                         finishVideoUploadFailure(pending,
                                 e != null ? e.getMessage() : "Video upload failed");
                     }
-                });
+                };
+                if (inlineJpegB64 != null) {
+                    VideoUploader.uploadWithoutThumb(activity, vr, videoUploadCb);
+                } else {
+                    VideoUploader.upload(activity, vr, finalEncThumb, thumbResourceType, videoUploadCb);
+                }
             }
             @Override public void onError(Exception e) {
                 android.util.Log.w("ChatMediaController",

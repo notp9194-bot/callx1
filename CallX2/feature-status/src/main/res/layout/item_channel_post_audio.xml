@@ -123,14 +123,12 @@
             android:textSize="11sp" android:textColor="#25D366"
             android:layout_marginEnd="8dp" android:visibility="gone"/>
         <ImageButton android:id="@+id/btn_post_react"
-            android:layout_width="48dp" android:layout_height="48dp"
-        android:padding="8dp"
+            android:layout_width="32dp" android:layout_height="32dp"
             android:src="@android:drawable/btn_star_big_off"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#888888" android:contentDescription="React"/>
         <ImageButton android:id="@+id/btn_post_forward"
-            android:layout_width="48dp" android:layout_height="48dp"
-        android:padding="8dp"
+            android:layout_width="32dp" android:layout_height="32dp"
             android:src="@android:drawable/ic_menu_share"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#888888" android:contentDescription="Forward"

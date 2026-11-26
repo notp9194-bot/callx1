@@ -107,6 +107,8 @@ public class VideoUploader {
     // pause / cancel flags
     private volatile boolean paused    = false;
     private volatile boolean cancelled = false;
+    /** v873: true => no separate thumbnail upload (inline JPEG poster is used instead). */
+    private volatile boolean skipThumb = false;
 
     private static VideoUploader activeUploader;
 
@@ -140,6 +142,20 @@ public class VideoUploader {
         VideoUploader uploader = new VideoUploader();
         activeUploader = uploader;
         new Thread(() -> uploader.doUpload(ctx, compressed, thumbFileOverride, thumbResourceType, callback, 1)).start();
+        return uploader;
+    }
+
+    /**
+     * v873: upload ONLY the video — the thumbnail travels inline inside the
+     * message (see Message#inlineThumbB64), so there is no thumb upload round
+     * trip. onSuccess receives thumbUrl == null.
+     */
+    public static VideoUploader uploadWithoutThumb(Context ctx, VideoCompressor.Result compressed,
+                                                   UploadCallback callback) {
+        VideoUploader uploader = new VideoUploader();
+        uploader.skipThumb = true;
+        activeUploader = uploader;
+        new Thread(() -> uploader.doUpload(ctx, compressed, null, "image", callback, 1)).start();
         return uploader;
     }
 
@@ -236,8 +252,9 @@ public class VideoUploader {
             // THAT (the encrypted temp file) with the given resourceType
             // ("raw") instead of the plaintext r.thumbFile.
             File thumbToUpload = (thumbFileOverride != null) ? thumbFileOverride : r.thumbFile;
-            String thumbUrl = uploadDirect(thumbToUpload, thumbResourceType, "callx/videos/thumb",
-                pct -> MAIN.post(() -> cb.onProgress((int)(pct * 0.20f))));
+            String thumbUrl = skipThumb ? null
+                : uploadDirect(thumbToUpload, thumbResourceType, "callx/videos/thumb",
+                    pct -> MAIN.post(() -> cb.onProgress((int)(pct * 0.20f))));
 
             // 2. Video (20–100%) — chunked for large files.
             // lastVideoResponseJson[] is filled in by uploadVideoChunked()/uploadDirect()
@@ -246,7 +263,7 @@ public class VideoUploader {
             // return type from String → object.
             final JSONObject[] lastVideoResponseJson = new JSONObject[1];
             String videoUrl = uploadVideoChunked(r.videoFile, "callx/videos/file", EAGER_HLS,
-                pct -> MAIN.post(() -> cb.onProgress(20 + (int)(pct * 0.80f))), lastVideoResponseJson);
+                pct -> MAIN.post(() -> cb.onProgress(skipThumb ? (int) pct : 20 + (int)(pct * 0.80f))), lastVideoResponseJson);
 
             // 3. Record compression stats internally (no API change needed)
             try {

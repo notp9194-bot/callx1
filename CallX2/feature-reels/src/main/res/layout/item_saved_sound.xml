@@ -62,8 +62,8 @@
     <!-- Play/Pause -->
     <ImageButton
         android:id="@+id/btn_sound_play_pause"
-        android:layout_width="48dp"
-        android:layout_height="48dp" android:padding="6dp"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
         android:src="@drawable/ic_play"
             android:tint="#A855F7"
         android:background="?attr/selectableItemBackgroundBorderless"
@@ -72,8 +72,8 @@
     <!-- Use in Camera -->
     <ImageButton
         android:id="@+id/btn_use_camera"
-        android:layout_width="48dp"
-        android:layout_height="48dp" android:padding="6dp"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
         android:src="@drawable/ic_camera"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Use in Camera"
@@ -82,8 +82,8 @@
     <!-- Use in Gallery -->
     <ImageButton
         android:id="@+id/btn_use_gallery"
-        android:layout_width="48dp"
-        android:layout_height="48dp" android:padding="6dp"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
         android:src="@drawable/ic_gallery"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Use in Gallery"

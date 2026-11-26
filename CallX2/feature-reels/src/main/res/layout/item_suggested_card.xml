@@ -22,13 +22,13 @@
         android:layout_height="wrap_content">
 
         <ImageButton android:id="@+id/btn_dismiss"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:layout_gravity="end"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="?attr/colorOnSurfaceVariant"
-            android:padding="16dp"
+            android:padding="3dp"
             android:contentDescription="Dismiss"/>
     </FrameLayout>
 

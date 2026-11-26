@@ -9,8 +9,8 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
         android:orientation="horizontal" android:gravity="center_vertical"
         android:paddingStart="8dp" android:paddingEnd="8dp">
-        <ImageButton android:id="@+id/btn_subtitles_back" android:layout_width="48dp"
-            android:layout_height="48dp" android:padding="4dp" android:src="@drawable/ic_arrow_back"
+        <ImageButton android:id="@+id/btn_subtitles_back" android:layout_width="40dp"
+            android:layout_height="40dp" android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"/>
         <TextView android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:text="Captions"
@@ -40,9 +40,9 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="horizontal" android:gravity="center_vertical"
         android:padding="12dp" android:background="?attr/colorSurfaceVariant">
-        <ImageButton android:id="@+id/btn_auto_generate" android:layout_width="48dp"
-            android:layout_height="48dp" android:src="@drawable/ic_mic"
-            android:background="@drawable/circle_primary_t2" android:padding="12dp"/>
+        <ImageButton android:id="@+id/btn_auto_generate" android:layout_width="44dp"
+            android:layout_height="44dp" android:src="@drawable/ic_mic"
+            android:background="@drawable/circle_primary" android:padding="10dp"/>
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical" android:paddingStart="10dp">
             <TextView android:id="@+id/tv_auto_status" android:layout_width="wrap_content"

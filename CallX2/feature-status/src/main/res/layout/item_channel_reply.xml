@@ -56,9 +56,8 @@
             <!-- Delete button (own reply or admin) -->
             <ImageButton
                 android:id="@+id/btn_reply_delete"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-        android:padding="12dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:src="@android:drawable/ic_menu_delete"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:tint="#CCCCCC"

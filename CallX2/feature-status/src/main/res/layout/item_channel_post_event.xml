@@ -40,9 +40,8 @@
         </LinearLayout>
         <ImageButton
             android:id="@+id/btn_post_overflow"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-        android:padding="8dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@drawable/ic_more_vert"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="More" />

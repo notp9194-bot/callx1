@@ -358,6 +358,10 @@ public final class MediaE2ECrypto {
          *  case the message's thumbnailUrl field points to it, decrypted
          *  with {@link #thumbKey()} same as before). */
         public byte[] inlineThumbCipher;
+        /** v873: plaintext Base64 JPEG poster of a VIDEO (key "jt"). Lives
+         *  inside the ratchet-encrypted envelope, so it is end-to-end
+         *  private and needs no separate thumb upload/download. */
+        public String inlineJpegB64;
 
         /** Key to use when decrypting the full-resolution ciphertext.
          *  v1: the raw master key (matches how it was originally encrypted).
@@ -429,12 +433,25 @@ public final class MediaE2ECrypto {
         return o.toString();
     }
 
+    /** v873: video envelope — master key + ThumbHash + inline JPEG poster
+     *  ("jt"). No thumb file is uploaded, so there is no thumb digest. */
+    public static String buildKeyEnvelopeJsonInlineJpeg(byte[] key, String blurHash,
+                                                        String inlineJpegB64) throws JSONException {
+        JSONObject o = new JSONObject();
+        o.put("v", 2);
+        o.put("k", Base64.encodeToString(key, Base64.NO_WRAP));
+        if (blurHash != null && !blurHash.isEmpty()) o.put("b", blurHash);
+        if (inlineJpegB64 != null && !inlineJpegB64.isEmpty()) o.put("jt", inlineJpegB64);
+        return o.toString();
+    }
+
     public static KeyEnvelope parseKeyEnvelopeJson(String json) throws JSONException {
         JSONObject o = new JSONObject(json);
         KeyEnvelope env = new KeyEnvelope();
         env.version = o.optInt("v", 1);
         env.key = Base64.decode(o.getString("k"), Base64.NO_WRAP);
         env.blurHash = o.optString("b", null);
+        env.inlineJpegB64 = o.optString("jt", null);
         String fd = o.optString("fd", null);
         String td = o.optString("td", null);
         String it = o.optString("it", null);

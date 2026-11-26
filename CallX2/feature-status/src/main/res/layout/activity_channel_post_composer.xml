@@ -126,14 +126,13 @@
 
                 <ImageButton
                     android:id="@+id/btn_remove_media"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-        android:padding="8dp"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
                     android:layout_gravity="top|end"
-                    android:layout_margin="0dp"
+                    android:layout_margin="6dp"
                     android:src="@android:drawable/ic_menu_close_clear_cancel"
                     android:tint="#FFFFFF"
-                    android:background="@drawable/bg_scrim_80_touch"
+                    android:background="#80000000"
                     android:contentDescription="Remove media"/>
             </FrameLayout>
 
@@ -202,9 +201,8 @@
 
                 <ImageButton
                     android:id="@+id/btn_remove_link"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-        android:padding="10dp"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
                     android:src="@android:drawable/ic_menu_close_clear_cancel"
                     android:tint="#AAAAAA"
                     android:background="?attr/selectableItemBackgroundBorderless"
@@ -398,9 +396,8 @@
 
                 <ImageButton
                     android:id="@+id/btn_remove_doc"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-        android:padding="10dp"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
                     android:src="@android:drawable/ic_menu_close_clear_cancel"
                     android:tint="#AAAAAA"
                     android:background="?attr/selectableItemBackgroundBorderless"
