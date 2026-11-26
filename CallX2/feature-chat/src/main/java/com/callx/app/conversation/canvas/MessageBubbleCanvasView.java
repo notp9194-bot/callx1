@@ -1126,6 +1126,9 @@ public class MessageBubbleCanvasView extends View {
      */
     public static void precomputeTextLayoutIfPossible(String text, boolean deleted) {
         if (deleted || text == null || text.isEmpty()) return;
+        // PERF: warm the markdown + EmojiCompat span caches off the UI thread so bind()'s
+        // formatBody() is a cache hit instead of a main-thread format/emoji pass (13 ms spike).
+        try { formatBody(text); } catch (Throwable ignored) {}
         int width = sLastKnownMaxTextWidth;
         if (width <= 0) return; // no real bubble measured yet this session
         String key = text.length() + "_" + text.hashCode() + "_" + width;
