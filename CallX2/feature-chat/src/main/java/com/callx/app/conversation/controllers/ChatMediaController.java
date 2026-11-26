@@ -1489,22 +1489,10 @@ public class ChatMediaController {
         // right away, then compress+upload in background with per-bubble
         // progress ring, finalize the SAME row with the real URL on success.
         if ("video".equals(msgType)) {
-            Message pending        = delegate.buildOutgoing();
+            final Message pending  = delegate.buildOutgoing();
             pending.type           = "video";
             pending.mediaLocalPath = uri.toString();
-
-            String id = delegate.insertLocalPendingMedia(pending);
-            if (id == null) {
-                Toast.makeText(activity, activity.getString(R.string.media_queue_failed_video), Toast.LENGTH_SHORT).show();
-                return;
-            }
-            delegate.clearReply();
-            if (!delegate.isOnline()) {
-                queueOfflineMedia(pending);
-                // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
-                return;
-            }
-            startVideoUploadLocalFirst(uri, pending);
+            sendVideoLocalFirst(uri, pending, true);
             return;
         }
 
@@ -1558,6 +1546,12 @@ public class ChatMediaController {
         } catch (Exception e) {
             return new int[]{0, 0};
         }
+    }
+
+    /** v874: video twin of decodeLocalImageBounds(): rotation-aware DISPLAY size from container
+     *  metadata only (no frame decode / compress). {0,0} when unreadable. Call off the main thread. */
+    private int[] decodeLocalVideoBounds(Uri uri) {
+        return VideoCompressor.readDisplayBounds(activity, uri);
     }
 
     /** Compress → upload thumb → upload full. `pending` is the SAME Message
@@ -1950,20 +1944,57 @@ public class ChatMediaController {
      * Intentionally cheap — MediaMetadataRetriever.getFrameAtTime(0) on a
      * local file typically completes in < 50 ms even for 4K clips.
      */
+    private void openRetriever(android.media.MediaMetadataRetriever mmr, Uri uri) throws Exception {
+        if (uri.getScheme() != null && uri.getScheme().startsWith("file")) {
+            mmr.setDataSource(uri.getPath());
+        } else {
+            mmr.setDataSource(activity, uri);
+        }
+    }
+
     private String extractVideoThumb(Uri uri) {
         android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
         try {
-            if (uri.getScheme() != null && uri.getScheme().startsWith("file")) {
-                mmr.setDataSource(uri.getPath());
-            } else {
-                mmr.setDataSource(activity, uri);
+            openRetriever(mmr, uri);
+            return extractVideoThumbFrom(mmr, VideoCompressor.displayBoundsOf(mmr));
+        } catch (Exception e) {
+            android.util.Log.w("ChatMediaController", "extractVideoThumb failed", e);
+            return null;
+        } finally {
+            try { mmr.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** v875: first-frame thumb from an ALREADY-OPENED retriever (no 2nd setDataSource).
+     *  API 27+: getScaledFrameAtTime decodes straight at ~200px instead of materialising the
+     *  full 1080p frame (~8 MB bitmap) and down-scaling it; aspect is verified against the
+     *  container's display ratio and we fall back to the classic full decode if it is off. */
+    private String extractVideoThumbFrom(android.media.MediaMetadataRetriever mmr, int[] dispBounds) {
+        try {
+            final int maxDim = 200;
+            android.graphics.Bitmap frame = null;
+            if (android.os.Build.VERSION.SDK_INT >= 27 && dispBounds != null
+                    && dispBounds[0] > 0 && dispBounds[1] > 0) {
+                float sc = Math.min(1f, maxDim / (float) Math.max(dispBounds[0], dispBounds[1]));
+                int tw = Math.max(1, Math.round(dispBounds[0] * sc));
+                int th = Math.max(1, Math.round(dispBounds[1] * sc));
+                try {
+                    frame = mmr.getScaledFrameAtTime(0,
+                            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, tw, th);
+                } catch (Exception ignored) { frame = null; }
+                if (frame != null) {
+                    float got = frame.getWidth() / (float) frame.getHeight();
+                    float exp = dispBounds[0] / (float) dispBounds[1];
+                    if (Math.abs(got - exp) / exp > 0.05f) { // rotated/distorted by this OEM -> classic path
+                        frame.recycle();
+                        frame = null;
+                    }
+                }
             }
-            android.graphics.Bitmap frame = mmr.getFrameAtTime(0,
-                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (frame == null) {
+                frame = mmr.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            }
             if (frame == null) return null;
-            // Scale down to a reasonable preview size — same logic as
-            // ImageCompressor's thumb step (max 200 px on longest side).
-            int maxDim = 200;
             float scale = Math.min(maxDim / (float) frame.getWidth(),
                                    maxDim / (float) frame.getHeight());
             android.graphics.Bitmap thumb = (scale < 1f)
@@ -1974,7 +2005,8 @@ public class ChatMediaController {
             java.io.File dir = new java.io.File(activity.getCacheDir(), "vid_thumb");
             //noinspection ResultOfMethodCallIgnored
             dir.mkdirs();
-            java.io.File out = new java.io.File(dir, "vt_" + System.currentTimeMillis() + ".jpg");
+            // nanoTime: two videos sent in the same millisecond no longer collide on one file name.
+            java.io.File out = new java.io.File(dir, "vt_" + System.nanoTime() + ".jpg");
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
                 thumb.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, fos);
             }
@@ -1982,11 +2014,111 @@ public class ChatMediaController {
             if (thumb != frame && !thumb.isRecycled()) thumb.recycle();
             return out.getAbsolutePath();
         } catch (Exception e) {
-            android.util.Log.w("ChatMediaController", "extractVideoThumb failed", e);
+            android.util.Log.w("ChatMediaController", "extractVideoThumbFrom failed", e);
             return null;
-        } finally {
-            try { mmr.release(); } catch (Exception ignored) {}
         }
+    }
+
+    /** If the metadata read is slower than this (cloud / slow storage URI), the bubble is inserted
+     *  anyway (old 4:3 behaviour) and the real ratio is applied the moment it arrives. */
+    private static final long VIDEO_BOUNDS_DEADLINE_MS = 350L;
+
+    /**
+     * v875 — 1:1 chat video send hot path, ONE retriever open for everything:
+     *   bg: open file once -> display bounds -> [main] insert pre-sized bubble IMMEDIATELY ->
+     *   (same open retriever) first-frame thumb -> [main, FIFO after insert] set thumb + start upload.
+     * Compared with v874 this removes a 2nd setDataSource(), a main-thread hop + a bg hop, and the
+     * thumb is no longer serialised behind the insert. A 350 ms deadline guarantees the bubble is
+     * never held back by a slow URI. {@code fullFlow}: true = uploadAndSend (toast on insert failure,
+     * clearReply, offline queue); false = gallery single-item (caller clears reply, queue handles net).
+     */
+    private void sendVideoLocalFirst(final Uri uri, final Message pending, final boolean fullFlow) {
+        final java.util.concurrent.atomic.AtomicBoolean inserted =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        final boolean[] insertOk      = new boolean[1]; // main thread only
+        final boolean[] offlineQueued = new boolean[1]; // main thread only
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+
+        final Runnable insertNow = () -> {
+            if (!inserted.compareAndSet(false, true)) return;
+            String id = delegate.insertLocalPendingMedia(pending);
+            if (id == null) {
+                if (fullFlow) {
+                    Toast.makeText(activity, activity.getString(R.string.media_queue_failed_video),
+                            Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
+            insertOk[0] = true;
+            if (fullFlow) {
+                delegate.clearReply();
+                if (!delegate.isOnline()) {
+                    queueOfflineMedia(pending);
+                    offlineQueued[0] = true;
+                    // queued state is shown by the bubble clock icon + OutboxBannerController (no toast)
+                }
+            }
+        };
+        main.postDelayed(insertNow, VIDEO_BOUNDS_DEADLINE_MS);
+
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+            boolean opened = false;
+            int[] vb = new int[]{0, 0};
+            try {
+                openRetriever(mmr, uri);
+                opened = true;
+                vb = VideoCompressor.displayBoundsOf(mmr);
+            } catch (Exception e) {
+                android.util.Log.w("ChatMediaController", "video open failed", e);
+            }
+            final int[] fvb = vb;
+
+            // 1) bubble ASAP — correctly sized on its first layout pass.
+            activity.runOnUiThread(() -> {
+                main.removeCallbacks(insertNow);
+                if (!inserted.get()) {
+                    if (fvb[0] > 0 && fvb[1] > 0) {
+                        pending.mediaWidth  = fvb[0];
+                        pending.mediaHeight = fvb[1];
+                    }
+                    insertNow.run();
+                } else if (insertOk[0] && fvb[0] > 0 && fvb[1] > 0
+                        && (pending.mediaWidth == null || pending.mediaWidth <= 0)) {
+                    // deadline fired first: bubble exists on the 4:3 fallback -> fix it now.
+                    pending.mediaWidth  = fvb[0];
+                    pending.mediaHeight = fvb[1];
+                    final String rowId = pending.id != null ? pending.id : pending.messageId;
+                    if (rowId != null) {
+                        com.callx.app.utils.AppBgExecutor.execute(() ->
+                                AppDatabase.getInstance(activity).messageDao()
+                                        .updateMediaDimensions(rowId, fvb[0], fvb[1], (float) fvb[0] / fvb[1]));
+                    }
+                }
+            });
+
+            // 2) first frame on the SAME open retriever (after the bubble was already posted).
+            String thumb = opened ? extractVideoThumbFrom(mmr, fvb) : null;
+            try { mmr.release(); } catch (Exception ignored) {}
+            final String fThumb = thumb;
+
+            // 3) main FIFO: runs strictly after the insert above.
+            activity.runOnUiThread(() -> {
+                if (!insertOk[0]) return;              // insert failed -> no upload
+                if (offlineQueued[0]) return;          // offline: outbox owns the upload
+                if (fThumb != null && pending.thumbnailUrl == null) {
+                    final String thumbFileUri = "file://" + fThumb;
+                    pending.thumbnailUrl = thumbFileUri;
+                    final String rowId = pending.id != null ? pending.id : pending.messageId;
+                    if (rowId != null) {
+                        com.callx.app.utils.AppBgExecutor.execute(() ->
+                                AppDatabase.getInstance(activity).messageDao()
+                                        .updateThumbnailUrl(rowId, thumbFileUri));
+                    }
+                }
+                doStartVideoUpload(uri, pending);
+            });
+        });
     }
 
     private void startVideoUploadLocalFirst(Uri uri, Message pending) {
@@ -1996,6 +2128,21 @@ public class ChatMediaController {
         // adapter reloads the cell with a real frame preview instead of the
         // grey placeholder it showed for the first ~50 ms.
         com.callx.app.utils.AppBgExecutor.execute(() -> {
+            // v874: retry / older pending rows may have no dimensions yet — fill + persist so the
+            // bubble resizes to the real ratio instead of staying on the 4:3 fallback.
+            if (pending.mediaWidth == null || pending.mediaHeight == null
+                    || pending.mediaWidth <= 0 || pending.mediaHeight <= 0) {
+                int[] vb = decodeLocalVideoBounds(uri);
+                if (vb[0] > 0 && vb[1] > 0) {
+                    pending.mediaWidth  = vb[0];
+                    pending.mediaHeight = vb[1];
+                    String dimRowId = pending.id != null ? pending.id : pending.messageId;
+                    if (dimRowId != null) {
+                        AppDatabase.getInstance(activity).messageDao()
+                                .updateMediaDimensions(dimRowId, vb[0], vb[1], (float) vb[0] / vb[1]);
+                    }
+                }
+            }
             String localThumb = extractVideoThumb(uri);
             if (localThumb != null && pending.thumbnailUrl == null) {
                 String thumbFileUri = "file://" + localThumb;
@@ -2200,8 +2347,11 @@ public class ChatMediaController {
                         // (stripped from the wire by VideoInlineThumb#stripForWire).
                         if (thumbUrl != null) pending.thumbnailUrl = thumbUrl;
                         pending.duration     = (long) durationMs;
-                        if (width  > 0) pending.mediaWidth  = width;
-                        if (height > 0) pending.mediaHeight = height;
+                        // v874: compressor w/h are RAW (rotation not applied) -> a camera portrait clip
+                        // would flip to landscape. Keep the display-correct dims read up front; use the
+                        // compressor's only if we never got any.
+                        if ((pending.mediaWidth == null || pending.mediaWidth <= 0) && width > 0)  pending.mediaWidth  = width;
+                        if ((pending.mediaHeight == null || pending.mediaHeight <= 0) && height > 0) pending.mediaHeight = height;
                         finishVideoUploadSuccess(pending);
                     }
                     @Override public void onError(Exception e) {
@@ -2303,14 +2453,13 @@ public class ChatMediaController {
             String mime = resolveMimeType(activity, uri);
             String mimeType = classifyMediaType(mime);
             if ("video".equals(mimeType)) {
-                Message pending = delegate.buildOutgoing();
+                final Message pending = delegate.buildOutgoing();
                 pending.type = "video";
                 pending.mediaLocalPath = uri.toString();
                 if (itemCaption != null && !itemCaption.isEmpty()) {
                     pending.caption = itemCaption; pending.text = itemCaption;
                 }
-                if (delegate.insertLocalPendingMedia(pending) != null)
-                    startVideoUploadLocalFirst(uri, pending);
+                sendVideoLocalFirst(uri, pending, false);
             } else {
                 int[] bounds = decodeLocalImageBounds(uri);
                 Message pending = delegate.buildOutgoing();

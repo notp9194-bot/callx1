@@ -431,6 +431,45 @@ public class VideoCompressor {
         return m;
     }
 
+    /** v874: container-metadata-only DISPLAY size of a video (rotation applied: 90/270 swap
+     *  W/H). No frame decode, no transcode. Returns {0,0} when unreadable — unlike
+     *  readMetadata() it does NOT invent a 1280x720 default, so callers can tell "unknown". */
+    public static int[] readDisplayBounds(Context ctx, Uri uri) {
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        try {
+            mmr.setDataSource(ctx, uri);
+            return displayBoundsOf(mmr);
+        } catch (Exception e) {
+            return new int[]{0, 0};
+        } finally {
+            try { mmr.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** v875: same as readDisplayBounds() but on an ALREADY-OPENED retriever, so a caller that
+     *  also needs a frame (chat send hot path) pays setDataSource() only once. Never throws. */
+    public static int[] displayBoundsOf(MediaMetadataRetriever mmr) {
+        try {
+            int w = parseMetaInt(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            int h = parseMetaInt(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+            int rot = parseMetaInt(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            if (w <= 0 || h <= 0) return new int[]{0, 0};
+            if (rot == 90 || rot == 270) { int t = w; w = h; h = t; }
+            return new int[]{w, h};
+        } catch (Exception e) {
+            return new int[]{0, 0};
+        }
+    }
+
+    private static int parseMetaInt(MediaMetadataRetriever mmr, int key) {
+        try {
+            String v = mmr.extractMetadata(key);
+            return v != null ? Integer.parseInt(v.trim()) : 0;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     // ── Thumbnail ──────────────────────────────────────────────────────────
 
     public static File makeThumbnail(Context ctx, Uri videoUri, int durationMs, int thumbSize) {

@@ -5399,6 +5399,11 @@ public class GroupChatActivity extends AppCompatActivity
             com.callx.app.utils.VideoQualityPreferences.Quality videoQuality = isHD
                     ? com.callx.app.utils.VideoQualityPreferences.Quality.HD
                     : com.callx.app.utils.VideoQualityPreferences.Quality.STANDARD;
+            // v874: display-correct (rotation-aware) ratio, read off-main while compress runs.
+            final java.util.concurrent.atomic.AtomicReference<int[]> vidBoundsRef =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            com.callx.app.utils.AppBgExecutor.execute(() -> vidBoundsRef.set(
+                    com.callx.app.utils.VideoCompressor.readDisplayBounds(GroupChatActivity.this, uri)));
             com.callx.app.utils.VideoCompressor.compress(
                     this, uri, videoQuality, new com.callx.app.utils.VideoCompressor.Callback() {
 
@@ -5427,6 +5432,11 @@ public class GroupChatActivity extends AppCompatActivity
                             m.mediaUrl     = videoUrl;
                             m.thumbnailUrl = thumbUrl;
                             m.duration     = (long) durationMs;
+                            int[] vb = vidBoundsRef.get();
+                            if (vb != null && vb[0] > 0 && vb[1] > 0) {
+                                m.mediaWidth  = vb[0];
+                                m.mediaHeight = vb[1];
+                            }
                             pushMessage(m, "\uD83C\uDFAC Video");
                             clearReply();
                         }

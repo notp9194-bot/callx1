@@ -728,6 +728,12 @@ public interface MessageDao {
     @Query("UPDATE messages SET thumbnailUrl = :url WHERE id = :messageId")
     void updateThumbnailUrl(String messageId, String url);
 
+    /** v874: set real media dimensions (+ precomputed ratio) on an already-inserted pending row,
+     *  e.g. a retried video whose bubble was inserted before dimensions were known. */
+    @WorkerThread
+    @Query("UPDATE messages SET mediaWidth = :w, mediaHeight = :h, mediaAspectRatio = :ratio WHERE id = :messageId")
+    void updateMediaDimensions(String messageId, int w, int h, float ratio);
+
     /**
      * Feature 8 (group bubble): atomic in-place update of the mediaItemsJson
      * column so a live multi_media bubble reflects newly-uploaded URLs without

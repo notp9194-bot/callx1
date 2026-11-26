@@ -393,21 +393,25 @@ final class MediaRenderer {
     }
 
     private void drawVideoPlayOverlay(Canvas canvas) {
-        float cx = host.mediaRect.centerX(), cy = host.mediaRect.centerY();
-        float circleR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_CIRCLE_DP * host.density) / 2f;
-        canvas.drawCircle(cx, cy, circleR, host.groupPlayCirclePaint);
-        // Hairline ring traced just inside the fill edge (half the stroke
-        // width in from circleR) so the stroke doesn't get clipped/aliased
-        // right at the disc's outer boundary.
-        canvas.drawCircle(cx, cy, circleR - host.groupPlayRingPaint.getStrokeWidth() / 2f, host.groupPlayRingPaint);
+        // v874: while gated (compressing / uploading / download pill) the centre belongs to that
+        // pill; the play glyph under it looked like an overlap. Duration badge below stays.
+        if (!host.mediaGated) {
+            float cx = host.mediaRect.centerX(), cy = host.mediaRect.centerY();
+            float circleR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_CIRCLE_DP * host.density) / 2f;
+            canvas.drawCircle(cx, cy, circleR, host.groupPlayCirclePaint);
+            // Hairline ring traced just inside the fill edge (half the stroke
+            // width in from circleR) so the stroke doesn't get clipped/aliased
+            // right at the disc's outer boundary.
+            canvas.drawCircle(cx, cy, circleR - host.groupPlayRingPaint.getStrokeWidth() / 2f, host.groupPlayRingPaint);
 
-        float triR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_TRIANGLE_DP * host.density) / 2f;
-        host.groupPlayTrianglePath.reset();
-        host.groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
-        host.groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
-        host.groupPlayTrianglePath.lineTo(cx + triR * 0.9f, cy);
-        host.groupPlayTrianglePath.close();
-        canvas.drawPath(host.groupPlayTrianglePath, host.groupPlayTrianglePaint);
+            float triR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_TRIANGLE_DP * host.density) / 2f;
+            host.groupPlayTrianglePath.reset();
+            host.groupPlayTrianglePath.moveTo(cx - triR * 0.5f, cy - triR * 0.8f);
+            host.groupPlayTrianglePath.lineTo(cx - triR * 0.5f, cy + triR * 0.8f);
+            host.groupPlayTrianglePath.lineTo(cx + triR * 0.9f, cy);
+            host.groupPlayTrianglePath.close();
+            canvas.drawPath(host.groupPlayTrianglePath, host.groupPlayTrianglePaint);
+        }
 
         if (host.videoDuration != null && !host.videoDuration.isEmpty()) {
             float durPadH = 6 * host.density, durPadV = 3 * host.density;
