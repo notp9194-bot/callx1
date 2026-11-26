@@ -70,6 +70,9 @@ public final class MessageEntityMapper {
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         m.blurHash = e.blurHash;
         m.inlineThumbB64 = e.thumbInlineData; // v873 inline video poster
+        // v877: decode the poster / ThumbHash NOW (background, idempotent) so the bubble's first bind
+        // is already single-bitmap -> one canvas record. See VideoPosterPrewarm.
+        if ("video".equals(e.type)) VideoPosterPrewarm.warm(e.thumbInlineData, e.blurHash);
         // v46: Media E2E (image) — see AppDatabase.MIGRATION_45_46.
         m.mediaKeyEnc = e.mediaKeyEnc;
         // BUG FIX: mediaLocalPath was never copied from entity → model, so

@@ -103,7 +103,11 @@ public final class VideoInlineThumb {
     public static String[] stripForWire(@Nullable Message m) {
         if (m == null) return null;
         String[] saved = { m.thumbnailUrl, m.inlineThumbB64 };
-        if (m.thumbnailUrl != null && m.thumbnailUrl.startsWith("file://")) m.thumbnailUrl = null;
+        if (m.thumbnailUrl != null && m.thumbnailUrl.startsWith("file://")) {
+            // v877: legacy thumb upload -> the https url travels, the local file:// stays on the sender
+            m.thumbnailUrl = (m.thumbnailUrlRemote != null && !m.thumbnailUrlRemote.isEmpty())
+                    ? m.thumbnailUrlRemote : null;
+        }
         if (m.mediaKeyEnc != null && !m.mediaKeyEnc.isEmpty()) m.inlineThumbB64 = null;
         return saved;
     }

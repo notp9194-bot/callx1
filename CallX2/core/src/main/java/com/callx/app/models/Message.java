@@ -216,6 +216,16 @@ public class Message {
      */
     public String inlineThumbB64;
 
+    /**
+     * v877 — legacy (non-inline) video thumb upload only: the sender keeps its LOCAL first frame
+     * (file://) in {@link #thumbnailUrl} so its bubble never flips file:// -> https (that flip
+     * forced a full rebind + extra record). The uploaded https url rides here and
+     * {@code VideoInlineThumb#stripForWire} swaps it into thumbnailUrl for the wire only.
+     * {@code transient}/@Exclude: never persisted, never serialised by Firebase.
+     */
+    @Exclude
+    public transient String thumbnailUrlRemote;
+
     // ── Media E2E (image) ───────────────────────────────────────────────────
     /**
      * Present only on 1:1 IMAGE messages sent through the media-E2E path

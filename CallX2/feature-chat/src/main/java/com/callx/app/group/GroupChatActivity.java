@@ -2235,6 +2235,8 @@ public class GroupChatActivity extends AppCompatActivity
         m.mediaHeight = e.mediaHeight;
         m.blurHash = e.blurHash;
         m.inlineThumbB64 = e.thumbInlineData; // v873 inline video poster
+        // v877: warm poster/ThumbHash off the bind path -> group video bubble records once on first bind
+        if ("video".equals(e.type)) com.callx.app.utils.VideoPosterPrewarm.warm(e.thumbInlineData, e.blurHash);
         m.topicId = e.topicId;
         m.topicName = e.topicName;
         // PERF: same background StaticLayout precompute as 1:1 ChatActivity

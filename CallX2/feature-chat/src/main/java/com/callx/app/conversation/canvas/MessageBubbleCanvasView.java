@@ -4085,6 +4085,7 @@ public class MessageBubbleCanvasView extends View {
         bindMedia(thumb, caption, timeText, isSent, isRead, isDelivered, aspectKey, knownAspectRatio);
         this.isVideoMedia = true;
         this.videoDuration = duration;
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.videoBind(); // v878
         invalidate();
     }
 
@@ -4598,6 +4599,7 @@ public class MessageBubbleCanvasView extends View {
             setMediaDownloadProgress(progressPercent);
             return;
         }
+        final boolean wasGatedBefore = mediaGated;
         this.mediaGated = true;
         this.mediaDownloading = downloading;
         this.mediaDownloadProgress = progressPercent;
@@ -4607,8 +4609,47 @@ public class MessageBubbleCanvasView extends View {
         resetUploadGateExtras();
         this.mediaDisplayProgress = progressPercent;
         this.mediaUploadCancelable = false; // re-armed by setMediaUploadCancelable() right after, for uploads only
-        this.staticPictureDirty = true;
-        invalidate();
+        invalidateGateTransition(wasGatedBefore);
+    }
+
+    /**
+     * v877: a gate state change (idle pill / spinner / retry / clear) only touches LIVE content on a
+     * captionless, voice-less single media bubble — the scrim, pill, play glyph and the footer strip's
+     * pending-clock tick are all drawn from the overlay layer. So: dirty-rect only, NO re-record of the
+     * cached node. A captioned / voice-strip bubble still has static content that depends on the gate
+     * (caption row hidden while gated), so it keeps the full re-record. Before first layout: full.
+     */
+    private void invalidateGateTransition(boolean wasGated) {
+        // v878: a CAPTIONED bubble's static content depends on the gate only through the boolean
+        // mediaGated (caption row + footer are skipped while gated). When that boolean is unchanged
+        // (idle <-> downloading <-> retry <-> waiting, label change) nothing static differs: the scrim,
+        // pill and play glyph are all live, so a media-rect redraw is enough — no re-record.
+        // Gated <-> clear still changes the static caption row, so that stays a full re-record.
+        final boolean captionedGateStable = mediaHasCaption && !hasVoiceStrip() && textLayout != null
+                && wasGated == mediaGated && !mediaRect.isEmpty();
+        if (!captionedGateStable && (mediaRect.isEmpty() || mediaHasCaption || hasVoiceStrip())) {
+            this.staticPictureDirty = true;
+            invalidate();
+            return;
+        }
+        float bottom = mediaRect.bottom + (hasFooterStrip() ? MEDIA_FOOTER_STRIP_DP * density : 0f);
+        mediaDownloadDirtyRect.set((int) mediaRect.left, (int) mediaRect.top,
+                (int) Math.ceil(mediaRect.right), (int) Math.ceil(bottom));
+        invalidate(mediaDownloadDirtyRect);
+    }
+
+    /**
+     * v877: the plain idle pill's label changed (remote file size resolved after bind). The label is
+     * drawn live, so this is a rect redraw — never a re-record. Returns false when the gate is not
+     * the plain idle pill (caller falls back to {@link #setMediaDownloadGate}).
+     */
+    public boolean setMediaDownloadIdleLabel(@Nullable String label) {
+        if (!mediaGated || mediaDownloading || mediaGateRetry || mediaGateWaiting || mediaIsUpload) return false;
+        final String l = label != null ? label : "";
+        if (l.equals(mediaDownloadLabel)) return true;
+        this.mediaDownloadLabel = l;
+        invalidateMediaDownloadRegion();
+        return true;
     }
 
     /** Idle gate showing a retry icon + label (failed upload / failed download); tap fires onMediaDownloadClick(). */
@@ -4751,7 +4792,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGateWaiting = false;
         this.mediaDownloadProgress = progressPercent;
         animateMediaProgressTo(progressPercent);
-        if (!wasGated) { this.staticPictureDirty = true; invalidate(); return; } // scrim appears -> re-record once
+        if (!wasGated) { invalidateGateTransition(false); return; } // v877: scrim is live -> rect only (captionless)
         // onDraw's mediaDownloadActive bypass keeps the outer full-bubble
         // cache out of the picture for the whole download, so a dirty-rect
         // invalidate here is safe: no stale-cache replay risk, just a
@@ -4769,6 +4810,7 @@ public class MessageBubbleCanvasView extends View {
                 && mediaGateA11y == null) {
             return;
         }
+        final boolean wasGatedBeforeClear = mediaGated;
         this.mediaGated = false;
         this.mediaDownloading = false;
         this.mediaDownloadProgress = -1;
@@ -4776,8 +4818,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaGateWaiting = false;
         resetUploadGateExtras();
         this.mediaUploadCancelable = false;
-        this.staticPictureDirty = true;
-        invalidate();
+        invalidateGateTransition(wasGatedBeforeClear);
         refreshGateA11y();
     }
 
@@ -6875,6 +6916,11 @@ public class MessageBubbleCanvasView extends View {
     private static final float FALLBACK_ASPECT_RATIO = 4f / 3f;
 
     private void computeMediaSize(int maxWidthPx, int[] outWH) {
+        computeMediaSizeStatic(mediaAspectRatio, density, maxWidthPx, outWH);
+    }
+
+    /** v878: same slot maths as {@link #computeMediaSize}, usable off-view (blur pre-warm, any thread). */
+    static void computeMediaSizeStatic(float mediaAspectRatio, float density, int maxWidthPx, int[] outWH) {
         float ratio = mediaAspectRatio > 0f ? mediaAspectRatio : FALLBACK_ASPECT_RATIO;
         int maxW = Math.min(Math.round(MEDIA_MAX_WIDTH_DP * density), Math.max(1, maxWidthPx));
         int minW = Math.min(Math.round(MEDIA_MIN_WIDTH_DP * density), maxW);
@@ -6901,6 +6947,18 @@ public class MessageBubbleCanvasView extends View {
         }
         outWH[0] = Math.max(minW, Math.min(maxW, w));
         outWH[1] = Math.max(minH, Math.min(maxH, h));
+    }
+
+    /**
+     * v878: pre-compute the adaptive blur of a ThumbHash placeholder for the slot this message will get
+     * (ratio 0 = unknown -> 4:3 fallback, same as the view). Any thread; best-effort.
+     */
+    public static void prewarmPlaceholderBlur(@Nullable Bitmap placeholder, float aspectRatio,
+                                              int maxWidthPx, float density) {
+        if (placeholder == null || density <= 0f) return;
+        final int[] wh = new int[2];
+        computeMediaSizeStatic(aspectRatio, density, maxWidthPx, wh);
+        MediaRenderer.prewarmPlaceholderBlur(placeholder, wh[0], wh[1], density);
     }
 
     @Override
@@ -8353,6 +8411,7 @@ public class MessageBubbleCanvasView extends View {
             fullBubblePictureH = h;
             sRenderCachePreRecorded++;
             if (_pre != 0L) com.callx.app.debug.BubblePerfStats.pre(System.nanoTime() - _pre);
+            if (isVideoMedia && com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.videoPre(); // v878
         } catch (RuntimeException e) {
             if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preErr();
             fullBubbleDirty = true;                         // fall back to normal onDraw record
@@ -8485,6 +8544,7 @@ public class MessageBubbleCanvasView extends View {
                 fullBubbleEmptyRecord = !fullBubbleRenderNode.hasDisplayList();
                 android.os.Trace.endSection();
                 if (_pt != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt);
+                if (isVideoMedia && com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.videoRec(); // v878
                 fullBubbleDirty    = false;
                 fullBubblePictureW = w;
                 fullBubblePictureH = h;
@@ -8507,6 +8567,7 @@ public class MessageBubbleCanvasView extends View {
             drawBubbleContent(pc);
             fullBubblePicture.endRecording();
             if (_pt2 != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt2);
+            if (isVideoMedia && com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.videoRec(); // v878
             fullBubbleDirty    = false;
             fullBubblePictureW = w;
             fullBubblePictureH = h;
@@ -8656,7 +8717,10 @@ public class MessageBubbleCanvasView extends View {
             if (!mediaPillRect.isEmpty()) reelShareRenderer.drawPill(canvas);
         }
         if (isMedia && mediaGated) {
+            mediaRenderer.drawMediaGateScrimLive(canvas);  // v877: scrim is live (not baked in the node)
             mediaRenderer.drawMediaGatePillLive(canvas);   // v853
+        } else if (isMedia && isVideoMedia) {
+            mediaRenderer.drawVideoPlayGlyphLive(canvas);  // v877: play glyph is live (hidden while gated)
         } else if (isFileBubble && fileIsDownloading) {
             fileBubbleRenderer.drawRingLive(canvas);       // v853
         }

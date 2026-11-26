@@ -305,6 +305,7 @@ public class MessagePagingAdapter
                     && safeEquals(a.thumbnailUrl, b.thumbnailUrl)
                     && intEquals(a.mediaWidth, b.mediaWidth)
                     && intEquals(a.mediaHeight, b.mediaHeight)
+                    && safeEquals(a.mediaUrl, b.mediaUrl)           // v877: upload finished -> FLAG_MEDIA_READY
                     && longEquals(a.timestamp, b.timestamp)
                     && boolEquals(a.edited, b.edited)
                     && boolEquals(a.deleted, b.deleted)             // view-once/delete tombstone flip
@@ -414,6 +415,7 @@ public class MessagePagingAdapter
                 if (!reactionsEqual(a.reactions, b.reactions))     flags |= FLAG_REACTIONS;
                 if (!pollVotesEqual(a.pollVotes, b.pollVotes))     flags |= FLAG_POLL;
                 if (!boolEquals(a.edited, b.edited))               flags |= FLAG_EDITED;
+                if (!safeEquals(a.mediaUrl, b.mediaUrl))           flags |= FLAG_MEDIA_READY;
 
                 // No recognized fast-path field actually changed (e.g. a
                 // field outside the DIFF's areContentsTheSame() 6-field set
@@ -483,6 +485,8 @@ public class MessagePagingAdapter
     static final int FLAG_REACTIONS  = 1 << 1;
     static final int FLAG_POLL       = 1 << 2;
     static final int FLAG_EDITED     = 1 << 3;
+    /** v877: a SENT media row got its mediaUrl (upload finished) — clear the upload gate only (live, no rebind). */
+    static final int FLAG_MEDIA_READY = 1 << 4;
 
     // Kept as Integer constants (not String) so existing call sites that pass
     // e.g. PAYLOAD_REACTIONS directly to notifyItemChanged(...) still compile
@@ -723,7 +727,10 @@ public class MessagePagingAdapter
         // reused while it can be referenced — so it is cached AS-IS: no main-thread
         // copy, no doubled memory, no recycle race.
         if (BubbleBitmapPipeline.isOwned(resource)) {
-            if (!resource.isRecycled()) cache.put(key, resource);
+            if (!resource.isRecycled()) {
+                try { resource.prepareToDraw(); } catch (Throwable ignored) { } // v878: pre-upload to GPU
+                cache.put(key, resource);
+            }
             return;
         }
         // v829: a HARDWARE bitmap can't be copied cheaply (GPU readback + re-upload on the main thread)
@@ -742,7 +749,10 @@ public class MessagePagingAdapter
             return;
         }
         android.graphics.Bitmap copy = safeCacheCopy(resource);
-        if (copy != null) cache.put(key, copy);
+        if (copy != null) {
+            try { copy.prepareToDraw(); } catch (Throwable ignored) { } // v878: pre-upload to GPU
+            cache.put(key, copy);
+        }
     }
 
     // Main image/video/reel media surfaces, including local-file and
@@ -820,6 +830,9 @@ public class MessagePagingAdapter
     // zero network cost) is intentionally NOT delayed — only the genuine
     // fetch-miss path below is.
     private static final long VIDEO_FRAME_LAZY_DELAY_MS = 220L;
+    /** v878: an inline poster is the FINAL in-bubble preview (the full frame is only needed in the viewer/player),
+     *  so skip the real-frame fetch + decode + swap (2nd record) when a poster is showing and the ratio is known. */
+    private static final boolean VIDEO_SKIP_REAL_FRAME_WHEN_POSTER = true;
     private static final android.os.Handler VIDEO_FRAME_LAZY_HANDLER =
             new android.os.Handler(android.os.Looper.getMainLooper());
 
@@ -854,6 +867,26 @@ public class MessagePagingAdapter
             if (result != null) cache.put(poolKey, result);
             B64_DECODE_MAIN_HANDLER.post(() -> cb.onDecoded(result));
         });
+    }
+
+    /**
+     * v877 — SENDER: put the local first frame (file://) into the media pool BEFORE the pending bubble is
+     * inserted, so the bubble's very first bind is a sync pool hit (real frame, final bitmap) and the
+     * canvas records ONCE (no lazy Glide load -> no second record). Call from a background thread.
+     */
+    public static void prewarmLocalVideoThumb(@Nullable String fileUri, @Nullable String filePath) {
+        if (fileUri == null || filePath == null) return;
+        try {
+            android.graphics.Bitmap existing = MEDIA_BITMAP_CACHE.get(fileUri);
+            if (existing != null && !existing.isRecycled()) return;
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inPreferredConfig = android.graphics.Bitmap.Config.RGB_565;
+            android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(filePath, o);
+            if (b != null) {
+                try { b.prepareToDraw(); } catch (Throwable ignored) { } // v878: GPU upload before first draw
+                MEDIA_BITMAP_CACHE.put(fileUri, b);
+            }
+        } catch (Throwable ignored) { /* best effort: bind falls back to the Glide path */ }
     }
 
     // ── DASHBOARD WIRING (Settings → Storage & Cache / CacheStatsActivity) ──
@@ -1075,6 +1108,8 @@ public class MessagePagingAdapter
     static final String PAYLOAD_PRESENCE = "presence";
     /** Payload for a live upload-percentage tick — see onMediaUploadProgress(). */
     static final String PAYLOAD_MEDIA_PROGRESS = "media_progress";
+    /** v878: a RECEIVED video's file turned out to be on device -> only clear its download gate (no full rebind). */
+    static final String PAYLOAD_VIDEO_LOCAL = "video_local";
     /** v603: a cell of a SENT media group changed upload state / percentage — refresh only its overlay. */
     static final String PAYLOAD_GROUP_UPLOAD = "group_upload";
     /**
@@ -1187,7 +1222,15 @@ public class MessagePagingAdapter
                     LOCAL_AVAIL_MAIN_HANDLER.post(() -> {
                         int position = findMessagePositionById(messageId);
                         if (position != RecyclerView.NO_POSITION) {
-                            notifyItemChanged(position);
+                            // v878: a received video only needs its gate cleared (poster/ratio are unchanged) ->
+                            // payload fast path instead of a full rebind + re-record.
+                            final Message pm = peek(position);
+                            if (pm != null && "video".equals(pm.type)
+                                    && (currentUid == null || !currentUid.equals(pm.senderId))) {
+                                notifyItemChanged(position, PAYLOAD_VIDEO_LOCAL);
+                            } else {
+                                notifyItemChanged(position);
+                            }
                         }
                     });
                 }
@@ -1315,9 +1358,15 @@ public class MessagePagingAdapter
         final String encKey = m.mediaKeyEnc;
         final String senderId = m.senderId;
         final String msgId = m.messageId != null ? m.messageId : m.id;
+        // v878: envelope already decrypted off-main by warmVideoBind() -> hand it back SYNCHRONOUSLY so the
+        // poster is set inside this bind pass (single record) instead of after an async ratchet hop.
+        final com.callx.app.utils.MediaE2ECrypto.KeyEnvelope cachedEnv =
+                com.callx.app.utils.VideoEnvelopeCache.peek(msgId);
+        if (cachedEnv != null) { cb.accept(cachedEnv); return; }
         com.callx.app.utils.E2eeDecryptExecutor.execute(senderId, () -> {
             com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
                     com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, encKey, senderId, msgId);
+            com.callx.app.utils.VideoEnvelopeCache.put(msgId, env);
             MEDIA_KEY_MAIN_HANDLER.post(() -> {
                 if (h.canvasBindToken != token) return;
                 cb.accept(env);
@@ -1331,6 +1380,18 @@ public class MessagePagingAdapter
     private void applyVideoInlineJpeg(String b64, VH h, int token,
             com.callx.app.conversation.canvas.MessageBubbleCanvasView cv, int[] state) {
         final String key = "vinl:" + b64.length() + ":" + b64.hashCode();
+        // v877: single-record bind — pre-warmed (mapper) or tiny sync decode: the poster is set INSIDE
+        // this bind pass, before the first draw, so the bubble records once with its final bitmap.
+        android.graphics.Bitmap pre = com.callx.app.utils.VideoPosterPrewarm.peek(b64);
+        if (pre == null) pre = MEDIA_BITMAP_CACHE.get(key);
+        if (pre == null || pre.isRecycled()) pre = com.callx.app.utils.VideoPosterPrewarm.decodeNowIfSmall(b64);
+        if (pre != null && !pre.isRecycled()) {
+            if (state[0] < 2) {
+                state[0] = 1;
+                cv.setMediaBitmap(pre, true);
+            }
+            return;
+        }
         decodeB64ThumbAsync(b64, key, MEDIA_BITMAP_CACHE, bmp -> {
             if (h.canvasBindToken != token || bmp == null || bmp.isRecycled()) return;
             if (state[0] >= 2) return;
@@ -3161,6 +3222,7 @@ public class MessagePagingAdapter
         sWarmAppContext = recyclerView.getContext().getApplicationContext();
         sWarmUid = currentUid;
         sWarmDecodeBudget.set(com.callx.app.utils.DeviceTier.isLowRamDevice(recyclerView.getContext()) ? 4 : 8);
+        sWarmVideoBudget.set(com.callx.app.utils.DeviceTier.isLowRamDevice(recyclerView.getContext()) ? 2 : 3); // v878
         attachMediaPreloader(recyclerView);
         GlobalVoicePlaybackManager.getInstance().addListener(globalPlaybackListener);
     }
@@ -3432,18 +3494,147 @@ public class MessagePagingAdapter
                     }
                 }
             }
-            // E2E rows keep their placeholder inside the encrypted envelope (resolved
-            // asynchronously at bind) — only plain hashes can be warmed here.
+            // v878: video rows also warm their poster / E2E envelope / real frame here (IO thread), so the
+            // first bind is sync and single-record. Safe no-op for anything already warm.
+            if (video && !Boolean.TRUE.equals(m.deleted)) {
+                warmVideoBind(ctx, m, true, true);
+            }
+            // E2E rows keep their placeholder inside the encrypted envelope — warmVideoBind() above
+            // decrypts it off-main for videos; here only plain hashes can be warmed.
             if (m.mediaKeyEnc == null && m.blurHash != null && !m.blurHash.isEmpty()) {
-                ThumbHashPlaceholder.get(m.blurHash, 32, 32);
+                final Bitmap th = ThumbHashPlaceholder.get(m.blurHash, 32, 32);
+                // v878: a ThumbHash that will actually be shown (no poster) -> pre-blur it for the slot size
+                // so the first draw is not followed by a 2nd record when the blur lands.
+                if (image || m.inlineThumbB64 == null || m.inlineThumbB64.isEmpty()) prewarmThumbBlur(ctx, m, th);
             }
         } catch (Throwable ignored) {
             // precompute must never affect the message list
         }
     }
 
+    // v878: per-chat-open budget for warming videos' real (https) frames. Posters/envelopes are tiny and
+    // unbudgeted; only the real-frame fetch for poster-less legacy rows is capped.
+    private static final java.util.concurrent.atomic.AtomicInteger sWarmVideoBudget =
+            new java.util.concurrent.atomic.AtomicInteger(3);
+
+    /**
+     * v878 — single-record video bind prep. Runs OFF the main thread (Paging load thread via
+     * warmMediaBindCaches, or look-ahead). Idempotent and best-effort:
+     *   1. poster in the row (plaintext / sender local mirror)  -> decode into VideoPosterPrewarm L1
+     *   2. E2E receiver (poster is inside the envelope)         -> ratchet-decrypt envelope now, cache it by
+     *      messageId, decode its poster + ThumbHash, so bind reads everything synchronously
+     *   3. poster-less plaintext row with a thumbnailUrl        -> warm the real frame (file:// decoded into
+     *      the pool; https preloaded into Glide's memory/disk cache), capped by sWarmVideoBudget
+     */
+    private static void warmVideoBind(final Context ctx, final Message m, final boolean useBudget,
+                                      final boolean allowFrame) {
+        try {
+            final String uid = sWarmUid;
+            final boolean own = uid != null && uid.equals(m.senderId);
+            final String msgId = m.messageId != null ? m.messageId : m.id;
+
+            // v878: gate state resolved BEFORE bind: local-file availability (so the first bind knows the
+            // answer instead of showing a gate and then doing a full rebind) + the positive cached-file memo.
+            if (!own) warmVideoGateState(ctx, m);
+
+            if (m.inlineThumbB64 != null && !m.inlineThumbB64.isEmpty()) {
+                com.callx.app.utils.VideoPosterPrewarm.warm(m.inlineThumbB64, m.blurHash);
+                return;
+            }
+            if (!own && m.mediaKeyEnc != null && msgId != null) {
+                if (com.callx.app.utils.VideoEnvelopeCache.peek(msgId) == null) {
+                    final String enc = m.mediaKeyEnc;
+                    final String sid = m.senderId;
+                    com.callx.app.utils.E2eeDecryptExecutor.execute(sid, () -> {
+                        try {
+                            if (com.callx.app.utils.VideoEnvelopeCache.peek(msgId) != null) return;
+                            com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                                    com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, enc, sid, msgId);
+                            if (env == null) return;
+                            com.callx.app.utils.VideoEnvelopeCache.put(msgId, env);
+                            com.callx.app.utils.VideoPosterPrewarm.warm(env.inlineJpegB64, env.blurHash);
+                            if ((env.inlineJpegB64 == null || env.inlineJpegB64.isEmpty())
+                                    && env.blurHash != null && !env.blurHash.isEmpty()) {
+                                prewarmThumbBlur(ctx, m,
+                                        ThumbHashPlaceholder.get(env.blurHash, 32, 32));
+                            }
+                        } catch (Throwable ignored) { /* bind falls back to its own async resolve */ }
+                    });
+                }
+                return;
+            }
+            final String turl = m.thumbnailUrl;
+            if (!allowFrame || own || turl == null || turl.isEmpty() || m.mediaKeyEnc != null) return;
+            if (MEDIA_BITMAP_CACHE.get(turl) != null) return;
+            if (useBudget && sWarmVideoBudget.getAndDecrement() <= 0) return;
+            final int tw = thumbPx(ctx);
+            BubbleBitmapPipeline.runPreload(turl, () -> {
+                if (MEDIA_BITMAP_CACHE.get(turl) != null) return;
+                if (turl.startsWith("file://")) {
+                    final android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                    o.inPreferredConfig = android.graphics.Bitmap.Config.RGB_565;
+                    final Bitmap b = android.graphics.BitmapFactory.decodeFile(turl.substring(7), o);
+                    if (b == null) return;
+                    try { b.prepareToDraw(); } catch (Throwable ignored) { } // v878: GPU upload off the draw path
+                    BubbleBitmapPipeline.postMain(() -> {
+                        final Bitmap existing = MEDIA_BITMAP_CACHE.get(turl);
+                        if (existing != null && !existing.isRecycled()) return;
+                        MEDIA_BITMAP_CACHE.put(turl, b);
+                    });
+                } else {
+                    // https: warm Glide's memory + disk cache with the exact bind-time request shape, so the
+                    // bind's Glide load resolves from memory instead of the network.
+                    BubbleBitmapPipeline.postMain(() -> {
+                        try {
+                            // same options as the bind request (incl. software bitmaps) so the memory-cache key matches
+                            com.bumptech.glide.Glide.with(ctx).asBitmap().load(turl)
+                                    .apply(THUMB_RGB565).set(Downsampler.ALLOW_HARDWARE_CONFIG, false)
+                                    .override(tw, tw).preload(tw, tw);
+                        } catch (Throwable ignored) { }
+                    });
+                }
+            });
+        } catch (Throwable ignored) {
+            // warm-up must never affect the message list
+        }
+    }
+
+    /** v878: resolve local-file availability + cached-file memo off the main thread (never blocks a bind). */
+    private static void warmVideoGateState(final Context ctx, final Message m) {
+        final Runnable r = () -> {
+            try {
+                final String lp = m.mediaLocalPath;
+                if (lp != null && !lp.isEmpty() && LOCAL_AVAIL_CACHE.get(lp) == null) {
+                    LOCAL_AVAIL_CACHE.put(lp, com.callx.app.utils.LocalMediaAvailability.isAvailable(ctx, lp));
+                }
+                final String vu = m.mediaUrl != null ? m.mediaUrl : m.text;
+                if (vu != null && !vu.isEmpty()) getCachedFileFast(ctx, vu); // fills the positive memo
+            } catch (Throwable ignored) { }
+        };
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) LOCAL_AVAIL_EXECUTOR.execute(r);
+        else r.run();
+    }
+
+    /** v878: pre-compute the adaptive blur of a ThumbHash placeholder for this message's slot (off-main). */
+    private static void prewarmThumbBlur(final Context ctx, final Message m, @Nullable final Bitmap th) {
+        try {
+            if (th == null || th.isRecycled()) return;
+            final float ratio = (m.mediaAspectRatio != null && m.mediaAspectRatio > 0f)
+                    ? m.mediaAspectRatio
+                    : (m.mediaWidth != null && m.mediaHeight != null && m.mediaWidth > 0 && m.mediaHeight > 0)
+                    ? (float) m.mediaWidth / m.mediaHeight : 0f;
+            final android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .prewarmPlaceholderBlur(th, ratio, Math.round(dm.widthPixels * 0.70f), dm.density);
+        } catch (Throwable ignored) { }
+    }
+
     // ── Look-ahead decode: warm MEDIA_BITMAP_CACHE for the next few images ──
     private static final int MEDIA_PRELOAD_AHEAD = 6;
+    // v878: videos get a smaller, cheaper look-ahead of their own (poster / envelope decode is tiny, the real
+    // frame is the expensive part and is skipped entirely while a fling is settling).
+    private static final int VIDEO_PRELOAD_AHEAD = 3;
+    private static final int VIDEO_PRELOAD_AHEAD_LOW_RAM = 1;
     private static final int MEDIA_PRELOAD_AHEAD_LOW_RAM = 3;
     private static final long MEDIA_PRELOAD_MIN_INTERVAL_MS = 80L;
     private RecyclerView.OnScrollListener mediaPreloadListener;
@@ -3501,10 +3692,22 @@ public class MessagePagingAdapter
                 ? MEDIA_PRELOAD_AHEAD_LOW_RAM : MEDIA_PRELOAD_AHEAD;
         // dy > 0 moves toward the layout END; with reverseLayout (chat) that is DEcreasing positions.
         final boolean towardHigher = (dy > 0) != llm.getReverseLayout();
+        final boolean fling = rv.getScrollState() == RecyclerView.SCROLL_STATE_SETTLING;
+        final int vidAhead = com.callx.app.utils.DeviceTier.isLowRamDevice(ctx)
+                ? VIDEO_PRELOAD_AHEAD_LOW_RAM : VIDEO_PRELOAD_AHEAD;
+        int videoWarmed = 0;
         for (int i = 1; i <= ahead; i++) {
             final int pos = towardHigher ? last + i : first - i;
             if (pos < 0 || pos >= count) break;
             final Message m = peek(pos); // peek(): never triggers a Paging load hint
+            if (m != null && "video".equals(m.type) && !Boolean.TRUE.equals(m.deleted)) {
+                if (videoWarmed < vidAhead) {
+                    videoWarmed++;
+                    // poster / E2E envelope are tiny; the real frame is skipped while a fling is settling
+                    warmVideoBind(ctx, m, false, !fling);
+                }
+                continue;
+            }
             if (m == null || !"image".equals(m.type) || Boolean.TRUE.equals(m.deleted)) continue;
             if (currentUid != null && currentUid.equals(m.senderId)) continue; // sent rows use local/remote paths
             final String url = m.mediaUrl != null ? m.mediaUrl : m.text;
@@ -4155,7 +4358,15 @@ public class MessagePagingAdapter
                 if ((flags & FLAG_EDITED) != 0) {
                     bindEditedOnly(h, m);
                 }
+                if ((flags & FLAG_MEDIA_READY) != 0) {
+                    bindMediaReadyOnly(h, m);
+                }
             }
+            return;
+        }
+        if (!payloads.isEmpty() && PAYLOAD_VIDEO_LOCAL.equals(payloads.get(0))) {
+            // v878: file is on device -> live gate clear only (no Glide, no re-bind).
+            if (h.canvasView != null) h.canvasView.clearMediaDownloadGate();
             return;
         }
         if (!payloads.isEmpty() && PAYLOAD_PRESENCE.equals(payloads.get(0))) {
@@ -7039,16 +7250,27 @@ public class MessagePagingAdapter
             // shown. ThumbHash and the poster never override a higher state.
             final int[] vThumbState = {0};
             final String vInlineLocal = m.inlineThumbB64;
-            if (vInlineLocal != null && !vInlineLocal.isEmpty()) {
+            // v878: the decoded real frame is already pooled (sender local first frame / scroll-back) -> it is
+            // set synchronously below as the final bitmap; don't decode a poster / ThumbHash / envelope first.
+            final android.graphics.Bitmap vPoolReady0 = vThumbUrl != null ? MEDIA_BITMAP_CACHE.get(vThumbUrl) : null;
+            final boolean vPoolReady = vPoolReady0 != null && !vPoolReady0.isRecycled();
+            if (!vPoolReady && vInlineLocal != null && !vInlineLocal.isEmpty()) {
                 applyVideoInlineJpeg(vInlineLocal, h, myToken, cv, vThumbState);
             }
-            if (vBlurHash != null && !vBlurHash.isEmpty()) {
-                ThumbHashPlaceholder.getAsync(vBlurHash, 32, 32, vBlurhashBmp -> {
-                    if (h.canvasBindToken != myToken) return;
-                    if (vThumbState[0] >= 1) return;
-                    // isLowResPlaceholder=true — same adaptive-blur reasoning as the image block above.
-                    if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
-                });
+            if (vPoolReady) {
+                // final bitmap is applied in the pool-hit block below
+            } else if (vBlurHash != null && !vBlurHash.isEmpty()) {
+                // v877: a poster in hand (state 1/2 after the sync apply above) is the final preview — never
+                // show ThumbHash first and swap it (that was a 2nd full record). ThumbHash is only the
+                // placeholder when there is no poster yet.
+                if (vThumbState[0] == 0) {
+                    ThumbHashPlaceholder.getAsync(vBlurHash, 32, 32, vBlurhashBmp -> {
+                        if (h.canvasBindToken != myToken) return;
+                        if (vThumbState[0] >= 1) return;
+                        // isLowResPlaceholder=true — same adaptive-blur reasoning as the image block above.
+                        if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
+                    });
+                }
             } else if (!sent && m.mediaKeyEnc != null) {
                 resolveVideoEnvelopeAsync(ctx, m, sent, h, myToken, vEnv -> {
                     if (vEnv == null) return;
@@ -7056,6 +7278,7 @@ public class MessagePagingAdapter
                         applyVideoInlineJpeg(vEnv.inlineJpegB64, h, myToken, cv, vThumbState);
                     }
                     final String decryptedHash = vEnv.blurHash;
+                    if (vThumbState[0] >= 1) return; // v878: poster in hand -> ThumbHash is never shown first
                     if (decryptedHash == null || decryptedHash.isEmpty()) return;
                     ThumbHashPlaceholder.getAsync(decryptedHash, 32, 32, vBlurhashBmp -> {
                         if (h.canvasBindToken != myToken) return;
@@ -7092,8 +7315,12 @@ public class MessagePagingAdapter
                 // a rebind/recycle in the meantime just skips this fetch,
                 // exactly like every other h.canvasBindToken guard below.
                 final long lazyBindToken = myToken;
+                // v878: poster showing + ratio known -> the poster IS the preview; no real-frame fetch/swap.
+                final boolean vSkipRealFrame = VIDEO_SKIP_REAL_FRAME_WHEN_POSTER && vKnownRatio > 0f;
+                if (!(vSkipRealFrame && vThumbState[0] == 1))
                 VIDEO_FRAME_LAZY_HANDLER.postDelayed(() -> {
                 if (h.canvasBindToken != lazyBindToken) return;
+                if (vSkipRealFrame && vThumbState[0] == 1) return; // poster landed during the lazy beat
                 // v375: thumb-key decrypt moved off the main thread (see
                 // resolveThumbMediaKeyAsync's javadoc) AND moved to only
                 // happen on this pool-MISS path — previously it ran
@@ -7136,6 +7363,9 @@ public class MessagePagingAdapter
                 glide(ctx).asBitmap()
                         .load(vThumbUrl)
                         .apply(THUMB_RGB565)
+                        // v878: software bitmap -> putBitmapSafely can pool it (a HARDWARE one is skipped, so a
+                        // scroll-back fell through to Glide instead of a sync pool hit).
+                        .set(Downsampler.ALLOW_HARDWARE_CONFIG, false)
                         .thumbnail(0.1f)
                         .override(thumbPx(ctx), thumbPx(ctx))
                         .into(h.prepareBitmapTarget(glide(ctx), TARGET_CANVAS_PRIMARY,
@@ -7199,9 +7429,14 @@ public class MessagePagingAdapter
                                     new com.callx.app.utils.MediaCache.SizeCallback() {
                                 @Override public void onSize(long bytes) {
                                     if (h.canvasBindToken != myToken) return;
-                                    if (!downloadingMediaUrls.contains(capturedVUrlSize))
-                                        cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
-                                                sizeOrKind(ctx, bytes, R.string.media_kind_video));
+                                    if (!downloadingMediaUrls.contains(capturedVUrlSize)) {
+                                        final String sizeLbl = sizeOrKind(ctx, bytes, R.string.media_kind_video);
+                                        // v877: label is drawn live -> rect redraw, not a re-record. Falls back
+                                        // to the full gate call only if the gate is no longer the plain idle pill.
+                                        if (!cv.setMediaDownloadIdleLabel(sizeLbl)) {
+                                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, sizeLbl);
+                                        }
+                                    }
                                 }
                                 @Override public void onError(String reason) {}
                             });
@@ -10791,6 +11026,19 @@ public class MessagePagingAdapter
      * an invalidate (no measure).  Legacy path: appends/strips the suffix on
      * tv_time.
      */
+    /**
+     * v877: upload of a SENT image/video finished (mediaUrl appeared). The only visible change is the
+     * upload gate going away — a live-layer update on a captionless bubble (no cached-node re-record),
+     * instead of a full rebind. Idempotent: clearMediaDownloadGate() returns early when already clear.
+     */
+    private void bindMediaReadyOnly(@NonNull VH h, @NonNull Message m) {
+        if (h.canvasView == null) return;
+        if (currentUid == null || !currentUid.equals(m.senderId)) return;
+        if (m.mediaUrl == null || m.mediaUrl.isEmpty() || "failed".equals(m.status)) return;
+        if (!"video".equals(m.type) && !"image".equals(m.type)) return;
+        h.canvasView.clearMediaDownloadGate();
+    }
+
     private void bindEditedOnly(@NonNull VH h, @NonNull Message m) {
         boolean isEdited = Boolean.TRUE.equals(m.edited);
         if (h.canvasView != null) {

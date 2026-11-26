@@ -2067,17 +2067,30 @@ public class ChatMediaController {
             android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
             int[] vb = new int[]{0, 0};
             String thumb = null;
+            long durMs = 0L;
             try {
                 openRetriever(mmr, uri);
                 vb = VideoCompressor.displayBoundsOf(mmr);
                 thumb = extractVideoThumbFrom(mmr, vb);
+                // v877: duration known BEFORE the bubble is inserted -> the duration badge is part of the
+                // first (and only) record instead of appearing after upload.
+                try {
+                    String d = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+                    if (d != null) durMs = Long.parseLong(d.trim());
+                } catch (Exception ignoredDur) { durMs = 0L; }
             } catch (Exception e) {
                 android.util.Log.w("ChatMediaController", "video open/thumb failed", e);
             } finally {
                 try { mmr.release(); } catch (Exception ignored) {}
             }
             final int[] fvb = vb;
+            final long fDurMs = durMs;
             final String thumbFileUri = thumb != null ? "file://" + thumb : null;
+            // v877: decode the local first frame into the media pool NOW (background) so the pending
+            // bubble's first bind is a sync pool hit with the final bitmap -> exactly one record.
+            if (thumb != null) {
+                com.callx.app.conversation.MessagePagingAdapter.prewarmLocalVideoThumb(thumbFileUri, thumb);
+            }
 
             activity.runOnUiThread(() -> {
                 main.removeCallbacks(insertNow);
@@ -2090,6 +2103,9 @@ public class ChatMediaController {
                     }
                     if (thumbFileUri != null && pending.thumbnailUrl == null) {
                         pending.thumbnailUrl = thumbFileUri;
+                    }
+                    if (fDurMs > 0L && (pending.duration == null || pending.duration <= 0L)) {
+                        pending.duration = fDurMs;
                     }
                     insertNow.run();
                 } else if (insertOk[0]) {
@@ -2344,8 +2360,19 @@ public class ChatMediaController {
                         // v873: thumbUrl is null when the inline poster is used —
                         // keep the sender's local first-frame (file://) in that case
                         // (stripped from the wire by VideoInlineThumb#stripForWire).
-                        if (thumbUrl != null) pending.thumbnailUrl = thumbUrl;
-                        pending.duration     = (long) durationMs;
+                        if (thumbUrl != null) {
+                            // v877: keep the sender's local first frame in thumbnailUrl (file:// -> https flip =
+                            // full rebind + extra record). The https url rides in thumbnailUrlRemote and is
+                            // swapped in for the wire by VideoInlineThumb#stripForWire.
+                            if (pending.thumbnailUrl != null && pending.thumbnailUrl.startsWith("file://")) {
+                                pending.thumbnailUrlRemote = thumbUrl;
+                            } else {
+                                pending.thumbnailUrl = thumbUrl;
+                            }
+                        }
+                        if (pending.duration == null || pending.duration <= 0L) {
+                            pending.duration = (long) durationMs;
+                        }
                         // v874: compressor w/h are RAW (rotation not applied) -> a camera portrait clip
                         // would flip to landscape. Keep the display-correct dims read up front; use the
                         // compressor's only if we never got any.

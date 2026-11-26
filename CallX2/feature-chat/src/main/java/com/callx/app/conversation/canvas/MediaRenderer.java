@@ -310,7 +310,8 @@ final class MediaRenderer {
             // — and, for a sent message still uploading/failed, the pending
             // clock — never disappears. The caption row + footer stay hidden
             // while gated, exactly as before.
-            drawMediaGateScrim(canvas); // v853: the pill (bg/ring/%/label) is live — drawMediaGatePillLive()
+            // v877: the scrim is live too (drawMediaGateScrimLive from the overlay layer) so gate
+            // transitions on a captionless bubble never dirty the cached node.
             if (host.mediaHasCaption && host.textLayout != null) return;
         }
 
@@ -392,10 +393,19 @@ final class MediaRenderer {
         return cachedDurationTextWidth;
     }
 
-    private void drawVideoPlayOverlay(Canvas canvas) {
-        // v874: while gated (compressing / uploading / download pill) the centre belongs to that
-        // pill; the play glyph under it looked like an overlap. Duration badge below stays.
-        if (!host.mediaGated) {
+    /** v877: scrim over the media slot while gated — live layer (was baked into the cached node). */
+    void drawMediaGateScrimLive(Canvas canvas) {
+        drawMediaGateScrim(canvas);
+    }
+
+    /** v877: play glyph is live (hidden while gated) so a gate transition needs no re-record. */
+    void drawVideoPlayGlyphLive(Canvas canvas) {
+        if (host.mediaGated || host.mediaRect.isEmpty()) return;
+        drawVideoPlayGlyph(canvas);
+    }
+
+    private void drawVideoPlayGlyph(Canvas canvas) {
+        {
             float cx = host.mediaRect.centerX(), cy = host.mediaRect.centerY();
             float circleR = (MessageBubbleCanvasView.SINGLE_VIDEO_PLAY_CIRCLE_DP * host.density) / 2f;
             canvas.drawCircle(cx, cy, circleR, host.groupPlayCirclePaint);
@@ -412,7 +422,11 @@ final class MediaRenderer {
             host.groupPlayTrianglePath.close();
             canvas.drawPath(host.groupPlayTrianglePath, host.groupPlayTrianglePaint);
         }
+    }
 
+    private void drawVideoPlayOverlay(Canvas canvas) {
+        // v877: the play glyph is drawn live (drawVideoPlayGlyphLive); only the duration badge is
+        // part of the cached node. (v874: glyph hidden while gated — still true, now live.)
         if (host.videoDuration != null && !host.videoDuration.isEmpty()) {
             float durPadH = 6 * host.density, durPadV = 3 * host.density;
             float textW = measureDurationText(host.videoDuration, host.groupDurationTextPaint);
@@ -788,6 +802,44 @@ final class MediaRenderer {
             });
     private static final android.os.Handler PLACEHOLDER_BLUR_MAIN =
             new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /**
+     * v878: warm PLACEHOLDER_BLUR_CACHE for a placeholder that is about to be shown in a slot of the given
+     * size, from ANY thread. Same key / compute path as {@link #resolvePlaceholderShaderSource}, so the first
+     * draw hits the cache and there is no second record when a blur lands. A size mismatch just misses.
+     */
+    static void prewarmPlaceholderBlur(final android.graphics.Bitmap src, float slotWpx, float slotHpx, float density) {
+        if (src == null || src.isRecycled()) return;
+        final int w = src.getWidth(), h = src.getHeight();
+        if (w <= 0 || h <= 0) return;
+        final int radius = adaptiveBlurRadiusFor(slotWpx, slotHpx, Math.max(w, h));
+        if (radius <= PLACEHOLDER_MIN_BLUR_RADIUS) return;
+        final boolean useNative = Math.max(slotWpx, slotHpx) >= NATIVE_BLUR_MIN_BUBBLE_DP * density
+                && com.callx.app.utils.NativeBlur.isSupported();
+        final PlaceholderBlurKey key = new PlaceholderBlurKey(src, radius, useNative);
+        if (PLACEHOLDER_BLUR_CACHE.get(key) != null) return;
+        PLACEHOLDER_BLUR_MAIN.post(new Runnable() {
+            @Override public void run() {
+                // WAITERS is main-thread-only
+                if (PLACEHOLDER_BLUR_CACHE.get(key) != null || PLACEHOLDER_BLUR_WAITERS.containsKey(key)) return;
+                PLACEHOLDER_BLUR_WAITERS.put(key, new java.util.ArrayList<Runnable>(1));
+                PLACEHOLDER_BLUR_EXEC.execute(new Runnable() {
+                    @Override public void run() {
+                        android.graphics.Bitmap result = null;
+                        try { result = computePlaceholderBlur(src, radius, useNative); } catch (Throwable ignored) {}
+                        final android.graphics.Bitmap toCache = result != null ? result : src;
+                        PLACEHOLDER_BLUR_MAIN.post(new Runnable() {
+                            @Override public void run() {
+                                PLACEHOLDER_BLUR_CACHE.put(key, toCache);
+                                java.util.ArrayList<Runnable> done = PLACEHOLDER_BLUR_WAITERS.remove(key);
+                                if (done != null) for (Runnable r : done) r.run();
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
 
     /**
      * Main thread (called from draw()). Returns the blurred placeholder if it is cached;

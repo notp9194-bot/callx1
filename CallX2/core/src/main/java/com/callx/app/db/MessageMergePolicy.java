@@ -59,6 +59,14 @@ public final class MessageMergePolicy {
                 && local.thumbnailUrl != null && local.thumbnailUrl.startsWith("file://")) {
             incoming.thumbnailUrl = local.thumbnailUrl;
         }
+        // v877: legacy thumb upload echo carries the https url; keep the sender's local first frame so the
+        // bubble's thumbnailUrl never flips file:// -> https (flip = full rebind + extra canvas record).
+        if (!Boolean.TRUE.equals(incoming.deleted) && notEmpty(incoming.thumbnailUrl)
+                && !incoming.thumbnailUrl.startsWith("file://")
+                && local.thumbnailUrl != null && local.thumbnailUrl.startsWith("file://")
+                && new java.io.File(local.thumbnailUrl.substring(7)).exists()) {
+            incoming.thumbnailUrl = local.thumbnailUrl;
+        }
         // Keep the encrypted wire copy until the durable send is acknowledged.
         if (notEmpty(local.wireText) && isEmpty(incoming.wireText)) {
             incoming.wireText = local.wireText;

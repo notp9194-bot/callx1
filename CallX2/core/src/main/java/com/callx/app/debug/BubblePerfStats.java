@@ -28,6 +28,13 @@ public final class BubblePerfStats {
 
     public static void rec(long ns)     { recN++;  recNs  += ns; if (ns > recMax)  recMax  = ns; }
     public static void hit()            { hitN++; }
+
+    // v878: records per single-video bubble (target = 1.0). videoBind = bindVideo() calls (a recycled row
+    // that rebinds counts again), videoRec = Bubble.record passes of a video bubble.
+    private static long vidBindN, vidRecN, vidPreN;
+    public static void videoPre()  { vidPreN++; }
+    public static void videoBind() { vidBindN++; }
+    public static void videoRec()  { vidRecN++; }
     public static void pre(long ns)     { preN++;  preNs  += ns; }
     public static void measure(long ns) { measN++; measNs += ns; if (ns > measMax) measMax = ns; }
     public static void bind(long ns)    { bindN++; bindNs += ns; if (ns > bindMax) bindMax = ns; }
@@ -133,6 +140,7 @@ public final class BubblePerfStats {
         typeStat.clear();
         bmHw = bmSw = bmPh = bmSwBytes = bmSwMax = 0;
         mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
+        vidBindN = vidRecN = vidPreN = 0;
         startMs = System.currentTimeMillis();
         synchronized (FL) {
             frameN = 0; fTotal = fLayout = fDraw = fSync = 0; over1 = over2 = 0;
@@ -236,6 +244,9 @@ public final class BubblePerfStats {
           .append(" run=").append(pRun).append(" staleSkip=").append(pStale).append(" earlySkip=").append(pEarly)
           .append(" alreadyCached=").append(pCached).append(" err=").append(pErr)
           .append(" fallbackDrain=").append(pDrainFallback).append("\n");
+        sb.append("video bubbles: binds=").append(vidBindN).append(" records=").append(vidRecN)
+          .append(" records/bind=").append(vidBindN == 0 ? "-" : String.format(Locale.US, "%.2f", (double) vidRecN / vidBindN))
+          .append("  (target 1.00)  preRecorded video=").append(vidPreN).append("\n");
         sb.append("invalidate() on CLEAN bubble=").append(dirtiedClean).append(" (top callers):\n");
         {
             java.util.ArrayList<java.util.Map.Entry<String, int[]>> es = new java.util.ArrayList<>(dirtiers.entrySet());
