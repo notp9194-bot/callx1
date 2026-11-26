@@ -35,11 +35,11 @@
     <!-- Video call button -->
     <ImageView
         android:id="@+id/btn_video_call"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:src="@drawable/ic_video_call"
         android:tint="@color/text_secondary"
-        android:padding="8dp"
+        android:padding="12dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="true"
@@ -49,11 +49,11 @@
     <!-- Voice call button -->
     <ImageView
         android:id="@+id/btn_voice_call"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:src="@drawable/ic_phone"
         android:tint="@color/text_secondary"
-        android:padding="8dp"
+        android:padding="12dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="true"

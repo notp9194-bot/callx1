@@ -55,8 +55,8 @@
 
         <ImageButton
             android:id="@+id/btn_remix_back"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="4dp"
             android:src="@drawable/ic_arrow_back"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -90,8 +90,8 @@
         <!-- Mute original audio button (v2) -->
         <ImageButton
             android:id="@+id/btn_remix_mute_original"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="4dp"
             android:src="@drawable/ic_volume_on"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -101,8 +101,8 @@
         <!-- Flip camera -->
         <ImageButton
             android:id="@+id/btn_remix_flip"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="4dp"
             android:src="@drawable/ic_swap"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"

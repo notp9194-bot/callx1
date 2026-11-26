@@ -17,8 +17,8 @@
         android:elevation="2dp">
         <ImageButton
             android:id="@+id/btn_hub_back"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_arrow_back"
             android:tint="#000000"
@@ -78,8 +78,8 @@
 
             <ImageButton
                 android:id="@+id/btn_hub_search_clear"
-                android:layout_width="16dp"
-                android:layout_height="16dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp" android:padding="16dp"
                 android:background="@null"
                 android:src="@drawable/ic_close"
                 android:tint="#8A8A8E"

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- TouchTargets: per-parent composite TouchDelegate stored in a view tag -->
+    <item name="touch_targets_group" type="id"/>
     <!-- v650: sticker snap-guide chrome keeps its shown/degree state in view tags (no re-animating every MOVE) -->
     <item name="callx_chrome_shown" type="id"/>
     <item name="callx_chrome_deg"   type="id"/>

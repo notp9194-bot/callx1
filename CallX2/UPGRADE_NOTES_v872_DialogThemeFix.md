@@ -62,3 +62,24 @@ Yeh sheets un screens pe khulti hain jo khud hamesha dark hain; light sheet daal
 ## D. Test checklist (device pe)
 
 Light + Dark dono me ek baar kholo: View-once, Chat security, Encryption details, Export chat, Pairing approval, Channel info, Reaction picker, Chat display mode, Chat customization, Chat payment, Reel likes/shares/collaborators (naam dikhna chahiye), Collab request dialog, Status video-trim sheet, Highlight ring/Rainbow picker, Add-to-highlight, Status analytics, Own template picker.
+
+---
+## v874 — Chat touch targets (48dp)
+Header back (30→48), voice/video/more (40→48), Reel/X/YouTube badges (visual 30dp, touch 48dp via `bg_social_*_btn_touch` inset drawables), search prev/next/close, link-preview cancel, reply cancel, recording-bar play/loop/reset-trim → 48dp. Icon sizes unchanged (padding adjusted).
+Not changed yet: `btn_view_once` (inside input pill), 40dp buttons (selection toolbar, sheet close, send), message-row buttons (download/unpin/audio), community/group member options.
+
+---
+## v875 — Status/Channel touch targets (48dp)
+Status viewer close/more, status tab archive/scheduled/templates/search-clear, story reshare back, channel post forward/react/overflow (all 8 item layouts), reply delete, suggested dismiss, unpin, clear quote, composer remove doc/link/media, new-status discard → 48dp. Icon sizes unchanged; filled-background buttons use inset drawables (`circle_avatar_bg_touch`, `bg_scrim_80_touch`).
+Not changed: 40dp composer buttons (channel viewer attach/camera/emoji/mic, post composer audio), poll option remove.
+
+---
+## v876 — Reels touch targets (48dp)
+- ~182 isolated buttons (all `*_back` 40dp, comment/search/clear/remove/delete/dismiss/preview buttons, home header, music/sound/trending rows, etc.) → 48dp in XML; icon size kept via padding; filled-bg buttons use auto-generated inset drawables (`<bg>_t<N>.xml`).
+- Dense stacks keep their layout and get a 48dp **touch area** via new `core/utils/TouchTargets` (composite TouchDelegate, recomputed on layout): reel player action column, home-feed + photo-feed card action rows, duet camera tools.
+- Not changed: `bottom_sheet_sound_detail.btn_play_pause`, `item_multi_duet_slot.btn_slot_remove`, `item_timeline_clip.btn_clip_delete` (visible coloured bg, odd shape), `activity_music_picker` tab buttons (match-width), `activity_reel_photo_editor` 44dp toolbar buttons (TextViews).
+
+---
+## v877 — Calls touch targets (48dp)
+Call screens' main controls were already ≥48dp. Fixed the rest: call-history row call-back (40→48), incoming-call "reject with voice/video note" (46→48, visible chip bg kept via `bg_quick_reply_chip_t1`), call-history sheet close (36) + quick-call (36), contact-call row voice/video icons (40), calls-tab selection bar text actions + incoming-call quick-reply chips (`minHeight/minWidth 48dp`).
+Not changed: calls-tab filter chips (34dp tall TextViews in a scroll row — changing height alters the look), tiny non-clickable status icons.

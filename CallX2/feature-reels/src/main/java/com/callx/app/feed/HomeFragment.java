@@ -10547,6 +10547,7 @@ public class HomeFragment extends Fragment
                 case ROW_POST: {
                     View v = LayoutInflater.from(parent.getContext())
                         .inflate(R.layout.item_home_feed_post, parent, false);
+                    com.callx.app.utils.TouchTargets.expand(v, R.id.btn_post_audio_cover, R.id.btn_post_collab_icon, R.id.btn_post_comment, R.id.btn_post_like, R.id.btn_post_more, R.id.btn_post_mute, R.id.btn_post_repost, R.id.btn_post_save, R.id.btn_post_send);
                     PostRowHolder prh = new PostRowHolder(v);
                     // ★ Cache all 28 child-view references ONCE here, at
                     // inflate time — not on every bind. See PostRowHolder doc.

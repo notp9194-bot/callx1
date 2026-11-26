@@ -84,12 +84,12 @@
     <!-- Close button top-right -->
     <ImageButton
         android:id="@+id/btn_vr_close"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp" android:padding="2dp"
         android:layout_gravity="top|end"
         android:layout_margin="12dp"
         android:src="@drawable/ic_close"
-        android:background="@drawable/bg_icon_semi"/>
+        android:background="@drawable/bg_icon_semi_t2"/>
 
     <!-- Bottom controls -->
     <LinearLayout

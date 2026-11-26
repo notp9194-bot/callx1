@@ -15,8 +15,8 @@
         android:background="#F7F6FC">
         <ImageButton
             android:id="@+id/btn_monetization_back"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"/>

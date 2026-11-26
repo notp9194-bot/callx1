@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- circle_avatar_bg look at 36dp visual inside a 48dp touch target. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/circle_avatar_bg"
+    android:inset="6dp"/>

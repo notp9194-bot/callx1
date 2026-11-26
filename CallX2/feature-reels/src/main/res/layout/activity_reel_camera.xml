@@ -43,8 +43,8 @@
 
         <ImageButton
             android:id="@+id/btn_close_camera"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white"
@@ -54,8 +54,8 @@
 
         <ImageButton
             android:id="@+id/btn_flash"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_volume_on"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white"
@@ -64,8 +64,8 @@
 
         <ImageButton
             android:id="@+id/btn_flip_camera"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_camera"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white"
@@ -125,7 +125,7 @@
         android:paddingEnd="10dp">
 
         <ImageButton android:id="@+id/btn_camera_effects"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_sparkle"
             android:tint="#FFD700"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -136,7 +136,7 @@
             android:layout_marginBottom="10dp"/>
 
         <ImageButton android:id="@+id/btn_camera_filters"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_filter"
             android:tint="#A855F7"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -147,7 +147,7 @@
             android:layout_marginBottom="10dp"/>
 
         <ImageButton android:id="@+id/btn_camera_text"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_emoji"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -158,7 +158,7 @@
             android:layout_marginBottom="10dp"/>
 
         <ImageButton android:id="@+id/btn_camera_stickers"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_emoji"
             android:tint="#FFD60A"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -169,7 +169,7 @@
             android:layout_marginBottom="10dp"/>
 
         <ImageButton android:id="@+id/btn_camera_speed"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_speed"
             android:tint="#FFD700"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -180,7 +180,7 @@
             android:layout_marginBottom="10dp"/>
 
         <ImageButton android:id="@+id/btn_camera_music"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_music"
             android:tint="#00E5FF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -191,7 +191,7 @@
             android:layout_marginBottom="10dp"/>
 
         <ImageButton android:id="@+id/btn_camera_multiclip"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_gallery"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/white"
@@ -202,7 +202,7 @@
             android:layout_marginBottom="10dp"/>
 
         <ImageButton android:id="@+id/btn_camera_drafts"
-            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_width="48dp" android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_bookmark"
             android:tint="#00C6FF"
             android:background="?attr/selectableItemBackgroundBorderless"

@@ -120,8 +120,8 @@
     <!-- Save/bookmark -->
     <ImageButton
         android:id="@+id/btn_music_save"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp" android:padding="6dp"
         android:src="@drawable/ic_bookmark"
             android:tint="#00C6FF"
         android:background="?attr/selectableItemBackgroundBorderless"
@@ -131,8 +131,8 @@
     <!-- Preview button -->
     <ImageButton
         android:id="@+id/btn_music_preview"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp" android:padding="4dp"
         android:src="@drawable/ic_play"
             android:tint="#A855F7"
         android:background="?attr/selectableItemBackgroundBorderless"

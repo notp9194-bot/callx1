@@ -70,8 +70,8 @@
 
             <ImageButton
                 android:id="@+id/btn_subtitle_delete"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp" android:padding="8dp"
                 android:src="@drawable/ic_close"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Delete"/>

@@ -17,8 +17,8 @@
 
         <ImageButton
             android:id="@+id/btn_remix_back"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_back"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"/>
@@ -83,8 +83,8 @@
 
                     <ImageButton
                         android:id="@+id/btn_preview_a"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp" android:padding="6dp"
                         android:src="@drawable/ic_play"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Preview Sound A"/>
@@ -147,8 +147,8 @@
 
                     <ImageButton
                         android:id="@+id/btn_preview_b"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp" android:padding="6dp"
                         android:src="@drawable/ic_play"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Preview Sound B"/>

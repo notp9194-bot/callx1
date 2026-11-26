@@ -82,8 +82,9 @@
     <!-- Dismiss button (X) -->
     <ImageButton
         android:id="@+id/btn_channel_dismiss"
-        android:layout_width="28dp"
-        android:layout_height="28dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:padding="10dp"
         android:layout_marginStart="4dp"
         android:src="@android:drawable/ic_menu_close_clear_cancel"
         android:tint="?attr/colorOnSurfaceVariant"

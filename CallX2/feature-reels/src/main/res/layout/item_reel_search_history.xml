@@ -152,10 +152,10 @@
          live search-result rows (see ReelSearchHistoryActivity adapter mode). -->
     <ImageButton
         android:id="@+id/btn_remove"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:src="@drawable/ic_close"
-        android:padding="8dp"
+        android:padding="14dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Remove"
         app:tint="?attr/colorOnSurfaceVariant"/>

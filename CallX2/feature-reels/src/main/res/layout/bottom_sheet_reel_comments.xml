@@ -170,12 +170,12 @@
         <!-- Send button -->
         <ImageButton
             android:id="@+id/btn_send_comment"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_marginStart="8dp"
-            android:padding="8dp"
+            android:padding="13dp"
             android:src="@drawable/ic_send"
-            android:background="@drawable/bg_circle_action"
+            android:background="@drawable/bg_circle_action_t5"
             android:contentDescription="Send comment"
             android:tint="#00C6FF"/>
 

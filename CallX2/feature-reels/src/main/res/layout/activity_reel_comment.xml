@@ -39,13 +39,13 @@
         <!-- Search toggle -->
         <ImageButton
             android:id="@+id/btn_search_toggle"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_search"
             android:tint="@color/reel_accent_cyan"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/reel_c_search_comments"
-            android:padding="8dp"/>
+            android:padding="12dp"/>
     </LinearLayout>
 
     <View
@@ -88,12 +88,12 @@
 
         <ImageButton
             android:id="@+id/btn_close_search"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/reel_c_close_search"
-            android:padding="6dp"/>
+            android:padding="12dp"/>
     </LinearLayout>
 
     <!-- ── Reel caption/description row (Instagram-style: shown only when
@@ -385,12 +385,12 @@
 
         <ImageButton
             android:id="@+id/btn_cancel_reply"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/reel_c_cancel_reply"
-            android:padding="10dp"/>
+            android:padding="14dp"/>
     </LinearLayout>
 
     <View
@@ -441,15 +441,15 @@
 
             <ImageButton
                 android:id="@+id/btn_remove_comment_image"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_gravity="top|end"
                 android:layout_marginTop="-6dp"
                 android:layout_marginEnd="-6dp"
                 android:src="@drawable/ic_close"
-                android:background="@drawable/bg_sort_chip_selected"
+                android:background="@drawable/bg_sort_chip_selected_t13"
                 android:contentDescription="@string/reel_c_remove_photo"
-                android:padding="4dp"/>
+                android:padding="17dp"/>
 
             <ProgressBar
                 android:id="@+id/progress_comment_image"
@@ -513,14 +513,14 @@
 
             <ImageButton
                 android:id="@+id/btn_attach_photo"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_marginEnd="4dp"
                 android:src="@drawable/ic_comment_photo"
                 android:tint="@color/comment_input_icon"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/reel_c_add_photo"
-                android:padding="8dp"/>
+                android:padding="12dp"/>
 
             <com.callx.app.comments.GifAwareCommentEditText
                 android:id="@+id/et_comment"
@@ -545,15 +545,15 @@
 
             <ImageButton
                 android:id="@+id/btn_send"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:src="@drawable/ic_send_fill"
                 android:tint="@android:color/white"
-                android:background="@drawable/bg_comment_send_circle"
+                android:background="@drawable/bg_comment_send_circle_t4"
                 android:foreground="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/reel_c_send"
-                android:padding="8dp"
+                android:padding="12dp"
                 android:visibility="gone"/>
         </LinearLayout>
     </LinearLayout>

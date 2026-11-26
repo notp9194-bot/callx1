@@ -18,8 +18,8 @@
 
         <ImageButton
             android:id="@+id/btn_duets_back"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#FFFFFF"
@@ -53,8 +53,8 @@
         <!-- Duet Tree button -->
         <ImageButton
             android:id="@+id/btn_duet_tree"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_reels"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#FFFFFF"
@@ -64,8 +64,8 @@
         <!-- Duet Battle from list button -->
         <ImageButton
             android:id="@+id/btn_duet_battle_from_list"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp" android:padding="2dp"
             android:src="@drawable/ic_reels"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="#FF6B6B"

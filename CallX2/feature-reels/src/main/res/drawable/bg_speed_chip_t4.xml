@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- bg_speed_chip visual size kept; touch target 48dp (auto touch-target pass) -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/bg_speed_chip"
+    android:inset="4dp"/>

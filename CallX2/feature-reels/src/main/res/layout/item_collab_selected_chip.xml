@@ -22,12 +22,12 @@
 
         <ImageButton
             android:id="@+id/btn_selected_chip_remove"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_gravity="top|end"
-            android:background="@drawable/circle_accept"
+            android:background="@drawable/circle_accept_t14"
             android:backgroundTint="#E53935"
-            android:padding="3dp"
+            android:padding="17dp"
             android:src="@drawable/ic_close"
             android:tint="@android:color/white"
             android:contentDescription="Remove"/>

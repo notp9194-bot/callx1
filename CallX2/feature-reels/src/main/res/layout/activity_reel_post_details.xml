@@ -195,8 +195,8 @@
 
                 <ImageButton
                     android:id="@+id/btn_clear_collab"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp" android:padding="8dp"
                     android:src="@android:drawable/ic_menu_close_clear_cancel"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Clear collaborators"/>

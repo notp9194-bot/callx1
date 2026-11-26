@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same look as bg_social_reel_btn (30dp visual) but lets the view be 48dp so the touch target meets the 48dp minimum. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/bg_social_reel_btn"
+    android:inset="9dp"/>
