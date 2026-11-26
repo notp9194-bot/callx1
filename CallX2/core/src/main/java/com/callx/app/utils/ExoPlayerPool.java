@@ -2,6 +2,8 @@ package com.callx.app.utils;
 
 import android.content.Context;
 
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -45,7 +47,34 @@ public final class ExoPlayerPool {
         if (pooled != null) {
             return pooled;
         }
-        return new ExoPlayer.Builder(context.getApplicationContext()).build();
+        return build(context);
+    }
+
+    /**
+     * PERF: chat viewer plays almost exclusively local / already-cached
+     * files (MediaCache is cache-first), so DefaultLoadControl's big
+     * start buffer (2.5s before first frame) is pure latency. Small
+     * start thresholds = first frame sooner; the max buffer is kept
+     * moderate so a remote fallback stream still rebuffers sanely.
+     */
+    private static ExoPlayer build(Context context) {
+        DefaultLoadControl lc = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                        /* minBufferMs */ 1500,
+                        /* maxBufferMs */ 15000,
+                        /* bufferForPlaybackMs */ 250,
+                        /* bufferForPlaybackAfterRebufferMs */ 600)
+                .build();
+        return new ExoPlayer.Builder(context.getApplicationContext())
+                .setLoadControl(lc)
+                .build();
+    }
+
+    /** Pre-builds one idle player so the first viewer open skips the ExoPlayer construction cost. */
+    public static void prewarm(Context context) {
+        if (POOL.isEmpty()) {
+            POOL.addLast(build(context));
+        }
     }
 
     /**
@@ -63,6 +92,10 @@ public final class ExoPlayerPool {
         // acquires it may start from a paused/normal state, not inherit
         // another page's play flag.
         player.setPlayWhenReady(false);
+        // Single-video viewer may have set a muted GIF-style loop — never
+        // leak that into the next acquirer.
+        player.setRepeatMode(Player.REPEAT_MODE_OFF);
+        player.setVolume(1f);
         if (POOL.size() < MAX_POOL_SIZE) {
             POOL.addLast(player);
         } else {

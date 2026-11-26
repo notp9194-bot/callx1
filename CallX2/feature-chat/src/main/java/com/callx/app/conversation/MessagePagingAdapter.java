@@ -1175,6 +1175,16 @@ public class MessagePagingAdapter
      */
     public static void warmUpChatMediaGallery(Context ctx, @Nullable String chatId) {
         if (chatId == null || ctx == null) return;
+        // PERF: build one idle ExoPlayer for the pool while the main thread
+        // is idle (ExoPlayer must be built on the main looper), so the first
+        // video-bubble tap doesn't pay the construction cost.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            final Context appCtx = ctx.getApplicationContext();
+            android.os.Looper.myQueue().addIdleHandler(() -> {
+                try { com.callx.app.utils.ExoPlayerPool.prewarm(appCtx); } catch (Throwable ignored) {}
+                return false;
+            });
+        }
         GALLERY_BUILD_EXECUTOR.execute(() -> {
             try {
                 com.callx.app.db.dao.MessageDao dao =

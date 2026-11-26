@@ -64,6 +64,9 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     private ActivityMediaViewerBinding binding;
     private ExoPlayer player;
+    // Listeners attached to the (pooled) single-video player — must be removed before it goes back to the pool.
+    private Player.Listener singleErrorListener;
+    private Player.Listener singlePresenceListener;
     private boolean uiVisible = true;
     private String sharedUrl;
 
@@ -509,6 +512,7 @@ public class MediaViewerActivity extends AppCompatActivity {
      *                  reads as a continuation of the throw, not a reset.
      */
     private void closeViewer(float velocityY) {
+        pausePlaybackForClose();
         if (sourceRect != null && activeDragView != null && !isFinishing()) {
             animateCloseToSource(sourceRect, velocityY);
         } else {
@@ -1498,8 +1502,9 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     private void startExoPlayer(Uri uri, boolean loopMuted) {
         if (isFinishing() || isDestroyed()) return;
-        if (player != null) { player.release(); player = null; } // fallback re-entry must not leak the failed player
-        player = new ExoPlayer.Builder(this).build();
+        releaseSinglePlayer(); // fallback re-entry must not leak the failed player
+        // PERF: pooled player (same pool the gallery path uses) — skips ExoPlayer construction on open.
+        player = com.callx.app.utils.ExoPlayerPool.acquire(this);
         binding.player.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(uri));
         if (loopMuted) {
@@ -1516,7 +1521,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         final boolean uriIsCacheFile = "file".equals(uri.getScheme())
                 && uri.getPath() != null && uri.getPath().contains("callx_media_cache");
         final boolean uriIsLocal = !uriIsCacheFile && !"http".equals(uri.getScheme()) && !"https".equals(uri.getScheme());
-        player.addListener(new Player.Listener() {
+        singleErrorListener = new Player.Listener() {
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 if (isFinishing() || isDestroyed()) return;
                 boolean badFile = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
@@ -1535,7 +1540,8 @@ public class MediaViewerActivity extends AppCompatActivity {
                 }
                 Toast.makeText(MediaViewerActivity.this, "Couldn't play video", Toast.LENGTH_SHORT).show();
             }
-        });
+        };
+        player.addListener(singleErrorListener);
 
         // Mirror actual play/pause state into chatPlayback — onIsPlayingChanged
         // fires for user pause/resume AND for buffering stalls, which is
@@ -1543,11 +1549,44 @@ public class MediaViewerActivity extends AppCompatActivity {
         // for a looping muted GIF — there's no meaningful "watching" state
         // for something that's just silently looping in the background.
         if (!loopMuted && playbackChatId != null && messageIdPresent()) {
-            player.addListener(new Player.Listener() {
+            singlePresenceListener = new Player.Listener() {
                 @Override public void onIsPlayingChanged(boolean isPlaying) {
                     publishPlaybackPresence(isPlaying);
                 }
-            });
+            };
+            player.addListener(singlePresenceListener);
+        }
+    }
+
+    /** Detaches our listeners + surface and hands the single-video player back to the shared pool. */
+    private void releaseSinglePlayer() {
+        if (player == null) return;
+        if (singleErrorListener != null) { player.removeListener(singleErrorListener); singleErrorListener = null; }
+        if (singlePresenceListener != null) { player.removeListener(singlePresenceListener); singlePresenceListener = null; }
+        try { binding.player.setPlayer(null); } catch (Throwable ignored) {}
+        com.callx.app.utils.ExoPlayerPool.release(player);
+        player = null;
+    }
+
+    /**
+     * PERF: stop decode/audio the instant the close starts (not at onDestroy,
+     * which is after the shrink animation) so the animation frames and the
+     * chat resume don't compete with a still-running decoder. Also clears
+     * the "watching…" presence early via onIsPlayingChanged.
+     */
+    private void pausePlaybackForClose() {
+        if (player != null) player.pause();
+        if (binding != null && galleryAdapter != null && binding.mediaPager.getChildCount() > 0
+                && binding.mediaPager.getChildAt(0) instanceof androidx.recyclerview.widget.RecyclerView) {
+            androidx.recyclerview.widget.RecyclerView rv =
+                    (androidx.recyclerview.widget.RecyclerView) binding.mediaPager.getChildAt(0);
+            for (int i = 0; i < rv.getChildCount(); i++) {
+                androidx.recyclerview.widget.RecyclerView.ViewHolder vh =
+                        rv.getChildViewHolder(rv.getChildAt(i));
+                if (vh instanceof GalleryPagerAdapter.PageVH) {
+                    galleryAdapter.setActive((GalleryPagerAdapter.PageVH) vh, false);
+                }
+            }
         }
     }
 
@@ -1597,7 +1636,7 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        if (player != null) { player.release(); player = null; }
+        releaseSinglePlayer();
         if (voiceCaptionPlayer != null) { voiceCaptionPlayer.release(); voiceCaptionPlayer = null; }
         if (binding != null && binding.mediaPager.getChildCount() > 0
                 && binding.mediaPager.getChildAt(0) instanceof androidx.recyclerview.widget.RecyclerView) {
