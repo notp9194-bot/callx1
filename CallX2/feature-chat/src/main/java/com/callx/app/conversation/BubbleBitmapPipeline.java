@@ -287,6 +287,18 @@ public final class BubbleBitmapPipeline {
                 REUSE.release(out); // intermediate, never exposed
                 out = rotated;
             }
+            // PERF: promote rotated (EXIF) photos to HARDWARE too — they were the one path
+            // that stayed a multi-MB software bitmap re-uploaded to the GPU on first draw.
+            if (ENABLE_HARDWARE && Build.VERSION.SDK_INT >= 28
+                    && Math.min(out.getWidth(), out.getHeight()) >= HW_MIN_DIM_PX) {
+                try {
+                    Bitmap hw = out.copy(Bitmap.Config.HARDWARE, false);
+                    if (hw != null && hw.getWidth() > 0 && hw.getHeight() > 0) {
+                        out.recycle(); // rotated copy, never exposed
+                        out = hw;
+                    }
+                } catch (Throwable ignored) { /* keep software bitmap */ }
+            }
         }
         markOwned(out);
         return out;

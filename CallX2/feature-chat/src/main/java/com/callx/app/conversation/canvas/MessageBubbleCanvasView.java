@@ -997,7 +997,12 @@ public class MessageBubbleCanvasView extends View {
 
     private static final class CachedTextLayout {
         final StaticLayout layout;
-        CachedTextLayout(StaticLayout layout) { this.layout = layout; }
+        /** PERF: pre-built "Read more" collapsed layout (same paint), null if text is short. */
+        final StaticLayout collapsed;
+        CachedTextLayout(StaticLayout layout) { this(layout, null); }
+        CachedTextLayout(StaticLayout layout, StaticLayout collapsed) {
+            this.layout = layout; this.collapsed = collapsed;
+        }
     }
 
     // ── PERF/STABILITY: onTrimMemory hook for all four static layout caches ──
@@ -1152,8 +1157,23 @@ public class MessageBubbleCanvasView extends View {
             // build synchronously exactly as before.
             return;
         }
+        StaticLayout collapsedLayout = null;
+        try {
+            if (layout.getLineCount() > MAX_COLLAPSED_LINES) {
+                collapsedLayout = StaticLayout.Builder
+                        .obtain(text, 0, text.length(), paint, width)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setLineSpacing(0f, 1f)
+                        .setIncludePad(false)
+                        .setMaxLines(MAX_COLLAPSED_LINES)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+                        .build();
+            }
+        } catch (Exception ignored) { collapsedLayout = null; }
         synchronized (sTextLayoutCacheLock) {
-            sTextLayoutCache.put(key, new CachedTextLayout(layout));
+            sTextLayoutCache.put(key, new CachedTextLayout(layout, collapsedLayout));
         }
     }
 
@@ -1810,6 +1830,11 @@ public class MessageBubbleCanvasView extends View {
     final Rect replyThumbSrcRect = new Rect();
     final RectF replyThumbDstRect = new RectF();
     final android.graphics.Path replyThumbClipPath = new android.graphics.Path();
+    android.graphics.BitmapShader replyThumbShader;
+    Bitmap replyThumbShaderBmp;
+    final RectF replyThumbSrcRectF = new RectF();
+    final android.graphics.Matrix replyThumbShaderMatrix = new android.graphics.Matrix();
+    final Paint replyThumbShaderPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     // ── Reply decorations (status-reply polish) ──
     /** Reserve the 44dp thumbnail slot even before the bitmap has decoded (no layout jump on arrival). */
     boolean replyReserveSlot = false;
@@ -7974,7 +7999,11 @@ public class MessageBubbleCanvasView extends View {
             // only the first MAX_COLLAPSED_LINES lines are drawn.  The full
             // layout stays in the cache unchanged.
             hasLongText = !isDeletedStyle && textLayout.getLineCount() > MAX_COLLAPSED_LINES;
-            if (hasLongText && !isTextExpanded) {
+            if (hasLongText && !isTextExpanded && cachedLayout != null && cachedLayout.collapsed != null) {
+                // PERF: reuse the background-built collapsed layout (shares the cached paint,
+                // whose color was already applied above).
+                textLayout = cachedLayout.collapsed;
+            } else if (hasLongText && !isTextExpanded) {
                 textLayout = StaticLayout.Builder
                         .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
                         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
@@ -9688,20 +9717,27 @@ public class MessageBubbleCanvasView extends View {
                 int side = Math.min(bw, bh);
                 int sx = (bw - side) / 2, sy = (bh - side) / 2;
                 replyThumbSrcRect.set(sx, sy, sx + side, sy + side);
-                int thumbSave = canvas.save();
-                canvas.clipPath(replyThumbClipPath);
+                // PERF: BitmapShader + drawRoundRect instead of clipPath (no clip-stack/stencil work).
+                if (replyThumbShader == null || replyThumbShaderBmp != replyThumb) {
+                    replyThumbShader = new android.graphics.BitmapShader(replyThumb,
+                            android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                    replyThumbShaderBmp = replyThumb;
+                    replyThumbShaderPaint.setShader(replyThumbShader);
+                }
+                replyThumbSrcRectF.set(replyThumbSrcRect);
+                replyThumbShaderMatrix.setRectToRect(replyThumbSrcRectF, replyThumbDstRect,
+                        android.graphics.Matrix.ScaleToFit.FILL);
+                replyThumbShader.setLocalMatrix(replyThumbShaderMatrix);
                 final boolean fading = replyThumbAlpha < 1f;
-                if (fading) replyThumbPaint.setAlpha(Math.round(255f * replyThumbAlpha));
-                canvas.drawBitmap(replyThumb, replyThumbSrcRect, replyThumbDstRect, replyThumbPaint);
-                if (fading) replyThumbPaint.setAlpha(255);
+                replyThumbShaderPaint.setAlpha(fading ? Math.round(255f * replyThumbAlpha) : 255);
+                canvas.drawRoundRect(replyThumbDstRect, tr, tr, replyThumbShaderPaint);
                 if (replyExpiredLabel != null) {
                     if (replyScrimPaint == null) {
                         replyScrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
                         replyScrimPaint.setColor(0x99000000);
                     }
-                    canvas.drawRect(replyThumbDstRect, replyScrimPaint);
+                    canvas.drawRoundRect(replyThumbDstRect, tr, tr, replyScrimPaint);
                 }
-                canvas.restoreToCount(thumbSave);
             } else {
                 // Placeholder while the bitmap decodes — keeps the slot (and bubble size) stable.
                 if (replyPlaceholderPaint == null) {
