@@ -8127,7 +8127,10 @@ public class MessagePagingAdapter
             else if (preRv.isComputingLayout()) com.callx.app.debug.BubblePerfStats.preGateInLayout();
             else if (preRv.getWidth() <= 0) com.callx.app.debug.BubblePerfStats.preGateNoWidth();
         }
-        if (preRv != null && !preRv.isComputingLayout() && preRv.getWidth() > 0) {
+        // v881: dropped the !isComputingLayout() gate. RecyclerView's GapWorker prefetch runs inside
+        // onEnterLayoutOrScroll(), so isComputingLayout() is TRUE for prefetch binds too (v880 report:
+        // inLayout=52/52, sched=0). runPreRecord() already skips stale / on-screen / already-cached views.
+        if (preRv != null && preRv.getWidth() > 0) {
             final ViewGroup.LayoutParams plp = cv.getLayoutParams();
             final int pm = (plp instanceof ViewGroup.MarginLayoutParams)
                     ? ((ViewGroup.MarginLayoutParams) plp).leftMargin
