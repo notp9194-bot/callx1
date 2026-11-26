@@ -4086,7 +4086,8 @@ public class MessageBubbleCanvasView extends View {
         this.isVideoMedia = true;
         this.videoDuration = duration;
         if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.videoBind(); // v878
-        invalidate();
+        // v880: no second invalidate() — bindMedia() above already ended with one (same bind pass,
+        // nothing drawn in between), so this only re-marked the same dirty flags.
     }
 
     /**

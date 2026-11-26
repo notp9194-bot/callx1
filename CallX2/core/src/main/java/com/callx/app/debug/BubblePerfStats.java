@@ -84,7 +84,11 @@ public final class BubblePerfStats {
     }
 
     // v865: preRecord pipeline diagnostics (why was count=0?)
-    private static long pSched, pFull, pRun, pStale, pEarly, pCached, pErr, pDrainFallback;
+    private static long gBind, gNoRv, gInLayout, gNoWidth, pSched, pFull, pRun, pStale, pEarly, pCached, pErr, pDrainFallback;
+    public static void preGateBind()     { gBind++; }
+    public static void preGateNoRv()     { gNoRv++; }
+    public static void preGateInLayout() { gInLayout++; }
+    public static void preGateNoWidth()  { gNoWidth++; }
     public static void preSched()    { pSched++; }
     public static void preFullQ()    { pFull++; }
     public static void preRun()      { pRun++; }
@@ -155,7 +159,7 @@ public final class BubblePerfStats {
         stop(a);
         recN = recNs = recMax = hitN = preN = preNs = measN = measNs = measMax = bindN = bindNs = bindMax = 0;
         Arrays.fill(secN, 0L); Arrays.fill(secNs, 0L); Arrays.fill(secMax, 0L);
-        pSched = pFull = pRun = pStale = pEarly = pCached = pErr = pDrainFallback = 0;
+        gBind = gNoRv = gInLayout = gNoWidth = pSched = pFull = pRun = pStale = pEarly = pCached = pErr = pDrainFallback = 0;
         typeStat.clear();
         bmHw = bmSw = bmPh = bmSwBytes = bmSwMax = 0;
         mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
@@ -259,6 +263,8 @@ public final class BubblePerfStats {
         sb.append("miss reason: dirty=").append(mDirty).append(" sizeChanged=").append(mSize)
           .append(" noDisplayList=").append(mNoDL).append('\n');
         sb.append("preRecord done=").append(preN).append("  total=").append(ms(preNs)).append(" ms\n");
+        sb.append("preRecord gate: binds=").append(gBind).append(" noRv=").append(gNoRv)
+          .append(" inLayout=").append(gInLayout).append(" noWidth=").append(gNoWidth).append('\n');
         sb.append("preRecord pipeline: sched=").append(pSched).append(" queueFull=").append(pFull)
           .append(" run=").append(pRun).append(" staleSkip=").append(pStale).append(" earlySkip=").append(pEarly)
           .append(" alreadyCached=").append(pCached).append(" err=").append(pErr)

@@ -8121,6 +8121,12 @@ public class MessagePagingAdapter
         // prefetch bind — schedule the bubble's RenderNode to be recorded in the next
         // idle gap so its first on-screen draw is a cache hit.
         final RecyclerView preRv = attachedRecyclerView;
+        if (com.callx.app.debug.BubblePerfStats.on) { // v880: why is sched=0? count each gate outcome
+            com.callx.app.debug.BubblePerfStats.preGateBind();
+            if (preRv == null) com.callx.app.debug.BubblePerfStats.preGateNoRv();
+            else if (preRv.isComputingLayout()) com.callx.app.debug.BubblePerfStats.preGateInLayout();
+            else if (preRv.getWidth() <= 0) com.callx.app.debug.BubblePerfStats.preGateNoWidth();
+        }
         if (preRv != null && !preRv.isComputingLayout() && preRv.getWidth() > 0) {
             final ViewGroup.LayoutParams plp = cv.getLayoutParams();
             final int pm = (plp instanceof ViewGroup.MarginLayoutParams)
