@@ -3226,6 +3226,7 @@ public class MessagePagingAdapter
     @Override
     public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onAttachedToRecyclerView(recyclerView);
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.armChatOpenPreRecord(); // v885: chat open -> faster record-ahead drain
         ChatAvatarPrefs.ensureLoaded(recyclerView.getContext()); // v810: before the first bind
         glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
         attachedRecyclerView = recyclerView;

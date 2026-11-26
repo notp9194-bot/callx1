@@ -2233,7 +2233,7 @@ public class MessageBubbleCanvasView extends View {
      *  real hot path once wired up, same league as the audio-tick fix. */
     private void invalidatePresenceRegion() {
         if (bubbleRect.isEmpty()) {
-            invalidate();
+            invalidateOverlay();
             return;
         }
         float dotR = 4.5f * density + 2f * density; // 9dp dot + stroke/AA slop
@@ -2490,13 +2490,13 @@ public class MessageBubbleCanvasView extends View {
         removeCallbacks(fwdFireRunnable);
         postDelayed(fwdFireRunnable, ForwardNeonButton.ACTION_AT_MS);
         performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
-        postInvalidateOnAnimation();
+        super.postInvalidateOnAnimation(); // v885: forward button is overlay-only, keep cached node valid
     }
 
     private void cancelForwardAnim() {
         removeCallbacks(fwdFireRunnable);
         fwdPressed = false;
-        if (fwdAnimStart >= 0) { fwdAnimStart = -1L; invalidate(); }
+        if (fwdAnimStart >= 0) { fwdAnimStart = -1L; invalidateOverlay(); }
     }
 
     // forwardBtnBgPaint/forwardBtnIconPaint retired — the circle+chevron
@@ -2931,6 +2931,132 @@ public class MessageBubbleCanvasView extends View {
     private static final boolean SUPPORTS_RENDER_NODE =
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q;
     private android.graphics.RenderNode fullBubbleRenderNode;
+
+    // ── v885: process-wide, content-keyed RenderNode cache for plain-text bubbles ──
+    // A plain-text bubble's display list depends only on (text, geometry, colours, tail, drawable).
+    // Footer/ticks/reactions/seen-by/highlight are all live overlay. So the node can be shared by
+    // any view that resolves to the same key: chat re-open, recycle->rebind and scroll-back become
+    // lookups instead of re-records. Nodes are IMMUTABLE once put (never re-recorded, never
+    // discardDisplayList()'d: a view's display list may still reference an evicted node, the native
+    // RenderNode is ref-counted). Main thread only.
+    private static final boolean SHARED_TEXT_NODE_ENABLED = true;
+    private static final int SHARED_NODE_MAX = 192;
+    private static final java.util.LinkedHashMap<SharedKey, android.graphics.RenderNode> SHARED_NODES =
+            new java.util.LinkedHashMap<SharedKey, android.graphics.RenderNode>(256, 0.75f, true) {
+                @Override protected boolean removeEldestEntry(java.util.Map.Entry<SharedKey, android.graphics.RenderNode> e) {
+                    return size() > SHARED_NODE_MAX;
+                }
+            };
+    /** Call from Application.onTrimMemory(>= TRIM_MEMORY_BACKGROUND) / theme change. */
+    public static void clearSharedBubbleNodes() { SHARED_NODES.clear(); }
+
+    private static final class SharedKey {
+        final CharSequence text;   // identity: the exact (cached) spanned text the layout was built from
+        final int w, h, bl, bt, br, bb, textColor, textSizeBits, skewBits, alpha, lineCount, layoutW;
+        final boolean sent, tail, deleted, inlineFooter;
+        final Object typeface, drawable;
+        final int hash;
+        SharedKey(CharSequence text, int w, int h, android.graphics.RectF r, int textColor, float textSize,
+                  float skew, int alpha, int lineCount, int layoutW, boolean sent, boolean tail,
+                  boolean deleted, boolean inlineFooter, Object typeface, Object drawable) {
+            this.text = text; this.w = w; this.h = h;
+            this.bl = Float.floatToIntBits(r.left); this.bt = Float.floatToIntBits(r.top);
+            this.br = Float.floatToIntBits(r.right); this.bb = Float.floatToIntBits(r.bottom);
+            this.textColor = textColor; this.textSizeBits = Float.floatToIntBits(textSize);
+            this.skewBits = Float.floatToIntBits(skew); this.alpha = alpha;
+            this.lineCount = lineCount; this.layoutW = layoutW;
+            this.sent = sent; this.tail = tail; this.deleted = deleted; this.inlineFooter = inlineFooter;
+            this.typeface = typeface; this.drawable = drawable;
+            int hh = System.identityHashCode(text);
+            hh = 31 * hh + w; hh = 31 * hh + h; hh = 31 * hh + bl; hh = 31 * hh + bt; hh = 31 * hh + br; hh = 31 * hh + bb;
+            hh = 31 * hh + textColor; hh = 31 * hh + textSizeBits; hh = 31 * hh + skewBits; hh = 31 * hh + alpha;
+            hh = 31 * hh + lineCount; hh = 31 * hh + layoutW;
+            hh = 31 * hh + (sent ? 1 : 0) + (tail ? 2 : 0) + (deleted ? 4 : 0) + (inlineFooter ? 8 : 0);
+            hh = 31 * hh + System.identityHashCode(drawable);
+            this.hash = hh;
+        }
+        @Override public int hashCode() { return hash; }
+        @Override public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof SharedKey)) return false;
+            SharedKey k = (SharedKey) o;
+            return hash == k.hash && w == k.w && h == k.h && bl == k.bl && bt == k.bt && br == k.br && bb == k.bb
+                    && textColor == k.textColor && textSizeBits == k.textSizeBits && skewBits == k.skewBits
+                    && alpha == k.alpha && lineCount == k.lineCount && layoutW == k.layoutW
+                    && sent == k.sent && tail == k.tail && deleted == k.deleted && inlineFooter == k.inlineFooter
+                    && typeface == k.typeface && drawable == k.drawable && text == k.text;
+        }
+    }
+
+    /** Node currently attached to this view (from SHARED_NODES). Never recorded into by the view. */
+    private android.graphics.RenderNode sharedNode;
+    private int sharedNodeW = -1, sharedNodeH = -1;
+
+    /** Only the simplest text bubbles: nothing baked into the node besides bubble bg + glyphs. */
+    private boolean isSharedNodeEligible() {
+        return SHARED_TEXT_NODE_ENABLED && isPlainTextBubble() && textLayout != null && bubbleDrawable != null
+                && !isPinned && !hasGroupSender && !hasForwarded && !hasReply && !hasLinkPreview && !hasLongText;
+    }
+
+    private SharedKey buildSharedKey(int w, int h) {
+        // Read colour/size/etc. from the LAYOUT's own paint: cached layouts own a dedicated TextPaint
+        // (see onMeasure), and Layout.draw() uses that one, not this view's textPaint.
+        final android.text.TextPaint lp = textLayout.getPaint();
+        return new SharedKey(textLayout.getText(), w, h, bubbleRect, lp.getColor(), lp.getTextSize(),
+                lp.getTextSkewX(), lp.getAlpha(), textLayout.getLineCount(), textLayout.getWidth(),
+                sent, bubbleTailShown, isDeletedStyle, footerInlineWithText, lp.getTypeface(), bubbleDrawable);
+    }
+
+    /** Re-arms the per-view state drawBubbleContent() would have produced (footer anchor + tap rect). */
+    private void restoreTextBubbleLiveState() {
+        footerLiveValid = false;
+        readMoreRect.setEmpty();
+        final int hPad = Math.round(H_PADDING_DP * density);
+        final int vPad = Math.round(V_PADDING_DP * density);
+        final float textBlockTop = bubbleTop + replyBoxHeight + vPad;
+        if (footerInlineWithText) {
+            drawFooter(null, textBlockTop + textLayout.getLineBaseline(textLayout.getLineCount() - 1),
+                    bubbleRect.right - hPad);
+        } else {
+            drawFooter(null, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
+        }
+    }
+
+    /**
+     * Attach a shared node for the current content (lookup, else record once and publish).
+     * @return false -> caller falls back to the per-view path.
+     */
+    private boolean acquireSharedNode(int w, int h) {
+        if (sharedNode != null && !fullBubbleDirty && w == sharedNodeW && h == sharedNodeH) return true;
+        final SharedKey key = buildSharedKey(w, h);
+        android.graphics.RenderNode n = SHARED_NODES.get(key);
+        if (n != null) {
+            restoreTextBubbleLiveState();
+            sRenderCacheHits++;
+            if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.hit();
+        } else {
+            final long _pt = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
+            android.os.Trace.beginSection("Bubble.record");
+            n = new android.graphics.RenderNode("tb");
+            n.setPosition(0, 0, w, h);
+            android.graphics.RecordingCanvas rc = n.beginRecording();
+            try {
+                drawBubbleContent(rc);
+            } finally {
+                n.endRecording();
+                android.os.Trace.endSection();
+            }
+            if (!n.hasDisplayList()) return false;
+            SHARED_NODES.put(key, n);
+            sRenderCacheMisses++;
+            if (_pt != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt);
+        }
+        sharedNode = n;
+        sharedNodeW = w; sharedNodeH = h;
+        fullBubbleDirty = false;
+        fullBubblePictureW = w; fullBubblePictureH = h;
+        return true;
+    }
     // v867: the last recording produced NO display list (nothing drawn into the cached layer, e.g. overlay-only
     // rows). hasDisplayList() is then false forever, which made every draw look like a cache miss and re-record.
     private boolean fullBubbleEmptyRecord;
@@ -3231,6 +3357,7 @@ public class MessageBubbleCanvasView extends View {
     public void releaseRenderCaches() {
         if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
         if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
+        sharedNode = null; // v885: shared nodes live in SHARED_NODES, never discarded here
         fullBubbleEmptyRecord = false;
         staticPictureDirty = true;
         fullBubbleDirty = true;
@@ -6248,9 +6375,9 @@ public class MessageBubbleCanvasView extends View {
         this.hasReactions = newHas;
         this.reactionsText = newText;
         if (requestLayoutIfSizeChanged()) {
-            // The badge contributes to measured height, so a size change
-            // requires the cached static layer to be recorded at new bounds.
-            invalidate();
+            // The badge contributes to measured height; the cached node is re-recorded
+            // by the w/h guard in onDraw, the badge itself is overlay-only (v885).
+            invalidateOverlay();
         } else {
             invalidateReactionsRegion();
         }
@@ -6266,7 +6393,7 @@ public class MessageBubbleCanvasView extends View {
      */
     private void invalidateReactionsRegion() {
         if (reactionsRect.isEmpty() || bubbleRect.isEmpty()) {
-            invalidate(); // not laid out yet — fall back to a full pass
+            invalidateOverlay(); // v885: badge is overlay-only; size changes are caught by the w/h guard
             return;
         }
         if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
@@ -6295,7 +6422,7 @@ public class MessageBubbleCanvasView extends View {
         this.hasReactions = false;
         this.reactionsText = "";
         if (requestLayoutIfSizeChanged()) {
-            invalidate();
+            invalidateOverlay(); // v885
         } else {
             invalidateReactionsRegion();
         }
@@ -6604,7 +6731,7 @@ public class MessageBubbleCanvasView extends View {
      */
     private void invalidateSeenByRegion(boolean relayoutHorizontal) {
         if (seenByRect.isEmpty() || bubbleRect.isEmpty()) {
-            invalidate(); // not measured yet — full pass; onMeasure will lay the rect out
+            invalidateOverlay(); // v885: strip is overlay-only; onMeasure lays the rect out
             return;
         }
         float oldLeft = seenByRect.left;
@@ -8359,6 +8486,21 @@ public class MessageBubbleCanvasView extends View {
     // callback; any mismatch just means the normal onDraw path records as before.
     private static final java.util.ArrayDeque<PreRecordJob> sPreQ = new java.util.ArrayDeque<>();
     private static boolean sPreIdleHooked;
+    private static final int PRE_Q_MAX = 32;
+    private static final long PRE_BUDGET_MS = 3;
+    private static final long PRE_BUDGET_OPEN_MS = 6;       // chat-open window: bigger slices, tighter backstop
+    private static final long PRE_OPEN_WINDOW_MS = 700;
+    private static long sPreOpenUntil;
+    /** Call when a chat screen opens (adapter attach): drains the record-ahead queue faster for ~700ms. */
+    public static void armChatOpenPreRecord() {
+        sPreOpenUntil = android.os.SystemClock.uptimeMillis() + PRE_OPEN_WINDOW_MS;
+    }
+    private static long preBudgetMs() {
+        return android.os.SystemClock.uptimeMillis() < sPreOpenUntil ? PRE_BUDGET_OPEN_MS : PRE_BUDGET_MS;
+    }
+    private static long preBackstopMs() {
+        return android.os.SystemClock.uptimeMillis() < sPreOpenUntil ? 8 : 24;
+    }
     private boolean preRecordQueued;
 
     private static final class PreRecordJob {
@@ -8372,7 +8514,8 @@ public class MessageBubbleCanvasView extends View {
 
     private static final android.os.MessageQueue.IdleHandler PRE_IDLE = () -> {
         final long t0 = android.os.SystemClock.uptimeMillis();
-        while (!sPreQ.isEmpty() && android.os.SystemClock.uptimeMillis() - t0 < 2) {
+        final long budget = preBudgetMs();
+        while (!sPreQ.isEmpty() && android.os.SystemClock.uptimeMillis() - t0 < budget) {
             PreRecordJob j = sPreQ.pollFirst();
             MessageBubbleCanvasView v = j.v.get();
             if (v != null) v.runPreRecord(j.wSpec);
@@ -8384,7 +8527,7 @@ public class MessageBubbleCanvasView extends View {
     /** Main thread only. {@code wSpec} must be the EXACTLY width spec RecyclerView will use. */
     public void schedulePreRecord(int wSpec) {
         if (!PRERECORD_ENABLED || !SUPPORTS_RENDER_NODE || preRecordQueued) return;
-        if (sPreQ.size() >= 12) {                          // bounded
+        if (sPreQ.size() >= PRE_Q_MAX) {                   // bounded (v885: 12 -> 32)
             if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preFullQ();
             return;
         }
@@ -8399,7 +8542,7 @@ public class MessageBubbleCanvasView extends View {
         // Backstop: one short drain ~1.5 frames later (budgeted 2 ms/run, runs BETWEEN frames, not in onDraw).
         if (!sPreDrainPosted) {
             sPreDrainPosted = true;
-            sPreHandler.postDelayed(PRE_DRAIN, 24);
+            sPreHandler.postDelayed(PRE_DRAIN, preBackstopMs());
         }
     }
 
@@ -8412,12 +8555,13 @@ public class MessageBubbleCanvasView extends View {
         if (sPreQ.isEmpty()) return;
         if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preFallback();
         final long t0 = android.os.SystemClock.uptimeMillis();
-        while (!sPreQ.isEmpty() && android.os.SystemClock.uptimeMillis() - t0 < 2) {
+        final long budget = preBudgetMs();
+        while (!sPreQ.isEmpty() && android.os.SystemClock.uptimeMillis() - t0 < budget) {
             PreRecordJob j = sPreQ.pollFirst();
             MessageBubbleCanvasView v = j.v.get();
             if (v != null) v.runPreRecord(j.wSpec);
         }
-        if (!sPreQ.isEmpty()) { sPreDrainPosted = true; sPreHandler.postDelayed(PRE_DRAIN, 24); }
+        if (!sPreQ.isEmpty()) { sPreDrainPosted = true; sPreHandler.postDelayed(PRE_DRAIN, preBackstopMs()); }
     }
 
     private void runPreRecord(int wSpec) {
@@ -8452,6 +8596,9 @@ public class MessageBubbleCanvasView extends View {
                     if (_st) com.callx.app.debug.BubblePerfStats.preEarly();
                     return;
                 }
+            }
+            if (isSharedNodeEligible()) {            // v885: lookup-or-record into the process-wide cache
+                if (acquireSharedNode(w, h)) { sRenderCachePreRecorded++; return; }
             }
             if (fullBubbleRenderNode == null) fullBubbleRenderNode = new android.graphics.RenderNode("bubble");
             if (!fullBubbleDirty && w == fullBubblePictureW && h == fullBubblePictureH
@@ -8488,6 +8635,12 @@ public class MessageBubbleCanvasView extends View {
     @Override
     public boolean hasOverlappingRendering() {
         return false;
+    }
+
+    /** v885: redraw only (display list + sharedNode stay valid). Use for overlay-only state
+     *  (search highlight, forward btn, presence, reactions, seen-by, reply press). */
+    private void invalidateOverlay() {
+        super.invalidate();
     }
 
     @Override
@@ -8579,6 +8732,14 @@ public class MessageBubbleCanvasView extends View {
             // Falls through to the Picture path below for older API levels
             // or the rare software-canvas draw (e.g. a bitmap snapshot).
             if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated()) {
+                if (isSharedNodeEligible()) {
+                    if (acquireSharedNode(w, h)) {
+                        canvas.drawRenderNode(sharedNode);
+                        drawDynamicOverlayLayer(canvas);
+                        return;
+                    }
+                }
+                sharedNode = null;
                 if (fullBubbleRenderNode == null) {
                     fullBubbleRenderNode = new android.graphics.RenderNode("bubble");
                 }
@@ -9452,7 +9613,7 @@ public class MessageBubbleCanvasView extends View {
 
     /** v853: reply-box press/release redraws only the box rect; cached bubble node stays valid. */
     private void invalidateReplyBox() {
-        if (replyBoxRect.isEmpty()) { invalidate(); return; }
+        if (replyBoxRect.isEmpty()) { invalidateOverlay(); return; }
         invalidate((int) replyBoxRect.left - 2, (int) replyBoxRect.top - 2,
                 (int) Math.ceil(replyBoxRect.right) + 2, (int) Math.ceil(replyBoxRect.bottom) + 2);
     }
