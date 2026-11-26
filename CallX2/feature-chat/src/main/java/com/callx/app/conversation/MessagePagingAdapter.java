@@ -3222,7 +3222,7 @@ public class MessagePagingAdapter
         sWarmAppContext = recyclerView.getContext().getApplicationContext();
         sWarmUid = currentUid;
         sWarmDecodeBudget.set(com.callx.app.utils.DeviceTier.isLowRamDevice(recyclerView.getContext()) ? 4 : 8);
-        sWarmVideoBudget.set(com.callx.app.utils.DeviceTier.isLowRamDevice(recyclerView.getContext()) ? 2 : 3); // v878
+        sWarmVideoBudget.set(com.callx.app.utils.DeviceTier.isLowRamDevice(recyclerView.getContext()) ? 3 : 6); // v878/v880
         attachMediaPreloader(recyclerView);
         GlobalVoicePlaybackManager.getInstance().addListener(globalPlaybackListener);
     }
@@ -3515,7 +3515,15 @@ public class MessagePagingAdapter
     // v878: per-chat-open budget for warming videos' real (https) frames. Posters/envelopes are tiny and
     // unbudgeted; only the real-frame fetch for poster-less legacy rows is capped.
     private static final java.util.concurrent.atomic.AtomicInteger sWarmVideoBudget =
-            new java.util.concurrent.atomic.AtomicInteger(3);
+            new java.util.concurrent.atomic.AtomicInteger(6);
+    // v880: one low-priority thread for poster-less video frames: Glide disk-cache file -> owned decode -> pool.
+    private static final java.util.concurrent.ExecutorService VIDEO_FRAME_WARM_EXEC =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "VideoFrameWarm");
+                t.setPriority(Thread.NORM_PRIORITY - 1);
+                t.setDaemon(true);
+                return t;
+            });
 
     /**
      * v878 — single-record video bind prep. Runs OFF the main thread (Paging load thread via
@@ -3582,15 +3590,31 @@ public class MessagePagingAdapter
                         MEDIA_BITMAP_CACHE.put(turl, b);
                     });
                 } else {
-                    // https: warm Glide's memory + disk cache with the exact bind-time request shape, so the
-                    // bind's Glide load resolves from memory instead of the network.
-                    BubbleBitmapPipeline.postMain(() -> {
+                    // v880: https frame of a poster-less (legacy) row: fetch the file through Glide's disk cache,
+                    // decode it into an OWNED bitmap and park it in the media pool -> the bind is a SYNC pool hit
+                    // (real frame in the first pass) instead of ThumbHash first + async swap (2nd/3rd record).
+                    VIDEO_FRAME_WARM_EXEC.execute(() -> {
                         try {
-                            // same options as the bind request (incl. software bitmaps) so the memory-cache key matches
-                            com.bumptech.glide.Glide.with(ctx).asBitmap().load(turl)
-                                    .apply(THUMB_RGB565).set(Downsampler.ALLOW_HARDWARE_CONFIG, false)
-                                    .override(tw, tw).preload(tw, tw);
-                        } catch (Throwable ignored) { }
+                            if (MEDIA_BITMAP_CACHE.get(turl) != null) return;
+                            java.io.File f = com.bumptech.glide.Glide.with(ctx).asFile().load(turl)
+                                    .submit().get(8, java.util.concurrent.TimeUnit.SECONDS);
+                            if (f == null || !f.exists()) return;
+                            final Bitmap b = BubbleBitmapPipeline.decodeBlocking(f, tw, tw);
+                            if (b == null) return;
+                            try { b.prepareToDraw(); } catch (Throwable ignored) { }
+                            BubbleBitmapPipeline.postMain(() -> {
+                                final Bitmap existing = MEDIA_BITMAP_CACHE.get(turl);
+                                if (existing != null && !existing.isRecycled()) {
+                                    BubbleBitmapPipeline.recycleUnused(b);
+                                    return;
+                                }
+                                MEDIA_BITMAP_CACHE.put(turl, b);
+                                if (b.getHeight() > 0) {
+                                    com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                            .cacheAspectRatio(turl, (float) b.getWidth() / b.getHeight());
+                                }
+                            });
+                        } catch (Throwable ignored) { /* bind falls back to its own Glide load */ }
                     });
                 }
             });

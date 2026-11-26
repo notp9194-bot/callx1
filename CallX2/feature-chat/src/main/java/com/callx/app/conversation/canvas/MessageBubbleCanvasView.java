@@ -8429,7 +8429,7 @@ public class MessageBubbleCanvasView extends View {
     @Override
     public void invalidate() {
         if (!fullBubbleDirty && com.callx.app.debug.BubblePerfStats.on) {
-            com.callx.app.debug.BubblePerfStats.dirtiedWhileClean();   // v865: who re-dirties a clean cached bubble
+            com.callx.app.debug.BubblePerfStats.dirtiedWhileClean(isVideoMedia);   // v865: who re-dirties a clean cached bubble
         }
         fullBubbleDirty = true;
         super.invalidate();
@@ -8534,6 +8534,9 @@ public class MessageBubbleCanvasView extends View {
                 if (com.callx.app.debug.BubblePerfStats.on) {
                     com.callx.app.debug.BubblePerfStats.missWhy(fullBubbleDirty,
                             w != fullBubblePictureW || h != fullBubblePictureH, !fullBubbleRenderNode.hasDisplayList());
+                    if (!fullBubbleDirty && w == fullBubblePictureW && h == fullBubblePictureH) {
+                        com.callx.app.debug.BubblePerfStats.noDlInfo(isAttachedToWindow(), fullBubbleEmptyRecord); // v880
+                    }
                 }
                 final long _pt = com.callx.app.debug.BubblePerfStats.on ? System.nanoTime() : 0L;
                 android.os.Trace.beginSection("Bubble.record");
@@ -8544,7 +8547,10 @@ public class MessageBubbleCanvasView extends View {
                 fullBubbleEmptyRecord = !fullBubbleRenderNode.hasDisplayList();
                 android.os.Trace.endSection();
                 if (_pt != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt);
-                if (isVideoMedia && com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.videoRec(); // v878
+                if (isVideoMedia && com.callx.app.debug.BubblePerfStats.on) {
+                    com.callx.app.debug.BubblePerfStats.videoRec(); // v878
+                    com.callx.app.debug.BubblePerfStats.videoRecWhy(fullBubbleDirty); // v880
+                }
                 fullBubbleDirty    = false;
                 fullBubblePictureW = w;
                 fullBubblePictureH = h;

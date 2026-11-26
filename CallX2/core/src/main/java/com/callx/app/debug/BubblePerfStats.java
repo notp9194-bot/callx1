@@ -31,7 +31,14 @@ public final class BubblePerfStats {
 
     // v878: records per single-video bubble (target = 1.0). videoBind = bindVideo() calls (a recycled row
     // that rebinds counts again), videoRec = Bubble.record passes of a video bubble.
-    private static long vidBindN, vidRecN, vidPreN;
+    private static long vidBindN, vidRecN, vidPreN, vidRecDirty, vidRecNoDl, noDlAttached, noDlDetached, noDlEmptyFlag;
+    /** v880: why a video bubble was (re)recorded: dirty flag vs. missing display list. */
+    public static void videoRecWhy(boolean dirty) { if (dirty) vidRecDirty++; else vidRecNoDl++; }
+    /** v880: a record caused only by a missing display list (size unchanged, not dirty) — was the view attached? */
+    public static void noDlInfo(boolean attached, boolean emptyFlag) {
+        if (attached) noDlAttached++; else noDlDetached++;
+        if (emptyFlag) noDlEmptyFlag++;
+    }
     public static void videoPre()  { vidPreN++; }
     public static void videoBind() { vidBindN++; }
     public static void videoRec()  { vidRecN++; }
@@ -96,7 +103,8 @@ public final class BubblePerfStats {
     // v865: who dirtied a CLEAN cached bubble via invalidate() (the generator of re-records)
     private static final java.util.HashMap<String, int[]> dirtiers = new java.util.HashMap<>();
     private static long dirtiedClean;
-    public static void dirtiedWhileClean() {
+    public static void dirtiedWhileClean() { dirtiedWhileClean(false); }
+    public static void dirtiedWhileClean(boolean video) {
         dirtiedClean++;
         StackTraceElement[] st = new Throwable().getStackTrace();
         String key = "?";
@@ -106,6 +114,17 @@ public final class BubblePerfStats {
             key = c.substring(c.lastIndexOf('.') + 1) + "." + st[i].getMethodName() + ":" + st[i].getLineNumber();
             break;
         }
+        if ("?".equals(key)) {
+            // v880: pure-framework caller -> show the first few raw frames instead of an opaque "?"
+            StringBuilder fw = new StringBuilder("fw:");
+            for (int i = 2; i < st.length && i < 6; i++) {
+                String c = st[i].getClassName();
+                if (i > 2) fw.append(" < ");
+                fw.append(c.substring(c.lastIndexOf('.') + 1)).append('.').append(st[i].getMethodName());
+            }
+            key = fw.toString();
+        }
+        if (video) key = "[video] " + key;
         int[] c = dirtiers.get(key);
         if (c == null) { if (dirtiers.size() >= 80) return; dirtiers.put(key, c = new int[1]); }
         c[0]++;
@@ -140,7 +159,7 @@ public final class BubblePerfStats {
         typeStat.clear();
         bmHw = bmSw = bmPh = bmSwBytes = bmSwMax = 0;
         mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
-        vidBindN = vidRecN = vidPreN = 0;
+        vidBindN = vidRecN = vidPreN = vidRecDirty = vidRecNoDl = noDlAttached = noDlDetached = noDlEmptyFlag = 0;
         startMs = System.currentTimeMillis();
         synchronized (FL) {
             frameN = 0; fTotal = fLayout = fDraw = fSync = 0; over1 = over2 = 0;
@@ -247,6 +266,9 @@ public final class BubblePerfStats {
         sb.append("video bubbles: binds=").append(vidBindN).append(" records=").append(vidRecN)
           .append(" records/bind=").append(vidBindN == 0 ? "-" : String.format(Locale.US, "%.2f", (double) vidRecN / vidBindN))
           .append("  (target 1.00)  preRecorded video=").append(vidPreN).append("\n");
+        sb.append("video records by reason: dirty=").append(vidRecDirty).append(" noDisplayList=").append(vidRecNoDl).append('\n');
+        sb.append("noDisplayList (size unchanged): attached=").append(noDlAttached).append(" detached=").append(noDlDetached)
+          .append(" emptyFlag=").append(noDlEmptyFlag).append('\n');
         sb.append("invalidate() on CLEAN bubble=").append(dirtiedClean).append(" (top callers):\n");
         {
             java.util.ArrayList<java.util.Map.Entry<String, int[]>> es = new java.util.ArrayList<>(dirtiers.entrySet());
