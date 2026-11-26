@@ -2019,18 +2019,20 @@ public class ChatMediaController {
         }
     }
 
-    /** If the metadata read is slower than this (cloud / slow storage URI), the bubble is inserted
-     *  anyway (old 4:3 behaviour) and the real ratio is applied the moment it arrives. */
+    /** If the file read (bounds + first frame) is slower than this (cloud / slow storage URI), the
+     *  bubble is inserted anyway (old 4:3, no-thumb look) and ratio + thumbnail are applied the moment
+     *  they arrive (persisted to Room; the adapter's DIFF now rebinds on thumbnailUrl/size change). */
     private static final long VIDEO_BOUNDS_DEADLINE_MS = 350L;
 
     /**
-     * v875 — 1:1 chat video send hot path, ONE retriever open for everything:
-     *   bg: open file once -> display bounds -> [main] insert pre-sized bubble IMMEDIATELY ->
-     *   (same open retriever) first-frame thumb -> [main, FIFO after insert] set thumb + start upload.
-     * Compared with v874 this removes a 2nd setDataSource(), a main-thread hop + a bg hop, and the
-     * thumb is no longer serialised behind the insert. A 350 ms deadline guarantees the bubble is
-     * never held back by a slow URI. {@code fullFlow}: true = uploadAndSend (toast on insert failure,
-     * clearReply, offline queue); false = gallery single-item (caller clears reply, queue handles net).
+     * v876 — 1:1 chat video send hot path, ONE retriever open for everything:
+     *   bg: open file once -> display bounds -> first-frame thumb (scaled decode, same open) ->
+     *   [main] insert bubble that ALREADY has real ratio + thumbnail (first bind is complete, no pop-in) ->
+     *   start upload (strictly after the insert).
+     * A 350 ms deadline guarantees a slow URI never holds the bubble back; late ratio/thumb are then
+     * persisted and shown through the adapter's thumbnail/size-aware DiffUtil.
+     * {@code fullFlow}: true = uploadAndSend (toast on insert failure, clearReply, offline queue);
+     * false = gallery single-item (caller clears reply, upload queue handles the network).
      */
     private void sendVideoLocalFirst(final Uri uri, final Message pending, final boolean fullFlow) {
         final java.util.concurrent.atomic.AtomicBoolean inserted =
@@ -2063,59 +2065,56 @@ public class ChatMediaController {
 
         com.callx.app.utils.AppBgExecutor.execute(() -> {
             android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
-            boolean opened = false;
             int[] vb = new int[]{0, 0};
+            String thumb = null;
             try {
                 openRetriever(mmr, uri);
-                opened = true;
                 vb = VideoCompressor.displayBoundsOf(mmr);
+                thumb = extractVideoThumbFrom(mmr, vb);
             } catch (Exception e) {
-                android.util.Log.w("ChatMediaController", "video open failed", e);
+                android.util.Log.w("ChatMediaController", "video open/thumb failed", e);
+            } finally {
+                try { mmr.release(); } catch (Exception ignored) {}
             }
             final int[] fvb = vb;
+            final String thumbFileUri = thumb != null ? "file://" + thumb : null;
 
-            // 1) bubble ASAP — correctly sized on its first layout pass.
             activity.runOnUiThread(() -> {
                 main.removeCallbacks(insertNow);
+                final boolean hasDims = fvb[0] > 0 && fvb[1] > 0;
                 if (!inserted.get()) {
-                    if (fvb[0] > 0 && fvb[1] > 0) {
+                    // common case: very first bind already has ratio + thumbnail.
+                    if (hasDims) {
                         pending.mediaWidth  = fvb[0];
                         pending.mediaHeight = fvb[1];
                     }
+                    if (thumbFileUri != null && pending.thumbnailUrl == null) {
+                        pending.thumbnailUrl = thumbFileUri;
+                    }
                     insertNow.run();
-                } else if (insertOk[0] && fvb[0] > 0 && fvb[1] > 0
-                        && (pending.mediaWidth == null || pending.mediaWidth <= 0)) {
-                    // deadline fired first: bubble exists on the 4:3 fallback -> fix it now.
-                    pending.mediaWidth  = fvb[0];
-                    pending.mediaHeight = fvb[1];
-                    final String rowId = pending.id != null ? pending.id : pending.messageId;
-                    if (rowId != null) {
-                        com.callx.app.utils.AppBgExecutor.execute(() ->
-                                AppDatabase.getInstance(activity).messageDao()
-                                        .updateMediaDimensions(rowId, fvb[0], fvb[1], (float) fvb[0] / fvb[1]));
+                } else if (insertOk[0]) {
+                    // deadline fired first: bubble exists without them -> apply + persist now.
+                    final String rid = pending.id != null ? pending.id : pending.messageId;
+                    if (hasDims && (pending.mediaWidth == null || pending.mediaWidth <= 0)) {
+                        pending.mediaWidth  = fvb[0];
+                        pending.mediaHeight = fvb[1];
+                        if (rid != null) {
+                            com.callx.app.utils.AppBgExecutor.execute(() ->
+                                    AppDatabase.getInstance(activity).messageDao()
+                                            .updateMediaDimensions(rid, fvb[0], fvb[1], (float) fvb[0] / fvb[1]));
+                        }
+                    }
+                    if (thumbFileUri != null && pending.thumbnailUrl == null) {
+                        pending.thumbnailUrl = thumbFileUri;
+                        if (rid != null) {
+                            com.callx.app.utils.AppBgExecutor.execute(() ->
+                                    AppDatabase.getInstance(activity).messageDao()
+                                            .updateThumbnailUrl(rid, thumbFileUri));
+                        }
                     }
                 }
-            });
-
-            // 2) first frame on the SAME open retriever (after the bubble was already posted).
-            String thumb = opened ? extractVideoThumbFrom(mmr, fvb) : null;
-            try { mmr.release(); } catch (Exception ignored) {}
-            final String fThumb = thumb;
-
-            // 3) main FIFO: runs strictly after the insert above.
-            activity.runOnUiThread(() -> {
-                if (!insertOk[0]) return;              // insert failed -> no upload
-                if (offlineQueued[0]) return;          // offline: outbox owns the upload
-                if (fThumb != null && pending.thumbnailUrl == null) {
-                    final String thumbFileUri = "file://" + fThumb;
-                    pending.thumbnailUrl = thumbFileUri;
-                    final String rowId = pending.id != null ? pending.id : pending.messageId;
-                    if (rowId != null) {
-                        com.callx.app.utils.AppBgExecutor.execute(() ->
-                                AppDatabase.getInstance(activity).messageDao()
-                                        .updateThumbnailUrl(rowId, thumbFileUri));
-                    }
-                }
+                if (!insertOk[0]) return;     // insert failed -> no upload
+                if (offlineQueued[0]) return; // offline: outbox owns the upload
                 doStartVideoUpload(uri, pending);
             });
         });

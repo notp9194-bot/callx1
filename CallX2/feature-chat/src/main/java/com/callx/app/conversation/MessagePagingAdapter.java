@@ -299,6 +299,12 @@ public class MessagePagingAdapter
                     && safeEquals(a.text, b.text)           // Content changed
                     && safeEquals(a.type, b.type)           // Type changed (e.g. call_entry)
                     && safeEquals(a.status, b.status)       // Read/delivered ticks
+                    // v876: a media bubble's preview/size can arrive AFTER the first bind (sender's local
+                    // first-frame, late inline poster, late dimensions). Without these, Room updated the row
+                    // but DiffUtil said "same" (or status-only partial bind) -> thumbnail only showed after reopen.
+                    && safeEquals(a.thumbnailUrl, b.thumbnailUrl)
+                    && intEquals(a.mediaWidth, b.mediaWidth)
+                    && intEquals(a.mediaHeight, b.mediaHeight)
                     && longEquals(a.timestamp, b.timestamp)
                     && boolEquals(a.edited, b.edited)
                     && boolEquals(a.deleted, b.deleted)             // view-once/delete tombstone flip
@@ -348,6 +354,12 @@ public class MessagePagingAdapter
                 return x.longValue() == y.longValue();
             }
 
+            private boolean intEquals(Integer x, Integer y) {
+                if (x == null && y == null) return true;
+                if (x == null || y == null) return false;
+                return x.intValue() == y.intValue();
+            }
+
             private boolean boolEquals(Boolean x, Boolean y) {
                 if (x == null && y == null) return true;
                 if (x == null || y == null) return false;
@@ -382,6 +394,10 @@ public class MessagePagingAdapter
                 boolean structuralSame =
                         safeEquals(a.text, b.text) &&
                         safeEquals(a.type, b.type) &&
+                        // v876: preview/size change => never a status-only fast path (null -> full rebind)
+                        safeEquals(a.thumbnailUrl, b.thumbnailUrl) &&
+                        intEquals(a.mediaWidth, b.mediaWidth) &&
+                        intEquals(a.mediaHeight, b.mediaHeight) &&
                         longEquals(a.timestamp, b.timestamp) &&
                         boolEquals(a.deleted, b.deleted) &&
                         safeEquals(a.viewOnceState, b.viewOnceState) &&
