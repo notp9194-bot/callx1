@@ -2244,7 +2244,7 @@ public class GroupChatActivity extends AppCompatActivity
         // anything not a plain, non-deleted text message.
         if ("text".equals(m.type)) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                    .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted));
+                    .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted), m.senderId);
         }
         // PERF: same shared cache reuse as 1:1 ChatActivity — single-image/
         // video and media-group captions measure at the same maxTextWidth
@@ -2252,7 +2252,7 @@ public class GroupChatActivity extends AppCompatActivity
         if (m.caption != null && !m.caption.isEmpty()
                 && ("image".equals(m.type) || "video".equals(m.type) || "multi_media".equals(m.type))) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                    .precomputeTextLayoutIfPossible(m.caption, false);
+                    .precomputeTextLayoutIfPossible(m.caption, false, m.senderId);
         }
         if ("poll".equals(m.type) && m.pollOptions != null) {
             for (String opt : m.pollOptions) {

@@ -4733,7 +4733,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // plain, non-deleted text message.
         if (m != null && "text".equals(m.type)) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                    .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted));
+                    .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted), m.senderId);
         }
         // PERF: single-image/video captions and media-group captions are
         // plain text runs measured at the exact same maxTextWidth a text
@@ -4743,7 +4743,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (m != null && m.caption != null && !m.caption.isEmpty()
                 && ("image".equals(m.type) || "video".equals(m.type) || "multi_media".equals(m.type))) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                    .precomputeTextLayoutIfPossible(m.caption, false);
+                    .precomputeTextLayoutIfPossible(m.caption, false, m.senderId);
         }
         if (m != null && "poll".equals(m.type) && m.pollOptions != null) {
             for (String opt : m.pollOptions) {

@@ -227,6 +227,18 @@ public class MessagePagingAdapter
         if (!(item.getParent() instanceof RecyclerView)) return;
         final RecyclerView rv = (RecyclerView) item.getParent();
         final int savedTop = item.getTop();
+        // v892: let the LayoutManager keep the item's top in the SAME layout pass the bubble's requestLayout()
+        // already schedules (was: PreDraw -> scrollBy() = a second layout/fill pass after the toggle).
+        final int pos = h.getBindingAdapterPosition();
+        final RecyclerView.LayoutManager lm = rv.getLayoutManager();
+        if (pos != RecyclerView.NO_POSITION && lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+            final androidx.recyclerview.widget.LinearLayoutManager llm =
+                    (androidx.recyclerview.widget.LinearLayoutManager) lm;
+            if (!llm.getReverseLayout() && llm.getOrientation() == androidx.recyclerview.widget.LinearLayoutManager.VERTICAL) {
+                llm.scrollToPositionWithOffset(pos, savedTop - rv.getPaddingTop());
+                return;
+            }
+        }
         final android.view.ViewTreeObserver vto = rv.getViewTreeObserver();
         if (!vto.isAlive()) return;
         vto.addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {

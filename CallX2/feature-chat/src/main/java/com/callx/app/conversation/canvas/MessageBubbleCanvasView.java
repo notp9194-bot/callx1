@@ -999,19 +999,96 @@ public class MessageBubbleCanvasView extends View {
      * PERF: allocation-free cache key (was a String concat "len_hash_width" built on every
      * onMeasure of every text/caption bubble). 32-bit hash | 16-bit length | 16-bit width.
      */
-    static long textLayoutKey(String text, int width) {
+    static long textLayoutKey(String text, int width, boolean sent) {
+        // v891: 32-bit hash | 15-bit length | 1 sent bit | 16-bit width. The sent bit keeps a sent and a
+        // received bubble of the same text from sharing ONE layout (whose paint colour is overwritten per measure).
         return ((long) text.hashCode() << 32)
-                | ((long) (Math.min(text.length(), 0xFFFF)) << 16)
+                | ((long) (Math.min(text.length(), 0x7FFF)) << 17)
+                | (sent ? (1L << 16) : 0L)
                 | (long) (width & 0xFFFF);
     }
 
     private static final class CachedTextLayout {
         final StaticLayout layout;
-        /** PERF: pre-built "Read more" collapsed layout (same paint), null if text is short. */
-        final StaticLayout collapsed;
-        CachedTextLayout(StaticLayout layout) { this(layout, null); }
-        CachedTextLayout(StaticLayout layout, StaticLayout collapsed) {
-            this.layout = layout; this.collapsed = collapsed;
+        // v891 PERF: O(1) onMeasure — line stats are computed ONCE here (background thread), not per measure
+        // (maxLineWidth() used to loop over every line of the layout on every measure; 100+ lines when expanded).
+        final int lineCount, maxLineW, lastLineW;
+        // v891 PERF: the collapsed ("Read more") layout is built lazily, only for bubbles that are really measured
+        // collapsed, instead of eagerly for every long message in the paging window.
+        private StaticLayout collapsed;
+        private int collapsedMaxLineW, collapsedLastLineW;
+        private boolean collapsedTried;
+        private boolean collapsedUsed;      // a real measure consumed it -> never dropped by the prewarm LRU
+        CachedTextLayout(StaticLayout layout) {
+            this.layout = layout;
+            final int n = layout.getLineCount();
+            int m = 0;
+            for (int i = 0; i < n; i++) m = Math.max(m, (int) Math.ceil(layout.getLineWidth(i)));
+            this.lineCount = n;
+            this.maxLineW = m;
+            this.lastLineW = n > 0 ? (int) Math.ceil(layout.getLineWidth(n - 1)) : 0;
+        }
+        /** Lazily built collapsed layout (same paint as {@link #layout}); null when the text is short. */
+        synchronized StaticLayout collapsed() {
+            if (!collapsedTried) {
+                collapsedTried = true;
+                if (lineCount > MAX_COLLAPSED_LINES) {
+                    collapsed = buildCollapsedLayout(layout.getText(), layout.getPaint(), layout.getWidth(), layout);
+                    if (collapsed != null) {
+                        final int n = collapsed.getLineCount();
+                        int m = 0;
+                        for (int i = 0; i < n; i++) m = Math.max(m, (int) Math.ceil(collapsed.getLineWidth(i)));
+                        collapsedMaxLineW = m;
+                        collapsedLastLineW = n > 0 ? (int) Math.ceil(collapsed.getLineWidth(n - 1)) : 0;
+                    }
+                }
+            }
+            return collapsed;
+        }
+        /** Measure-side accessor: same as collapsed() but pins the entry against prewarm-LRU drops. */
+        synchronized StaticLayout collapsedUsed() { collapsedUsed = true; return collapsed(); }
+        synchronized void dropPrewarmedCollapsed() {
+            if (collapsedUsed) return;
+            collapsed = null; collapsedTried = false;
+        }
+        synchronized int collapsedMaxLineW() { return collapsedMaxLineW; }
+        synchronized int collapsedLastLineW() { return collapsedLastLineW; }
+    }
+
+    /**
+     * v891: builds the ellipsized "Read more" layout from the FULL layout's first MAX_COLLAPSED_LINES+1 lines only.
+     * Greedy line breaking (BREAK_STRATEGY_SIMPLE) makes lines 1..MAX identical to the full layout, and keeping the
+     * start of line MAX+1 in range keeps the END-ellipsis behaviour identical, but the text that gets shaped/measured
+     * is a few hundred chars instead of the whole (possibly multi-thousand-char) message.
+     * @return null on any failure (callers fall back to the old full-text build)
+     */
+    static StaticLayout buildCollapsedLayout(CharSequence src, TextPaint paint, int width, StaticLayout full) {
+        try {
+            int end = src.length();
+            if (full != null && full.getLineCount() > MAX_COLLAPSED_LINES) {
+                end = Math.min(end, full.getLineEnd(MAX_COLLAPSED_LINES));
+            }
+            return StaticLayout.Builder.obtain(src, 0, end, paint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1f)
+                    .setIncludePad(false)
+                    .setMaxLines(MAX_COLLAPSED_LINES)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                    .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+                    .build();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** v891: sent/received flag for off-UI-thread precompute (same uid source the chat screens use). */
+    static boolean isSentByCurrentUser(String senderId) {
+        try {
+            String uid = com.google.firebase.auth.FirebaseAuth.getInstance().getUid();
+            return uid != null && uid.equals(senderId);
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -1034,6 +1111,7 @@ public class MessageBubbleCanvasView extends View {
     // evicted.
     public static void trimMemory(int level) {
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+            trimSharedNodesOnMain(true);
             synchronized (sTextLayoutCacheLock) { sTextLayoutCache.clear(); }
             synchronized (sPollOptionLayoutCacheLock) { sPollOptionLayoutCache.clear(); }
             synchronized (sReplyLayoutCacheLock) { sReplyLayoutCache.clear(); }
@@ -1044,6 +1122,7 @@ public class MessageBubbleCanvasView extends View {
             synchronized (sLocationAddressLayoutCacheLock) { sLocationAddressLayoutCache.clear(); }
             synchronized (sLinkTitleLayoutCacheLock) { sLinkTitleLayoutCache.clear(); }
         } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            trimSharedNodesOnMain(false);
             trimToQuarter(sTextLayoutCacheLock, sTextLayoutCache, TEXT_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sPollOptionLayoutCacheLock, sPollOptionLayoutCache, POLL_OPTION_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sReplyLayoutCacheLock, sReplyLayoutCache, REPLY_LAYOUT_CACHE_CAPACITY);
@@ -1134,14 +1213,15 @@ public class MessageBubbleCanvasView extends View {
      * for every message unconditionally; it no-ops (and never throws
      * outward) for anything not eligible.
      */
-    public static void precomputeTextLayoutIfPossible(String text, boolean deleted) {
+    public static void precomputeTextLayoutIfPossible(String text, boolean deleted, String senderId) {
         if (deleted || text == null || text.isEmpty()) return;
+        final boolean sentFlag = isSentByCurrentUser(senderId);
         // PERF: warm the markdown + EmojiCompat span caches off the UI thread so bind()'s
         // formatBody() is a cache hit instead of a main-thread format/emoji pass (13 ms spike).
         try { formatBody(text); } catch (Throwable ignored) {}
         int width = sLastKnownMaxTextWidth;
         if (width <= 0) return; // no real bubble measured yet this session
-        long key = textLayoutKey(text, width);
+        long key = textLayoutKey(text, width, sentFlag);
         synchronized (sTextLayoutCacheLock) {
             if (sTextLayoutCache.containsKey(key)) return;
         }
@@ -1170,25 +1250,27 @@ public class MessageBubbleCanvasView extends View {
             // build synchronously exactly as before.
             return;
         }
-        StaticLayout collapsedLayout = null;
-        try {
-            if (layout.getLineCount() > MAX_COLLAPSED_LINES) {
-                collapsedLayout = StaticLayout.Builder
-                        .obtain(text, 0, text.length(), paint, width)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setLineSpacing(0f, 1f)
-                        .setIncludePad(false)
-                        .setMaxLines(MAX_COLLAPSED_LINES)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
-                        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
-                        .build();
-            }
-        } catch (Exception ignored) { collapsedLayout = null; }
+        // v891: collapsed layout is NOT built here any more (lazy, see CachedTextLayout#collapsed()).
+        final CachedTextLayout entry = new CachedTextLayout(layout);   // line stats computed off the UI thread
         synchronized (sTextLayoutCacheLock) {
-            sTextLayoutCache.put(key, new CachedTextLayout(layout, collapsedLayout));
+            sTextLayoutCache.put(key, entry);
+        }
+        // v892: bounded background prewarm of the collapsed layout for the most recently precomputed long messages
+        // (the chat-open window), so their first collapsed measure is a hit instead of a main-thread build.
+        if (entry.lineCount > MAX_COLLAPSED_LINES) {
+            entry.collapsed();
+            CachedTextLayout evicted = null;
+            synchronized (sPrewarmLock) {
+                sPrewarmQ.addLast(entry);
+                if (sPrewarmQ.size() > PREWARM_COLLAPSED_MAX) evicted = sPrewarmQ.pollFirst();
+            }
+            if (evicted != null && evicted != entry) evicted.dropPrewarmedCollapsed();
         }
     }
+
+    private static final int PREWARM_COLLAPSED_MAX = 12;
+    private static final Object sPrewarmLock = new Object();
+    private static final java.util.ArrayDeque<CachedTextLayout> sPrewarmQ = new java.util.ArrayDeque<>();
 
     private static float sp2pxStatic(float sp) {
         return sp * android.content.res.Resources.getSystem().getDisplayMetrics().scaledDensity;
@@ -1724,10 +1806,11 @@ public class MessageBubbleCanvasView extends View {
      * adapter (not in the view) so scroll recycling never loses it.
      */
     public void setTextExpanded(boolean expanded) {
+        revealStartMs = 0L;   // v891: a rebind never inherits a running reveal
         if (this.isTextExpanded == expanded) return;
         this.isTextExpanded = expanded;
         if (requestLayoutIfSizeChanged()) textLayout = null;
-        fullBubbleDirty = true;
+        markBubbleDirty();
         invalidate();
     }
     /**
@@ -1739,6 +1822,16 @@ public class MessageBubbleCanvasView extends View {
      * a given bind. `x` is the left edge to draw at, `rowTop` is the y
      * coordinate right where the (collapsed) text block ends.
      */
+    /** v891: same geometry as drawReadMoreStrip() but no drawing (used when a cached node replays the strip). */
+    void layoutReadMoreRect(float x, float rowTop) {
+        readMorePaint.setTextSize(spToPx(READ_MORE_TEXT_SP));
+        readMorePaint.setFakeBoldText(false);
+        String rmLabel = isTextExpanded ? "Read less \u25B2" : "Read more \u25BC";
+        float rowH = READ_MORE_ROW_HEIGHT_DP * density;
+        float rmW = readMoreWidthCache.get(readMorePaint, rmLabel);
+        readMoreRect.set(x, rowTop, x + rmW, rowTop + rowH);
+    }
+
     void drawReadMoreStrip(Canvas canvas, float x, float rowTop) {
         readMorePaint.setTextSize(spToPx(READ_MORE_TEXT_SP));
         // Gold for sent bubbles (matches tick/waveform accent),
@@ -1779,7 +1872,7 @@ public class MessageBubbleCanvasView extends View {
         bubbleTailShown = shown;
         // Flags only (no drawable resolve / invalidate): the bind path that follows does both.
         staticPictureDirty = true;
-        fullBubbleDirty = true;
+        markBubbleDirty();
     }
 
     /** Show/hide the bubble tail (no re-measure: only the static bubble layer is redrawn). */
@@ -1824,7 +1917,8 @@ public class MessageBubbleCanvasView extends View {
     // whenever that key hasn't moved, while still always invalidate()-ing
     // so the new content actually draws. null means "never measured yet",
     // which always forces the first layout pass.
-    String lastSizeSignature = null;
+    long lastSizeSig;            // v892: allocation-free signature (was a String built on every bind)
+    boolean hasLastSig;
 
     float density;
     int bubbleLeft, bubbleTop;
@@ -2979,37 +3073,67 @@ public class MessageBubbleCanvasView extends View {
     // RenderNode is ref-counted). Main thread only.
     private static final boolean SHARED_TEXT_NODE_ENABLED = true;
     private static final int SHARED_NODE_MAX = 192;
+    // v892: eviction is by WEIGHT (1 + lineCount/16), not just count: a 100-line expanded node costs ~7 short ones.
+    private static final int SHARED_NODE_MAX_WEIGHT = 288;
+    private static int sSharedWeight;
     private static final java.util.LinkedHashMap<SharedKey, android.graphics.RenderNode> SHARED_NODES =
-            new java.util.LinkedHashMap<SharedKey, android.graphics.RenderNode>(256, 0.75f, true) {
-                @Override protected boolean removeEldestEntry(java.util.Map.Entry<SharedKey, android.graphics.RenderNode> e) {
-                    return size() > SHARED_NODE_MAX;
-                }
-            };
+            new java.util.LinkedHashMap<SharedKey, android.graphics.RenderNode>(256, 0.75f, true);
     /** Call from Application.onTrimMemory(>= TRIM_MEMORY_BACKGROUND) / theme change. */
-    public static void clearSharedBubbleNodes() { SHARED_NODES.clear(); }
+    public static void clearSharedBubbleNodes() { SHARED_NODES.clear(); sSharedWeight = 0; }
+
+    /** Main thread only: publish a node, then evict LRU entries until under both budgets. */
+    private static void putSharedNode(SharedKey key, android.graphics.RenderNode n) {
+        if (SHARED_NODES.put(key, n) == null) sSharedWeight += key.weight;
+        trimSharedNodes(SHARED_NODE_MAX, SHARED_NODE_MAX_WEIGHT, key);
+    }
+
+    private static void trimSharedNodes(int maxCount, int maxWeight, SharedKey keep) {
+        java.util.Iterator<java.util.Map.Entry<SharedKey, android.graphics.RenderNode>> it =
+                SHARED_NODES.entrySet().iterator();
+        while ((SHARED_NODES.size() > maxCount || sSharedWeight > maxWeight) && it.hasNext()) {
+            java.util.Map.Entry<SharedKey, android.graphics.RenderNode> e = it.next();
+            if (e.getKey() == keep) continue;
+            sSharedWeight -= e.getKey().weight;
+            it.remove();
+        }
+        if (sSharedWeight < 0) sSharedWeight = 0;
+    }
+
+    /** v892: onTrimMemory hook (CallxApp already calls MessageBubbleCanvasView.trimMemory). Hops to main if needed. */
+    private static void trimSharedNodesOnMain(final boolean all) {
+        Runnable r = () -> {
+            if (all) clearSharedBubbleNodes();
+            else trimSharedNodes(SHARED_NODE_MAX / 4, SHARED_NODE_MAX_WEIGHT / 4, null);
+        };
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) r.run();
+        else new android.os.Handler(android.os.Looper.getMainLooper()).post(r);
+    }
 
     private static final class SharedKey {
         final CharSequence text;   // identity: the exact (cached) spanned text the layout was built from
         final int w, h, bl, bt, br, bb, textColor, textSizeBits, skewBits, alpha, lineCount, layoutW;
-        final boolean sent, tail, deleted, inlineFooter;
+        final boolean sent, tail, deleted, inlineFooter, expanded;
         final Object typeface, drawable;
         final int hash;
+        final int weight;
         SharedKey(CharSequence text, int w, int h, android.graphics.RectF r, int textColor, float textSize,
                   float skew, int alpha, int lineCount, int layoutW, boolean sent, boolean tail,
-                  boolean deleted, boolean inlineFooter, Object typeface, Object drawable) {
+                  boolean deleted, boolean inlineFooter, boolean expanded, Object typeface, Object drawable) {
             this.text = text; this.w = w; this.h = h;
             this.bl = Float.floatToIntBits(r.left); this.bt = Float.floatToIntBits(r.top);
             this.br = Float.floatToIntBits(r.right); this.bb = Float.floatToIntBits(r.bottom);
             this.textColor = textColor; this.textSizeBits = Float.floatToIntBits(textSize);
             this.skewBits = Float.floatToIntBits(skew); this.alpha = alpha;
             this.lineCount = lineCount; this.layoutW = layoutW;
+            this.weight = 1 + lineCount / 16;
             this.sent = sent; this.tail = tail; this.deleted = deleted; this.inlineFooter = inlineFooter;
+            this.expanded = expanded;
             this.typeface = typeface; this.drawable = drawable;
             int hh = System.identityHashCode(text);
             hh = 31 * hh + w; hh = 31 * hh + h; hh = 31 * hh + bl; hh = 31 * hh + bt; hh = 31 * hh + br; hh = 31 * hh + bb;
             hh = 31 * hh + textColor; hh = 31 * hh + textSizeBits; hh = 31 * hh + skewBits; hh = 31 * hh + alpha;
             hh = 31 * hh + lineCount; hh = 31 * hh + layoutW;
-            hh = 31 * hh + (sent ? 1 : 0) + (tail ? 2 : 0) + (deleted ? 4 : 0) + (inlineFooter ? 8 : 0);
+            hh = 31 * hh + (sent ? 1 : 0) + (tail ? 2 : 0) + (deleted ? 4 : 0) + (inlineFooter ? 8 : 0) + (expanded ? 16 : 0);
             hh = 31 * hh + System.identityHashCode(drawable);
             this.hash = hh;
         }
@@ -3022,6 +3146,7 @@ public class MessageBubbleCanvasView extends View {
                     && textColor == k.textColor && textSizeBits == k.textSizeBits && skewBits == k.skewBits
                     && alpha == k.alpha && lineCount == k.lineCount && layoutW == k.layoutW
                     && sent == k.sent && tail == k.tail && deleted == k.deleted && inlineFooter == k.inlineFooter
+                    && expanded == k.expanded
                     && typeface == k.typeface && drawable == k.drawable && text == k.text;
         }
     }
@@ -3029,20 +3154,26 @@ public class MessageBubbleCanvasView extends View {
     /** Node currently attached to this view (from SHARED_NODES). Never recorded into by the view. */
     private android.graphics.RenderNode sharedNode;
     private int sharedNodeW = -1, sharedNodeH = -1;
+    // v891: identity-stable source text for the shared key (see onMeasure plain-text branch)
+    private StaticLayout sharedKeySrcLayout;
+    private CharSequence sharedKeySrc;
 
     /** Only the simplest text bubbles: nothing baked into the node besides bubble bg + glyphs. */
     private boolean isSharedNodeEligible() {
         return SHARED_TEXT_NODE_ENABLED && isPlainTextBubble() && textLayout != null && bubbleDrawable != null
-                && !isPinned && !hasGroupSender && !hasForwarded && !hasReply && !hasLinkPreview && !hasLongText;
+                && !isPinned && !hasGroupSender && !hasForwarded && !hasReply && !hasLinkPreview;   // v891: long (Read more) bubbles included
     }
 
     private SharedKey buildSharedKey(int w, int h) {
         // Read colour/size/etc. from the LAYOUT's own paint: cached layouts own a dedicated TextPaint
         // (see onMeasure), and Layout.draw() uses that one, not this view's textPaint.
         final android.text.TextPaint lp = textLayout.getPaint();
-        return new SharedKey(textLayout.getText(), w, h, bubbleRect, lp.getColor(), lp.getTextSize(),
+        final CharSequence keyText = (sharedKeySrcLayout == textLayout && sharedKeySrc != null)
+                ? sharedKeySrc : textLayout.getText();
+        return new SharedKey(keyText, w, h, bubbleRect, lp.getColor(), lp.getTextSize(),
                 lp.getTextSkewX(), lp.getAlpha(), textLayout.getLineCount(), textLayout.getWidth(),
-                sent, bubbleTailShown, isDeletedStyle, footerInlineWithText, lp.getTypeface(), bubbleDrawable);
+                sent, bubbleTailShown, isDeletedStyle, footerInlineWithText,
+                hasLongText && isTextExpanded, lp.getTypeface(), bubbleDrawable);
     }
 
     /** Re-arms the per-view state drawBubbleContent() would have produced (footer anchor + tap rect). */
@@ -3052,6 +3183,8 @@ public class MessageBubbleCanvasView extends View {
         final int hPad = Math.round(H_PADDING_DP * density);
         final int vPad = Math.round(V_PADDING_DP * density);
         final float textBlockTop = bubbleTop + replyBoxHeight + vPad;
+        // v891: the node holds the "Read more" glyphs, but the tap rect is per-view live state -> set it without drawing.
+        if (hasLongText) layoutReadMoreRect(bubbleLeft + hPad, textBlockTop + textLayout.getHeight());
         if (footerInlineWithText) {
             drawFooter(null, textBlockTop + textLayout.getLineBaseline(textLayout.getLineCount() - 1),
                     bubbleRect.right - hPad);
@@ -3090,7 +3223,7 @@ public class MessageBubbleCanvasView extends View {
                 android.os.Trace.endSection();
             }
             if (!n.hasDisplayList()) return false;
-            SHARED_NODES.put(key, n);
+            putSharedNode(key, n);
             sRenderCacheMisses++;
             if (_pt != 0L) com.callx.app.debug.BubblePerfStats.rec(System.nanoTime() - _pt);
         }
@@ -3401,9 +3534,12 @@ public class MessageBubbleCanvasView extends View {
         if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
         if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
         sharedNode = null; // v885: shared nodes live in SHARED_NODES, never discarded here
+        if (stNode[0] != null) stNode[0].discardDisplayList();
+        if (stNode[1] != null) stNode[1].discardDisplayList();
+        revealStartMs = 0L; otherPreDone = false;
         fullBubbleEmptyRecord = false;
         staticPictureDirty = true;
-        fullBubbleDirty = true;
+        markBubbleDirty();
     }
 
     public MessageBubbleCanvasView(Context ctx) {
@@ -4417,7 +4553,7 @@ public class MessageBubbleCanvasView extends View {
         }
         if (this.audioPlaying == playing) return;
         this.audioPlaying = playing;
-        fullBubbleDirty = true;   // v828: play-state flip changes what the cached node contains
+        markBubbleDirty();   // v828: play-state flip changes what the cached node contains
         invalidateAudioRow();
     }
 
@@ -4438,7 +4574,7 @@ public class MessageBubbleCanvasView extends View {
                     (int) Math.ceil(voiceStripRect.right), (int) Math.ceil(voiceStripRect.bottom));
             return;
         }
-        fullBubbleDirty = true;
+        markBubbleDirty();
         staticPictureDirty = true;
         // Union of both hit-rects — the pill background/glyph/speed chip
         // are all drawn together as one visual unit, so any of the three
@@ -4493,7 +4629,7 @@ public class MessageBubbleCanvasView extends View {
         this.audioProgress = 0f;
         this.audioElapsedText = "";
         if (isAudio || audioStateWasSet) { // v853: a photo/text bubble has no audio row — nothing to redraw
-            fullBubbleDirty = true;   // v828
+            markBubbleDirty();   // v828
             invalidateAudioRow();
         }
         // BUG FIX: a voice-caption-on-photo bubble (isMedia + voiceUrl,
@@ -4538,7 +4674,7 @@ public class MessageBubbleCanvasView extends View {
         // v828: while playing, progress/elapsed ticks only touch the overlay row, so the
         // cached node stays valid (play-state flips set fullBubbleDirty explicitly).
         final boolean liveRowOnly = isAudio && audioPlaying;
-        if (!liveRowOnly) fullBubbleDirty = true;
+        if (!liveRowOnly) markBubbleDirty();
         if (audioBtnRect.isEmpty() && audioWaveformRect.isEmpty()) {
             if (liveRowOnly) super.invalidate(); else invalidate();
             return;
@@ -5932,7 +6068,7 @@ public class MessageBubbleCanvasView extends View {
      * RenderNode/Picture cache dirty so it re-records on the next draw.
      */
     private void invalidatePollRegion() {
-        fullBubbleDirty = true;
+        markBubbleDirty();
         int n = pollOptionRects.size();
         if (n == 0 || bubbleRect.isEmpty()) {
             invalidate(); // no prior geometry yet — fall back to a full pass
@@ -6363,7 +6499,7 @@ public class MessageBubbleCanvasView extends View {
      * falls back to a full invalidate() before that's happened.
      */
     private void invalidateBigReactionBadgeRegion() {
-        fullBubbleDirty = true;
+        markBubbleDirty();
         if (replyThumbDstRect.isEmpty()) {
             invalidate();
             return;
@@ -6933,7 +7069,7 @@ public class MessageBubbleCanvasView extends View {
             invalidate(expiryDirtyRect);
             return;
         }
-        fullBubbleDirty = true;
+        markBubbleDirty();
         float pad = 16f * density;
         float footerBandH = spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density;
         float left = bubbleRect.left;
@@ -7197,6 +7333,7 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        lastWSpec = widthMeasureSpec; lastHSpec = heightMeasureSpec; hasLastSpec = true;   // v891
         final long _t = System.nanoTime();
         android.os.Trace.beginSection("Bubble#measure"); // v862: visible in Perfetto / TraceSectionMetric
         try {
@@ -7396,7 +7533,7 @@ public class MessageBubbleCanvasView extends View {
                 // entirely.
                 CachedTextLayout cachedCaption = null;
                 if (!messageText.isEmpty()) {
-                    long capCacheKey = textLayoutKey(messageText, maxTextWidth);
+                    long capCacheKey = textLayoutKey(messageText, maxTextWidth, sent);
                     synchronized (sTextLayoutCacheLock) {
                         cachedCaption = sTextLayoutCache.get(capCacheKey);
                     }
@@ -7418,20 +7555,32 @@ public class MessageBubbleCanvasView extends View {
                 // bubble path — a long caption gets ellipsized with a
                 // tappable "Read more ▼" strip; isTextExpanded (keyed off
                 // the message id by the adapter) drives which layout wins.
-                hasLongText = textLayout.getLineCount() > MAX_COLLAPSED_LINES;
-                if (hasLongText && !isTextExpanded) {
-                    textLayout = StaticLayout.Builder
-                            .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
-                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                            .setLineSpacing(0f, 1f)
-                            .setIncludePad(false)
-                            .setMaxLines(MAX_COLLAPSED_LINES)
-                            .setEllipsize(TextUtils.TruncateAt.END)
-                            .build();
+                hasLongText = (cachedCaption != null ? cachedCaption.lineCount : textLayout.getLineCount()) > MAX_COLLAPSED_LINES;
+                int capW = -1, capLastW = 0;   // v891: O(1) measure for cached caption layouts
+                if (cachedCaption != null) {
+                    if (hasLongText && !isTextExpanded) {
+                        StaticLayout col = cachedCaption.collapsedUsed();
+                        if (col != null) {
+                            textLayout = col;
+                            capW = cachedCaption.collapsedMaxLineW();
+                            capLastW = cachedCaption.collapsedLastLineW();
+                        }
+                    } else {
+                        capW = cachedCaption.maxLineW;
+                        capLastW = cachedCaption.lastLineW;
+                    }
+                }
+                if (hasLongText && !isTextExpanded && capW < 0) {
+                    StaticLayout col = buildCollapsedLayout(messageTextSpanned, textPaint, maxTextWidth, textLayout);
+                    if (col != null) textLayout = col;
+                }
+                if (capW < 0) {
+                    capW = maxLineWidth(textLayout);
+                    capLastW = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
                 }
 
-                captionWidth = maxLineWidth(textLayout);
-                int lastLineW = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
+                captionWidth = capW;
+                int lastLineW = capLastW;
                 captionWidth = Math.max(captionWidth, (int) (lastLineW + captionFooterReserve));
                 int captionReadMoreRowH = hasLongText ? Math.round(READ_MORE_ROW_HEIGHT_DP * density) : 0;
                 captionBlockHeight = Math.round(MEDIA_CAPTION_GAP_DP * density)
@@ -7871,7 +8020,7 @@ public class MessageBubbleCanvasView extends View {
                 // StaticLayout.Builder...build() cost entirely on scroll.
                 CachedTextLayout cachedGroupCaption = null;
                 if (!messageText.isEmpty()) {
-                    long capCacheKey = textLayoutKey(messageText, maxTextWidth);
+                    long capCacheKey = textLayoutKey(messageText, maxTextWidth, sent);
                     synchronized (sTextLayoutCacheLock) {
                         cachedGroupCaption = sTextLayoutCache.get(capCacheKey);
                     }
@@ -7891,20 +8040,32 @@ public class MessageBubbleCanvasView extends View {
                 // ── Read-more / Read-less collapse (group caption) ────────
                 // Mirrors the single-image caption + plain-text bubble
                 // treatment — shared hasLongText/isTextExpanded fields.
-                hasLongText = groupCaptionLayout.getLineCount() > MAX_COLLAPSED_LINES;
-                if (hasLongText && !isTextExpanded) {
-                    groupCaptionLayout = StaticLayout.Builder
-                            .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
-                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                            .setLineSpacing(0f, 1f)
-                            .setIncludePad(false)
-                            .setMaxLines(MAX_COLLAPSED_LINES)
-                            .setEllipsize(TextUtils.TruncateAt.END)
-                            .build();
+                hasLongText = (cachedGroupCaption != null ? cachedGroupCaption.lineCount : groupCaptionLayout.getLineCount()) > MAX_COLLAPSED_LINES;
+                int gcW = -1, gcLastW = 0;   // v891: O(1) measure for cached caption layouts
+                if (cachedGroupCaption != null) {
+                    if (hasLongText && !isTextExpanded) {
+                        StaticLayout col = cachedGroupCaption.collapsedUsed();
+                        if (col != null) {
+                            groupCaptionLayout = col;
+                            gcW = cachedGroupCaption.collapsedMaxLineW();
+                            gcLastW = cachedGroupCaption.collapsedLastLineW();
+                        }
+                    } else {
+                        gcW = cachedGroupCaption.maxLineW;
+                        gcLastW = cachedGroupCaption.lastLineW;
+                    }
+                }
+                if (hasLongText && !isTextExpanded && gcW < 0) {
+                    StaticLayout col = buildCollapsedLayout(messageTextSpanned, textPaint, maxTextWidth, groupCaptionLayout);
+                    if (col != null) groupCaptionLayout = col;
+                }
+                if (gcW < 0) {
+                    gcW = maxLineWidth(groupCaptionLayout);
+                    gcLastW = (int) Math.ceil(groupCaptionLayout.getLineWidth(groupCaptionLayout.getLineCount() - 1));
                 }
 
-                groupCaptionWidth = maxLineWidth(groupCaptionLayout);
-                int lastLineW = (int) Math.ceil(groupCaptionLayout.getLineWidth(groupCaptionLayout.getLineCount() - 1));
+                groupCaptionWidth = gcW;
+                int lastLineW = gcLastW;
                 groupCaptionWidth = Math.max(groupCaptionWidth, (int) (lastLineW + captionFooterReserve));
                 int groupReadMoreRowH = hasLongText ? Math.round(READ_MORE_ROW_HEIGHT_DP * density) : 0;
                 groupCaptionBlockHeight = Math.round(MEDIA_CAPTION_GAP_DP * density)
@@ -7973,7 +8134,7 @@ public class MessageBubbleCanvasView extends View {
             // that path always builds fresh, exactly as before.
             CachedTextLayout cachedLayout = null;
             if (!isDeletedStyle && !messageText.isEmpty()) {
-                long cacheKey = textLayoutKey(messageText, maxTextWidth);
+                long cacheKey = textLayoutKey(messageText, maxTextWidth, sent);
                 synchronized (sTextLayoutCacheLock) {
                     cachedLayout = sTextLayoutCache.get(cacheKey);
                 }
@@ -8008,27 +8169,35 @@ public class MessageBubbleCanvasView extends View {
             // bubble is NOT in expanded state, swap in a truncated layout so
             // only the first MAX_COLLAPSED_LINES lines are drawn.  The full
             // layout stays in the cache unchanged.
-            hasLongText = !isDeletedStyle && textLayout.getLineCount() > MAX_COLLAPSED_LINES;
-            if (hasLongText && !isTextExpanded && cachedLayout != null && cachedLayout.collapsed != null) {
-                // PERF: reuse the background-built collapsed layout (shares the cached paint,
-                // whose color was already applied above).
-                textLayout = cachedLayout.collapsed;
-            } else if (hasLongText && !isTextExpanded) {
-                textLayout = StaticLayout.Builder
-                        .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setLineSpacing(0f, 1f)
-                        .setIncludePad(false)
-                        .setMaxLines(MAX_COLLAPSED_LINES)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        // PERF: same greedy/no-hyphenation combo as above.
-                        .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
-                        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
-                        .build();
+            hasLongText = !isDeletedStyle
+                    && (cachedLayout != null ? cachedLayout.lineCount : textLayout.getLineCount()) > MAX_COLLAPSED_LINES;
+            // v891: O(1) measure for cached layouts (line stats precomputed), lazy collapsed layout.
+            int textWidth = -1;
+            int lastLineWidth = 0;
+            if (cachedLayout != null) {
+                if (hasLongText && !isTextExpanded) {
+                    StaticLayout col = cachedLayout.collapsedUsed();
+                    if (col != null) {
+                        textLayout = col;
+                        textWidth = cachedLayout.collapsedMaxLineW();
+                        lastLineWidth = cachedLayout.collapsedLastLineW();
+                    }
+                } else {
+                    textWidth = cachedLayout.maxLineW;
+                    lastLineWidth = cachedLayout.lastLineW;
+                }
             }
-
-            int textWidth = maxLineWidth(textLayout);
-            int lastLineWidth = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
+            if (hasLongText && !isTextExpanded && textWidth < 0) {
+                StaticLayout col = buildCollapsedLayout(messageTextSpanned, textPaint, maxTextWidth, textLayout);
+                if (col != null) textLayout = col;
+            }
+            if (textWidth < 0) {
+                textWidth = maxLineWidth(textLayout);
+                lastLineWidth = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
+            }
+            // v891: stable identity for the shared-node key (collapsed layouts wrap text in a fresh Ellipsizer).
+            sharedKeySrcLayout = textLayout;
+            sharedKeySrc = cachedLayout != null ? cachedLayout.layout.getText() : messageTextSpanned;
 
             // WhatsApp-level trailing footer: only steal a below-text row
             // for the footer when the last line + footer genuinely doesn't
@@ -8669,11 +8838,127 @@ public class MessageBubbleCanvasView extends View {
             if (isVideoMedia && com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.videoPre(); // v878
         } catch (RuntimeException e) {
             if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.preErr();
-            fullBubbleDirty = true;                         // fall back to normal onDraw record
+            markBubbleDirty();                         // fall back to normal onDraw record
         }
     }
 
     public static int sRenderCachePreRecorded;
+
+    // ── v892: Read more/less node stash for media + album captions (not shared-node eligible) ──
+    // On toggle the still-valid node of the state we are leaving is parked in slot[state]; toggling back swaps it in
+    // instead of re-recording. ANY content dirtying (markBubbleDirty) invalidates both slots, so it can't go stale.
+    private final android.graphics.RenderNode[] stNode = new android.graphics.RenderNode[2];
+    private final int[] stW = new int[2], stH = new int[2];
+    private final boolean[] stValid = new boolean[2];
+
+    private void markBubbleDirty() {
+        fullBubbleDirty = true;
+        stValid[0] = false; stValid[1] = false;
+    }
+
+    /** Before flipping isTextExpanded. @return slot index that was stashed, or -1. */
+    private int stashForToggle() {
+        if (!SUPPORTS_RENDER_NODE || !(isMedia || isMediaGroup) || !hasLongText || fullBubbleDirty
+                || fullBubbleRenderNode == null || !fullBubbleRenderNode.hasDisplayList()
+                || fullBubblePictureW <= 0 || fullBubblePictureH <= 0) return -1;
+        final int cur = isTextExpanded ? 1 : 0;
+        final android.graphics.RenderNode spare = stNode[cur];
+        stNode[cur] = fullBubbleRenderNode;
+        fullBubbleRenderNode = spare;                 // may be null -> onDraw allocates
+        stW[cur] = fullBubblePictureW; stH[cur] = fullBubblePictureH;
+        return cur;
+    }
+
+    // ── v891 #4: smooth expand reveal. Height snaps; only the clip bottom animates (~150ms). Both states are
+    // shared nodes, so this never re-records: draw() just clips the already-recorded node.
+    private long revealStartMs = 0L;
+    private int revealFromH = 0;
+    private static final long REVEAL_MS = 150L;
+
+    private void startReveal(int fromH) {
+        if (fromH <= 0) return;
+        revealFromH = fromH;
+        revealStartMs = android.os.SystemClock.uptimeMillis();
+    }
+
+    @Override
+    public void draw(Canvas canvas) {
+        if (revealStartMs == 0L) { super.draw(canvas); return; }
+        final long dt = android.os.SystemClock.uptimeMillis() - revealStartMs;
+        final int h = getHeight();
+        if (dt >= REVEAL_MS) {
+            revealStartMs = 0L;
+            super.draw(canvas);
+            return;
+        }
+        if (h <= revealFromH) {            // new height not laid out yet: draw normally, keep ticking
+            super.draw(canvas);
+            super.postInvalidateOnAnimation();
+            return;
+        }
+        float f = dt / (float) REVEAL_MS;
+        f = 1f - (1f - f) * (1f - f);
+        final float bottom = revealFromH + (h - revealFromH) * f;
+        final int sc = canvas.save();
+        canvas.clipRect(0f, 0f, (float) getWidth(), bottom);
+        super.draw(canvas);
+        canvas.restoreToCount(sc);
+        super.postInvalidateOnAnimation();  // View's own: does NOT mark fullBubbleDirty
+    }
+
+    // ── v891 #2: idle pre-record of the OTHER Read more/less state ───────────
+    private int lastWSpec, lastHSpec;
+    private boolean hasLastSpec;
+    private boolean otherPreQueued, otherPreDone;
+    private CharSequence otherPreFor;
+    private static final java.util.ArrayDeque<java.lang.ref.WeakReference<MessageBubbleCanvasView>> sOtherQ =
+            new java.util.ArrayDeque<>();
+    private static boolean sOtherHooked;
+    private static final android.os.MessageQueue.IdleHandler OTHER_IDLE = () -> {
+        java.lang.ref.WeakReference<MessageBubbleCanvasView> r = sOtherQ.pollFirst();   // one job per idle gap
+        MessageBubbleCanvasView v = r != null ? r.get() : null;
+        if (v != null) v.runOtherStatePreRecord();
+        if (sOtherQ.isEmpty()) { sOtherHooked = false; return false; }
+        return true;
+    };
+
+    private void scheduleOtherStatePreRecord() {
+        if (!PRERECORD_ENABLED || !SUPPORTS_RENDER_NODE || otherPreQueued || sOtherQ.size() >= 6) return;
+        otherPreQueued = true;
+        sOtherQ.addLast(new java.lang.ref.WeakReference<>(this));
+        if (!sOtherHooked) { sOtherHooked = true; android.os.Looper.myQueue().addIdleHandler(OTHER_IDLE); }
+    }
+
+    private void runOtherStatePreRecord() {
+        otherPreQueued = false;
+        if (!isAttachedToWindow() || !hasLastSpec || !hasLongText || isLayoutRequested() || fullBubbleDirty
+                || getWidth() <= 0 || !isSharedNodeEligible() || revealStartMs != 0L) return;
+        final boolean was = isTextExpanded;
+        final CharSequence src = sharedKeySrc;
+        try {
+            isTextExpanded = !was;
+            onMeasure(lastWSpec, lastHSpec);           // layouts are cached -> cheap; fills bubbleRect/textLayout for the other state
+            final int w = getMeasuredWidth(), h = getMeasuredHeight();
+            if (w > 0 && h > 0 && hasLongText && isSharedNodeEligible()) {
+                final SharedKey key = buildSharedKey(w, h);
+                android.graphics.RenderNode n = SHARED_NODES.get(key);
+                if (n == null || !n.hasDisplayList()) {
+                    if (n == null) n = new android.graphics.RenderNode("tb");
+                    n.setPosition(0, 0, w, h);
+                    android.graphics.RecordingCanvas rc = n.beginRecording();
+                    try { drawBubbleContent(rc); } finally { n.endRecording(); }
+                    if (n.hasDisplayList()) putSharedNode(key, n);
+                }
+            }
+        } catch (RuntimeException ignored) {
+        } finally {
+            isTextExpanded = was;
+            onMeasure(lastWSpec, lastHSpec);           // restore every measured field + dims
+            if (isSharedNodeEligible()) restoreTextBubbleLiveState();   // footer anchor + readMoreRect of the real state
+            otherPreDone = true;
+            otherPreFor = src;
+        }
+    }
 
     /** v826: single custom-drawn view; avoids an offscreen saveLayer when alpha < 1. */
     @Override
@@ -8692,12 +8977,12 @@ public class MessageBubbleCanvasView extends View {
         if (!fullBubbleDirty && com.callx.app.debug.BubblePerfStats.on) {
             com.callx.app.debug.BubblePerfStats.dirtiedWhileClean(isVideoMedia);   // v865: who re-dirties a clean cached bubble
         }
-        fullBubbleDirty = true;
+        markBubbleDirty();
         super.invalidate();
     }
     @Override
     public void postInvalidateOnAnimation() {
-        fullBubbleDirty = true;
+        markBubbleDirty();
         super.postInvalidateOnAnimation();
     }
 
@@ -8778,6 +9063,7 @@ public class MessageBubbleCanvasView extends View {
             if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated()) {
                 if (isSharedNodeEligible()) {
                     if (acquireSharedNode(w, h)) {
+                        if (hasLongText && (!otherPreDone || otherPreFor != sharedKeySrc)) scheduleOtherStatePreRecord();
                         canvas.drawRenderNode(sharedNode);
                         drawDynamicOverlayLayer(canvas);
                         return;
@@ -8790,6 +9076,18 @@ public class MessageBubbleCanvasView extends View {
                 boolean hit = !fullBubbleDirty
                         && w == fullBubblePictureW && h == fullBubblePictureH
                         && (fullBubbleEmptyRecord || fullBubbleRenderNode.hasDisplayList());
+                if (!hit && hasLongText) {                  // v892: other Read more/less state parked at toggle time?
+                    final int want = isTextExpanded ? 1 : 0;
+                    final android.graphics.RenderNode sn = stNode[want];
+                    if (stValid[want] && sn != null && sn.hasDisplayList() && stW[want] == w && stH[want] == h) {
+                        stNode[want] = fullBubbleRenderNode;   // junk/stale node becomes the spare
+                        fullBubbleRenderNode = sn;
+                        stValid[want] = false;
+                        fullBubbleDirty = false; fullBubbleEmptyRecord = false;
+                        fullBubblePictureW = w; fullBubblePictureH = h;
+                        hit = true;
+                    }
+                }
                 if (hit) {
                     // Cache hit: replay the GPU-side display list — no CPU
                     // draw-op walk at all, cheaper than canvas.drawPicture().
@@ -9431,18 +9729,32 @@ public class MessageBubbleCanvasView extends View {
      */
     /** v829: text part of the size signature as length+hash (String.hashCode is cached per instance),
      *  so the signature no longer copies the whole message body on every bind. */
-    private static void appendTextKey(StringBuilder sb, String t) {
+    private static void appendTextKey(SigHash sb, String t) {
         if (t == null) { sb.append('-'); return; }
         sb.append(t.length()).append(':').append(t.hashCode());
     }
 
-    private String computeSizeSignature() {
+    /** v892: FNV-1a style 64-bit accumulator with StringBuilder-compatible append() overloads (zero allocation). */
+    private static final class SigHash {
+        long h = 0xcbf29ce484222325L;
+        private void mix(long v) { h = (h ^ v) * 0x100000001b3L; h ^= (h >>> 29); }
+        SigHash append(char c) { mix(c); return this; }
+        SigHash append(int v) { mix(v); mix(0x9E37L); return this; }
+        SigHash append(boolean b) { mix(b ? 1 : 2); return this; }
+        SigHash append(String t) {
+            if (t == null) { mix(-7); return this; }
+            mix(t.hashCode()); mix(t.length()); return this;
+        }
+        SigHash append(Object o) { mix(o == null ? -7 : o.hashCode()); return this; }
+    }
+
+    private long computeSizeSignature() {
         float footerReserve = footerTimeTextWidth()
                 + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                 + FOOTER_GAP_DP * density
                 + expiryReserveWidth();
 
-        StringBuilder sb = new StringBuilder(96);
+        SigHash sb = new SigHash();
         sb.append(sent ? '1' : '0').append(isPinned ? 'P' : '_');
         if (hasGroupSender) sb.append("|G").append(groupSenderName);
         if (hasGroupSenderAvatar) sb.append("|GA"); // avatar-column width affects bubbleLeft/maxTextWidth — see onMeasure
@@ -9531,7 +9843,7 @@ public class MessageBubbleCanvasView extends View {
                         .append(linkDomain).append('\u0001').append(linkHasThumb ? '1' : '0');
             }
         }
-        return sb.toString();
+        return sb.h;
     }
 
     /**
@@ -9552,12 +9864,13 @@ public class MessageBubbleCanvasView extends View {
      * messages intermittently rendering blank on a same-size rebind).
      */
     private boolean requestLayoutIfSizeChanged() {
-        String sig = computeSizeSignature();
-        boolean changed = lastSizeSignature == null || getMeasuredWidth() == 0 || !lastSizeSignature.equals(sig);
+        long sig = computeSizeSignature();
+        boolean changed = !hasLastSig || getMeasuredWidth() == 0 || lastSizeSig != sig;
         if (changed) {
             requestLayout();
         }
-        lastSizeSignature = sig;
+        lastSizeSig = sig;
+        hasLastSig = true;
         return changed;
     }
 
@@ -10450,12 +10763,18 @@ public class MessageBubbleCanvasView extends View {
                 && event.getActionMasked() == MotionEvent.ACTION_UP
                 && readMoreRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
+            if (!isTextExpanded) startReveal(getHeight());   // v891: expand -> clip-reveal, no re-record
+            final boolean keep0 = stValid[0], keep1 = stValid[1];
+            final int stashed = stashForToggle();         // v892
             isTextExpanded = !isTextExpanded;
             if (readMoreListener != null) readMoreListener.onReadMoreClick(isTextExpanded);
             // Trigger a re-measure so the bubble resizes for the full/collapsed text.
             if (requestLayoutIfSizeChanged()) textLayout = null;
-            fullBubbleDirty = true;
+            markBubbleDirty();
             invalidate();
+            // v892: the toggle's own dirtying must not kill the stash it just made (or the other state's slot)
+            stValid[0] = keep0; stValid[1] = keep1;
+            if (stashed >= 0) stValid[stashed] = true;
             return true;
         }
 
