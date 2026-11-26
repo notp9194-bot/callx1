@@ -28,7 +28,7 @@ public final class VideoInlineThumb {
     private static final int MAX_SIDE_PX = 160;
     /** Hard cap on the raw JPEG size (bytes) so the message doc stays light. */
     private static final int MAX_JPEG_BYTES = 6 * 1024;
-    private static final int[] QUALITY_STEPS = {55, 45, 35, 28};
+    private static final int[] QUALITY_STEPS = {55, 45, 35, 28, 22, 16};
 
     /**
      * Builds the Base64 JPEG poster from the already-extracted frame file
@@ -38,6 +38,22 @@ public final class VideoInlineThumb {
      */
     @Nullable
     public static String buildInlineJpegB64(@Nullable File thumbFile) {
+        return buildInlineJpegB64(thumbFile, MAX_SIDE_PX, MAX_JPEG_BYTES);
+    }
+
+    /** Max chars of the ratchet-encrypted media key envelope that Firebase rules
+     *  accept (messages/$chatId/$msgId/mediaKeyEnc ".validate" length <= 4000).
+     *  Keep a safety margin below it. */
+    public static final int MAX_E2E_ENVELOPE_CHARS = 3800;
+
+    /** Tiny poster for the E2E envelope: must stay far below the 4000-char rule. */
+    @Nullable
+    public static String buildTinyE2eJpegB64(@Nullable File thumbFile) {
+        return buildInlineJpegB64(thumbFile, 80, 1400);
+    }
+
+    @Nullable
+    public static String buildInlineJpegB64(@Nullable File thumbFile, int maxSidePx, int maxJpegBytes) {
         if (thumbFile == null || !thumbFile.exists() || thumbFile.length() == 0) return null;
         Bitmap src = null, scaled = null;
         try {
@@ -46,13 +62,13 @@ public final class VideoInlineThumb {
             BitmapFactory.decodeFile(thumbFile.getAbsolutePath(), b);
             if (b.outWidth <= 0 || b.outHeight <= 0) return null;
             int sample = 1;
-            while (Math.max(b.outWidth, b.outHeight) / (sample * 2) >= MAX_SIDE_PX) sample *= 2;
+            while (Math.max(b.outWidth, b.outHeight) / (sample * 2) >= maxSidePx) sample *= 2;
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inSampleSize = sample;
             src = BitmapFactory.decodeFile(thumbFile.getAbsolutePath(), o);
             if (src == null) return null;
             int w = src.getWidth(), h = src.getHeight();
-            float scale = (float) MAX_SIDE_PX / Math.max(w, h);
+            float scale = (float) maxSidePx / Math.max(w, h);
             if (scale < 1f) {
                 scaled = Bitmap.createScaledBitmap(src, Math.max(1, Math.round(w * scale)),
                         Math.max(1, Math.round(h * scale)), true);
@@ -64,9 +80,9 @@ public final class VideoInlineThumb {
                 ByteArrayOutputStream bos = new ByteArrayOutputStream(8 * 1024);
                 scaled.compress(Bitmap.CompressFormat.JPEG, q, bos);
                 best = bos.toByteArray();
-                if (best.length <= MAX_JPEG_BYTES) break;
+                if (best.length <= maxJpegBytes) break;
             }
-            if (best == null || best.length == 0) return null;
+            if (best == null || best.length == 0 || best.length > maxJpegBytes * 2) return null;
             return Base64.encodeToString(best, Base64.NO_WRAP);
         } catch (Throwable t) {
             return null;

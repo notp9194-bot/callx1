@@ -2089,30 +2089,53 @@ public class ChatMediaController {
                         com.callx.app.utils.VideoInlineThumb.buildInlineJpegB64(vr.thumbFile);
                 byte[] thumbKey = null;
                 java.io.File encThumb = null;
+                boolean useInlineTmp = false;
                 if (inlineJpegB64 != null) {
                     String partnerUidInl = delegate.getPartnerUid();
-                    // Local mirror: lets the SENDER's own bubble render the poster
-                    // (stripped from the wire for E2E by VideoInlineThumb#stripForWire).
-                    pending.inlineThumbB64 = inlineJpegB64;
                     if (partnerUidInl != null && !partnerUidInl.isEmpty()) {
+                        // E2E: Firebase rules cap mediaKeyEnc at 4000 chars, so only a TINY
+                        // poster (~80px, <=1.4 KB) may ride inside the envelope. If the
+                        // encrypted envelope still doesn't fit, fall back to the legacy
+                        // encrypted-thumb upload (never send an oversized envelope — the
+                        // write would be rejected and the message would fail).
                         try {
+                            String tinyPoster = com.callx.app.utils.VideoInlineThumb
+                                    .buildTinyE2eJpegB64(vr.thumbFile);
+                            if (tinyPoster == null) throw new IllegalStateException("no tiny poster");
                             byte[] masterKeyInl = com.callx.app.utils.MediaE2ECrypto.generateKey();
                             String envelopeJsonInl = com.callx.app.utils.MediaE2ECrypto
-                                    .buildKeyEnvelopeJsonInlineJpeg(masterKeyInl, blurHash, inlineJpegB64);
-                            pending.mediaKeyEnc = com.callx.app.utils.E2EEncryptionManager
+                                    .buildKeyEnvelopeJsonInlineJpeg(masterKeyInl, blurHash, tinyPoster);
+                            String encEnvelope = com.callx.app.utils.E2EEncryptionManager
                                     .getInstance(activity).encrypt(envelopeJsonInl, partnerUidInl);
-                            // ThumbHash + poster now travel ONLY inside the envelope.
+                            if (encEnvelope == null || encEnvelope.length()
+                                    > com.callx.app.utils.VideoInlineThumb.MAX_E2E_ENVELOPE_CHARS) {
+                                throw new IllegalStateException("envelope too large: "
+                                        + (encEnvelope == null ? -1 : encEnvelope.length()));
+                            }
+                            pending.mediaKeyEnc = encEnvelope;
+                            // ThumbHash + tiny poster now travel ONLY inside the envelope.
                             pending.blurHash = null;
+                            // Local-only mirror (bigger poster) for the SENDER's own bubble;
+                            // stripped from the wire by VideoInlineThumb#stripForWire.
+                            pending.inlineThumbB64 = inlineJpegB64;
+                            useInlineTmp = true;
                         } catch (Exception e) {
                             android.util.Log.w("ChatMediaController",
-                                    "Video inline-poster E2E envelope failed, plaintext inline: " + e.getMessage());
+                                    "Video inline poster (E2E) unavailable, using legacy thumb upload: " + e.getMessage());
                             pending.mediaKeyEnc = null;
-                            pending.blurHash = blurHash;
+                            pending.inlineThumbB64 = null;
+                            useInlineTmp = false;
                         }
                     } else {
-                        // No E2E session yet — plaintext (same fallback as the image path).
+                        // No E2E session yet — plaintext chat: full poster in the clear.
+                        pending.inlineThumbB64 = inlineJpegB64;
                         pending.blurHash = blurHash;
+                        useInlineTmp = true;
                     }
+                }
+                final boolean useInlinePoster = useInlineTmp;
+                if (useInlinePoster) {
+                    // poster already set above — nothing to upload
                 } else if (vr.thumbFile != null && vr.thumbFile.exists()) {
                     String partnerUid = delegate.getPartnerUid();
                     if (partnerUid != null && !partnerUid.isEmpty()) {
@@ -2187,7 +2210,7 @@ public class ChatMediaController {
                                 e != null ? e.getMessage() : "Video upload failed");
                     }
                 };
-                if (inlineJpegB64 != null) {
+                if (useInlinePoster) {
                     VideoUploader.uploadWithoutThumb(activity, vr, videoUploadCb);
                 } else {
                     VideoUploader.upload(activity, vr, finalEncThumb, thumbResourceType, videoUploadCb);

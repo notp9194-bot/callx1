@@ -31,3 +31,13 @@ Inline JPEG ban na paaye to purana flow (thumb upload + `thumbnailUrl`) as-is ch
 3. Sender: bubble send ke baad bhi sharp frame, echo ke baad bhi.
 4. Offline send -> online aane pe outbox se push: Firebase me `thumbnailUrl` me `file://` nahi.
 5. Purana video message (thumbnailUrl wala) normal.
+
+## v873b FIX — E2E video "send karte hi delete/fail" bug
+**Wajah:** Firebase rules me `messages/$chatId/$msgId/mediaKeyEnc` ki limit **4000 chars** hai. Pehle E2E me ~160px poster (~8 KB Base64) envelope ke andar daala tha -> envelope limit se bahut bada -> Firebase write reject -> message fail/gayab.
+**Fix:**
+- E2E me sirf **tiny poster (~80px, <=1.4 KB)** envelope me jaata hai (`VideoInlineThumb.buildTinyE2eJpegB64`).
+- Encrypted envelope ki length check: `> 3800` chars ho to inline band, **legacy encrypted-thumb upload** pe fallback (`MAX_E2E_ENVELOPE_CHARS`).
+- E2E fallback me plaintext poster wire pe kabhi nahi jaata (`inlineThumbB64` null kiya).
+- Plaintext chat me full ~160px poster as-is (us field pe koi rule limit nahi).
+- Sender ka apna bubble: bada local mirror (`thumbInlineData`) wire se stripped.
+Optional (baad me): rules me `mediaKeyEnc` limit badhao to E2E me bada poster bhi chalega.
