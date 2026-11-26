@@ -2941,10 +2941,72 @@ public class MessageBubbleCanvasView extends View {
      * indeterminate download/upload spinner is actively animating. See the
      * field javadoc above for the full invalidation contract.
      */
+    /** v883: true when the last outer record put the media into its own child node (see above). */
+    private boolean mediaInnerInOuter;
+
+    /**
+     * v883: bitmap-only change on a bubble whose outer node is still valid: re-record just the media
+     * child node and redraw, WITHOUT dirtying the whole bubble. Any other pending change has already
+     * set fullBubbleDirty (invalidate() override) or requested layout, which disables this path.
+     * @return true if handled (caller must not invalidate()).
+     */
+    private boolean trySwapMediaBitmapFast() {
+        if (!SUPPORTS_RENDER_NODE || !mediaInnerInOuter || !isMedia || isMediaGroup || mediaGated) return false;
+        if (fullBubbleDirty || isLayoutRequested()) return false;
+        final int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0 || w != fullBubblePictureW || h != fullBubblePictureH) return false;
+        if (w != cachedMediaPictureWidth || h != cachedMediaPictureHeight) return false;
+        if (fullBubbleRenderNode == null || fullBubbleEmptyRecord || !fullBubbleRenderNode.hasDisplayList()) return false;
+        if (cachedMediaRenderNode == null || !cachedMediaRenderNode.hasDisplayList()) return false;
+        try {
+            final int hPad = Math.round(H_PADDING_DP * density);
+            final int vPad = Math.round(V_PADDING_DP * density);
+            cachedMediaRenderNode.setPosition(0, 0, w, h);
+            android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
+            try {
+                mediaRenderer.draw(rc, hPad, vPad);
+            } finally {
+                cachedMediaRenderNode.endRecording();
+            }
+            saveInnerFooterAnchor();
+        } catch (RuntimeException e) {
+            return false; // fall back to the normal full invalidate
+        }
+        staticPictureDirty = false;
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.mediaFastSwap();
+        super.invalidate(); // bypass the override: outer node stays valid
+        return true;
+    }
+
     private void drawMediaWithOptionalCache(Canvas canvas, int hPad, int vPad) {
         // v853: gate pill (bg + ring + %) is live in the overlay layer, so the outer cache stays valid
         // for the whole download and no inner cache is needed.
         boolean indeterminateSpinnerActive = false;
+        // v883: media gets its OWN child RenderNode inside the bubble's node (no download gate -> no spinner).
+        // Re-recorded every time the outer node is re-recorded (so correctness never depends on
+        // staticPictureDirty), and re-recorded ALONE by trySwapMediaBitmapFast() when only the bitmap changed.
+        if (SUPPORTS_RENDER_NODE && !mediaGated && canvas.isHardwareAccelerated()
+                && getWidth() > 0 && getHeight() > 0) {
+            final int mw = getWidth(), mh = getHeight();
+            if (cachedMediaRenderNode == null) {
+                cachedMediaRenderNode = new android.graphics.RenderNode("media");
+            }
+            cachedMediaRenderNode.setPosition(0, 0, mw, mh);
+            android.graphics.RecordingCanvas mrc = cachedMediaRenderNode.beginRecording();
+            try {
+                mediaRenderer.draw(mrc, hPad, vPad);
+            } finally {
+                cachedMediaRenderNode.endRecording();
+            }
+            saveInnerFooterAnchor();
+            cachedMediaPictureWidth = mw;
+            cachedMediaPictureHeight = mh;
+            mediaInnerInOuter = true;
+            staticPictureDirty = false;
+            canvas.drawRenderNode(cachedMediaRenderNode);
+            return;
+        }
+        mediaInnerInOuter = false;
         if (!indeterminateSpinnerActive) {
             mediaRenderer.draw(canvas, hPad, vPad);
             // Next indeterminate-spinner episode (this bind or a future
@@ -4062,6 +4124,7 @@ public class MessageBubbleCanvasView extends View {
                 requestLayoutIfSizeChanged();
             }
         }
+        if (trySwapMediaBitmapFast()) return; // v883: re-record only the media child node
         invalidate();
     }
 

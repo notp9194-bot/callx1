@@ -89,6 +89,8 @@ public final class BubblePerfStats {
     public static void preGateNoRv()     { gNoRv++; }
     public static void preGateInLayout() { gInLayout++; }
     public static void preGateNoWidth()  { gNoWidth++; }
+    private static long mFastSwap;
+    public static void mediaFastSwap()   { mFastSwap++; }
     public static void preSched()    { pSched++; }
     public static void preFullQ()    { pFull++; }
     public static void preRun()      { pRun++; }
@@ -159,7 +161,7 @@ public final class BubblePerfStats {
         stop(a);
         recN = recNs = recMax = hitN = preN = preNs = measN = measNs = measMax = bindN = bindNs = bindMax = 0;
         Arrays.fill(secN, 0L); Arrays.fill(secNs, 0L); Arrays.fill(secMax, 0L);
-        gBind = gNoRv = gInLayout = gNoWidth = pSched = pFull = pRun = pStale = pEarly = pCached = pErr = pDrainFallback = 0;
+        mFastSwap = gBind = gNoRv = gInLayout = gNoWidth = pSched = pFull = pRun = pStale = pEarly = pCached = pErr = pDrainFallback = 0;
         typeStat.clear();
         bmHw = bmSw = bmPh = bmSwBytes = bmSwMax = 0;
         mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
@@ -263,6 +265,7 @@ public final class BubblePerfStats {
         sb.append("miss reason: dirty=").append(mDirty).append(" sizeChanged=").append(mSize)
           .append(" noDisplayList=").append(mNoDL).append('\n');
         sb.append("preRecord done=").append(preN).append("  total=").append(ms(preNs)).append(" ms\n");
+        sb.append("media fast-swaps (inner node only, outer kept)=").append(mFastSwap).append('\n');
         sb.append("preRecord gate: binds=").append(gBind).append(" noRv=").append(gNoRv)
           .append(" inLayout=").append(gInLayout).append(" noWidth=").append(gNoWidth).append('\n');
         sb.append("preRecord pipeline: sched=").append(pSched).append(" queueFull=").append(pFull)
