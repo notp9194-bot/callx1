@@ -986,14 +986,24 @@ public class MessageBubbleCanvasView extends View {
     // screenful of chat than before.
     private static final int TEXT_LAYOUT_CACHE_CAPACITY = 220;
     private static final Object sTextLayoutCacheLock = new Object();
-    private static final java.util.LinkedHashMap<String, CachedTextLayout> sTextLayoutCache =
-            new java.util.LinkedHashMap<String, CachedTextLayout>(64, 0.75f, true) {
+    private static final java.util.LinkedHashMap<Long, CachedTextLayout> sTextLayoutCache =
+            new java.util.LinkedHashMap<Long, CachedTextLayout>(64, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(
-                        java.util.Map.Entry<String, CachedTextLayout> eldest) {
+                        java.util.Map.Entry<Long, CachedTextLayout> eldest) {
                     return size() > TEXT_LAYOUT_CACHE_CAPACITY;
                 }
             };
+
+    /**
+     * PERF: allocation-free cache key (was a String concat "len_hash_width" built on every
+     * onMeasure of every text/caption bubble). 32-bit hash | 16-bit length | 16-bit width.
+     */
+    static long textLayoutKey(String text, int width) {
+        return ((long) text.hashCode() << 32)
+                | ((long) (Math.min(text.length(), 0xFFFF)) << 16)
+                | (long) (width & 0xFFFF);
+    }
 
     private static final class CachedTextLayout {
         final StaticLayout layout;
@@ -1131,7 +1141,7 @@ public class MessageBubbleCanvasView extends View {
         try { formatBody(text); } catch (Throwable ignored) {}
         int width = sLastKnownMaxTextWidth;
         if (width <= 0) return; // no real bubble measured yet this session
-        String key = text.length() + "_" + text.hashCode() + "_" + width;
+        long key = textLayoutKey(text, width);
         synchronized (sTextLayoutCacheLock) {
             if (sTextLayoutCache.containsKey(key)) return;
         }
@@ -7386,8 +7396,7 @@ public class MessageBubbleCanvasView extends View {
                 // entirely.
                 CachedTextLayout cachedCaption = null;
                 if (!messageText.isEmpty()) {
-                    String capCacheKey = messageText.length() + "_" + messageText.hashCode()
-                            + "_" + maxTextWidth;
+                    long capCacheKey = textLayoutKey(messageText, maxTextWidth);
                     synchronized (sTextLayoutCacheLock) {
                         cachedCaption = sTextLayoutCache.get(capCacheKey);
                     }
@@ -7862,8 +7871,7 @@ public class MessageBubbleCanvasView extends View {
                 // StaticLayout.Builder...build() cost entirely on scroll.
                 CachedTextLayout cachedGroupCaption = null;
                 if (!messageText.isEmpty()) {
-                    String capCacheKey = messageText.length() + "_" + messageText.hashCode()
-                            + "_" + maxTextWidth;
+                    long capCacheKey = textLayoutKey(messageText, maxTextWidth);
                     synchronized (sTextLayoutCacheLock) {
                         cachedGroupCaption = sTextLayoutCache.get(capCacheKey);
                     }
@@ -7965,8 +7973,7 @@ public class MessageBubbleCanvasView extends View {
             // that path always builds fresh, exactly as before.
             CachedTextLayout cachedLayout = null;
             if (!isDeletedStyle && !messageText.isEmpty()) {
-                String cacheKey = messageText.length() + "_" + messageText.hashCode()
-                        + "_" + maxTextWidth;
+                long cacheKey = textLayoutKey(messageText, maxTextWidth);
                 synchronized (sTextLayoutCacheLock) {
                     cachedLayout = sTextLayoutCache.get(cacheKey);
                 }

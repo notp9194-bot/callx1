@@ -217,6 +217,32 @@ public class MessagePagingAdapter
     }
 
     /**
+     * PERF v890: keeps the toggled bubble visually pinned (WhatsApp-style) in the SAME frame as
+     * its re-layout. Captures the item's top now; a one-shot pre-draw listener (runs right after
+     * the layout pass that re-measures the bubble, before it is drawn) compensates any shift with
+     * a plain scrollBy — no post(), no scrollToPositionWithOffset(), no second layout pass.
+     */
+    void anchorAfterReadMoreToggle(VH h) {
+        final View item = h.itemView;
+        if (!(item.getParent() instanceof RecyclerView)) return;
+        final RecyclerView rv = (RecyclerView) item.getParent();
+        final int savedTop = item.getTop();
+        final android.view.ViewTreeObserver vto = rv.getViewTreeObserver();
+        if (!vto.isAlive()) return;
+        vto.addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                android.view.ViewTreeObserver o = rv.getViewTreeObserver();
+                if (o.isAlive()) o.removeOnPreDrawListener(this);
+                if (rv.isComputingLayout() || item.getParent() != rv) return true;
+                int delta = item.getTop() - savedTop;
+                if (delta != 0) rv.scrollBy(0, delta);
+                return true;
+            }
+        });
+        rv.invalidate();
+    }
+
+    /**
      * Wires the "Read more / Read less" expand toggle for a bound holder —
      * shared by the plain-text bubble AND the image/video/media-group
      * caption paths, since MessageBubbleCanvasView's canvas rendering
@@ -248,24 +274,11 @@ public class MessagePagingAdapter
                 if (nowExpanded) ad.expandedMessageIds.add(id);
                 else             ad.expandedMessageIds.remove(id);
 
-                int pos = h.getBindingAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION) return;
-
-                final RecyclerView rv = (h.itemView.getParent() instanceof RecyclerView)
-                        ? (RecyclerView) h.itemView.getParent() : null;
-                final int savedTop = (rv != null) ? h.itemView.getTop() : 0;
-
-                ad.notifyItemChanged(pos);
-
-                if (rv != null) {
-                    rv.post(() -> {
-                        RecyclerView.LayoutManager lm = rv.getLayoutManager();
-                        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
-                            ((androidx.recyclerview.widget.LinearLayoutManager) lm)
-                                    .scrollToPositionWithOffset(pos, savedTop);
-                        }
-                    });
-                }
+                // PERF v890: NO notifyItemChanged() here. The bubble already flipped its own
+                // expanded state and requested a re-measure/re-record (same holder, one
+                // measure + one record). notifyItemChanged() used to force a full adapter
+                // re-bind AND (payload-less) a second ViewHolder + 250ms change cross-fade.
+                ad.anchorAfterReadMoreToggle(h);
             };
         }
         cv.setReadMoreListener(h.readMoreListenerCached);
@@ -7824,39 +7837,8 @@ public class MessagePagingAdapter
             cv.setSearchHighlight(activeSearchQuery);
 
             // ── Read-more / Read-less wiring ─────────────────────────────
-            final String msgIdForExpand = m.messageId;
-            cv.setTextExpanded(expandedMessageIds.contains(msgIdForExpand));
-            cv.setReadMoreListener(nowExpanded -> {
-                if (nowExpanded) expandedMessageIds.add(msgIdForExpand);
-                else             expandedMessageIds.remove(msgIdForExpand);
-
-                int pos = h.getBindingAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION) return;
-
-                // ── WhatsApp-style scroll anchor ─────────────────────────
-                // Capture the item's current top edge (relative to the
-                // RecyclerView's visible area) BEFORE notifyItemChanged()
-                // changes the bubble height.  After the rebind we restore
-                // that offset with scrollToPositionWithOffset() so the item
-                // stays visually pinned at the same Y position — expanded
-                // text grows downward and the user scrolls to read it,
-                // exactly like WhatsApp.
-                final RecyclerView rv = (h.itemView.getParent() instanceof RecyclerView)
-                        ? (RecyclerView) h.itemView.getParent() : null;
-                final int savedTop = (rv != null) ? h.itemView.getTop() : 0;
-
-                notifyItemChanged(pos);
-
-                if (rv != null) {
-                    rv.post(() -> {
-                        RecyclerView.LayoutManager lm = rv.getLayoutManager();
-                        if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
-                            ((androidx.recyclerview.widget.LinearLayoutManager) lm)
-                                    .scrollToPositionWithOffset(pos, savedTop);
-                        }
-                    });
-                }
-            });
+            // PERF v890: per-holder cached listener (no new lambda per bind).
+            wireCaptionReadMore(h, cv, m.messageId);
 
             // ── Link-preview card ─────────────────────────────────────
             // Mirrors the legacy ll_link_preview ViewStub path (same

@@ -3096,8 +3096,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override
             public boolean canReuseUpdatedViewHolder(@NonNull RecyclerView.ViewHolder viewHolder, 
                                                       @NonNull java.util.List<Object> payloads) {
-                // Payload-based updates don't need animation — just draw
-                return !payloads.isEmpty();
+                // PERF v890: ALWAYS re-bind the same ViewHolder in place. Returning false for
+                // payload-less changes made RecyclerView grab a second ViewHolder and run a
+                // 250ms old/new cross-fade — every such change (e.g. Read more / Read less)
+                // measured, recorded and drew the bubble twice and flickered.
+                return true;
+            }
+
+            @Override
+            public long getChangeDuration() {
+                return 0;
             }
             
             @Override
