@@ -624,9 +624,15 @@ public interface MessageDao {
 
     /** Edit message text AND append the pre-edit version to the history
      *  JSON blob in one write — used by MessageEditHistoryController so a
-     *  message edited more than once keeps every prior version. */
+     *  message edited more than once keeps every prior version.
+     *  <p>
+     *  Conditional on purpose: the row is only touched when it does not already
+     *  carry this edit (or a newer one). If the Firebase echo's upsert landed
+     *  first, this UPDATE matches 0 rows, so SQLite fires no trigger and Room
+     *  issues NO second table invalidation / Paging re-query / diff. It also
+     *  keeps a stale local write from overwriting a newer edit. */
     @WorkerThread
-    @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt, editHistoryJson = :editHistoryJson WHERE id = :messageId")
+    @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt, editHistoryJson = :editHistoryJson WHERE id = :messageId AND (editedAt IS NULL OR editedAt < :editedAt)")
     void updateTextWithHistory(String messageId, String newText, long editedAt, String editHistoryJson);
 
     /** Fetch just the history JSON blob — used to append the next version

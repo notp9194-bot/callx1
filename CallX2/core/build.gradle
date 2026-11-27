@@ -128,6 +128,7 @@ dependencies {
     implementation 'androidx.media3:media3-datasource:1.2.1'
     implementation 'androidx.media3:media3-database:1.2.1'
     implementation 'androidx.media3:media3-common:1.2.1'
+    implementation 'androidx.media3:media3-extractor:1.2.1'
 
     // Media3 Transformer + Effect — needed by VideoOverlayBaker (shared by
     // any feature module that needs to burn stickers/text/drawing into a

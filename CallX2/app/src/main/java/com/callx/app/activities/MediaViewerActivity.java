@@ -33,6 +33,9 @@ import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MediaCache;
 import com.callx.app.utils.MediaSwipeReplyCloseHelper;
 import com.callx.app.utils.MediaViewerSourceRect;
+import com.callx.app.utils.LocalVideoSource;
+import com.callx.app.utils.VideoOpenPrimer;
+import com.callx.app.utils.VideoOpenSettings;
 import com.callx.app.utils.PhotoViewZoomUtils;
 import com.google.firebase.database.DatabaseReference;
 
@@ -64,6 +67,18 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     private ActivityMediaViewerBinding binding;
     private ExoPlayer player;
+    // PERF: player prepared at chat-tap time (VideoOpenPrimer) + tap timestamp for the first-frame log.
+    private VideoOpenPrimer.Primed primed;
+    private long tapUptimeMs;
+    private long createUptimeMs;
+    private boolean firstFrameLogged;
+    private android.graphics.Bitmap shutterBitmap; // bubble's decoded thumbnail (frame-1 shutter)
+    private final android.os.Handler presenceHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean presenceWanted;
+    private final Runnable presenceRunnable = () -> applyPlaybackPresence(presenceWanted);
+    // PERF: playVideo()'s file/content probes run here, never on the UI thread.
+    private static final java.util.concurrent.ExecutorService VIEWER_IO_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
     // Listeners attached to the (pooled) single-video player — must be removed before it goes back to the pool.
     private Player.Listener singleErrorListener;
     private Player.Listener singlePresenceListener;
@@ -161,6 +176,12 @@ public class MediaViewerActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // PERF: grab the tap-time prepared player first thing, and stamp onCreate for the perf log.
+        createUptimeMs = android.os.SystemClock.uptimeMillis();
+        tapUptimeMs = getIntent().getLongExtra(VideoOpenPrimer.EXTRA_TAP_UPTIME, 0L);
+        primed = VideoOpenPrimer.take(getIntent().getIntExtra(VideoOpenPrimer.EXTRA_TOKEN, -1));
+        shutterBitmap = VideoOpenPrimer.takeShutter();
 
         // Full-screen immersive
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -327,6 +348,13 @@ public class MediaViewerActivity extends AppCompatActivity {
             binding.player.setVisibility(View.VISIBLE);
             binding.ivFull.setVisibility(View.GONE);
             binding.btnEdit.setVisibility(gifIsVideo ? View.GONE : View.VISIBLE);
+            if (!gifIsVideo) {
+                // PERF: bubble thumbnail instead of a black shutter until the first frame.
+                String shutterThumb = getIntent().getStringExtra("thumbUrl");
+                if (shutterThumb != null && shutterThumb.equals(url)) shutterThumb = null; // raw video url ≠ thumbnail
+                VideoShutter.show(binding.player, shutterThumb, shutterBitmap);
+                shutterBitmap = null;
+            }
             playVideo(url, singleItemLocalPath, gifIsVideo);
             if (autoEdit && !gifIsVideo) {
                 binding.getRoot().post(this::onEditClicked);
@@ -524,6 +552,11 @@ public class MediaViewerActivity extends AppCompatActivity {
         closeViewer(0f);
     }
 
+    /** A/B flag (VideoOpenSettings): no GPU layer around a VIDEO view during the dock animation. */
+    private boolean skipHwLayerForVideo() {
+        return "video".equals(getIntent().getStringExtra("type")) && VideoOpenSettings.noHwLayer(this);
+    }
+
     private void finishNow() {
         finish();
         overridePendingTransition(0, 0);
@@ -552,7 +585,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         // MediaSwipeReplyCloseHelper's live-drag gesture, so without this it
         // would run completely un-cached for the whole animation. Released
         // in onAnimationEnd, right before the Activity finishes anyway.
-        if (v.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+        if (v.getLayerType() != View.LAYER_TYPE_HARDWARE && !skipHwLayerForVideo()) {
             v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         }
 
@@ -642,7 +675,7 @@ public class MediaViewerActivity extends AppCompatActivity {
             // PERF (ultra-advanced pass): see animateCloseToSource's identical
             // comment — cache `v` into a GPU layer for the open animation's
             // duration too, released once it settles into its idle state.
-            if (v.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+            if (v.getLayerType() != View.LAYER_TYPE_HARDWARE && !skipHwLayerForVideo()) {
                 v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             }
 
@@ -786,6 +819,12 @@ public class MediaViewerActivity extends AppCompatActivity {
         galleryAdapter.setCurrentUid(FirebaseUtils.getCurrentUid());
         galleryAdapter.setDefaultSent(isOwnMessage);
         galleryAdapter.allowLoad(safeStr(galleryItems.get(start).get("url")));
+        galleryAdapter.setPrimed(primed);
+        galleryAdapter.setStartShutter(shutterBitmap);
+        shutterBitmap = null;
+        galleryAdapter.setFirstFrameListener((pos, usedPrimed) -> {
+            if (pos == galleryActivePos) logFirstFrame("gallery", usedPrimed);
+        });
         galleryAdapter.setLongPressListener(pos -> enterSelectMode(pos));
         galleryAdapter.setSelectionToggleListener(pos -> updateSelectToolbar());
         // PERF (priority tuning): set before setAdapter() so the very first
@@ -1095,9 +1134,17 @@ public class MediaViewerActivity extends AppCompatActivity {
             // same guard the old sheet's "🗑 Delete" row used.
             if (isOwnMessage) labels.add("Delete");
         }
+        final boolean isVideoOpen = "video".equals(getIntent().getStringExtra("type"));
+        final String layerLabel = "Video open GPU layer: " + (VideoOpenSettings.noHwLayer(this) ? "OFF (A/B)" : "ON");
+        if (isVideoOpen) labels.add(layerLabel);
         new android.app.AlertDialog.Builder(this)
                 .setItems(labels.toArray(new String[0]), (d, which) -> {
                     String chosen = labels.get(which);
+                    if (isVideoOpen && layerLabel.equals(chosen)) {
+                        VideoOpenSettings.setNoHwLayer(this, !VideoOpenSettings.noHwLayer(this));
+                        Toast.makeText(this, "Applies from the next video open", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
                     switch (chosen) {
                         case "Save to gallery": saveCurrentToGallery(); break;
                         case "Share": shareMedia(sharedUrl); break;
@@ -1468,31 +1515,59 @@ public class MediaViewerActivity extends AppCompatActivity {
      */
     private void playVideo(String url, String localPath, boolean loopMuted) {
         currentVideoUrl = url;
-        // WhatsApp-style local-first: original local file still on the
-        // device → play it directly, full quality, no download at all.
-        // Falls back to the normal cache-first remote path the moment
-        // the file's gone (deleted from gallery, storage cleared, etc).
-        if (localPath != null && !localPath.isEmpty()
-                && com.callx.app.utils.LocalMediaAvailability.isAvailable(this, localPath)) {
+
+        // PERF #1: tapped video was already resolved + prepared at tap time → just attach it.
+        if (primed != null && !loopMuted && url != null && url.equals(primed.url)) {
+            VideoOpenPrimer.Primed pp = primed;
+            primed = null;
+            ExoPlayer ready = pp.claimPlayer();
+            if (ready != null && pp.uri != null) {
+                startExoPlayer(pp.uri, loopMuted, ready);
+                return;
+            }
+        }
+
+        // PERF #2: no file/content I/O on the UI thread. The chat adapter's LOCAL_AVAIL_CACHE
+        // verdict (Intent extra) settles "local file present" with zero I/O; everything else
+        // (cache stat, unknown verdict) is resolved on a background thread, then posted back.
+        final boolean hasLocal = localPath != null && !localPath.isEmpty();
+        final Boolean verdict = getIntent().hasExtra(VideoOpenPrimer.EXTRA_LOCAL_AVAIL)
+                ? getIntent().getBooleanExtra(VideoOpenPrimer.EXTRA_LOCAL_AVAIL, false) : null;
+        if (hasLocal && Boolean.TRUE.equals(verdict) && !localVideoFallbackTried) {
             startExoPlayer(Uri.parse(localPath), loopMuted);
             return;
         }
-
-        File cached = MediaCache.getCached(this, url);
-        if (cached != null) {
-            startExoPlayer(Uri.fromFile(cached), loopMuted);
-            return;
-        }
-        showLoading(true);
-        MediaCache.get(this, url, new MediaCache.Callback() {
-            @Override public void onReady(File file) {
-                showLoading(false);
-                startExoPlayer(Uri.fromFile(file), loopMuted);
-            }
-            @Override public void onError(String reason) {
-                showLoading(false);
-                startExoPlayer(Uri.parse(url), loopMuted);
-            }
+        final android.content.Context app = getApplicationContext();
+        VIEWER_IO_EXECUTOR.execute(() -> {
+            Uri resolved = null;
+            try {
+                if (hasLocal && verdict == null
+                        && com.callx.app.utils.LocalMediaAvailability.isAvailable(app, localPath)) {
+                    resolved = Uri.parse(localPath);
+                } else {
+                    File cached = MediaCache.getCached(app, url);
+                    if (cached != null) resolved = Uri.fromFile(cached);
+                }
+            } catch (Throwable ignored) {}
+            final Uri r = resolved;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (r != null) {
+                    startExoPlayer(r, loopMuted);
+                    return;
+                }
+                showLoading(true);
+                MediaCache.get(MediaViewerActivity.this, url, new MediaCache.Callback() {
+                    @Override public void onReady(File file) {
+                        showLoading(false);
+                        startExoPlayer(Uri.fromFile(file), loopMuted);
+                    }
+                    @Override public void onError(String reason) {
+                        showLoading(false);
+                        startExoPlayer(Uri.parse(url), loopMuted);
+                    }
+                });
+            });
         });
     }
 
@@ -1501,17 +1576,29 @@ public class MediaViewerActivity extends AppCompatActivity {
     }
 
     private void startExoPlayer(Uri uri, boolean loopMuted) {
-        if (isFinishing() || isDestroyed()) return;
+        startExoPlayer(uri, loopMuted, null);
+    }
+
+    /** @param prepared a player already prepared at tap time (VideoOpenPrimer), or null to acquire+prepare here. */
+    private void startExoPlayer(Uri uri, boolean loopMuted, @androidx.annotation.Nullable ExoPlayer prepared) {
+        if (isFinishing() || isDestroyed()) {
+            if (prepared != null) com.callx.app.utils.ExoPlayerPool.release(prepared);
+            return;
+        }
         releaseSinglePlayer(); // fallback re-entry must not leak the failed player
+        final boolean wasPrimed = prepared != null;
         // PERF: pooled player (same pool the gallery path uses) — skips ExoPlayer construction on open.
-        player = com.callx.app.utils.ExoPlayerPool.acquire(this);
+        player = wasPrimed ? prepared : com.callx.app.utils.ExoPlayerPool.acquire(this);
         binding.player.setPlayer(player);
-        player.setMediaItem(MediaItem.fromUri(uri));
+        if (!wasPrimed) {
+            // PERF: local → ProgressiveMediaSource + FileDataSource; remote stays a plain MediaItem.
+            LocalVideoSource.apply(this, player, uri);
+        }
         if (loopMuted) {
             player.setRepeatMode(Player.REPEAT_MODE_ALL);
             player.setVolume(0f);
         }
-        player.prepare();
+        if (!wasPrimed) player.prepare();
         player.setPlayWhenReady(true);
 
         // Black-screen protection: a playback error used to leave an empty black player with
@@ -1522,6 +1609,13 @@ public class MediaViewerActivity extends AppCompatActivity {
                 && uri.getPath() != null && uri.getPath().contains("callx_media_cache");
         final boolean uriIsLocal = !uriIsCacheFile && !"http".equals(uri.getScheme()) && !"https".equals(uri.getScheme());
         singleErrorListener = new Player.Listener() {
+            @Override public void onRenderedFirstFrame() {
+                VideoShutter.onFirstFrame(binding.player);
+                logFirstFrame("single", wasPrimed);
+            }
+            @Override public void onIsPlayingChanged(boolean isPlaying) {
+                if (isPlaying) VideoShutter.onFirstFrame(binding.player); // safety net: never leave the thumb behind
+            }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 if (isFinishing() || isDestroyed()) return;
                 boolean badFile = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
@@ -1556,6 +1650,16 @@ public class MediaViewerActivity extends AppCompatActivity {
             };
             player.addListener(singlePresenceListener);
         }
+    }
+
+    /** Logs tap → first rendered frame once per open (filter logcat by tag VideoOpenPerf). */
+    private void logFirstFrame(String mode, boolean usedPrimed) {
+        if (firstFrameLogged || tapUptimeMs <= 0) return;
+        firstFrameLogged = true;
+        long now = android.os.SystemClock.uptimeMillis();
+        android.util.Log.i(VideoOpenPrimer.TAG, "tap→firstFrame=" + (now - tapUptimeMs)
+                + "ms | tap→onCreate=" + (createUptimeMs - tapUptimeMs)
+                + "ms | mode=" + mode + " | primed=" + usedPrimed);
     }
 
     /** Detaches our listeners + surface and hands the single-video player back to the shared pool. */
@@ -1594,7 +1698,19 @@ public class MediaViewerActivity extends AppCompatActivity {
         return playbackMessageId != null && !playbackMessageId.isEmpty();
     }
 
+    /**
+     * PERF: "watching…" presence is a Firebase write + onDisconnect registration — never worth
+     * competing with the open animation / first frame. Start-of-play is delayed 450ms (and
+     * dropped if playback stopped meanwhile); stop is applied immediately.
+     */
     private void publishPlaybackPresence(boolean playing) {
+        presenceWanted = playing;
+        presenceHandler.removeCallbacks(presenceRunnable);
+        if (playing) presenceHandler.postDelayed(presenceRunnable, 450L);
+        else applyPlaybackPresence(false);
+    }
+
+    private void applyPlaybackPresence(boolean playing) {
         if (playbackChatId == null || !messageIdPresent()) return;
         String uid = FirebaseUtils.getCurrentUid();
         if (uid == null || uid.isEmpty()) return;
@@ -1636,8 +1752,13 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        releaseSinglePlayer();
+        // PERF: a tap-time prepared player nobody claimed (image/gif, url mismatch) goes back to the pool.
+        if (primed != null) { primed.releaseUnused(); primed = null; }
+        // Stop audio/decode right now (cheap) — every finish() path, not just closeViewer().
+        pausePlaybackForClose();
         if (voiceCaptionPlayer != null) { voiceCaptionPlayer.release(); voiceCaptionPlayer = null; }
+        // Collect gallery holders NOW (views are still attached), release them later.
+        final java.util.List<GalleryPagerAdapter.PageVH> pageHolders = new java.util.ArrayList<>();
         if (binding != null && binding.mediaPager.getChildCount() > 0
                 && binding.mediaPager.getChildAt(0) instanceof androidx.recyclerview.widget.RecyclerView) {
             androidx.recyclerview.widget.RecyclerView rv =
@@ -1645,11 +1766,23 @@ public class MediaViewerActivity extends AppCompatActivity {
             for (int i = 0; i < rv.getChildCount(); i++) {
                 androidx.recyclerview.widget.RecyclerView.ViewHolder vh =
                         rv.getChildViewHolder(rv.getChildAt(i));
-                if (vh instanceof GalleryPagerAdapter.PageVH && galleryAdapter != null) {
-                    galleryAdapter.releasePlayer((GalleryPagerAdapter.PageVH) vh);
-                }
+                if (vh instanceof GalleryPagerAdapter.PageVH) pageHolders.add((GalleryPagerAdapter.PageVH) vh);
             }
         }
+        final GalleryPagerAdapter ga = galleryAdapter;
+        // PERF: stop()/clearMediaItems()/pool hand-back are main-thread work that used to land
+        // right as the chat resumes. Run them when the main thread is idle (1.5s hard fallback).
+        final boolean[] done = {false};
+        final Runnable releaseAll = () -> {
+            if (done[0]) return;
+            done[0] = true;
+            try {
+                releaseSinglePlayer();
+                if (ga != null) for (GalleryPagerAdapter.PageVH vh : pageHolders) ga.releasePlayer(vh);
+            } catch (Throwable ignored) {}
+        };
+        android.os.Looper.myQueue().addIdleHandler(() -> { releaseAll.run(); return false; });
+        presenceHandler.postDelayed(releaseAll, 1500L);
         // Viewer is closing — clear the "watching…" badge immediately rather
         // than waiting on onDisconnect (that's only the crash/kill safety net).
         publishPlaybackPresence(false);

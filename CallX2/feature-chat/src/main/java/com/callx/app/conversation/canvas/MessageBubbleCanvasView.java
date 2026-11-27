@@ -2126,6 +2126,11 @@ public class MessageBubbleCanvasView extends View {
      * mediaRect abhi empty/unset hai (bind hone se pehle ya text-only
      * message) to null return karta hai.
      */
+    /** The bubble's decoded media bitmap for the viewer's pre-first-frame shutter (null while only the tiny placeholder is bound). */
+    public android.graphics.Bitmap getMediaBitmapForViewer() {
+        return (mediaBitmap != null && !mediaBitmapIsPlaceholder) ? mediaBitmap : null;
+    }
+
     public android.graphics.Rect getMediaRectOnScreen() {
         if (mediaRect.isEmpty() || mediaRect.width() <= 0f || mediaRect.height() <= 0f) return null;
         int[] loc = new int[2];

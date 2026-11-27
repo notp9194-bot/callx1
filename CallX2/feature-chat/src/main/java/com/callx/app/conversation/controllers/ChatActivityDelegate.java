@@ -87,6 +87,15 @@ public interface ChatActivityDelegate extends ChatSearchController.SearchDelegat
     // ── Adapter ───────────────────────────────────────────────────────────
     MessagePagingAdapter getPagingAdapter();
 
+    /**
+     * Routes a locally-applied edit of {@code m} (already carrying the new
+     * text / edited / editedAt / editHistory) into the Activity's coalesced
+     * Room write batch — the same single-transaction path Firebase events use,
+     * which also keeps LastMessagesCache (warm reopen) in sync. Main thread only.
+     * @return false if this host has no batch (caller then writes Room directly)
+     */
+    default boolean queueLocalEditWrite(com.callx.app.models.Message m) { return false; }
+
     // ── Fragment manager ──────────────────────────────────────────────────
     androidx.fragment.app.FragmentManager getSupportFragmentManager();
 

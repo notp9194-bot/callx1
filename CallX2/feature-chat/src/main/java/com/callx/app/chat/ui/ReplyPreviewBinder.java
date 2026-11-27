@@ -364,6 +364,21 @@ public final class ReplyPreviewBinder {
         rb.into(thumb);
     }
 
+    /**
+     * v905: warm Glide's memory cache for the reply-bar thumb (same size / transform as loadThumb's
+     * first load, so the later into() is a cache hit). Called when a swipe ARMS, off the release frame.
+     */
+    public static void prefetchThumb(@NonNull Context ctx, @Nullable Message m) {
+        if (m == null) return;
+        final Preview p = describe(ctx, m, -1);
+        if (p.thumbUrl == null || p.thumbUrl.isEmpty()) return;
+        final float d = ctx.getResources().getDisplayMetrics().density;
+        final int w = Math.round(THUMB_W_DP * d);
+        final int h = Math.round(THUMB_MAX_H_DP * d);
+        final Object src = p.thumbSource != null ? p.thumbSource : p.thumbUrl;
+        Glide.with(ctx).load(src).centerCrop().override(w, h).dontAnimate().preload(w, h);
+    }
+
     /** Reply preview shows max 3 lines — never hand the TextView more than this. */
     private static final int MAX_PREVIEW_CHARS = 240;
 

@@ -27,6 +27,8 @@ import com.callx.app.utils.HighResImageDecoder;
 import com.callx.app.utils.LocalMediaAvailability;
 import com.callx.app.utils.MediaCache;
 import com.callx.app.utils.MediaE2ECrypto;
+import com.callx.app.utils.LocalVideoSource;
+import com.callx.app.utils.VideoOpenPrimer;
 
 import java.io.File;
 import java.util.HashMap;
@@ -139,8 +141,57 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
 
     /** Called by MediaViewerActivity whenever the visible page changes. */
     public void setActivePosition(int position) {
+        boolean changed = position != activePosition;
         activePosition = position;
+        // User moved on: a deferred neighbour that just became current must be prepared NOW.
+        if (changed) flushDeferred();
     }
+
+    // PERF: neighbour (±1) video pages are bound for instant swipes, but each prepare() grabs a
+    // hardware decoder + IO. While the ACTIVE video has not rendered its first frame yet, neighbours
+    // only get a player attached (no source / no prepare); they are prepared right after the active
+    // first frame (or on swipe, error, or a 1.5s safety timeout).
+    private boolean activeVideoPending;
+    private final java.util.List<PageVH> deferred = new java.util.ArrayList<>();
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable flushRunnable = this::flushDeferred;
+
+    private void flushDeferred() {
+        activeVideoPending = false;
+        mainHandler.removeCallbacks(flushRunnable);
+        if (deferred.isEmpty()) return;
+        java.util.List<PageVH> copy = new java.util.ArrayList<>(deferred);
+        deferred.clear();
+        for (PageVH d : copy) {
+            Uri u = d.deferredUri;
+            d.deferredUri = null;
+            if (u == null || d.player == null || d.boundItem == null) continue;
+            try {
+                LocalVideoSource.apply(d.playerView.getContext(), d.player, u);
+                d.player.prepare();
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    // PERF: bubble's decoded thumbnail for the tapped page's shutter (frame 1, no decode). Single use.
+    private android.graphics.Bitmap startShutter;
+    public void setStartShutter(android.graphics.Bitmap b) { this.startShutter = b; }
+
+    // PERF: player already prepared at chat-tap time (see VideoOpenPrimer) — claimed by the
+    // first matching ACTIVE video page only; the activity releases it if nobody claimed it.
+    private VideoOpenPrimer.Primed primed;
+
+    public void setPrimed(VideoOpenPrimer.Primed p) { this.primed = p; }
+
+    /** Fired when a video page renders its first frame (position = adapter position). */
+    public interface FirstFrameListener { void onFirstFrame(int position, boolean usedPrimed); }
+    private FirstFrameListener firstFrameListener;
+
+    public void setFirstFrameListener(FirstFrameListener l) { this.firstFrameListener = l; }
+
+    // PERF: LocalMediaAvailability.isAvailable() on a content:// uri is a ContentResolver
+    // round-trip; memoise per viewer session so rebinding a page never repeats it on main.
+    private final Map<String, Boolean> localAvailMemo = new HashMap<>();
 
     /** Uid of the signed-in user — lets the adapter tell sent items from received ones per item. */
     public void setCurrentUid(String uid) { this.currentUid = uid; }
@@ -327,7 +378,11 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
         }
 
         h.boundItem = item;
-        int src = resolveSource(h.root.getContext(), item, url);
+        // PERF: the tapped (active) video was already resolved + prepared at tap time — it is
+        // by definition loadable, so skip the main-thread file/content probes entirely.
+        final boolean primedHit = isVideo && primed != null && position == activePosition
+                && url.equals(primed.url);
+        int src = primedHit ? SRC_REMOTE_OK : resolveSource(h.root.getContext(), item, url);
 
         // BUG FIX (swipe auto-download): a received item the user hasn't
         // downloaded gets a tap-to-download page instead of being fetched.
@@ -342,7 +397,8 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
             h.playerView.setVisibility(View.VISIBLE);
             h.playerView.setOnClickListener(v -> h.root.callOnClick());
             h.playerView.setOnLongClickListener(v -> { h.root.performLongClick(); return true; });
-            bindVideo(h, url, src == SRC_LOCAL ? safeStr(item.get(ChatMediaGalleryBuilder.KEY_LOCAL_PATH)) : null);
+            bindVideo(h, url, src == SRC_LOCAL ? safeStr(item.get(ChatMediaGalleryBuilder.KEY_LOCAL_PATH)) : null,
+                    thumbUrl, primedHit);
             if (pendingAutoPlayItem == item) {
                 pendingAutoPlayItem = null;
                 if (position == activePosition && h.player != null) h.player.setPlayWhenReady(true);
@@ -383,7 +439,14 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
         if (allowedUrls.contains(url)) return SRC_REMOTE_OK;
         if (MediaCache.getCached(ctx, url) != null) return SRC_REMOTE_OK;
         String lp = safeStr(item.get(ChatMediaGalleryBuilder.KEY_LOCAL_PATH));
-        if (!lp.isEmpty() && LocalMediaAvailability.isAvailable(ctx, lp)) return SRC_LOCAL;
+        if (!lp.isEmpty()) {
+            Boolean avail = localAvailMemo.get(lp);
+            if (avail == null) {
+                avail = LocalMediaAvailability.isAvailable(ctx, lp);
+                localAvailMemo.put(lp, avail);
+            }
+            if (avail) return SRC_LOCAL;
+        }
         return SRC_GATED;
     }
 
@@ -709,35 +772,70 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
     }
 
     /** @param localUri non-null (a device mediaLocalPath Uri string) for a received video that's already on the phone but not in MediaCache. */
-    private void bindVideo(PageVH h, String url, String localUri) {
+    private void bindVideo(PageVH h, String url, String localUri, String thumbUrl, boolean usePrimed) {
         Context ctx = h.playerView.getContext();
         releasePlayer(h); // safety — in case of view-holder reuse without unbind
 
-        Uri playUri;
-        final int loadKind;
-        File cached = MediaCache.getCached(ctx, url);
-        if (cached != null) {
-            playUri = Uri.fromFile(cached);
-            loadKind = LOAD_CACHE;
-        } else if (localUri != null && !localUri.isEmpty()) {
-            playUri = Uri.parse(localUri); // already on device — no stream, no MediaCache.get()
-            loadKind = LOAD_LOCAL;
-        } else {
-            loadKind = LOAD_REMOTE;
-            playUri = Uri.parse(url);
-            h.spinner.setVisibility(View.VISIBLE);
-            MediaCache.get(ctx, url, new MediaCache.Callback() {
-                @Override public void onReady(File file) { h.spinner.setVisibility(View.GONE); }
-                @Override public void onError(String reason) { h.spinner.setVisibility(View.GONE); }
-            });
+        // PERF: bubble thumbnail stays visible until the first frame (no black flash). The tapped
+        // page gets the bubble's own decoded bitmap (zero decode); every other page uses the Glide cache.
+        final boolean isActivePage = h.getAdapterPosition() == activePosition;
+        android.graphics.Bitmap immediate = null;
+        if (isActivePage && startShutter != null) { immediate = startShutter; startShutter = null; }
+        VideoShutter.show(h.playerView, thumbUrl, immediate);
+
+        // PERF: player prepared at chat-tap time → attach as-is (no resolve, no prepare here).
+        ExoPlayer pre = null;
+        Uri playUri = null;
+        int kind = LOAD_REMOTE;
+        if (usePrimed && primed != null) {
+            pre = primed.claimPlayer();
+            if (pre != null) {
+                playUri = primed.uri;
+                kind = primed.kind == VideoOpenPrimer.KIND_LOCAL ? LOAD_LOCAL : LOAD_CACHE;
+            }
         }
+        final boolean usedPrimed = pre != null;
+
+        if (!usedPrimed) {
+            File cached = MediaCache.getCached(ctx, url);
+            if (cached != null) {
+                playUri = Uri.fromFile(cached);
+                kind = LOAD_CACHE;
+            } else if (localUri != null && !localUri.isEmpty()) {
+                playUri = Uri.parse(localUri); // already on device — no stream, no MediaCache.get()
+                kind = LOAD_LOCAL;
+            } else {
+                kind = LOAD_REMOTE;
+                playUri = Uri.parse(url);
+                h.spinner.setVisibility(View.VISIBLE);
+                MediaCache.get(ctx, url, new MediaCache.Callback() {
+                    @Override public void onReady(File file) { h.spinner.setVisibility(View.GONE); }
+                    @Override public void onError(String reason) { h.spinner.setVisibility(View.GONE); }
+                });
+            }
+        }
+        final int loadKind = kind;
 
         // PERF: acquire from the shared ExoPlayerPool instead of building a
         // fresh ExoPlayer on every bind — see ExoPlayerPool class doc.
-        h.player = com.callx.app.utils.ExoPlayerPool.acquire(ctx);
+        h.player = usedPrimed ? pre : com.callx.app.utils.ExoPlayerPool.acquire(ctx);
         h.playerView.setPlayer(h.player);
-        h.player.setMediaItem(MediaItem.fromUri(playUri));
-        h.player.prepare();
+        if (isActivePage) {
+            activeVideoPending = true; // neighbours wait for this page's first frame
+            mainHandler.removeCallbacks(flushRunnable);
+            mainHandler.postDelayed(flushRunnable, 1500L);
+        }
+        if (!usedPrimed) {
+            if (!isActivePage && activeVideoPending) {
+                h.deferredUri = playUri; // prepared by flushDeferred() after the active first frame
+                deferred.add(h);
+            } else {
+                // PERF: local files → ProgressiveMediaSource + FileDataSource (see LocalVideoSource);
+                // remote stays a plain MediaItem.
+                LocalVideoSource.apply(ctx, h.player, playUri);
+                h.player.prepare();
+            }
+        }
         // Auto-play only the currently active page — MediaViewerActivity
         // calls play()/pause() via onPageSelected so other pages stay paused.
         h.player.setPlayWhenReady(false);
@@ -750,12 +848,26 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
             @Override public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) h.spinner.setVisibility(View.GONE);
             }
+            @Override public void onRenderedFirstFrame() {
+                VideoShutter.onFirstFrame(h.playerView);
+                if (h.getAdapterPosition() == activePosition) flushDeferred();
+                if (firstFrameListener != null) {
+                    firstFrameListener.onFirstFrame(h.getAdapterPosition(), usedPrimed);
+                }
+            }
+            @Override public void onIsPlayingChanged(boolean isPlaying) {
+                if (isPlaying) { // safety net: never leave the thumb behind / never starve neighbours
+                    VideoShutter.onFirstFrame(h.playerView);
+                    if (h.getAdapterPosition() == activePosition) flushDeferred();
+                }
+            }
             @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 // Previously silent -> black page. Only a container-level parse failure says the
                 // FILE is bad (truncated / ciphertext); codec/IO/network errors must never delete it.
                 boolean badFile = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
                         || error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED;
                 h.spinner.setVisibility(View.GONE);
+                if (h.getAdapterPosition() == activePosition) flushDeferred();
                 onPageMediaFailed(h, boundItemAtBind, url, (loadKind == LOAD_CACHE && !badFile) ? LOAD_KEEP : loadKind);
             }
         };
@@ -769,6 +881,8 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
     }
 
     public void releasePlayer(PageVH h) {
+        h.deferredUri = null;
+        deferred.remove(h);
         if (h.player != null) {
             if (h.playerListener != null) {
                 h.player.removeListener(h.playerListener);
@@ -814,6 +928,7 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
         final android.widget.TextView tvCaption;
         final android.widget.TextView downloadPill;
         ExoPlayer player;
+        Uri deferredUri; // set while a neighbour's prepare() is deferred (see flushDeferred)
         Player.Listener playerListener;
         // The gallery item this holder is currently bound to (identity-compared by
         // async gate-download callbacks) and its pre-formatted size label, if known.

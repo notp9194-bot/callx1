@@ -305,6 +305,18 @@ public class MessagePagingAdapter
     // main thread here; only the final notifyItem*() calls do, which is the
     // correct/required behavior. No change needed.
 
+    /**
+     * True for a message rendered as a plain canvas text bubble: type text (or
+     * null), not deleted, not view-once. Only these take the FLAG_TEXT
+     * fast path; everything else keeps the full rebind on a text change.
+     */
+    static boolean isPlainTextBody(@NonNull Message m) {
+        final String t = m.type != null ? m.type : "text";
+        return "text".equals(t)
+                && !Boolean.TRUE.equals(m.deleted)
+                && !Boolean.TRUE.equals(m.viewOnce);
+    }
+
     // ── DiffUtil — required by PagingDataAdapter ──────────────────
     private static final DiffUtil.ItemCallback<Message> DIFF =
         new DiffUtil.ItemCallback<Message>() {
@@ -414,11 +426,13 @@ public class MessagePagingAdapter
 
             @Override
             public Object getChangePayload(@NonNull Message a, @NonNull Message b) {
-                // Structural fields (text/type/timestamp/messageId) never get
+                // Structural fields (type/timestamp/messageId/media) never get
                 // a fast path — if any of these differ it's a genuinely
                 // different-looking bubble, so fall through to a full rebind.
+                // The plain-text body is the one exception: a text-only change
+                // on a plain canvas text bubble (an edit, or a decrypt
+                // self-heal) gets FLAG_TEXT -> bindTextOnly().
                 boolean structuralSame =
-                        safeEquals(a.text, b.text) &&
                         safeEquals(a.type, b.type) &&
                         // v876: preview/size change => never a status-only fast path (null -> full rebind)
                         safeEquals(a.thumbnailUrl, b.thumbnailUrl) &&
@@ -429,6 +443,8 @@ public class MessagePagingAdapter
                         safeEquals(a.viewOnceState, b.viewOnceState) &&
                         longEquals(a.openedAt, b.openedAt);
                 if (!structuralSame) return null; // null → full rebind
+                final boolean textChanged = !safeEquals(a.text, b.text);
+                if (textChanged && !isPlainTextBody(b)) return null; // non-text/deleted/view-once: full rebind
 
                 // PERF: bit-flag combine — check each of the 4 fast-path
                 // fields independently instead of mutually-exclusive "only X
@@ -436,6 +452,7 @@ public class MessagePagingAdapter
                 // the same diff pass still gets ONE combined fast-path
                 // payload instead of falling through to a full rebind.
                 int flags = 0;
+                if (textChanged)                                   flags |= FLAG_TEXT;
                 if (!safeEquals(a.status, b.status))               flags |= FLAG_STATUS;
                 if (!reactionsEqual(a.reactions, b.reactions))     flags |= FLAG_REACTIONS;
                 if (!pollVotesEqual(a.pollVotes, b.pollVotes))     flags |= FLAG_POLL;
@@ -512,6 +529,8 @@ public class MessagePagingAdapter
     static final int FLAG_EDITED     = 1 << 3;
     /** v877: a SENT media row got its mediaUrl (upload finished) — clear the upload gate only (live, no rebind). */
     static final int FLAG_MEDIA_READY = 1 << 4;
+    /** Plain-text body (and its footer/edited label/link preview) changed — a text-only rebind, no Glide/reply/reaction work. */
+    static final int FLAG_TEXT = 1 << 5;
 
     // Kept as Integer constants (not String) so existing call sites that pass
     // e.g. PAYLOAD_REACTIONS directly to notifyItemChanged(...) still compile
@@ -520,6 +539,7 @@ public class MessagePagingAdapter
     static final Integer PAYLOAD_REACTIONS  = FLAG_REACTIONS;
     static final Integer PAYLOAD_POLL       = FLAG_POLL;
     static final Integer PAYLOAD_EDITED     = FLAG_EDITED;
+    static final Integer PAYLOAD_TEXT       = FLAG_TEXT;
     /** Sent message's readBy map changed — update the "Seen by X" strip only. */
     public static final String PAYLOAD_READ_BY = "read_by";
     // PERF: search-query-only change (user typed/cleared a character in
@@ -4348,8 +4368,11 @@ public class MessagePagingAdapter
         boolean hasMemberAvatarPayload = false;
         boolean hasTailPayload = false;
         int handledPayloadCount = 0;
+        int intPayloadCount = 0; // bit-flag payloads (FLAG_*) — handled by the Integer branch below
         for (Object payload : payloads) {
-            if (PAYLOAD_READ_BY.equals(payload)) {
+            if (payload instanceof Integer) {
+                intPayloadCount++;
+            } else if (PAYLOAD_READ_BY.equals(payload)) {
                 hasReadByPayload = true;
                 handledPayloadCount++;
             } else if (PAYLOAD_GROUP_SENDER.equals(payload)) {
@@ -4387,10 +4410,23 @@ public class MessagePagingAdapter
         // pass, so this runs every matching fast-path bind in a single
         // onBindViewHolder call instead of falling through to a full
         // rebind just because no single "only X changed" branch matched.
-        if (!payloads.isEmpty() && payloads.get(0) instanceof Integer) {
-            int flags = (Integer) payloads.get(0);
+        if (intPayloadCount > 0) {
+            // RecyclerView merges notifies for the same row into one payload
+            // list; OR every Integer so a FLAG_TEXT that arrives together
+            // with a tick/reaction flag in the same frame is never dropped.
+            int flags = 0;
+            for (int pi = 0; pi < payloads.size(); pi++) {
+                Object po = payloads.get(pi);
+                if (po instanceof Integer) flags |= (Integer) po;
+            }
             Message m = getItem(position);
             if (m != null) {
+                if ((flags & FLAG_TEXT) != 0) {
+                    // Text-only fast path. Returns false when it had to fall
+                    // back to a full bind (non-canvas/other type) — that bind
+                    // already refreshed everything else, so we're done.
+                    if (!bindTextOnly(h, m, position)) return;
+                }
                 if ((flags & FLAG_STATUS) != 0) {
                     // FIX: this used to only update the legacy tv_status
                     // TextView (bindStatusTick below) — but canvas-eligible
@@ -4415,14 +4451,19 @@ public class MessagePagingAdapter
                 if ((flags & FLAG_POLL) != 0) {
                     bindPollOnly(h, m);
                 }
-                if ((flags & FLAG_EDITED) != 0) {
+                if ((flags & FLAG_EDITED) != 0 && (flags & FLAG_TEXT) == 0) {
+                    // FLAG_TEXT's bindTextOnly() already rebuilt the footer
+                    // (incl. the "edited" suffix) in the same pass.
                     bindEditedOnly(h, m);
                 }
                 if ((flags & FLAG_MEDIA_READY) != 0) {
                     bindMediaReadyOnly(h, m);
                 }
             }
-            return;
+            // Mixed lists ([read_by, flags], [flags, search], ...) used to skip or drop
+            // part of the payloads. Return only when every payload was accounted for;
+            // anything else falls through to the remaining branches / full bind.
+            if (handledPayloadCount + intPayloadCount == payloads.size()) return;
         }
         if (!payloads.isEmpty() && PAYLOAD_VIDEO_LOCAL.equals(payloads.get(0))) {
             // v878: file is on device -> live gate clear only (no Glide, no re-bind).
@@ -4525,6 +4566,108 @@ public class MessagePagingAdapter
         return true;
     }
 
+    // ── Local edit fast path ─────────────────────────────────────────────
+    // messageId -> editedAt of edits THIS device applied through applyLocalEdit().
+    // Main-thread only. Used to recognise the Firebase echo of our own edit as
+    // redundant (see isRedundantEditEcho) so it doesn't trigger a second Room
+    // write + Paging invalidation + page re-query + diff.
+    private final java.util.LinkedHashMap<String, Long> localEditMarks =
+            new java.util.LinkedHashMap<String, Long>(8, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<String, Long> eldest) {
+                    return size() > 16;
+                }
+            };
+
+    /**
+     * Applies this device's own text edit: mutates the bound Message (and the
+     * adapter's copy when it is a different instance) and sends EXACTLY ONE
+     * targeted FLAG_TEXT rebind. Main thread only. Call it AFTER the new text's
+     * StaticLayout/markdown/emoji spans were pre-warmed off-thread
+     * (MessageBubbleCanvasView#precomputeTextLayoutIfPossible) so the rebind
+     * is a cache hit.
+     *
+     * @return the Message instance that now carries the edit (the adapter's
+     *         copy when loaded, else {@code bound}) — the caller persists THAT
+     *         one so a stale bound instance can never regress status/reactions
+     *         in Room; null if an equal-or-newer edit was already applied.
+     */
+    @Nullable
+    public Message applyLocalEdit(@Nullable Message bound, @NonNull String newText, long editedAt,
+                                  @Nullable java.util.List<java.util.Map<String, Object>> history) {
+        if (bound == null) return null;
+        final String id = bound.messageId != null ? bound.messageId : bound.id;
+        if (id == null || id.isEmpty()) return null;
+        android.os.Trace.beginSection("Msg#applyLocalEdit");
+        try {
+
+        int position = findMessagePositionById(id);
+        Message current = position != RecyclerView.NO_POSITION ? peek(position) : null;
+        if (current != null && !messageHasId(current, id)) current = null;
+
+        final Long seenAt = current != null ? current.editedAt : bound.editedAt;
+        if (seenAt != null && seenAt.longValue() >= editedAt) return null; // newer/same edit already in
+
+        bound.text = newText;
+        bound.edited = true;
+        bound.editedAt = editedAt;
+        bound.editHistory = history;
+        if (current != null && current != bound) {
+            current.text = newText;
+            current.edited = true;
+            current.editedAt = editedAt;
+            current.editHistory = history;
+        }
+        localEditMarks.put(id, editedAt);
+        if (current != null) notifyItemChanged(position, PAYLOAD_TEXT);
+        return current != null ? current : bound;
+        } finally {
+            android.os.Trace.endSection();
+        }
+    }
+
+    /**
+     * True when {@code incoming} (a Firebase onChildChanged snapshot) is just
+     * the echo of an edit this device already applied via applyLocalEdit() and
+     * already wrote to Room directly, AND carries nothing else new relative to
+     * the row the adapter shows. The caller then skips queueRoomWrite() — the
+     * row in Room is already identical. MUST be called BEFORE
+     * applyRealtimeUpdate(incoming), which overwrites the adapter's copy.
+     * Main thread only.
+     */
+    public boolean isRedundantEditEcho(@Nullable Message incoming) {
+        if (incoming == null || localEditMarks.isEmpty()) return false;
+        final String id = incoming.messageId != null ? incoming.messageId : incoming.id;
+        if (id == null || id.isEmpty() || incoming.editedAt == null) return false;
+        final Long mark = localEditMarks.get(id);
+        if (mark == null || mark.longValue() != incoming.editedAt.longValue()) return false;
+        final int position = findMessagePositionById(id);
+        if (position == RecyclerView.NO_POSITION) return false;
+        final Message cur = peek(position);
+        if (cur == null || !messageHasId(cur, id)) return false;
+        final boolean thumbSame = java.util.Objects.equals(cur.thumbnailUrl, incoming.thumbnailUrl)
+                || ((incoming.thumbnailUrl == null || incoming.thumbnailUrl.isEmpty())
+                        && cur.thumbnailUrl != null && cur.thumbnailUrl.startsWith("file://"));
+        return java.util.Objects.equals(cur.text, incoming.text)
+                && java.util.Objects.equals(cur.type, incoming.type)
+                && java.util.Objects.equals(cur.mediaUrl, incoming.mediaUrl)
+                && thumbSame
+                && java.util.Objects.equals(cur.caption, incoming.caption)
+                && java.util.Objects.equals(cur.deleted, incoming.deleted)
+                && java.util.Objects.equals(cur.edited, incoming.edited)
+                && java.util.Objects.equals(cur.editedAt, incoming.editedAt)
+                && java.util.Objects.equals(cur.status, incoming.status)
+                && java.util.Objects.equals(cur.deliveredAt, incoming.deliveredAt)
+                && java.util.Objects.equals(cur.readAt, incoming.readAt)
+                && java.util.Objects.equals(cur.reactions, incoming.reactions)
+                && java.util.Objects.equals(cur.readBy, incoming.readBy)
+                && java.util.Objects.equals(cur.deliveredBy, incoming.deliveredBy)
+                && (incoming.viewOnceState == null
+                        || java.util.Objects.equals(cur.viewOnceState, incoming.viewOnceState))
+                && (incoming.openedAt == null
+                        || java.util.Objects.equals(cur.openedAt, incoming.openedAt));
+    }
+
     /**
      * Applies a realtime update to an already loaded row without invalidating
      * the whole keyset PagingSource. Firebase sends the complete message node
@@ -4559,6 +4702,18 @@ public class MessagePagingAdapter
                 || !java.util.Objects.equals(current.openedAt, incoming.openedAt)
                 || !java.util.Objects.equals(current.edited, incoming.edited)
                 || !java.util.Objects.equals(current.editedAt, incoming.editedAt);
+        // Only text/edited/editedAt differ (everything else in the content set
+        // is identical) AND it's a plain canvas text bubble -> FLAG_TEXT
+        // text-only rebind instead of a full notifyItemChanged(position).
+        final boolean textOnlyChange = contentChanged
+                && java.util.Objects.equals(current.type, incoming.type)
+                && java.util.Objects.equals(current.mediaUrl, incoming.mediaUrl)
+                && java.util.Objects.equals(current.thumbnailUrl, effThumbUrl)
+                && java.util.Objects.equals(current.caption, incoming.caption)
+                && java.util.Objects.equals(current.deleted, incoming.deleted)
+                && java.util.Objects.equals(current.viewOnceState, incoming.viewOnceState)
+                && java.util.Objects.equals(current.openedAt, incoming.openedAt)
+                && isPlainTextBody(incoming);
         boolean statusChanged =
                 !java.util.Objects.equals(current.status, incoming.status)
                 || !java.util.Objects.equals(current.deliveredAt, incoming.deliveredAt)
@@ -4598,10 +4753,11 @@ public class MessagePagingAdapter
         current.deliveredBy = incoming.deliveredBy;
         bumpSeenByEpoch(); // v443: readBy replaced in place → cached seen-by selections are stale
 
-        if (contentChanged) {
+        if (contentChanged && !textOnlyChange) {
             notifyItemChanged(position);
         } else {
             int flags = 0;
+            if (textOnlyChange) flags |= FLAG_TEXT;
             if (statusChanged) flags |= FLAG_STATUS;
             if (reactionsChanged) flags |= FLAG_REACTIONS;
             if (readByChanged) notifyItemChanged(position, PAYLOAD_READ_BY);
@@ -5677,9 +5833,10 @@ public class MessagePagingAdapter
                                     ((android.app.Activity) ctx).runOnUiThread(() -> {
                                         // Telegram-style chat-wide gallery —
                                         // see openChatMediaViewer's doc.
+                                        com.callx.app.utils.VideoOpenPrimer.offerShutter(cv.getMediaBitmapForViewer());
                                         openChatMediaViewer(ctx, chatId,
                                                 m.messageId != null ? m.messageId : m.id, -1,
-                                                vUrl2, vUrl2, "video", null,
+                                                vUrl2, videoShutterThumb(m, vUrl2), "video", null,
                                                 file.getAbsolutePath(), null,
                                                 cv.getMediaRectOnScreen(),
                                                 currentUid != null && currentUid.equals(m.senderId));
@@ -5817,9 +5974,10 @@ public class MessagePagingAdapter
                                 ((android.app.Activity) ctx).runOnUiThread(() -> {
                                     // Telegram-style chat-wide gallery —
                                     // see openChatMediaViewer's doc.
+                                    com.callx.app.utils.VideoOpenPrimer.offerShutter(cv.getMediaBitmapForViewer());
                                     openChatMediaViewer(ctx, chatId,
                                             m.messageId != null ? m.messageId : m.id, -1,
-                                            vDlUrl, vDlUrl, "video", null,
+                                            vDlUrl, videoShutterThumb(m, vDlUrl), "video", null,
                                             file.getAbsolutePath(), null,
                                             cv.getMediaRectOnScreen(),
                                             currentUid != null && currentUid.equals(m.senderId));
@@ -6351,6 +6509,63 @@ public class MessagePagingAdapter
         m.cachedUrlSrc = t;
         m.cachedHasUrl = (byte) (has ? 2 : 1);
         return has;
+    }
+
+    /**
+     * Link-preview card for a plain canvas text bubble (extracted verbatim from
+     * bindCanvasMessage so bindTextOnly() can refresh it after an edit that
+     * adds/removes/changes a URL). cv's tag doubles as the staleness guard.
+     */
+    private void bindCanvasTextLinkPreview(@NonNull VH h,
+            @NonNull com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+            @NonNull Context ctx, @NonNull Message m) {
+        final String previewUrl = m.text != null
+                ? com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text) : null;
+        cv.setTag(previewUrl);
+        if (previewUrl == null) {
+            cv.clearLinkPreview();
+        } else {
+            // FLICKER ROOT CAUSE (whole chat list junk on every send/
+            // receive once a link message exists): this used to call
+            // clearLinkPreview() UNCONDITIONALLY before firing fetch() —
+            // even when the URL was already resolved and sitting in
+            // LinkPreviewFetcher's cache. clearLinkPreview() collapses the
+            // card to zero height (requestLayoutIfSizeChanged() sees a
+            // real size change), and fetch()'s callback — even on a pure
+            // cache hit — always lands a frame later via mainHandler.post(),
+            // never synchronously. So every rebind of this row replayed a
+            // collapse-then-expand cycle. And this row DOES get rebound on
+            // every unrelated send/receive: reanchorPagingToBottom()
+            // invalidates the live PagingSource on every write, reloading
+            // the whole visible page as fresh Message objects. That
+            // per-row height thrash is exactly what forces RecyclerView to
+            // reflow every row below it — the "puri chat list
+            // flickering/junk" the moment a link exists anywhere onscreen.
+            //
+            // Fix: peek the cache synchronously FIRST. The overwhelmingly
+            // common case — a link that already resolved once — renders
+            // in the very same frame with no clear/collapse step at all.
+            // Only a genuine cache miss (URL never fetched before) still
+            // falls back to clearLinkPreview() + async fetch().
+            com.callx.app.utils.LinkPreviewFetcher.Result cachedPreview =
+                    com.callx.app.utils.LinkPreviewFetcher.peek(previewUrl);
+            if (cachedPreview != null) {
+                bindLinkPreviewResult(h, cv, ctx, previewUrl, cachedPreview);
+            } else {
+                cv.clearLinkPreview(); // genuinely nothing to show yet — fetch in flight
+                com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
+                        new com.callx.app.utils.LinkPreviewFetcher.Callback() {
+                    @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
+                        if (!previewUrl.equals(cv.getTag())) return; // recycled/rebound since this fetch started
+                        bindLinkPreviewResult(h, cv, ctx, previewUrl, r);
+                    }
+                    @Override public void onError(String url) {
+                        if (!previewUrl.equals(cv.getTag())) return;
+                        cv.clearLinkPreview();
+                    }
+                });
+            }
+        }
     }
 
     private void bindCanvasMessage(@NonNull VH h, @NonNull Message m, int position) {
@@ -7865,53 +8080,7 @@ public class MessagePagingAdapter
             // cv's own tag doubles as the staleness guard (equivalent to
             // h.llLinkPreview.getTag() there), since MessageBubbleCanvasView
             // has no ViewStub-backed child views to tag instead.
-            final String previewUrl = m.text != null
-                    ? com.callx.app.utils.LinkPreviewFetcher.extractFirstUrl(m.text) : null;
-            cv.setTag(previewUrl);
-            if (previewUrl == null) {
-                cv.clearLinkPreview();
-            } else {
-                // FLICKER ROOT CAUSE (whole chat list junk on every send/
-                // receive once a link message exists): this used to call
-                // clearLinkPreview() UNCONDITIONALLY before firing fetch() —
-                // even when the URL was already resolved and sitting in
-                // LinkPreviewFetcher's cache. clearLinkPreview() collapses the
-                // card to zero height (requestLayoutIfSizeChanged() sees a
-                // real size change), and fetch()'s callback — even on a pure
-                // cache hit — always lands a frame later via mainHandler.post(),
-                // never synchronously. So every rebind of this row replayed a
-                // collapse-then-expand cycle. And this row DOES get rebound on
-                // every unrelated send/receive: reanchorPagingToBottom()
-                // invalidates the live PagingSource on every write, reloading
-                // the whole visible page as fresh Message objects. That
-                // per-row height thrash is exactly what forces RecyclerView to
-                // reflow every row below it — the "puri chat list
-                // flickering/junk" the moment a link exists anywhere onscreen.
-                //
-                // Fix: peek the cache synchronously FIRST. The overwhelmingly
-                // common case — a link that already resolved once — renders
-                // in the very same frame with no clear/collapse step at all.
-                // Only a genuine cache miss (URL never fetched before) still
-                // falls back to clearLinkPreview() + async fetch().
-                com.callx.app.utils.LinkPreviewFetcher.Result cachedPreview =
-                        com.callx.app.utils.LinkPreviewFetcher.peek(previewUrl);
-                if (cachedPreview != null) {
-                    bindLinkPreviewResult(h, cv, ctx, previewUrl, cachedPreview);
-                } else {
-                    cv.clearLinkPreview(); // genuinely nothing to show yet — fetch in flight
-                    com.callx.app.utils.LinkPreviewFetcher.fetch(previewUrl,
-                            new com.callx.app.utils.LinkPreviewFetcher.Callback() {
-                        @Override public void onResult(com.callx.app.utils.LinkPreviewFetcher.Result r) {
-                            if (!previewUrl.equals(cv.getTag())) return; // recycled/rebound since this fetch started
-                            bindLinkPreviewResult(h, cv, ctx, previewUrl, r);
-                        }
-                        @Override public void onError(String url) {
-                            if (!previewUrl.equals(cv.getTag())) return;
-                            cv.clearLinkPreview();
-                        }
-                    });
-                }
-            }
+            bindCanvasTextLinkPreview(h, cv, ctx, m);
         }
 
         // ── Reply preview (also covers status-reply/status-reaction quote
@@ -8794,8 +8963,9 @@ public class MessagePagingAdapter
                         // Also still lets MediaViewerActivity publish
                         // playback presence (chatPlayback/{chatId}/{uid})
                         // via the chatId/messageId extras it sets internally.
+                        offerBubbleShutter(h.ivVideoThumb);
                         openChatMediaViewer(ctx, chatId, vMid, -1,
-                                vUrl, vUrl, "video", null,
+                                vUrl, videoShutterThumb(m, vUrl), "video", null,
                                 m.mediaLocalPath, null,
                                 com.callx.app.utils.MediaViewerSourceRect.ofView(h.flVideo),
                                 currentUid != null && currentUid.equals(m.senderId));
@@ -8839,8 +9009,9 @@ public class MessagePagingAdapter
                         }
                         // Telegram-style chat-wide gallery — see
                         // openChatMediaViewer's doc.
+                        offerBubbleShutter(h.ivImage);
                         openChatMediaViewer(ctx, chatId, vMid, -1,
-                                vUrl, vUrl, "video", null,
+                                vUrl, videoShutterThumb(m, vUrl), "video", null,
                                 m.mediaLocalPath, null,
                                 com.callx.app.utils.MediaViewerSourceRect.ofView(h.ivImage),
                                 currentUid != null && currentUid.equals(m.senderId));
@@ -10495,6 +10666,24 @@ public class MessagePagingAdapter
                 null, null, null);
     }
 
+    /** Hands the bubble's already-decoded thumbnail (if it is a plain bitmap) to the viewer's shutter. */
+    private static void offerBubbleShutter(android.widget.ImageView iv) {
+        if (iv == null) return;
+        android.graphics.drawable.Drawable d = iv.getDrawable();
+        if (d instanceof android.graphics.drawable.TransitionDrawable) {
+            android.graphics.drawable.TransitionDrawable td = (android.graphics.drawable.TransitionDrawable) d;
+            d = td.getDrawable(td.getNumberOfLayers() - 1);
+        }
+        if (d instanceof android.graphics.drawable.BitmapDrawable) {
+            com.callx.app.utils.VideoOpenPrimer.offerShutter(((android.graphics.drawable.BitmapDrawable) d).getBitmap());
+        }
+    }
+
+    /** Real video thumbnail for the viewer's pre-first-frame shutter; falls back to the video url (viewer ignores it then). */
+    private static String videoShutterThumb(Message m, String videoUrl) {
+        return (m != null && m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty()) ? m.thumbnailUrl : videoUrl;
+    }
+
     // Feature: Voice Caption on Photo — carries the attached voice note
     // through to MediaViewerActivity's fullscreen view too, not just the
     // chat bubble (was chat-only before this overload; the fullscreen
@@ -10511,9 +10700,28 @@ public class MessagePagingAdapter
                                       @Nullable android.graphics.Rect srcRect, boolean isOwnMessage,
                                       @Nullable String voiceUrl, @Nullable String voiceDurationText,
                                       @Nullable String voiceKeyB64) {
+        // PERF (video open): stamp the tap, and — for a video that is already on the device
+        // (local file or MediaCache) — have the player resolved + prepared RIGHT NOW so codec
+        // init / first frame overlap the viewer's open animation. The local-availability
+        // verdict (LOCAL_AVAIL_CACHE) rides the Intent so the viewer needs no file I/O on its
+        // UI thread. See VideoOpenPrimer / MediaViewerActivity#playVideo.
+        final long tapUptimeMs = android.os.SystemClock.uptimeMillis();
+        final Boolean localAvailVerdict = (localPath != null && !localPath.isEmpty())
+                ? LOCAL_AVAIL_CACHE.get(localPath) : null;
+        final int primedToken = "video".equals(mediaType)
+                ? com.callx.app.utils.VideoOpenPrimer.prime(ctx, fallbackUrl, localPath, localAvailVerdict)
+                : -1;
+
         // (Plain local interface, not java.util.function.Consumer — minSdk
         // 23 here has no core-library desugaring set up.)
         final MediaViewerExtrasAttacher attachCommonExtras = i2 -> {
+            i2.putExtra(com.callx.app.utils.VideoOpenPrimer.EXTRA_TAP_UPTIME, tapUptimeMs);
+            if (primedToken >= 0) {
+                i2.putExtra(com.callx.app.utils.VideoOpenPrimer.EXTRA_TOKEN, primedToken);
+            }
+            if (localAvailVerdict != null) {
+                i2.putExtra(com.callx.app.utils.VideoOpenPrimer.EXTRA_LOCAL_AVAIL, localAvailVerdict.booleanValue());
+            }
             if (localPath != null && !localPath.isEmpty()) {
                 i2.putExtra("localPath", localPath);
             }
@@ -11075,6 +11283,59 @@ public class MessagePagingAdapter
         if (m.mediaUrl == null || m.mediaUrl.isEmpty() || "failed".equals(m.status)) return;
         if (!"video".equals(m.type) && !"image".equals(m.type)) return;
         h.canvasView.clearMediaDownloadGate();
+    }
+
+    /**
+     * FLAG_TEXT fast path: re-binds ONLY what a text change can affect on a
+     * plain canvas text bubble — body text (+ its cached layout), footer time/
+     * "edited" label, search highlight, read-more state, quick-forward chip and
+     * link preview. Skips avatar, reply decor, reactions, seen-by strip, Glide
+     * and every other section of the full bind. Layout/spans come from the
+     * static caches pre-warmed off-thread, so this is one measure + one record.
+     *
+     * @return true if handled on the fast path; false if it fell back to a
+     *         full bind (holder has no canvas view / message isn't plain text)
+     */
+    private boolean bindTextOnly(@NonNull VH h, @NonNull Message m, int position) {
+        final long t0 = System.nanoTime();
+        android.os.Trace.beginSection("Msg#bindTextOnly");
+        try {
+            return bindTextOnlyInner(h, m, position);
+        } finally {
+            android.os.Trace.endSection();
+            com.callx.app.debug.OpenPerfLog.acc("adapter.bind(textOnly)", System.nanoTime() - t0);
+        }
+    }
+
+    private boolean bindTextOnlyInner(@NonNull VH h, @NonNull Message m, int position) {
+        final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+        if (cv == null || !isPlainTextBody(m)) {
+            onBindViewHolder(h, position);
+            return false;
+        }
+        h.boundMessage = m;
+        indexMessagePosition(position, m);
+        final boolean sent = currentUid != null && currentUid.equals(m.senderId);
+        final boolean isRead = "read".equals(m.status);
+        final boolean isDelivered = isRead || "delivered".equals(m.status);
+        final boolean edited = Boolean.TRUE.equals(m.edited);
+        String timeStr = (m.timestamp != null && m.timestamp > 0) ? formatTime(m.timestamp) : "";
+        if (edited) timeStr = timeStr + "  \u270F\uFE0F edited";
+        String canvasText = m.text != null ? m.text : "";
+        if (com.callx.app.utils.SpoilerTextHelper.hasSpoiler(canvasText)) {
+            canvasText = com.callx.app.utils.SpoilerTextHelper.stripMarkers(canvasText);
+        }
+        // bind() first, setEdited() second: bind() already bakes the suffix
+        // into the footer text, so setEdited(true) afterwards only flips the
+        // tap-target flag (no second size change / relayout request).
+        cv.bind(canvasText, timeStr, sent, isRead, isDelivered);
+        cv.setEdited(edited);
+        cv.setDeletedStyle(false);
+        cv.setSearchHighlight(activeSearchQuery);
+        wireCaptionReadMore(h, cv, m.messageId);
+        cv.setQuickForwardVisible(textHasUrl(m));
+        bindCanvasTextLinkPreview(h, cv, h.itemView.getContext(), m);
+        return true;
     }
 
     private void bindEditedOnly(@NonNull VH h, @NonNull Message m) {

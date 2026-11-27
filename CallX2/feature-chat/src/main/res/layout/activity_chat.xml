@@ -239,12 +239,13 @@
             android:focusable="true"
             android:visibility="gone"/>
 
-        <!-- Back to latest FAB — shown when navigating to original message -->
+        <!-- Back to latest FAB — shown when scrolled up / navigating to original message.
+             Bottom CENTER (not right edge). -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_back_to_latest"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
+            android:layout_gravity="bottom|center_horizontal"
             android:layout_marginStart="12dp"
             android:layout_marginTop="12dp"
             android:layout_marginEnd="12dp"

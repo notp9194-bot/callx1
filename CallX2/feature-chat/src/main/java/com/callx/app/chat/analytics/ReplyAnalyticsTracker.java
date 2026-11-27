@@ -9,7 +9,10 @@ import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -58,6 +61,16 @@ public class ReplyAnalyticsTracker {
     private static final String WORK_NAME = "reply_analytics_flush";
     private static final long   FLUSH_DEBOUNCE_SECONDS = 20;
 
+    // PERF (v905): building the WorkRequest + enqueueUniqueWork used to run on the main thread right
+    // inside the swipe-release frame (twice per swipe: attempt + triggered). Counters stay inline
+    // (atomic increments), the WorkManager call is coalesced and runs on one background thread.
+    private static final Executor BG = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "reply-analytics");
+        t.setDaemon(true);
+        return t;
+    });
+    private final AtomicBoolean flushQueued = new AtomicBoolean(false);
+
     private static final ReplyAnalyticsTracker INSTANCE = new ReplyAnalyticsTracker();
     public static ReplyAnalyticsTracker get() { return INSTANCE; }
 
@@ -76,7 +89,6 @@ public class ReplyAnalyticsTracker {
     public void onSwipeTriggered(Context ctx) {
         triggerSuccess.incrementAndGet();
         pendingTriggerSuccess.incrementAndGet();
-        logStats();
         scheduleFlush(ctx);
     }
 
@@ -106,6 +118,7 @@ public class ReplyAnalyticsTracker {
     public int getUndoCount()      { return undoCount.get(); }
 
     private void logStats() {
+        if (!Log.isLoggable(TAG, Log.DEBUG)) return;   // String.format only when someone is listening
         Log.d(TAG, String.format(
                 "Reply stats → attempts=%d success=%d rate=%.0f%% undos=%d avgDist=%.0fpx",
                 swipeAttempts.get(), triggerSuccess.get(),
@@ -182,6 +195,16 @@ public class ReplyAnalyticsTracker {
      */
     private void scheduleFlush(Context ctx) {
         if (ctx == null) return;
+        final Context app = ctx.getApplicationContext();
+        if (!flushQueued.compareAndSet(false, true)) return;   // a request is already on its way
+        BG.execute(() -> {
+            flushQueued.set(false);   // events arriving from here on queue a fresh (REPLACE) request
+            enqueueFlush(app);
+            logStats();
+        });
+    }
+
+    private void enqueueFlush(Context app) {
         Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
@@ -189,7 +212,7 @@ public class ReplyAnalyticsTracker {
                 .setInitialDelay(FLUSH_DEBOUNCE_SECONDS, TimeUnit.SECONDS)
                 .setConstraints(constraints)
                 .build();
-        WorkManager.getInstance(ctx.getApplicationContext())
+        WorkManager.getInstance(app)
                 .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request);
     }
 }

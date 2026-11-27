@@ -35,7 +35,9 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  */
 public final class ExoPlayerPool {
 
-    private static final int MAX_POOL_SIZE = 2;
+    // PERF: 3 = prev + current + next gallery video pages (±1 neighbours stay paused+prepared).
+    // Hardware decoders are limited, so the pool is not grown further.
+    private static final int MAX_POOL_SIZE = 3;
 
     private static final ConcurrentLinkedDeque<ExoPlayer> POOL = new ConcurrentLinkedDeque<>();
 

@@ -1349,16 +1349,22 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public Message get(int index) { return pagingAdapter.peek(index); }
             @Override public int size() { return pagingAdapter.getItemCount(); }
         };
-        new androidx.recyclerview.widget.ItemTouchHelper(
-                new com.callx.app.chat.gesture.SwipeReplyHandler(this,
+        new com.callx.app.chat.gesture.SwipeReplyHandler(this,
                         swipeMessages,
                         currentUid,
                         (message, adapterPosition) -> {
                             com.callx.app.chat.analytics.ReplyAnalyticsTracker.get()
                                     .onSwipeAttempt(GroupChatActivity.this, 100f);
                             startReply(message);
-                        }).setGate(this::canSwipeReplyNow))
-                .attachToRecyclerView(binding.rvMessages);
+                        }).setGate(this::canSwipeReplyNow)
+                .attachTo(binding.rvMessages);
+
+        // PERF (v905): inflate the lazy reply-bar stub while the app is idle, so the first
+        // swipe-to-reply doesn't pay for the inflate in the release frame. It stays GONE.
+        binding.rvMessages.postDelayed(() -> android.os.Looper.myQueue().addIdleHandler(() -> {
+            if (!isFinishing() && !isDestroyed() && binding != null) ensureReplyBarViews();
+            return false;
+        }), 1200L);
         // v819: TalkBack / switch-access "Reply" action on every replyable row (same rules as swipe).
         com.callx.app.chat.gesture.ReplyAccessibility.attach(binding.rvMessages,
                 new com.callx.app.chat.gesture.ReplyAccessibility.Host() {
@@ -1645,6 +1651,11 @@ public class GroupChatActivity extends AppCompatActivity
                     // SearchDelegate extras — not used by MessageEditHistoryController
                     @Override public void runOnMain(Runnable r) { runOnUiThread(r); }
                     @Override public com.callx.app.conversation.MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+                    @Override public boolean queueLocalEditWrite(com.callx.app.models.Message m) {
+                        if (m == null || m.id == null) return false;
+                        GroupChatActivity.this.queueRoomWrite(m, false); // coalesced Room txn, no structural refresh
+                        return true;
+                    }
                     @Override public void navigateToMessage(String messageId) { scrollToMessageId(messageId); }
                     @Override public boolean severPagingIfAtBottom() {
                         return GroupChatActivity.this.severPagingIfAtBottom();
@@ -1894,15 +1905,35 @@ public class GroupChatActivity extends AppCompatActivity
                 Message m = s.getValue(Message.class);
                 if (m == null) return;
                 m.id = s.getKey();
+                // PERF (edit path): echo of OUR OWN edit is recognised on the main thread
+                // (Firebase callback thread) before the decrypt-executor hop — see ChatActivity.
+                if (pagingAdapter != null && pagingAdapter.isRedundantEditEcho(m)) {
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (pagingAdapter != null) pagingAdapter.applyRealtimeUpdate(m);
+                    });
+                    return;
+                }
                 // Same off-main-thread decrypt + Linkify-prewarm fix as onChildAdded above.
                 com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
                     decryptIncomingGroupTextIfNeeded(m);
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
+                    // PERF (edit path): warm canvas text layout/spans off the UI thread.
+                    if ("text".equals(m.type)) {
+                        com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted), m.senderId);
+                    }
                     chatUiEventBatcher.postForMessage(m.id, () -> {
                         if (isFinishing() || isDestroyed()) return;
+                        // Echo of OUR OWN edit (already in Room) -> skip the second
+                        // Room write + Paging invalidation. Evaluate BEFORE apply.
+                        final boolean redundantEditEcho = pagingAdapter != null
+                                && pagingAdapter.isRedundantEditEcho(m);
                         boolean visibleNow = pagingAdapter != null
                                 && pagingAdapter.applyRealtimeUpdate(m);
-                        queueRoomWrite(m, !visibleNow && isBeyondLoadedTail(m));
+                        if (!redundantEditEcho) {
+                            queueRoomWrite(m, !visibleNow && isBeyondLoadedTail(m));
+                        }
                     });
                 });
             }
@@ -3028,13 +3059,8 @@ public class GroupChatActivity extends AppCompatActivity
         if (!userTriggered) return;
         binding.etMessage.requestFocus();
         // WhatsApp-style: swipe-to-reply opens the keyboard right away (same as 1:1).
-        binding.etMessage.post(() -> {
-            android.view.inputmethod.InputMethodManager imm =
-                    (android.view.inputmethod.InputMethodManager)
-                            getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showSoftInput(binding.etMessage,
-                    android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-        });
+        // v905: held back two frames + skipped when already visible (see ReplyKeyboard).
+        com.callx.app.chat.reply.ReplyKeyboard.showAfterReplyBar(binding.etMessage);
         com.callx.app.chat.analytics.ReplyAnalyticsTracker.get().onSwipeTriggered(this);
     }
 

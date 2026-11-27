@@ -2725,3 +2725,26 @@ HSPLcom/callx/app/chatlist/canvas/ChatListNameTimeView;->onMeasure(II)V
 HSPLcom/callx/app/chatlist/canvas/ChatListLastMessageView;->onMeasure(II)V
 HSPLcom/callx/app/debug/TabOpenPerfLog;->mark(Ljava/lang/String;)V
 HSPLcom/callx/app/debug/TabOpenPerfLog;->markOnce(Ljava/lang/String;)V
+# v906 swipe-to-reply: current classes (older entries above reference methods that no longer exist)
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler;->*(**)**
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler$LightEngine;->*(**)**
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler$FireTask;->*(**)**
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler$RevealOverlay;->*(**)**
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler$OnSwipeReplyListener;->*(**)**
+HSPLcom/callx/app/chat/gesture/SwipeReplyHandler$SwipeGate;->*(**)**
+HSPLcom/callx/app/chat/reply/ReplyKeyboard;->*(**)**
+HSPLcom/callx/app/chat/reply/ReplyController;->*(**)**
+HSPLcom/callx/app/chat/reply/ReplyStateManager;->*(**)**
+HSPLcom/callx/app/chat/ui/ReplyPreviewBinder;->*(**)**
+HSPLcom/callx/app/chat/ui/ReplyPreviewBinder$Preview;->*(**)**
+HSPLcom/callx/app/chat/ui/ReplyBarLayout;->*(**)**
+HSPLcom/callx/app/chat/ui/ChatLazyViewUtils;->*(**)**
+HSPLcom/callx/app/chat/performance/SwipeOptimizer;->*(**)**
+HSPLcom/callx/app/chat/analytics/ReplyAnalyticsTracker;->*(**)**
+Lcom/callx/app/chat/gesture/SwipeReplyHandler;
+Lcom/callx/app/chat/gesture/SwipeReplyHandler$LightEngine;
+Lcom/callx/app/chat/gesture/SwipeReplyHandler$FireTask;
+Lcom/callx/app/chat/gesture/SwipeReplyHandler$RevealOverlay;
+Lcom/callx/app/chat/reply/ReplyKeyboard;
+Lcom/callx/app/chat/ui/ReplyPreviewBinder;
+Lcom/callx/app/chat/ui/ReplyBarLayout;

@@ -1959,6 +1959,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         return super.getSupportFragmentManager();
     }
     @Override public MessagePagingAdapter getPagingAdapter() { return pagingAdapter; }
+    @Override public boolean queueLocalEditWrite(Message m) {
+        if (m == null || m.id == null) return false;
+        queueRoomWrite(m, false); // coalesced Room txn + LastMessagesCache upsert; no structural refresh
+        return true;
+    }
     @Override public void refreshScreenTheme()               { themeController.applyScreenTheme(); }
     @Override public void refreshWallpaper()                 { themeController.applyWallpaper(); }
     @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
@@ -2151,14 +2156,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // was already dismissed (e.g. user was scrolling with keyboard
         // closed when they swiped). Force it open on the next frame so the
         // reply bar's requestFocus() has actually taken effect first.
-        binding.etMessage.post(() -> {
-            android.view.inputmethod.InputMethodManager imm =
-                    (android.view.inputmethod.InputMethodManager)
-                            getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) {
-                imm.showSoftInput(binding.etMessage, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-            }
-        });
+        // v905: held back two frames + skipped when already visible (see ReplyKeyboard).
+        com.callx.app.chat.reply.ReplyKeyboard.showAfterReplyBar(binding.etMessage);
         ReplyAnalyticsTracker.get().onSwipeTriggered(this);
     }
 
@@ -3881,6 +3880,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
+                // PERF (edit path): Firebase delivers this callback on the main thread, so
+                // we can recognise the echo of OUR OWN edit right here — before the decrypt
+                // executor hop, linkify/layout precompute and Room batching. It is
+                // byte-identical to what the adapter already shows (verified field by
+                // field), so the only work left is the (no-op) realtime apply, still
+                // routed through the per-id batcher so ordering/coalescing is unchanged.
+                if (pagingAdapter != null && pagingAdapter.isRedundantEditEcho(m)) {
+                    chatUiEventBatcher.postForMessage(m.id, () -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (pagingAdapter != null) pagingAdapter.applyRealtimeUpdate(m);
+                    });
+                    return;
+                }
                 // Same off-main-thread decrypt fix as onChildAdded above.
                 e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
@@ -3888,17 +3900,32 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // background thread already paying for decrypt, so the chat
                     // UI thread never has to run link-regex on this message.
                     com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
+                    // PERF (edit path): warm the canvas text layout + markdown/emoji
+                    // spans here, off the UI thread, so the FLAG_TEXT rebind that
+                    // applyRealtimeUpdate() triggers for a remote edit is a cache hit.
+                    if ("text".equals(m.type)) {
+                        com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                .precomputeTextLayoutIfPossible(m.text, Boolean.TRUE.equals(m.deleted), m.senderId);
+                    }
                     chatUiEventBatcher.postForMessage(m.id, () -> {
                         if (isFinishing() || isDestroyed()) return;
                         // A changed row is not a structural insert. If it is
                         // outside the loaded window, Room keeps it ready for
                         // the next history load without rebuilding the pager.
+                        // Echo of OUR OWN edit (already written to Room by the edit
+                        // flow) -> skip the second Room write + Paging invalidation.
+                        // Must be evaluated BEFORE applyRealtimeUpdate() overwrites
+                        // the adapter's copy.
+                        final boolean redundantEditEcho = pagingAdapter != null
+                                && pagingAdapter.isRedundantEditEcho(m);
                         boolean visibleNow = pagingAdapter != null
                                 && pagingAdapter.applyRealtimeUpdate(m);
                         // A message that was first seen with no seq / outside the
                         // loaded window and is newer than the loaded tail must
                         // trigger a real Paging refresh, else it only shows on reopen.
-                        queueRoomWrite(m, !visibleNow && isBeyondLoadedTail(m));
+                        if (!redundantEditEcho) {
+                            queueRoomWrite(m, !visibleNow && isBeyondLoadedTail(m));
+                        }
                         if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
                             attachPendingStatusListener(m.id);
                         } else if ("read".equals(m.status)) {
@@ -6594,8 +6621,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     startReply(message);
                 }).setGate(this::canSwipeReplyNow);
 
-        swipeHelper = new ItemTouchHelper(handler);
-        swipeHelper.attachToRecyclerView(binding.rvMessages);
+        handler.attachTo(binding.rvMessages);   // ItemTouchHelper, or the light engine (SwipeReplyHandler.USE_LIGHT_ENGINE)
 
         // v819: TalkBack / switch-access "Reply" action on every replyable row.
         com.callx.app.chat.gesture.ReplyAccessibility.attach(binding.rvMessages,
@@ -6613,6 +6639,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onReplyCancelled() {}
             @Override public void onNavigateToOriginal(String messageId) { navigateToOriginalMsg(messageId, null); }
         });
+
+        // PERF (v905): inflate the lazy reply-bar stub while the app is idle, so the first
+        // swipe-to-reply doesn't pay for the inflate in the release frame. It stays GONE.
+        binding.rvMessages.postDelayed(() -> android.os.Looper.myQueue().addIdleHandler(() -> {
+            if (!isFinishing() && !isDestroyed() && binding != null) ensureReplyBarViews();
+            return false;
+        }), 1200L);
     }
 
     /** v819: re-show the reply that was active before the activity was recreated. */

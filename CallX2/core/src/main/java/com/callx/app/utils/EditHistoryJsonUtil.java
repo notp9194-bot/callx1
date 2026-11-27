@@ -87,6 +87,27 @@ public final class EditHistoryJsonUtil {
         return updated;
     }
 
+    /** Max prior versions kept per message (Firebase node, Room blob, outbox payload). */
+    public static final int MAX_HISTORY_ENTRIES = 30;
+
+    /**
+     * Same as {@link #appendVersion} but bounded: when the list would exceed
+     * {@link #MAX_HISTORY_ENTRIES}, the OLDEST non-original entries are dropped
+     * (index 0 — the "Original" row the history dialog labels — is always kept).
+     * Keeps every edit's Firebase write / Room blob / outbox payload bounded
+     * instead of growing with each edit. If the result is shorter than
+     * {@code existing.size() + 1} the caller must rewrite the whole list
+     * (indices shifted); otherwise a single-entry append is enough.
+     */
+    public static List<Map<String, Object>> appendVersionCapped(
+            List<Map<String, Object>> existing, String oldText, long editedAt) {
+        List<Map<String, Object>> updated = appendVersion(existing, oldText, editedAt);
+        while (updated.size() > MAX_HISTORY_ENTRIES && updated.size() > 2) {
+            updated.remove(1);
+        }
+        return updated;
+    }
+
     public static String textOf(Map<String, Object> entry) {
         Object t = entry.get(KEY_TEXT);
         return t != null ? t.toString() : "";
