@@ -262,6 +262,12 @@ public class Message {
      */
     @Exclude
     public transient String mediaLocalPath;
+    /** Local-only, set on synthetic date_separator rows: timestamp of the real message
+     *  just BEFORE the separator (null = none loaded). Lets the unread-divider pass decide
+     *  the "first unread" boundary across a day change. Never persisted/synced. */
+    @Exclude
+    public transient Long prevTimestamp;
+
     /** Local-only upload resource type retained across Room round-trips. */
     @Exclude
     public transient String mediaResourceType;

@@ -3015,6 +3015,18 @@ public class MessagePagingAdapter
 
     public boolean isInMultiSelectMode() { return multiSelectMode; }
 
+    /** Number shown in the "N unread messages" divider row (set once after chat open). */
+    private int unreadDividerCount = 0;
+    private String unreadDividerLabel;
+
+    /** Updates the divider count and rebinds the divider row if it is on screen / in the list. */
+    public void setUnreadDividerCount(int n, int dividerPos) {
+        if (n == unreadDividerCount) return;
+        unreadDividerCount = n;
+        unreadDividerLabel = null; // re-format lazily on next bind
+        if (dividerPos >= 0 && dividerPos < getItemCount()) notifyItemChanged(dividerPos);
+    }
+
     public java.util.List<Message> getSelectedMessages() {
         java.util.List<Message> result = new java.util.ArrayList<>();
         for (int i = 0; i < getItemCount(); i++) {
@@ -3029,7 +3041,8 @@ public class MessagePagingAdapter
             // real received message ("Sent" fallback, no Seen/Delivered
             // rows) instead of the outgoing message the user actually
             // selected. Filter these out defensively at the source.
-            if ("date_separator".equals(m.type) || "security_event".equals(m.type)) continue;
+            if ("date_separator".equals(m.type) || "security_event".equals(m.type)
+                    || "unread_divider".equals(m.type)) continue;
             if ("system".equals(m.type)) continue;
             String id = m.messageId != null ? m.messageId : m.id;
             if (id != null && selectedMessageIds.contains(id)) result.add(m);
@@ -3885,7 +3898,8 @@ public class MessagePagingAdapter
         // same standalone pill-chip rendering as date separators — see
         // ChatMessageSender#insertSecurityEventIfPending. Both are
         // synthetic/local-only rows, never real messages.
-        if ("date_separator".equals(m.type) || "security_event".equals(m.type)) return TYPE_DATE_SEPARATOR;
+        if ("date_separator".equals(m.type) || "security_event".equals(m.type)
+                || "unread_divider".equals(m.type)) return TYPE_DATE_SEPARATOR;
         // Feature 8: a "system" row that's ABOUT a single member (someone
         // joined/left — m.eventUid set at post time) reuses the same
         // standalone pill-chip rendering, now with a small avatar of that
@@ -4848,6 +4862,24 @@ public class MessagePagingAdapter
         // v824: the old row-height pin (messagHeightCache -> lp.height) was removed: it forced EXACTLY
         // measures with a stale height (edit/reaction/expand/font-scale) and was never reset to WRAP_CONTENT.
         // ── DATE SEPARATOR / SECURITY EVENT — standalone chip row ────────
+        if ("unread_divider".equals(m.type)) {
+            // "N unread messages" divider above the first unread message (WhatsApp/Telegram
+            // style). Count is owned by the adapter so it can change without a new row.
+            if (h.dateSeparatorView != null) {
+                // PERF: label formatted once per count (not per bind): no plural lookup /
+                // NumberFormat allocation while scrolling past the divider.
+                if (unreadDividerLabel == null) {
+                    int n = Math.max(1, unreadDividerCount);
+                    unreadDividerLabel = h.itemView.getResources()
+                            .getQuantityString(R.plurals.chat_unread_divider, n,
+                                    java.text.NumberFormat.getInstance().format(n));
+                }
+                h.dateSeparatorView.setLabel(unreadDividerLabel);
+                h.dateSeparatorView.setShowRules(true);
+                h.dateSeparatorView.setAvatar(null);
+            }
+            return;
+        }
         if ("date_separator".equals(m.type) || "security_event".equals(m.type)) {
             if (h.dateSeparatorView != null) {
                 h.dateSeparatorView.setLabel(m.text);
@@ -5394,7 +5426,7 @@ public class MessagePagingAdapter
     /** System/utility rows never group with their neighbors — always full gap. */
     private boolean isNonGroupingRow(String type) {
         return "date_separator".equals(type) || "security_event".equals(type)
-                || "status_seen".equals(type) || "reel_seen".equals(type)
+                || "unread_divider".equals(type) || "status_seen".equals(type) || "reel_seen".equals(type)
                 || "view_once".equals(type) || "system".equals(type);
     }
 

@@ -468,6 +468,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // PERF #3: last count rendered in the chip; setText() (-> layout + text re-record) is
     // skipped when the visible number did not change.
     private int lastChipCount = -1;
+
+    // ── Unread divider + open-at-first-unread (WhatsApp/Telegram style) ──────────────────
+    /** Timestamp of the last message the user had SEEN when they last left this chat
+     *  (-1 = not loaded yet, 0 = never opened / none). Constant for this Activity's lifetime
+     *  so the divider boundary never moves while the chat is open. */
+    private volatile long unreadBoundaryTs = -1L;
+    /** Activity-open wall clock: only messages sent BEFORE this can be "unread at open";
+     *  a live message arriving while the chat is open must never spawn a divider. */
+    private volatile long unreadOpenMs = Long.MAX_VALUE;
+    /** Set once the divider row was ever produced; lets later Paging generations skip pass 2 entirely
+     *  for the (vast majority of) chats that opened with nothing unread. */
+    private volatile boolean unreadDividerInserted = false;
+    private boolean unreadAnchorApplied = false;   // one-shot: open-time scroll to the divider
+    private boolean userTouchedList     = false;   // user took over -> never auto-anchor
+    private long    unreadPhaseDeadlineMs = 0L;    // open burst window (uptime ms)
+    private static final long UNREAD_PHASE_MS = 3000L;
+    private Runnable unreadAnchorRunnable;
     /** Memoized "↓ N new messages" strings, index = displayed count (100 = "99+"). */
     private final String[] chipTextCache = new String[101];
 
@@ -3116,6 +3133,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 int action = e.getActionMasked();
                 if (action == android.view.MotionEvent.ACTION_DOWN) {
                     isUserTouchOnMessages = true;
+                    userTouchedList = true;
                 } else if (action == android.view.MotionEvent.ACTION_UP
                         || action == android.view.MotionEvent.ACTION_CANCEL) {
                     isUserTouchOnMessages = false;
@@ -3174,6 +3192,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         }
                         if (isUnreadIncomingMessageRow(m)) othersCount++;
                     }
+                }
+                // OPEN-AT-FIRST-UNREAD: during the short open burst, unread messages that
+                // land at the tail must NOT drag the list to the bottom — anchor on the
+                // "N unread messages" divider instead (one-shot, see applyUnreadAnchorIfNeeded).
+                if (isTailInsert && unreadPhaseOpen()
+                        && insertedRowsAreUnread(positionStart, Math.min(positionStart + itemCount, total))) {
+                    postUnreadAnchor();
+                    return;
                 }
                 if (com.callx.app.core.BuildConfig.DEBUG) {
                     com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
@@ -3453,7 +3479,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
         if (cached.isEmpty()) return;
         seededFromCache = true;
-        pagingAdapter.submitData(getLifecycle(), PagingData.from(withDateSeparators(cached)));
+        pagingAdapter.submitData(getLifecycle(), PagingData.from(withDateSeparators(cached,
+                Math.max(0L, unreadBoundaryTs), unreadOpenMs, currentUid)));
     }
 
     /**
@@ -3570,7 +3597,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     //   • before=null  → after is first item → always insert a date chip above it.
                     //   • after=null   → before is last item  → no chip needed at the end.
                     //   • both non-null → insert chip only when they belong to different days.
-                    return PagingDataTransforms.insertSeparators(mapped, ioExecutor,
+                    PagingData<Message> withDates = PagingDataTransforms.insertSeparators(mapped, ioExecutor,
                             (before, after) -> {
                                 if (after == null) return null; // end of list — no separator needed
                                 boolean differentDay = before == null  // first item
@@ -3582,7 +3609,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                                 sep.type = "date_separator";
                                 sep.messageId = "sep_" + (after.timestamp != null ? after.timestamp : 0);
                                 sep.text = formatPagingDateLabel(after.timestamp != null ? after.timestamp : 0);
+                                sep.prevTimestamp = before != null ? before.timestamp : null;
                                 return sep;
+                            });
+                    // PASS 2 — "N unread messages" divider. Pure function of (before, after, T):
+                    // no extra state, no invalidate/refresh, identical on every Paging generation.
+                    // Runs after the date pass so it lands BETWEEN a day chip and the first
+                    // unread message when both apply.
+                    final long boundary = unreadBoundaryTs(); // cached after 1st read
+                    final long maxTs = unreadOpenMs;
+                    // PERF: no unread at open (the common case) -> once the open burst window is
+                    // over, later Paging generations skip this whole transform pass.
+                    if (boundary <= 0L || !unreadDividerPossible()) return withDates;
+                    return PagingDataTransforms.insertSeparators(withDates, ioExecutor,
+                            (before, after) -> {
+                                if (before == null || after == null) return null;
+                                Long beforeTs = "date_separator".equals(before.type)
+                                        ? before.prevTimestamp : before.timestamp;
+                                if (!isUnreadBoundary(boundary, maxTs, currentUid, beforeTs, after)) return null;
+                                unreadDividerInserted = true;
+                                return newUnreadDividerRow();
                             });
                 }
         );
@@ -3692,6 +3738,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // AppDatabase pehle se warm hai (app-start fix), seedha call karo —
         // koi gating ki zaroorat nahi.
         safeIoExecute(() -> {
+            unreadBoundaryTs(); // warm the unread-divider boundary off the main thread
             MessageCursor cursor = CacheManager.getInstance(this).getLastSyncCursor(chatId);
             runOnUiThread(() -> attachFirebaseListener(cursor));
         });
@@ -4518,8 +4565,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         long lastMsgTs = 0;
         int total = pagingAdapter.getItemCount();
         if (total > 0) {
-            Message last = pagingAdapter.peek(total - 1);
-            if (last != null && last.timestamp != null) lastMsgTs = last.timestamp;
+            // LAST-SEEN, not last-existing: if the user leaves while scrolled up, messages
+            // below the viewport were never seen and must stay "unread" on the next open.
+            int seenPos = isUserAtBottom ? total - 1
+                    : Math.min(total - 1, Math.max(0, llm.findLastVisibleItemPosition()));
+            for (int i = seenPos; i >= 0; i--) {
+                Message seen = pagingAdapter.peek(i);
+                if (seen != null && seen.timestamp != null) { lastMsgTs = seen.timestamp; break; }
+            }
         }
         getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
                 .putInt("pos_" + chatId, firstPos)
@@ -4552,6 +4605,126 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pendingNewMsgCount = 0;
         hideNewMessagesIndicator();
         isUserAtBottom = true;
+        if (unreadPhaseDeadlineMs == 0L) {
+            unreadPhaseDeadlineMs = android.os.SystemClock.uptimeMillis() + UNREAD_PHASE_MS;
+        }
+        applyUnreadAnchorIfNeeded();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // UNREAD DIVIDER + OPEN AT FIRST UNREAD
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Lazily loads (once, ideally off the main thread) the last-seen timestamp of this chat. */
+    private long unreadBoundaryTs() {
+        long v = unreadBoundaryTs;
+        if (v >= 0L) return v;
+        unreadOpenMs = System.currentTimeMillis();
+        v = chatId == null ? 0L
+                : getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).getLong("lastTs_" + chatId, 0L);
+        unreadBoundaryTs = v;
+        return v;
+    }
+
+    private static boolean isRealChatRow(@Nullable Message m) {
+        if (m == null) return false;
+        if (m.type == null) return true;
+        switch (m.type) {
+            case "date_separator": case "security_event": case "unread_divider":
+            case "status_seen": case "reel_seen": case "view_once": case "system":
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    /** First INCOMING real message strictly newer than T whose predecessor is not. */
+    private static boolean isUnreadBoundary(long t, long maxTs, @Nullable String myUid,
+                                            @Nullable Long beforeTs, @NonNull Message after) {
+        return t > 0L && beforeTs != null && after.timestamp != null
+                && after.timestamp > t && after.timestamp <= maxTs && beforeTs <= t
+                && after.senderId != null && !after.senderId.equals(myUid)
+                && isRealChatRow(after);
+    }
+
+    private static Message newUnreadDividerRow() {
+        Message d = new Message();
+        d.type = "unread_divider";
+        d.messageId = "unread_divider"; // stable id -> DiffUtil never re-inserts it
+        d.text = "";
+        return d;
+    }
+
+    private boolean unreadDividerPossible() {
+        return unreadDividerInserted || unreadPhaseDeadlineMs == 0L
+                || android.os.SystemClock.uptimeMillis() < unreadPhaseDeadlineMs;
+    }
+
+    private boolean unreadPhaseOpen() {
+        return !unreadAnchorApplied && !userTouchedList && unreadBoundaryTs > 0L
+                && (unreadPhaseDeadlineMs == 0L
+                    || android.os.SystemClock.uptimeMillis() < unreadPhaseDeadlineMs);
+    }
+
+    /** True when any inserted row is an incoming real message newer than T (or the divider itself). */
+    private boolean insertedRowsAreUnread(int from, int to) {
+        final long t = unreadBoundaryTs;
+        for (int i = from; i < to; i++) {
+            Message m = pagingAdapter.peek(i);
+            if (m == null) continue;
+            if ("unread_divider".equals(m.type)) return true;
+            if (m.timestamp != null && m.timestamp > t && m.timestamp <= unreadOpenMs && m.senderId != null
+                    && !m.senderId.equals(currentUid) && isRealChatRow(m)) return true;
+        }
+        return false;
+    }
+
+    private void postUnreadAnchor() {
+        if (binding == null) return;
+        if (unreadAnchorRunnable == null) unreadAnchorRunnable = this::applyUnreadAnchorIfNeeded;
+        binding.rvMessages.removeCallbacks(unreadAnchorRunnable);
+        binding.rvMessages.post(unreadAnchorRunnable);
+    }
+
+    /**
+     * One-shot, open-time only: scroll so the "N unread messages" divider sits near the top
+     * (WhatsApp/Telegram). Short unread blocks are clamped by stackFromEnd and look unchanged.
+     * No-op when there is no unread, the divider is not in the loaded window, the user already
+     * touched the list, or it was applied once. Also feeds the bottom-right chip with N.
+     */
+    private void applyUnreadAnchorIfNeeded() {
+        if (binding == null || pagingAdapter == null || !unreadPhaseOpen()) return;
+        final int total = pagingAdapter.getItemCount();
+        // PERF: ONE backward pass from the tail — counts incoming rows on the way and stops at
+        // the divider, so the cost is O(unread block), not O(loaded window), and no 2nd scan.
+        int divPos = -1;
+        int n = 0;
+        final int lo = Math.max(0, total - 400);
+        for (int i = total - 1; i >= lo; i--) {
+            Message m = pagingAdapter.peek(i);
+            if (m == null) continue;
+            if ("unread_divider".equals(m.type)) { divPos = i; break; }
+            if (m.senderId != null && !m.senderId.equals(currentUid) && isRealChatRow(m)) n++;
+        }
+        if (divPos < 0) return; // boundary not loaded (yet) — phase stays open for the burst
+        if (n == 0) return;
+        unreadAnchorApplied = true;
+        pagingAdapter.setUnreadDividerCount(n, divPos);
+        RecyclerView.LayoutManager lm = binding.rvMessages.getLayoutManager();
+        if (!(lm instanceof LinearLayoutManager)) return;
+        ((LinearLayoutManager) lm).scrollToPositionWithOffset(divPos, dp(72));
+        final int unread = n;
+        binding.rvMessages.post(() -> {
+            if (binding == null || pagingAdapter == null) return;
+            LinearLayoutManager l = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+            if (l == null) return;
+            int count = pagingAdapter.getItemCount();
+            if (l.findLastVisibleItemPosition() < count - 3) {
+                isUserAtBottom = false;
+                pendingNewMsgCount = unread;
+                updateNewMessagesIndicator(unread); // bottom-right "↓ N new messages" chip
+            }
+        });
     }
 
     /**
@@ -4678,9 +4851,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * identical, so DiffUtil finds no changes at all when real data lands —
      * no insert, no shift, no pop.
      */
-    private static java.util.List<Message> withDateSeparators(java.util.List<Message> ascMessages) {
+    private static java.util.List<Message> withDateSeparators(java.util.List<Message> ascMessages,
+                                                              long unreadBoundary, long unreadMaxTs,
+                                                              @Nullable String myUid) {
         java.util.List<Message> out = new java.util.ArrayList<>(ascMessages.size() + 4);
         Message prev = null;
+        boolean dividerAdded = false;
         for (Message m : ascMessages) {
             boolean differentDay = prev == null
                     || prev.timestamp == null
@@ -4691,7 +4867,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 sep.type = "date_separator";
                 sep.messageId = "sep_" + (m.timestamp != null ? m.timestamp : 0);
                 sep.text = formatPagingDateLabel(m.timestamp != null ? m.timestamp : 0);
+                sep.prevTimestamp = prev != null ? prev.timestamp : null;
                 out.add(sep);
+            }
+            if (!dividerAdded && prev != null
+                    && isUnreadBoundary(unreadBoundary, unreadMaxTs, myUid, prev.timestamp, m)) {
+                out.add(newUnreadDividerRow()); // same row the live pipeline inserts -> no diff pop
+                dividerAdded = true;
             }
             out.add(m);
             prev = m;

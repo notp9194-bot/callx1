@@ -12,6 +12,12 @@
     <!-- Placeholder text only; the real text is always set from code with the count. -->
     <string name="chat_new_messages_indicator_default">↓ New messages</string>
 
+    <!-- Divider row shown above the first unread message when a chat is opened. -->
+    <plurals name="chat_unread_divider">
+        <item quantity="one">%1$s unread message</item>
+        <item quantity="other">%1$s unread messages</item>
+    </plurals>
+
     <!-- Accessibility label of the round arrow button (scroll to newest message). -->
     <string name="chat_back_to_latest">Back to latest</string>
 </resources>
