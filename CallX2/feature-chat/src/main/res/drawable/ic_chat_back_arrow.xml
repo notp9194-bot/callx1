@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Chat header back arrow: long shaft + open head, round caps/joins.
-     Viewport 1500x698 (ratio 2.15:1) matches the design spec.
-     Drawn at 28dp x 13dp -> stroke ~2dp. Colour comes from the
+     Viewport 1480x698 (ratio 2.12:1) matches the design spec.
+     Drawn at 27.6dp x 13dp -> stroke ~2dp. Colour comes from the
      ImageButton's android:tint (text_primary), same as before. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="28dp"
+    android:width="27.6dp"
     android:height="13dp"
-    android:viewportWidth="1500"
+    android:viewportWidth="1480"
     android:viewportHeight="698">
     <path
         android:fillColor="@android:color/transparent"
-        android:pathData="M1445,349H55M480,55L55,349L480,643"
+        android:pathData="M1425,349H55M480,55L55,349L480,643"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="110"
         android:strokeLineCap="round"
