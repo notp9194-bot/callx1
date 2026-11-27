@@ -1092,21 +1092,19 @@ HPLcom/callx/app/conversation/ChatActivity$WarmCacheTarget;->onResourceReady(Lan
 HPLcom/callx/app/conversation/ChatActivity$WarmCacheTarget;->onLoadCleared(Landroid/graphics/drawable/Drawable;)V
 HPLcom/callx/app/conversation/ChatActivity;-><clinit>()V
 HPLcom/callx/app/conversation/ChatActivity$WarmCacheTarget;-><clinit>()V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;-><init>(Landroidx/fragment/app/FragmentActivity;Lcom/callx/app/chat/databinding/LayoutChatProfileCardBinding;)V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->bind(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->toggleExpanded()V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->loadReelStats(Ljava/lang/String;)V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->openReelsProfile()V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->loadXStats(Ljava/lang/String;)V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->openXProfile()V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->loadYoutubeStats(Ljava/lang/String;)V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->toggleYoutubeSubscribe(Ljava/lang/String;Ljava/lang/String;Lcom/google/android/material/button/MaterialButton;)V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->openYoutubeChannel()V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->loadCommunityAvailability(Ljava/lang/String;)V
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->currentUid()Ljava/lang/String;
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->longOrZero(Lcom/google/firebase/database/DataSnapshot;)J
-HPLcom/callx/app/conversation/ChatProfileCardBinder;->formatCount(J)Ljava/lang/String;
-HPLcom/callx/app/conversation/ChatProfileCardBinder;-><clinit>()V
+# ── v899/v900: chat header cache + lazy profile card + input-bar warm-up ──
+HPLcom/callx/app/conversation/PartnerHeaderCache;->get(Landroid/content/Context;Ljava/lang/String;)Lcom/callx/app/conversation/PartnerHeaderCache$Entry;
+HPLcom/callx/app/conversation/PartnerHeaderCache;->put(Landroid/content/Context;Ljava/lang/String;I)V
+HPLcom/callx/app/conversation/PartnerHeaderCache;->isFresh(Lcom/callx/app/conversation/PartnerHeaderCache$Entry;)Z
+HPLcom/callx/app/conversation/PartnerHeaderCache$Entry;-><init>(IJ)V
+HPLcom/callx/app/conversation/PartnerHeaderCache;-><clinit>()V
+HPLcom/callx/app/conversation/ChatActivity;->applyHeaderBadges(I)V
+HPLcom/callx/app/conversation/ChatActivity;->setVisIfChanged(Landroid/view/View;Z)V
+PLcom/callx/app/conversation/ChatActivity;->ensureProfileCard()V
+PLcom/callx/app/chat/ui/IconTintCache;->prewarmChatInput(Landroid/content/Context;)V
+PLcom/callx/app/chat/ui/ChatIconBarView;->snapTextState(Z)V
+PLcom/callx/app/conversation/controllers/ChatMediaController;->mediaQueryExecutor()Ljava/util/concurrent/ExecutorService;
+HPLcom/callx/app/conversation/controllers/ChatViewOnceController;->ioExecutor()Ljava/util/concurrent/ExecutorService;
 
 # ── Chat controllers ──────────────────────────────────────────────────
 HPLcom/callx/app/conversation/controllers/ChatMessageSender;-><init>(Lcom/callx/app/conversation/controllers/ChatActivityDelegate;)V

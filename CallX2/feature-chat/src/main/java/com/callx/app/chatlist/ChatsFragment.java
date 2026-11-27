@@ -347,6 +347,18 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         adapter.setPrewarmPool(prewarmPool);
         contactSheetPool.start(requireContext().getApplicationContext());
 
+        // PERF: while the chat list is idle, pre-draw the chat input-bar icon
+        // bitmaps on a background thread (once per process) so the first chat
+        // open doesn't render six vector icons on the main thread.
+        {
+            final android.content.Context warmCtx = requireActivity();
+            android.os.Looper.myQueue().addIdleHandler(() -> {
+                AppBgExecutor.execute(() ->
+                        com.callx.app.chat.ui.IconTintCache.prewarmChatInput(warmCtx));
+                return false;
+            });
+        }
+
         // Fixed-size rows: tell RV it never needs to re-measure the whole list
         // when an item changes — saves a full layout pass on every Firebase update.
         rv.setHasFixedSize(true);

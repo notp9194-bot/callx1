@@ -777,9 +777,19 @@
              View Community. See ChatProfileCardBinder for all binding logic.
              Collapsed by default; expands on tapping the header name row.
              ══════════════════════════════════════════════════════════════ -->
-        <include
-            android:id="@+id/include_profile_card"
-            layout="@layout/layout_chat_profile_card"/>
+        <!-- PERF: lazily inflated on the first header tap (see
+             ChatActivity#ensureProfileCard) — the card is collapsed by default,
+             so inflating + binding it (avatar load + 4 Firebase reads) on every
+             chat open was pure waste for chats where it is never opened. -->
+        <ViewStub
+            android:id="@+id/stub_profile_card"
+            android:layout="@layout/layout_chat_profile_card"
+            android:inflatedId="@+id/include_profile_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="6dp"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              MULTI-SELECT TOOLBAR (WhatsApp style).

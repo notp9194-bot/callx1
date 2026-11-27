@@ -109,7 +109,12 @@ public class ChatViewOnceController {
     private final ChatActivityDelegate            delegate;
     private final WeakReference<Activity>         activityRef;
     private final Handler                         mainHandler;
-    private final ExecutorService                 ioExecutor;
+    // PERF: created lazily on first use instead of in the constructor on every chat open.
+    private ExecutorService ioExecutorRef;
+    private synchronized ExecutorService ioExecutor() {
+        if (ioExecutorRef == null) ioExecutorRef = Executors.newSingleThreadExecutor();
+        return ioExecutorRef;
+    }
 
     /**
      * Pending hard-delete message IDs (offline queue).
@@ -137,7 +142,6 @@ public class ChatViewOnceController {
         this.activityRef = new WeakReference<>(delegate.getActivity());
         this.appCtx      = delegate.getActivity().getApplicationContext();
         this.mainHandler = new Handler(Looper.getMainLooper());
-        this.ioExecutor  = Executors.newSingleThreadExecutor();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -287,7 +291,7 @@ public class ChatViewOnceController {
         final String chatId = delegate.getChatId();
         if (chatId == null) return;
         try {
-            ioExecutor.execute(() -> {
+            ioExecutor().execute(() -> {
                 SharedPreferences sp = appCtx.getSharedPreferences(MAINT_PREFS, Context.MODE_PRIVATE);
                 final java.util.List<String> reload = new java.util.ArrayList<>();
                 Set<String> persisted = sp.getStringSet(KEY_PENDING, null);
@@ -475,7 +479,9 @@ public class ChatViewOnceController {
 
     public void release() {
         mainHandler.removeCallbacksAndMessages(null);
-        ioExecutor.shutdown();
+        synchronized (this) {
+            if (ioExecutorRef != null) ioExecutorRef.shutdown();
+        }
         disableSecureWindow();
         currentlyViewingId = null;
     }
@@ -565,7 +571,7 @@ public class ChatViewOnceController {
     }
 
     private void softDeleteLocally(@NonNull String msgId, @NonNull String state) {
-        ioExecutor.execute(() -> {
+        ioExecutor().execute(() -> {
             Activity act = activityRef.get();
             if (act == null) return;
             com.callx.app.db.AppDatabase.getInstance(act)

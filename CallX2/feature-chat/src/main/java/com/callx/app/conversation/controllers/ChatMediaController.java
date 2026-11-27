@@ -101,7 +101,12 @@ public class ChatMediaController {
     // Recent-media strip/grid: one MediaStore query per sheet-open, shared by
     // both RecyclerViews (grid just gets a longer slice of the same list).
     private static final int RECENT_MEDIA_LIMIT = 60;
-    private final ExecutorService mediaQueryExecutor = Executors.newSingleThreadExecutor();
+    // PERF: created lazily (first attach-sheet open) instead of on every chat open.
+    private ExecutorService mediaQueryExecutorRef;
+    private synchronized ExecutorService mediaQueryExecutor() {
+        if (mediaQueryExecutorRef == null) mediaQueryExecutorRef = Executors.newSingleThreadExecutor();
+        return mediaQueryExecutorRef;
+    }
 
     // ── Feature 2 & 6: Upload queue — concurrency-limited, network-aware ──────
     /** Max 3 simultaneous uploads; auto-pauses when offline, resumes on reconnect. */
@@ -255,7 +260,9 @@ public class ChatMediaController {
      */
     public void destroy() {
         if (uploadQueue != null) uploadQueue.destroy();
-        mediaQueryExecutor.shutdownNow();
+        synchronized (this) {
+            if (mediaQueryExecutorRef != null) mediaQueryExecutorRef.shutdownNow();
+        }
     }
 
     // ── Feature 5: Per-item cancel ──────────────────────────────────────────
@@ -586,7 +593,7 @@ public class ChatMediaController {
 
     /** Wires the bottom camera+gallery strip and expandable Recents grid — see AttachSheetRecentMediaBinder. */
     private void setupRecentMedia(BottomSheetDialog sheet, View sheetRoot) {
-        AttachSheetRecentMediaBinder.bind(activity, sheet, sheetRoot, mediaQueryExecutor,
+        AttachSheetRecentMediaBinder.bind(activity, sheet, sheetRoot, mediaQueryExecutor(),
                 new AttachSheetRecentMediaBinder.Callbacks() {
                     @Override public void onCameraTapped() {
                         sheet.dismiss();

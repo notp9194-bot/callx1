@@ -8,6 +8,8 @@ import android.graphics.drawable.Drawable;
 import android.util.SparseArray;
 
 import androidx.core.content.ContextCompat;
+
+import com.callx.app.chat.R;
 import androidx.core.graphics.drawable.DrawableCompat;
 
 /**
@@ -33,6 +35,34 @@ public final class IconTintCache {
     private IconTintCache() {}
 
     private static final SparseArray<Bitmap> CACHE = new SparseArray<>(16);
+
+    private static final java.util.concurrent.atomic.AtomicBoolean INPUT_WARMED =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /**
+     * Pre-draws the chat input-bar icons (attach/camera/schedule/mic/send +
+     * view-once) for the CURRENT day/night mode. Call from a background thread
+     * with an Activity context (e.g. while the chat list is showing) so the very
+     * first chat open of the process finds them cached instead of drawing six
+     * vector drawables on the main thread. Sizes mirror ChatIconBarView and
+     * ChatActivity#dp so the cache keys/bitmaps match exactly. Once per process.
+     */
+    public static void prewarmChatInput(Context ctx) {
+        if (!INPUT_WARMED.compareAndSet(false, true)) return;
+        try {
+            float d = ctx.getResources().getDisplayMetrics().density;
+            int barSize = Math.max(1, Math.round(34f * d) - Math.round(6f * d) * 2);
+            int c = R.color.chat_input_text;
+            get(ctx, R.drawable.ic_attach, c, barSize);
+            get(ctx, R.drawable.ic_camera, c, barSize);
+            get(ctx, R.drawable.ic_schedule_message, c, barSize);
+            get(ctx, R.drawable.ic_mic, c, barSize);
+            get(ctx, R.drawable.ic_send, c, barSize);
+            get(ctx, R.drawable.ic_view_once, c, (int) (22 * d));
+        } catch (Throwable ignored) {
+            INPUT_WARMED.set(false);
+        }
+    }
 
     /** Returns a cached tinted bitmap, drawing + caching it on first request. */
     public static Bitmap get(Context context, int resId, int colorResId, int sizePx) {

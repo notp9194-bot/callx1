@@ -61,6 +61,9 @@ public class ChatThemeController {
 
     // ── Wallpaper ─────────────────────────────────────────────────────────
 
+    private String lastWallpaperValue;
+    private boolean wallpaperApplied;
+
     public void applyWallpaper() {
         ActivityChatBinding binding = delegate.getBinding();
         android.widget.ImageView ivWall = binding.ivChatWallpaper;
@@ -68,6 +71,11 @@ public class ChatThemeController {
 
         String value = ChatWallpaperManager.get(delegate.getActivity())
                 .getEffectiveWallpaper(delegate.getChatId());
+        // PERF: same wallpaper already applied to this view -> skip the Glide
+        // request / new ColorDrawable / visibility churn on repeat calls.
+        if (wallpaperApplied && java.util.Objects.equals(value, lastWallpaperValue)) return;
+        wallpaperApplied = true;
+        lastWallpaperValue = value;
         if (value == null) {
             ivWall.setVisibility(View.GONE);
             ivWall.setImageDrawable(null);

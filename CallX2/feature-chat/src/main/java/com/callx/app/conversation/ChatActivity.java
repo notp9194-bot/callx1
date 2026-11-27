@@ -725,6 +725,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void fetchPartnerProfileOnce() {
         if (partnerNodeSingleFetchDone || partnerUid == null || partnerUid.isEmpty()) return;
         partnerNodeSingleFetchDone = true;
+        // PERF: fresh header-flag cache + avatar already known -> nothing left
+        // to fetch from the partner node, skip the read/observe entirely.
+        if (PartnerHeaderCache.isFresh(PartnerHeaderCache.get(this, partnerUid))
+                && ((partnerThumb != null && !partnerThumb.isEmpty())
+                    || (partnerPhoto != null && !partnerPhoto.isEmpty()))) {
+            return;
+        }
         DatabaseReference ref = FirebaseUtils.getUserRef(partnerUid);
         // NOTE: ChatPresenceRepo.observe() can call this observer SYNCHRONOUSLY,
         // before it even returns the unsubscribe Runnable, if the "status:"+uid
@@ -773,16 +780,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
             String xHandle = s.child("xHandle").getValue(String.class);
             String ytChannel = s.child("youtubeChannelId").getValue(String.class);
-            if (Boolean.TRUE.equals(hasReel)) {
-                binding.llReelHanging.setVisibility(View.VISIBLE);
-                binding.btnToolbarReel.setVisibility(View.VISIBLE);
-            }
-            if (xHandle != null && !xHandle.isEmpty()) {
-                binding.btnToolbarX.setVisibility(View.VISIBLE);
-            }
-            if (ytChannel != null && !ytChannel.isEmpty()) {
-                binding.btnToolbarYoutube.setVisibility(View.VISIBLE);
-            }
+            int flags = (Boolean.TRUE.equals(hasReel) ? PartnerHeaderCache.F_REEL : 0)
+                    | ((xHandle != null && !xHandle.isEmpty()) ? PartnerHeaderCache.F_X : 0)
+                    | ((ytChannel != null && !ytChannel.isEmpty()) ? PartnerHeaderCache.F_YT : 0);
+            PartnerHeaderCache.put(ChatActivity.this, partnerUid, flags);
+            applyHeaderBadges(flags);
         });
         unsubRef[0] = unsub;
         if (fired[0]) {
@@ -2199,6 +2201,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (draft != null && !draft.isEmpty()) {
                 runOnUiThread(() -> {
                     if (binding != null && binding.etMessage != null) {
+                        // PERF: saved draft restored on open -> jump icon bar to the
+                        // has-text state with no animation; marking the debounced
+                        // watcher state as already applied stops it replaying the
+                        // attach/camera collapse + mic->send swap on every reopen.
+                        if (android.text.TextUtils.getTrimmedLength(draft) > 0) {
+                            lastInputHasText = Boolean.TRUE;
+                            inputIconsExpanded = Boolean.FALSE;
+                            binding.chatIconBar.snapTextState(true);
+                        }
                         binding.etMessage.setText(draft);
                         binding.etMessage.setSelection(draft.length());
                     }
@@ -2742,6 +2753,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
         updateHeaderStoryRing();
 
+        // PERF: Reel/X/YouTube icons from cache on the first frame (no pop-in);
+        // the snapshot listener only corrects them if the data actually changed.
+        PartnerHeaderCache.Entry cachedBadges = PartnerHeaderCache.get(this, partnerUid);
+        if (cachedBadges != null) applyHeaderBadges(cachedBadges.flags);
+
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
 
@@ -2825,15 +2841,22 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private com.callx.app.conversation.ChatProfileCardBinder profileCardBinder;
 
     private void setupProfileCard() {
-        profileCardBinder = new com.callx.app.conversation.ChatProfileCardBinder(this,
-                com.callx.app.chat.databinding.LayoutChatProfileCardBinding.bind(
-                        binding.includeProfileCard.getRoot()));
-        profileCardBinder.bind(partnerUid, partnerName, partnerPhoto, partnerThumb);
-
-        View.OnClickListener toggle = v -> profileCardBinder.toggleExpanded();
+        // PERF: card is inflated + bound lazily on the first header tap.
+        View.OnClickListener toggle = v -> {
+            ensureProfileCard();
+            if (profileCardBinder != null) profileCardBinder.toggleExpanded();
+        };
         binding.ivPartnerAvatar.setOnClickListener(v -> { openAvatarZoom(); toggle.onClick(v); });
         View nameRow = findViewById(R.id.ll_partner_name_row);
         if (nameRow != null) nameRow.setOnClickListener(toggle);
+    }
+
+    private void ensureProfileCard() {
+        if (profileCardBinder != null || binding == null || binding.stubProfileCard == null) return;
+        View root = binding.stubProfileCard.inflate();
+        profileCardBinder = new com.callx.app.conversation.ChatProfileCardBinder(this,
+                com.callx.app.chat.databinding.LayoutChatProfileCardBinding.bind(root));
+        profileCardBinder.bind(partnerUid, partnerName, partnerPhoto, partnerThumb);
     }
 
     private void startCall(boolean isVideo) {
@@ -6235,6 +6258,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * redundant setBackground/setImageDrawable/setVisibility churn on a
      * screen that's already busy (RecyclerView, WebRTC, typing listeners).
      */
+    /** Shows/hides Reel/X/YouTube header icons; touches a view only if its state differs. */
+    private void applyHeaderBadges(int flags) {
+        setVisIfChanged(binding.llReelHanging, (flags & PartnerHeaderCache.F_REEL) != 0);
+        setVisIfChanged(binding.btnToolbarReel, (flags & PartnerHeaderCache.F_REEL) != 0);
+        setVisIfChanged(binding.btnToolbarX, (flags & PartnerHeaderCache.F_X) != 0);
+        setVisIfChanged(binding.btnToolbarYoutube, (flags & PartnerHeaderCache.F_YT) != 0);
+    }
+
+    private static void setVisIfChanged(View v, boolean show) {
+        int target = show ? View.VISIBLE : View.GONE;
+        if (v.getVisibility() != target) v.setVisibility(target);
+    }
+
     private void updateHeaderStoryRing() {
         if (partnerUid == null || partnerUid.isEmpty()) return;
         android.widget.ImageView ring = binding.ivPartnerAvatarRing;
@@ -6264,7 +6300,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             ring.setBackground(null);
             ring.setImageResource(com.callx.app.core.R.drawable.circle_status_seen_thin);
             ring.setVisibility(View.VISIBLE);
-        } else {
+        } else if (ring.getVisibility() != View.GONE) {
+            // Already GONE on a fresh inflate -> nothing to clear (skips 3 no-op calls).
             ring.setBackground(null);
             ring.setImageDrawable(null);
             ring.setVisibility(View.GONE);

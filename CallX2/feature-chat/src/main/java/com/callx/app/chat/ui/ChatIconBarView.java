@@ -495,6 +495,30 @@ public class ChatIconBarView extends View {
         sendAnimator.start();
     }
 
+    /**
+     * Jumps straight to the has-text / empty visual state with NO animation
+     * (cancels any running ones). Used when text is restored on screen open
+     * (saved draft) so reopening a chat doesn't replay the collapse + mic->send
+     * swap every single time. One requestLayout, zero animators.
+     */
+    public void snapTextState(boolean hasText) {
+        if (sendAnimator != null) sendAnimator.cancel();
+        if (expandAnimator != null) expandAnimator.cancel();
+        if (scheduleFadeAnimator != null) scheduleFadeAnimator.cancel();
+        showingSend = hasText;
+        sendFraction = hasText ? 1f : 0f;
+        iconsExpanded = !hasText;
+        attachCameraFraction = hasText ? 0f : 1f;
+        expandedLayout = !hasText;
+        scheduleVisible = scheduleAvailable && hasText && micSendVisible;
+        scheduleAlpha = 1f;
+        setContentDescription(hasText
+                ? "Attach, camera, schedule message, and send"
+                : "Attach, camera, voice message, and send");
+        requestLayout();
+        invalidate();
+    }
+
     /** Telegram/Instagram-style attach+camera collapse, replacing
      *  animateAttachCameraIcons(). See class doc for the single-layout-pass
      *  perf rationale. */
