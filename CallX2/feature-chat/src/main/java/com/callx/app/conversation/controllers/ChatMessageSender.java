@@ -136,6 +136,26 @@ public class ChatMessageSender {
         // JPEG mirror) off the wire — restored right after setValue snapshots m.
         final String[] thumbBackup = com.callx.app.utils.VideoInlineThumb.stripForWire(m);
 
+        // Reply-quote thumbnail: its own ratchet envelope on the wire (never clear-text). Own plaintext is
+        // cached for the echo (see MessageDecryptor). If it can't be encrypted it is dropped, not leaked.
+        final String replyThumbPlain = m.replyToThumbBase64;
+        if (replyThumbPlain != null && !replyThumbPlain.isEmpty()
+                && !com.callx.app.utils.E2EEncryptionManager.isEncrypted(replyThumbPlain)) {
+            String wireThumb = null;
+            final String partner = delegate.getPartnerUid();
+            if (partner != null && !partner.isEmpty()) {
+                try {
+                    com.callx.app.utils.E2EEncryptionManager mgr =
+                            com.callx.app.utils.E2EEncryptionManager.getInstance(delegate.getActivity());
+                    wireThumb = mgr.encrypt(replyThumbPlain, partner);
+                    mgr.cacheOwnPlaintext(key + ":rt", replyThumbPlain);
+                } catch (Exception e) {
+                    wireThumb = null;
+                }
+            }
+            m.replyToThumbBase64 = wireThumb;
+        }
+
         delegate.getMessagesRef().child(key).setValue(m)
                 .addOnSuccessListener(unused -> {
                     // TICK ADVANCE #3: drop a small index entry the backend
@@ -192,6 +212,7 @@ public class ChatMessageSender {
         // should ever read m.text as ciphertext.
         if (sentEncrypted) m.text = plainTextBackup;
         com.callx.app.utils.VideoInlineThumb.restoreAfterWire(m, thumbBackup);
+        m.replyToThumbBase64 = replyThumbPlain;   // local copy stays plain
 
         long ts = m.timestamp;
         String currentUid = delegate.getCurrentUid();
@@ -284,6 +305,9 @@ public class ChatMessageSender {
                 m.replyToId       = pe.replyToId;
                 m.replyToText     = pe.replyToText;
                 m.replyToSenderName = pe.replyToSenderName;
+                m.replyToType       = pe.replyToType;
+                m.replyToMediaUrl   = pe.replyToMediaUrl;
+                m.replyToThumbBase64 = pe.replyToThumbBase64;
                 m.fontStyle       = pe.fontStyle;
                 m.pollQuestion    = pe.pollQuestion;
                 m.pollOptions     = com.callx.app.utils.PollJsonUtil.optionsFromJson(pe.pollOptionsJson);
@@ -370,6 +394,7 @@ public class ChatMessageSender {
         e.replyToSenderName     = m.replyToSenderName;
         e.replyToType           = m.replyToType;
         e.replyToMediaUrl       = m.replyToMediaUrl;
+        e.replyToThumbBase64    = m.replyToThumbBase64;
         e.isGroup               = false;
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;

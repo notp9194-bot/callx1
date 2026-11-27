@@ -156,9 +156,16 @@ public class OutboxSyncWorker extends Worker {
         boolean success;
         // v873: same wire hygiene as ChatMessageSender#firebasePushMessage.
         final String[] thumbBackup = VideoInlineThumb.stripForWire(message);
+        // The reply-quote thumbnail is encrypted per-send by ChatMessageSender (needs the partner
+        // session). This background path can't, so it never writes it in clear: dropped here.
+        final String replyThumb = message.replyToThumbBase64;
+        if (replyThumb != null && !com.callx.app.utils.E2EEncryptionManager.isEncrypted(replyThumb)) {
+            message.replyToThumbBase64 = null;
+        }
         try {
             success = createIfAbsent(messageRef(op), message);
         } finally {
+            message.replyToThumbBase64 = replyThumb;
             message.text = plainText;
             VideoInlineThumb.restoreAfterWire(message, thumbBackup);
         }

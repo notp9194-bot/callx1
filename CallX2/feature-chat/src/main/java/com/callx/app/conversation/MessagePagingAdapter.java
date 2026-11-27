@@ -818,7 +818,7 @@ public class MessagePagingAdapter
     private static final android.util.LruCache<String, android.graphics.Bitmap> LOCATION_BITMAP_CACHE =
             newBitmapPool(128);
     private static final android.util.LruCache<String, android.graphics.Bitmap> REPLY_THUMB_BITMAP_CACHE =
-            newBitmapPool(128);
+            newBitmapPool(64); // v923: 2x budget — 64px thumbs are ~16KB, keeps long reply-heavy chats hot
 
     // ── PERF ADV: dedicated link-preview thumbnail pool ────────────────────
     // Link-preview thumbnails used to share the general media pool with every
@@ -906,12 +906,98 @@ public class MessagePagingAdapter
             android.graphics.Bitmap decoded = null;
             try {
                 byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP);
-                decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                // v923: bounded decode (hostile/huge-dimension JPEG can't OOM); no-op for normal thumbs
+                android.graphics.BitmapFactory.Options bo = new android.graphics.BitmapFactory.Options();
+                bo.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bo);
+                int smp = 1;
+                while (Math.max(bo.outWidth, bo.outHeight) / smp > 1024) smp *= 2;
+                bo.inJustDecodeBounds = false;
+                bo.inSampleSize = smp;
+                decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bo);
+                if (decoded != null) { try { decoded.prepareToDraw(); } catch (Throwable ignored2) { } }
             } catch (Exception ignored) { /* cb receives null below */ }
             final android.graphics.Bitmap result = decoded;
             if (result != null) cache.put(poolKey, result);
             B64_DECODE_MAIN_HANDLER.post(() -> cb.onDecoded(result));
         });
+    }
+
+    // ── v923 reply-quote thumbnail fast path ─────────────────────────────
+    private static final int REPLY_SYNC_DECODE_MAX_CHARS = 8192; // ~6KB JPEG: <1ms decode, safe on main thread
+    private static final int REPLY_THUMB_MAX_SIDE = 256;          // bounds guard vs. hostile "tiny file, huge dims" JPEG
+    private static final java.util.HashMap<String, java.util.ArrayList<B64ThumbCallback>> REPLY_INFLIGHT =
+            new java.util.HashMap<>(); // main-thread only
+    private static final java.util.concurrent.ExecutorService REPLY_DECODE_EXECUTOR =
+            java.util.concurrent.Executors.newFixedThreadPool(2);
+
+    private static String replyThumbKey(String b64) {
+        return poolKey("b64r:" + b64.hashCode() + ':' + b64.length(), 88, 88);
+    }
+
+    /** Bounded decode: never allocates more than REPLY_THUMB_MAX_SIDE^2 px, whatever the JPEG header claims. */
+    private static Bitmap decodeReplyThumbBounded(String b64) {
+        try {
+            byte[] bytes = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP);
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            if (o.outWidth <= 0 || o.outHeight <= 0) return null;
+            int sample = 1;
+            while (Math.max(o.outWidth, o.outHeight) / sample > REPLY_THUMB_MAX_SIDE) sample *= 2;
+            o.inJustDecodeBounds = false;
+            o.inSampleSize = sample;
+            Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            if (bmp != null) { try { bmp.prepareToDraw(); } catch (Throwable ignored) { } }
+            return bmp;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Returns the bitmap synchronously when available (pool hit, or tiny thumb decoded inline).
+     * Otherwise returns null and delivers via {@code cb} on the main thread; concurrent requests for the
+     * same content share a single decode. Call on the main thread only.
+     */
+    @Nullable
+    private static Bitmap resolveReplyThumb(String b64, B64ThumbCallback cb) {
+        final String key = replyThumbKey(b64);
+        Bitmap hit = REPLY_THUMB_BITMAP_CACHE.get(key);
+        if (hit != null && !hit.isRecycled()) return hit;
+        if (b64.length() <= REPLY_SYNC_DECODE_MAX_CHARS) {
+            Bitmap bmp = decodeReplyThumbBounded(b64);
+            if (bmp != null) REPLY_THUMB_BITMAP_CACHE.put(key, bmp);
+            return bmp;
+        }
+        java.util.ArrayList<B64ThumbCallback> waiters = REPLY_INFLIGHT.get(key);
+        if (waiters != null) { waiters.add(cb); return null; }
+        waiters = new java.util.ArrayList<>(2);
+        waiters.add(cb);
+        REPLY_INFLIGHT.put(key, waiters);
+        REPLY_DECODE_EXECUTOR.execute(() -> {
+            final Bitmap bmp = decodeReplyThumbBounded(b64);
+            if (bmp != null) REPLY_THUMB_BITMAP_CACHE.put(key, bmp);
+            B64_DECODE_MAIN_HANDLER.post(() -> {
+                java.util.ArrayList<B64ThumbCallback> ws = REPLY_INFLIGHT.remove(key);
+                if (ws == null) return;
+                for (int i = 0; i < ws.size(); i++) ws.get(i).onDecoded(bmp);
+            });
+        });
+        return null;
+    }
+
+    /**
+     * SENDER prewarm: call off-main right after the quote thumb is built, so the sent bubble's first
+     * bind is a sync pool hit (no pop-in). Same content key as the bind path.
+     */
+    public static void prewarmReplyThumb(@Nullable String b64) {
+        if (b64 == null || b64.isEmpty()) return;
+        final String key = replyThumbKey(b64);
+        Bitmap hit = REPLY_THUMB_BITMAP_CACHE.get(key);
+        if (hit != null && !hit.isRecycled()) return;
+        Bitmap bmp = decodeReplyThumbBounded(b64);
+        if (bmp != null) REPLY_THUMB_BITMAP_CACHE.put(key, bmp);
     }
 
     /**
@@ -8137,7 +8223,10 @@ public class MessagePagingAdapter
         final long _cr = com.callx.app.debug.BubblePerfStats.t();
         if (m.replyToId != null && !m.replyToId.isEmpty()) {
             final String replyThumbUrl = m.replyToMediaUrl;
-            final String replyThumbB64 = m.replyToThumbBase64;
+            // still-encrypted blob (decrypt path skipped/failed) -> no thumb, never decode ciphertext
+            final String replyThumbB64 = (com.callx.app.utils.E2EEncryptionManager.isEncrypted(m.replyToThumbBase64)
+                        || com.callx.app.utils.GroupE2EManager.isEncrypted(m.replyToThumbBase64))
+                    ? null : m.replyToThumbBase64;
             final boolean replyHasThumbSrc = (replyThumbB64 != null && !replyThumbB64.isEmpty())
                     || (replyThumbUrl != null && !replyThumbUrl.isEmpty());
             final boolean replyIsStatus = m.replyToId.startsWith("status_");
@@ -8165,12 +8254,16 @@ public class MessagePagingAdapter
                 // completely unaffected by the original status later expiring, being
                 // deleted, or being moved into a Highlight. Same in-memory pool as the
                 // URL path below so repeat rebinds don't re-decode the same JPEG.
-                String b64PoolKey = poolKey("b64r:" + m.id + ':' + replyThumbB64.length(), 88, 88);
-                cv.setReply(replyLabel, m.replyToText, null);
-                decodeB64ThumbAsync(replyThumbB64, b64PoolKey, REPLY_THUMB_BITMAP_CACHE, decoded -> {
-                    if (h.canvasBindToken != myToken) return;
-                    cv.setReply(replyLabel, m.replyToText, decoded);
+                // v923 PERF: content-keyed (not msgId-keyed) so the sender's prewarm, repeat replies
+                // to the same media, and rebinds all share ONE decoded bitmap; tiny thumbs decode
+                // synchronously (no thread hop -> no blank->pop-in), big ones go async + deduped.
+                final Bitmap replySync = resolveReplyThumb(replyThumbB64, new B64ThumbCallback() {
+                    @Override public void onDecoded(Bitmap decoded) {
+                        if (h.canvasBindToken != myToken) return;
+                        cv.setReply(replyLabel, m.replyToText, decoded);
+                    }
                 });
+                cv.setReply(replyLabel, m.replyToText, replySync);
             } else if (replyThumbUrl != null && !replyThumbUrl.isEmpty()) {
                 android.graphics.Bitmap replyPoolHit = REPLY_THUMB_BITMAP_CACHE.get(poolKey(replyThumbUrl, 88, 88));
                 if (replyPoolHit != null && !replyPoolHit.isRecycled()) {

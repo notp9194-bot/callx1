@@ -50,7 +50,43 @@ public final class MessageDecryptor {
      *                   outgoing message echoing back down a listener
      */
     public static void decryptIfNeeded(Context ctx, Message m, String currentUid) {
-        if (m == null || m.text == null || m.isGroup) return;
+        if (m == null) return;
+        decryptText(ctx, m, currentUid);
+        // After the text on purpose: the sender encrypts the text first, the quote thumbnail second.
+        decryptReplyThumb(ctx, m, currentUid);
+        // v923: predecode the quote thumb into the UI bitmap pool before the row ever binds
+        final ReplyThumbHook hook = replyThumbHook;
+        final String pt = m.replyToThumbBase64;
+        if (hook != null && pt != null && !pt.isEmpty() && !E2EEncryptionManager.isEncrypted(pt)) {
+            try { hook.onReplyThumb(pt); } catch (Throwable ignored) { }
+        }
+    }
+
+    /** Set by feature-chat (core can't see the adapter). Called off-main with plain base64. */
+    public interface ReplyThumbHook { void onReplyThumb(String plainB64); }
+    public static volatile ReplyThumbHook replyThumbHook;
+
+    /**
+     * The reply-quote thumbnail (Message#replyToThumbBase64) travels as its own ratchet envelope
+     * for 1:1 chats (see ChatMessageSender#firebasePushMessage). Swap it back to plain base64 here,
+     * before the message reaches Room / the adapter. Own echo -> plaintext cached at send time.
+     * Undecryptable -> null (no thumb tile), never a garbage decode.
+     */
+    private static void decryptReplyThumb(Context ctx, Message m, String currentUid) {
+        final String t = m.replyToThumbBase64;
+        if (t == null || m.isGroup || m.id == null || !E2EEncryptionManager.isEncrypted(t)) return;
+        final E2EEncryptionManager mgr = E2EEncryptionManager.getInstance(ctx);
+        final String key = m.id + ":rt";
+        if (m.senderId != null && m.senderId.equals(currentUid)) {
+            m.replyToThumbBase64 = mgr.takeOwnPlaintext(key);   // null if evicted -> no thumb
+            return;
+        }
+        String pt = mgr.decrypt(t, m.senderId, key);
+        m.replyToThumbBase64 = (pt == null || E2EEncryptionManager.DECRYPT_FAILED_MARKER.equals(pt)) ? null : pt;
+    }
+
+    private static void decryptText(Context ctx, Message m, String currentUid) {
+        if (m.text == null || m.isGroup) return;
         if (!E2EEncryptionManager.isEncrypted(m.text)) return;
 
         if (m.senderId != null && m.senderId.equals(currentUid)) {

@@ -242,9 +242,124 @@ public final class ReplyPreviewBinder {
             p.thumbUrl = cached.getAbsolutePath();
             return;
         }
-        // 3) Plain remote url (non-E2E) — or nothing decodable (E2E not downloaded yet): no thumb tile.
+        // 3) Plain remote url (non-E2E).
+        if (plainRemote != null) {
+            p.thumbSource = null;
+            p.thumbUrl = plainRemote;
+            return;
+        }
+        // 4) E2E + not downloaded: no decodable source here. The ThumbHash fallback needs an envelope
+        //    decrypt, which must NOT run on the main thread — callers do it async via fillE2eBlurThumb().
         p.thumbSource = null;
-        p.thumbUrl = plainRemote;
+        p.thumbUrl = null;
+    }
+
+    /** True for a RECEIVED E2E image/video that has no local/cached source yet (needs the blur fallback). */
+    public static boolean needsE2eBlurFallback(@NonNull Message m, @NonNull Preview p) {
+        if (p.thumbUrl != null && !p.thumbUrl.isEmpty()) return false;
+        if (!("image".equals(m.type) || "video".equals(m.type))) return false;
+        if (m.mediaKeyEnc == null || m.mediaKeyEnc.isEmpty()) return false;
+        final String me = com.google.firebase.auth.FirebaseAuth.getInstance().getUid();
+        return me != null && !me.equals(m.senderId);
+    }
+
+    /**
+     * Blocking (envelope decrypt) — run OFF the main thread, e.g. on E2eeDecryptExecutor. Fills
+     * {@code p} with the envelope's ThumbHash bitmap as the thumb source. Returns true if filled.
+     */
+    public static boolean fillE2eBlurThumb(@NonNull Context ctx, @NonNull Message m, @NonNull Preview p) {
+        try {
+            if (!needsE2eBlurFallback(m, p)) return false;
+            final String msgId = m.messageId != null ? m.messageId : m.id;
+            com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                    com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(
+                            ctx, m.mediaKeyEnc, m.senderId, msgId);   // per-message cached
+            if (env == null || !notEmpty(env.blurHash)) return false;
+            Bitmap hb = ThumbHashPlaceholder.get(env.blurHash, 32, 32);
+            if (hb == null) return false;
+            p.thumbSource = hb;
+            p.thumbUrl = "thumbhash:" + env.blurHash;
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    // ── Self-contained thumbnail for the SENT reply (works for E2E media too) ─────────────
+
+    private static final int EMBED_PX = 64;   // WhatsApp-like tiny quote thumb
+
+    /**
+     * Builds a tiny base64 JPEG of the quoted image/video so the reply quote in the bubble
+     * (sender + receiver) renders without ever touching the (E2E-ciphertext) media url.
+     * Blocking decode — call OFF the main thread. Returns null when no local source exists
+     * (non-E2E media then keeps working through replyToMediaUrl).
+     */
+    @Nullable
+    public static String buildThumbBase64(@NonNull Context ctx, @NonNull Message m) {
+        try {
+            if (!"image".equals(m.type) && !"video".equals(m.type)) return null;
+            if (Boolean.TRUE.equals(m.deleted)) return null;
+            final Preview p = describe(ctx, m);
+            if (p.thumbSource == null) fillE2eBlurThumb(ctx, m, p);   // received E2E, not downloaded (we're off-main)
+            final Object s = p.thumbSource;
+            Bitmap src = null;
+            if (s instanceof Bitmap) src = (Bitmap) s;
+            else if (s instanceof File) src = decodeSmall(ctx, Uri.fromFile((File) s), "video".equals(m.type));
+            else if (s instanceof Uri) src = decodeSmall(ctx, (Uri) s, "video".equals(m.type));
+            if (src == null) return null;
+            final int side = Math.min(src.getWidth(), src.getHeight());
+            // v923: ONE crop+scale pass (was createBitmap + createScaledBitmap = two full copies)
+            Bitmap out;
+            if (side > EMBED_PX) {
+                android.graphics.Matrix mx = new android.graphics.Matrix();
+                float sc = EMBED_PX / (float) side;
+                mx.setScale(sc, sc);
+                out = Bitmap.createBitmap(src, (src.getWidth() - side) / 2, (src.getHeight() - side) / 2, side, side, mx, true);
+            } else {
+                out = Bitmap.createBitmap(src, (src.getWidth() - side) / 2, (src.getHeight() - side) / 2, side, side);
+            }
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            // v923: lossy WebP ~30% smaller than JPEG at same quality (smaller wire + E2E envelope); every Android decodes it
+            out.compress(android.os.Build.VERSION.SDK_INT >= 30 ? Bitmap.CompressFormat.WEBP_LOSSY : Bitmap.CompressFormat.WEBP, 50, bos);
+            return android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    @Nullable
+    private static Bitmap decodeSmall(@NonNull Context ctx, @NonNull Uri uri, boolean video) {
+        if (video) {
+            android.media.MediaMetadataRetriever r = new android.media.MediaMetadataRetriever();
+            try {
+                r.setDataSource(ctx, uri);
+                // v923: API27+ decodes the frame already scaled (no 4K full-frame bitmap just for a 64px thumb)
+                Bitmap f = android.os.Build.VERSION.SDK_INT >= 27
+                        ? r.getScaledFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, EMBED_PX * 2, EMBED_PX * 2)
+                        : r.getFrameAtTime(0);
+                if (f != null) return f;
+            } catch (Throwable ignored) {
+            } finally {
+                try { r.release(); } catch (Throwable ignored) { }
+            }
+        }
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            try (java.io.InputStream in = ctx.getContentResolver().openInputStream(uri)) {
+                android.graphics.BitmapFactory.decodeStream(in, null, o);
+            }
+            int sample = 1;
+            while (o.outWidth / (sample * 2) >= EMBED_PX * 2 && o.outHeight / (sample * 2) >= EMBED_PX * 2) sample *= 2;
+            o.inJustDecodeBounds = false;
+            o.inSampleSize = sample;
+            try (java.io.InputStream in = ctx.getContentResolver().openInputStream(uri)) {
+                return android.graphics.BitmapFactory.decodeStream(in, null, o);
+            }
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private static boolean notEmpty(@Nullable String s) { return s != null && !s.isEmpty(); }

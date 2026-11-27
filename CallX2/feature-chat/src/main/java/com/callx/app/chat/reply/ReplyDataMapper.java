@@ -55,7 +55,10 @@ public class ReplyDataMapper {
 
         // Type and media URL
         outgoing.replyToType     = replySource.type != null ? replySource.type : "text";
-        outgoing.replyToMediaUrl = resolveMediaUrl(replySource);
+        // E2E media: mediaUrl is a ciphertext blob Glide can't decode — never quote it. The sender
+        // attaches replyToThumbBase64 instead (see ChatActivity#buildOutgoing).
+        final boolean e2eMedia = replySource.mediaKeyEnc != null && !replySource.mediaKeyEnc.isEmpty();
+        outgoing.replyToMediaUrl = e2eMedia ? null : resolveMediaUrl(replySource);
     }
 
     /**

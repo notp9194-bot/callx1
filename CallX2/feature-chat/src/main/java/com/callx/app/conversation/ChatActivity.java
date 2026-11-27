@@ -208,6 +208,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // header-avatar fallback.
     private boolean partnerNodeSingleFetchDone = false;
     private String currentUid;
+    // Embeddable quote thumbnail for the active reply (see activateReplyDirect / buildOutgoing).
+    private volatile String replyThumbB64;
+    private volatile String replyThumbB64Id;
     private String currentName;
 
     // ── State flags ────────────────────────────────────────────────────────
@@ -845,6 +848,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         mediaController.registerPickers();   // Must happen early
 
         super.onCreate(savedInstanceState);
+        com.callx.app.sync.MessageDecryptor.replyThumbHook = MessagePagingAdapter::prewarmReplyThumb; // v923
 
         // PERF FIX (disk-persisted link preview cache): wires up
         // LinkPreviewFetcher's Room-backed disk cache — no-ops after the
@@ -2020,6 +2024,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         m.status     = "sent";
         if (replyingTo != null) {
             ReplyDataMapper.applyReplyFields(m, replyingTo, currentUid);
+            // Self-contained quote thumbnail (precomputed off-main at swipe time) — the only way an
+            // E2E photo/video quote can render, since its mediaUrl is ciphertext.
+            final String rb = replyThumbB64;
+            if (rb != null && m.replyToId != null && m.replyToId.equals(replyThumbB64Id)) {
+                m.replyToThumbBase64 = rb;
+            }
         }
         return m;
     }
@@ -2168,6 +2178,36 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         replyBarView.setAlpha(1f);
         replyBarView.setTranslationY(0f);
         replyBarView.setVisibility(View.VISIBLE);
+        // Received E2E media with nothing decodable yet: decrypt the envelope's ThumbHash OFF the main
+        // thread, then re-bind the bar with it (only if this reply is still the active one).
+        if (itemIndex < 0 && com.callx.app.chat.ui.ReplyPreviewBinder.needsE2eBlurFallback(m, pv)) {
+            final Message eSrc = m;
+            final String eName = senderName;
+            final int eAccent = replyToMine ? com.callx.app.utils.ChatThemeManager.get(this).getPrimaryColor()
+                    : com.callx.app.chat.ui.ReplyPreviewBinder.colorFor(
+                            m.senderId != null ? m.senderId : senderName);
+            final android.content.Context eCtx = getApplicationContext();
+            com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
+                if (com.callx.app.chat.ui.ReplyPreviewBinder.fillE2eBlurThumb(eCtx, eSrc, pv)) {
+                    runOnUiThread(() -> {
+                        if (replyingTo != eSrc || isFinishing() || isDestroyed()) return;
+                        com.callx.app.chat.ui.ReplyPreviewBinder.bind(this, replyBarView, eName, pv, pv.thumbUrl, eAccent);
+                    });
+                }
+            });
+        }
+        // Precompute the embeddable quote thumbnail off the main thread (image/video, whole message only).
+        replyThumbB64 = null; replyThumbB64Id = null;
+        if (itemIndex < 0 && ("image".equals(m.type) || "video".equals(m.type))) {
+            final Message src = m;
+            final String srcId = (src.id != null && !src.id.isEmpty()) ? src.id : src.messageId; // same order as ReplyDataMapper.resolveId
+            final android.content.Context appCtx = getApplicationContext();
+            com.callx.app.utils.AppBgExecutor.execute(() -> {
+                String b = com.callx.app.chat.ui.ReplyPreviewBinder.buildThumbBase64(appCtx, src);
+                if (replyingTo == src) { replyThumbB64Id = srcId; replyThumbB64 = b; }
+                MessagePagingAdapter.prewarmReplyThumb(b);   // v923: sent bubble's first bind = sync pool hit
+            });
+        }
         if (restoringReply) return;   // v819: silent restore after recreate — no keyboard / analytics
         binding.etMessage.requestFocus();
         // WhatsApp-style: swiping to reply should pop the keyboard back up
@@ -4961,7 +5001,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     .precomputeReplyLayoutIfPossible(
                             m.replyToSenderName,
                             m.replyToText,
-                            m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty());
+                            (m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty())
+                                    || (m.replyToThumbBase64 != null && !m.replyToThumbBase64.isEmpty()));
         }
         // PERF: off-thread waveform-mask precompute — mirrors the text
         // precompute above one layer further down (actual pixels, not a

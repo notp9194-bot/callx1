@@ -315,6 +315,9 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Reply ──────────────────────────────────────────────────────────────
     private Message replyingTo = null;
+    // Embeddable quote thumbnail for the active reply (see showReply / buildOutgoing / firebasePushGroup).
+    private volatile String replyThumbB64;
+    private volatile String replyThumbB64Id;
     // v819: savedInstanceState handed from onCreate to the reply wiring (setupPagingRecyclerView).
     private Bundle stateToRestoreReplyFrom;
 
@@ -2011,7 +2014,31 @@ public class GroupChatActivity extends AppCompatActivity
      * No-op for non-text messages and for plaintext (unencrypted) text.
      */
     private void decryptIncomingGroupTextIfNeeded(Message m) {
-        if (m == null || m.text == null || !"text".equals(m.type)) return;
+        if (m == null) return;
+        decryptIncomingGroupText(m);
+        decryptIncomingGroupReplyThumb(m);   // after the text: sender encrypts text first, thumbnail second
+        com.callx.app.conversation.MessagePagingAdapter.prewarmReplyThumb(m.replyToThumbBase64); // v923 (no-op if null/encrypted-failed)
+    }
+
+    /** Swaps the Sender-Key-encrypted reply-quote thumbnail back to plain base64 (own echo -> cached plaintext). */
+    private void decryptIncomingGroupReplyThumb(Message m) {
+        final String t = m.replyToThumbBase64;
+        if (t == null || m.id == null || !com.callx.app.utils.GroupE2EManager.isEncrypted(t)) return;
+        final com.callx.app.utils.GroupE2EManager gm = com.callx.app.utils.GroupE2EManager.getInstance(this);
+        final String key = m.id + ":rt";
+        if (m.senderId != null && m.senderId.equals(currentUid)) {
+            m.replyToThumbBase64 = gm.takeOwnPlaintext(key);   // null if evicted -> no thumb
+            return;
+        }
+        String pt = gm.decryptGroupMessage(t, groupId, m.senderId, key);
+        boolean bad = pt == null
+                || com.callx.app.utils.GroupE2EManager.DECRYPT_FAILED_MARKER.equals(pt)
+                || com.callx.app.utils.GroupE2EManager.WAITING_FOR_KEY_MARKER.equals(pt);
+        m.replyToThumbBase64 = bad ? null : pt;
+    }
+
+    private void decryptIncomingGroupText(Message m) {
+        if (m.text == null || !"text".equals(m.type)) return;
         if (!com.callx.app.utils.GroupE2EManager.isEncrypted(m.text)) return;
 
         com.callx.app.utils.GroupE2EManager groupE2E =
@@ -2220,6 +2247,7 @@ public class GroupChatActivity extends AppCompatActivity
         m.replyToSenderName = e.replyToSenderName;
         m.replyToType       = e.replyToType;
         m.replyToMediaUrl   = e.replyToMediaUrl;
+        m.replyToThumbBase64 = e.replyToThumbBase64;
         m.edited            = e.edited;
         m.editedAt          = e.editedAt;
         m.editHistory       = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
@@ -2311,7 +2339,8 @@ public class GroupChatActivity extends AppCompatActivity
                     .precomputeReplyLayoutIfPossible(
                             m.replyToSenderName,
                             m.replyToText,
-                            m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty());
+                            (m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty())
+                                    || (m.replyToThumbBase64 != null && !m.replyToThumbBase64.isEmpty()));
         }
         // PERF: off-thread waveform-mask precompute — same idea/safety
         // contract as 1:1 ChatActivity's entityToModel(). Group chat uses
@@ -2357,6 +2386,7 @@ public class GroupChatActivity extends AppCompatActivity
         e.replyToSenderName     = m.replyToSenderName;
         e.replyToType           = m.replyToType;
         e.replyToMediaUrl       = m.replyToMediaUrl;
+        e.replyToThumbBase64    = m.replyToThumbBase64;
         e.edited                = m.edited;
         e.editedAt              = m.editedAt;
         e.editHistoryJson       = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
@@ -2829,10 +2859,14 @@ public class GroupChatActivity extends AppCompatActivity
         m.timestamp  = System.currentTimeMillis();
         m.status     = "sent";
         if (replyingTo != null) {
-            m.replyToId         = replyingTo.id;
-            m.replyToText       = replyingTo.text != null
-                    ? replyingTo.text : "[" + replyingTo.type + "]";
-            m.replyToSenderName = replyingTo.senderName;
+            // Was: id/text/sender only — replyToType + replyToMediaUrl were never set, so a reply to a
+            // photo/video never had a thumbnail in the quote. Shared 1:1 mapper fills type + media url.
+            com.callx.app.chat.reply.ReplyDataMapper.applyReplyFields(m, replyingTo, currentUid);
+            m.replyToSenderName = replyingTo.senderName;   // group keeps the real name (not "You")
+            final String rb = replyThumbB64;
+            if (rb != null && m.replyToId != null && m.replyToId.equals(replyThumbB64Id)) {
+                m.replyToThumbBase64 = rb;
+            }
         }
         return m;
     }
@@ -2919,6 +2953,22 @@ public class GroupChatActivity extends AppCompatActivity
         boolean sentEncrypted = m.e2eWireText != null;
         if (sentEncrypted) m.text = m.e2eWireText;
 
+        // Reply-quote thumbnail: its own Sender Key envelope on the wire (never clear-text). Own plaintext is
+        // cached for the echo. If it can't be encrypted it is dropped, not leaked.
+        final String replyThumbPlain = m.replyToThumbBase64;
+        if (replyThumbPlain != null && !replyThumbPlain.isEmpty()
+                && !com.callx.app.utils.GroupE2EManager.isEncrypted(replyThumbPlain)) {
+            String wireThumb = null;
+            try {
+                com.callx.app.utils.GroupE2EManager gm = com.callx.app.utils.GroupE2EManager.getInstance(this);
+                wireThumb = gm.encryptGroupMessage(replyThumbPlain, groupId);
+                if (wireThumb != null) gm.cacheOwnPlaintext(key + ":rt", replyThumbPlain);
+            } catch (Exception e) {
+                wireThumb = null;
+            }
+            m.replyToThumbBase64 = wireThumb;
+        }
+
         groupMessagesRef.child(key).setValue(m)
             .addOnSuccessListener(unused ->
                 ioExecutor.execute(() -> {
@@ -2938,6 +2988,7 @@ public class GroupChatActivity extends AppCompatActivity
             });
 
         if (sentEncrypted) m.text = plainTextBackup;
+        m.replyToThumbBase64 = replyThumbPlain;   // local copy stays plain
 
         Map<String, Object> upd = new HashMap<>();
         upd.put("lastMessage", preview);
@@ -3056,6 +3107,18 @@ public class GroupChatActivity extends AppCompatActivity
                         : com.callx.app.chat.ui.ReplyPreviewBinder.colorFor(
                                 m.senderId != null ? m.senderId : who));
         replyBarView.setVisibility(View.VISIBLE);
+        // Precompute the embeddable quote thumbnail off the main thread (image/video, whole message only).
+        replyThumbB64 = null; replyThumbB64Id = null;
+        if (galleryItemIndex < 0 && ("image".equals(m.type) || "video".equals(m.type))) {
+            final Message src = m;
+            final String srcId = (src.id != null && !src.id.isEmpty()) ? src.id : src.messageId;
+            final android.content.Context appCtx = getApplicationContext();
+            com.callx.app.utils.AppBgExecutor.execute(() -> {
+                String b = com.callx.app.chat.ui.ReplyPreviewBinder.buildThumbBase64(appCtx, src);
+                if (replyingTo == src) { replyThumbB64Id = srcId; replyThumbB64 = b; }
+                com.callx.app.conversation.MessagePagingAdapter.prewarmReplyThumb(b);   // v923
+            });
+        }
         if (!userTriggered) return;
         binding.etMessage.requestFocus();
         // WhatsApp-style: swipe-to-reply opens the keyboard right away (same as 1:1).
