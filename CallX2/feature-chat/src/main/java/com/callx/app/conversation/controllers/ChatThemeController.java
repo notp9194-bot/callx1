@@ -53,6 +53,22 @@ public class ChatThemeController {
                 binding.cvInputCapsule,
                 binding.fabBackToLatest,
                 root.findViewById(com.callx.app.chat.R.id.view_reply_accent));
+        // POLISH #2: the "new messages" chip used to be a fixed blue while the FAB below it
+        // follows the theme/brand colour. Re-use the FAB's freshly applied tint so the two
+        // always match (and recolour together on every theme change).
+        if (binding.tvNewMessagesIndicator != null && binding.fabBackToLatest != null) {
+            // PERF #5: applyScreenTheme() runs on every theme/night flip; setBackgroundTintList()
+            // invalidates (re-records) the chip each time even for an identical colour, so only
+            // touch it when the colour really changed.
+            android.content.res.ColorStateList fabTint =
+                    binding.fabBackToLatest.getBackgroundTintList();
+            android.content.res.ColorStateList chipTint =
+                    binding.tvNewMessagesIndicator.getBackgroundTintList();
+            if (fabTint != null && (chipTint == null
+                    || chipTint.getDefaultColor() != fabTint.getDefaultColor())) {
+                binding.tvNewMessagesIndicator.setBackgroundTintList(fabTint);
+            }
+        }
         binding.chatIconBar.setAccentColor(
                 com.callx.app.utils.FollowButtonStyler.primaryColor(delegate.getActivity()));
 

@@ -204,9 +204,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private String partnerPhoto;
     private String partnerThumb;
     // PERF (single-fetch guard): see fetchPartnerProfileOnce() — ensures the
-    // partner's Firebase node is read at most once per chat open even
-    // though both the header-avatar fallback and the reel/x/YouTube badge
-    // reveal used to each fire their own independent read of the same node.
+    // partner's Firebase node is read at most once per chat open for the
+    // header-avatar fallback.
     private boolean partnerNodeSingleFetchDone = false;
     private String currentUid;
     private String currentName;
@@ -452,6 +451,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // user was scrolled up. Shown in the "↓ N new messages" indicator.
     private int     pendingNewMsgCount         = 0;
 
+    // SCROLL-TO-LATEST FAB THRESHOLD (polish #4).
+    // The FAB used to appear on ANY upward scroll once >3 items from the tail, so a tiny
+    // 1px nudge made it flicker in. Now it appears only after the user has scrolled up by
+    // at least this fraction of the message list's HEIGHT (0.5 = about half a screen,
+    // similar to WhatsApp). It is still hidden as soon as the user is back at the bottom.
+    private static final float FAB_SHOW_MIN_DISTANCE_VIEWPORT_FRACTION = 0.5f;
+    // Safety net: if pixel-distance is unreliable (variable-height rows + Paging placeholders
+    // make computeVerticalScrollRange() an estimate) we still show the FAB once the user is
+    // this many items away from the newest message.
+    private static final int   FAB_SHOW_MIN_ITEMS_FROM_TAIL = 10;
+    // PERF #1: how often (ms) the "is the user far enough to show the FAB" check may run
+    // while the FAB is still hidden. Throttles the per-frame onScrolled hot path.
+    private static final long  FAB_CHECK_INTERVAL_MS = 60L;
+    private long lastFabCheckUptimeMs = 0L;
+    // PERF #3: last count rendered in the chip; setText() (-> layout + text re-record) is
+    // skipped when the visible number did not change.
+    private int lastChipCount = -1;
+
     // ── WHATSAPP-STYLE REVEAL SCROLL TUNING ─────────────────────────────
     // Only one auto-scroll should ever be "in flight" toward the tail —
     // if several inserts land in quick succession (fast back-to-back
@@ -690,10 +707,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     /**
      * PERF (consolidated partner-node read): fetches users/{partnerUid}
      * from Firebase AT MOST ONCE per chat open (guarded by
-     * partnerNodeSingleFetchDone) and populates BOTH the header-avatar
-     * fallback (thumbUrl/photoUrl — only if not already known) and the
-     * reel/x/YouTube toolbar badges (hasReelProfile/xHandle/
-     * youtubeChannelId) from that single snapshot.
+     * partnerNodeSingleFetchDone) and populates the header-avatar
+     * fallback (thumbUrl/photoUrl — only if not already known) from that
+     * single snapshot. (The reel/x/YouTube toolbar badges that used to
+     * share this read were removed from the chat screen.)
      *
      * Previously these were two entirely independent
      * getUserRef(partnerUid).addListenerForSingleValueEvent() calls —
@@ -725,11 +742,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void fetchPartnerProfileOnce() {
         if (partnerNodeSingleFetchDone || partnerUid == null || partnerUid.isEmpty()) return;
         partnerNodeSingleFetchDone = true;
-        // PERF: fresh header-flag cache + avatar already known -> nothing left
-        // to fetch from the partner node, skip the read/observe entirely.
-        if (PartnerHeaderCache.isFresh(PartnerHeaderCache.get(this, partnerUid))
-                && ((partnerThumb != null && !partnerThumb.isEmpty())
-                    || (partnerPhoto != null && !partnerPhoto.isEmpty()))) {
+        // PERF: this read exists ONLY for the header-avatar fallback now (the Reel/X/YouTube
+        // toolbar badges and their cache are gone). If an avatar is already known there is
+        // nothing left to fetch, so skip the whole Firebase read/observe.
+        if ((partnerThumb != null && !partnerThumb.isEmpty())
+                || (partnerPhoto != null && !partnerPhoto.isEmpty())) {
             return;
         }
         DatabaseReference ref = FirebaseUtils.getUserRef(partnerUid);
@@ -775,16 +792,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 }
             }
             updateHeaderStoryRing();
-
-            // Reel/X/YouTube toolbar badges — same snapshot, no extra read.
-            Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
-            String xHandle = s.child("xHandle").getValue(String.class);
-            String ytChannel = s.child("youtubeChannelId").getValue(String.class);
-            int flags = (Boolean.TRUE.equals(hasReel) ? PartnerHeaderCache.F_REEL : 0)
-                    | ((xHandle != null && !xHandle.isEmpty()) ? PartnerHeaderCache.F_X : 0)
-                    | ((ytChannel != null && !ytChannel.isEmpty()) ? PartnerHeaderCache.F_YT : 0);
-            PartnerHeaderCache.put(ChatActivity.this, partnerUid, flags);
-            applyHeaderBadges(flags);
         });
         unsubRef[0] = unsub;
         if (fired[0]) {
@@ -1101,12 +1108,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         setupToolbar();
         mark("a11 setupToolbar");
-        setupProfileCard();
-        mark("a12 setupProfileCard");
         themeController.applyScreenTheme();
         mark("a13 applyScreenTheme");
         setupPagingRecyclerView();   // RecyclerView + adapter ready (no Room yet)
-        mark("toolbar+profileCard+paging RV done");
+        mark("toolbar+paging RV done");
         setupInputBar();
         mark("setupInputBar done");
         setupMentionController();
@@ -1264,13 +1269,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         deferredTasks.schedule(600, () -> {
             getPinController().init();
             getScheduledSendController().init();
-            // PERF: this used to be its own independent
-            // getUserRef(partnerUid).addListenerForSingleValueEvent() read
-            // just for the reel/x/YouTube badges — now routed through the
-            // single shared fetch (see fetchPartnerProfileOnce() doc) so it
-            // becomes a no-op here if the avatar-fallback branch already
-            // fetched (and populated) the exact same node earlier.
-            fetchPartnerProfileOnce();
+            // (The deferred partner-node read that used to live here existed only for the
+            // reel/x/YouTube toolbar badges — removed together with them. The avatar fallback
+            // read is still triggered from setupToolbar() when no avatar is known.)
         });
 
         // Background cleanup (10s baad — load se compete na kare)
@@ -2746,81 +2747,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // .addListenerForSingleValueEvent() read here just for the
             // avatar fallback — now shares the single consolidated read
             // (see fetchPartnerProfileOnce() doc) so a chat opened without
-            // a cached avatar does ONE partner-node round trip total
-            // instead of two (this one + the 600ms badge one below).
+            // a cached avatar does ONE partner-node round trip total.
             fetchPartnerProfileOnce();
         }
         updateHeaderStoryRing();
 
-        // PERF: Reel/X/YouTube icons from cache on the first frame (no pop-in);
-        // the snapshot listener only corrects them if the data actually changed.
-        PartnerHeaderCache.Entry cachedBadges = PartnerHeaderCache.get(this, partnerUid);
-        if (cachedBadges != null) applyHeaderBadges(cachedBadges.flags);
-
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
-
-        // PERF: btn_toolbar_reel/x/youtube are android:visibility="gone" in
-        // the layout now (they used to be VISIBLE from inflate, drawing
-        // their default drawable before we even knew the partner had a
-        // linked profile, then again once real data arrived). Reveal each
-        // one only after the partner's node confirms that profile exists;
-        // stays hidden otherwise, saving a draw pass on screens where the
-        // partner has none of these linked.
-        // NOTE: field names below (hasReelProfile/xHandle/youtubeChannelId)
-        // are a placeholder guess at your users/{uid} schema — rename the
-        // .child(...) keys to whatever your actual DB uses.
-        // PERF (advanced): purely cosmetic toolbar-icon reveal, not needed
-        // for first paint — was firing a full partner-node Firebase read
-        // synchronously on every chat open. Moved into the existing 600ms
-        // deferred lambda alongside pin/scheduledSend init so it no longer
-        // competes with the message-list load for network/IO at open time.
-        // (Actual deferred read now lives in onDbReady()'s 600ms block,
-        // using the partnerUid field directly.)
-
-        // Reel button
-        binding.btnToolbarReel.setOnClickListener(v -> {
-            if (partnerUid == null || partnerUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
-                Intent in = new Intent(this, cls);
-                in.putExtra("uid",   partnerUid);
-                in.putExtra("name",  partnerName != null ? partnerName : "");
-                in.putExtra("photo", partnerPhoto != null ? partnerPhoto : "");
-                startActivity(in);
-            } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "Reels profile not available", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // Hanging reel animation removed for performance
-
-        // X profile
-        binding.btnToolbarX.setOnClickListener(v -> {
-            if (partnerUid == null || partnerUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
-                java.lang.reflect.Method method = cls.getMethod("showProfile",
-                        androidx.fragment.app.FragmentManager.class, String.class);
-                method.invoke(null, getSupportFragmentManager(), partnerUid);
-            } catch (Exception e) {
-                Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // YouTube channel
-        binding.btnToolbarYoutube.setOnClickListener(v -> {
-            if (partnerUid == null || partnerUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
-                Intent in = new Intent(this, cls);
-                in.putExtra("uid",  partnerUid);
-                in.putExtra("name", partnerName != null ? partnerName : "");
-                startActivity(in);
-            } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
-            }
-        });
 
         binding.btnMoreOptions.setOnClickListener(v -> {
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
@@ -2830,32 +2763,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
         });
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // PROFILE CARD — Instagram-style card (avatar, name, Reels/X/YouTube
-    // stats, Subscribe, opt-in "View Community") below the header capsule.
-    // ─────────────────────────────────────────────────────────────────────
-
-    private com.callx.app.conversation.ChatProfileCardBinder profileCardBinder;
-
-    private void setupProfileCard() {
-        // PERF: card is inflated + bound lazily on the first header tap.
-        View.OnClickListener toggle = v -> {
-            ensureProfileCard();
-            if (profileCardBinder != null) profileCardBinder.toggleExpanded();
-        };
-        binding.ivPartnerAvatar.setOnClickListener(v -> { openAvatarZoom(); toggle.onClick(v); });
-        View nameRow = findViewById(R.id.ll_partner_name_row);
-        if (nameRow != null) nameRow.setOnClickListener(toggle);
-    }
-
-    private void ensureProfileCard() {
-        if (profileCardBinder != null || binding == null || binding.stubProfileCard == null) return;
-        View root = binding.stubProfileCard.inflate();
-        profileCardBinder = new com.callx.app.conversation.ChatProfileCardBinder(this,
-                com.callx.app.chat.databinding.LayoutChatProfileCardBinding.bind(root));
-        profileCardBinder.bind(partnerUid, partnerName, partnerPhoto, partnerThumb);
     }
 
     private void startCall(boolean isVideo) {
@@ -4682,20 +4589,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     /** Shows or updates the "↓ N new messages" floating indicator chip. */
     private void updateNewMessagesIndicator(int count) {
         if (binding.tvNewMessagesIndicator == null) return;
-        String text = count == 1 ? "↓ 1 new message" : "↓ " + count + " new messages";
-        binding.tvNewMessagesIndicator.setText(text);
-        binding.tvNewMessagesIndicator.setVisibility(View.VISIBLE);
-        // Also make the FAB visible so both appear together
-        if (binding.fabBackToLatest != null) {
-            binding.fabBackToLatest.setVisibility(View.VISIBLE);
-            binding.fabBackToLatest.setAlpha(1f);
+        // POLISH #6: text comes from a plurals resource (translatable, correct plural
+        // forms per language) instead of hard-coded English strings.
+        // count is passed twice on purpose: 1st = quantity selector, 2nd = the %d value.
+        // PERF #3: setText() always requests layout + re-records the text, so skip it when the
+        // number shown would be identical. Count is capped at "99+" so the chip can never grow
+        // wider than its fixed minWidth for big numbers (see layout: minWidth + gravity=center),
+        // which means a 1 -> 2 -> 3 ... update never changes the chip's size = no re-measure of
+        // the parent. The plural quantity still uses the REAL count (grammar), only the
+        // displayed number is capped.
+        int shownCount = Math.min(count, 100);
+        if (shownCount != lastChipCount) {
+            lastChipCount = shownCount;
+            String numText = count > 99 ? "99+"
+                    : java.text.NumberFormat.getInstance().format(count); // locale digits
+            binding.tvNewMessagesIndicator.setText(getResources().getQuantityString(
+                    R.plurals.chat_new_messages_indicator, count, numText));
         }
+        // POLISH #1: fade+scale in (no-op if already shown, so a count change from 1 -> 2
+        // only swaps the text and does not re-animate).
+        MessageHighlightAnimator.showIndicator(binding.tvNewMessagesIndicator);
+        // Also make the FAB visible so both appear together
+        MessageHighlightAnimator.showIndicator(binding.fabBackToLatest);
     }
 
-    /** Hides the "↓ N new messages" indicator. */
+    /** Hides the "↓ N new messages" indicator (fade+scale out, never GONE). */
     private void hideNewMessagesIndicator() {
         if (binding.tvNewMessagesIndicator == null) return;
-        binding.tvNewMessagesIndicator.setVisibility(View.GONE);
+        MessageHighlightAnimator.hideIndicator(binding.tvNewMessagesIndicator);
+        lastChipCount = -1; // next show must render fresh text
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -6285,19 +6207,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * redundant setBackground/setImageDrawable/setVisibility churn on a
      * screen that's already busy (RecyclerView, WebRTC, typing listeners).
      */
-    /** Shows/hides Reel/X/YouTube header icons; touches a view only if its state differs. */
-    private void applyHeaderBadges(int flags) {
-        setVisIfChanged(binding.llReelHanging, (flags & PartnerHeaderCache.F_REEL) != 0);
-        setVisIfChanged(binding.btnToolbarReel, (flags & PartnerHeaderCache.F_REEL) != 0);
-        setVisIfChanged(binding.btnToolbarX, (flags & PartnerHeaderCache.F_X) != 0);
-        setVisIfChanged(binding.btnToolbarYoutube, (flags & PartnerHeaderCache.F_YT) != 0);
-    }
-
-    private static void setVisIfChanged(View v, boolean show) {
-        int target = show ? View.VISIBLE : View.GONE;
-        if (v.getVisibility() != target) v.setVisibility(target);
-    }
-
     private void updateHeaderStoryRing() {
         if (partnerUid == null || partnerUid.isEmpty()) return;
         android.widget.ImageView ring = binding.ivPartnerAvatarRing;
@@ -6461,7 +6370,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         }
         if (pos >= 0) {
-            MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, pos, binding.fabBackToLatest);
+            // FAB is shown with the animated helper; null tells the (shared) legacy helper not to
+                // force VISIBLE/alpha=1 itself, which would desync the animator's state tag.
+                MessageHighlightAnimator.showIndicator(binding.fabBackToLatest);
+                MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, pos, null);
             final int highlightPos = pos; // lambda below needs an effectively-final capture
             binding.rvMessages.postDelayed(() -> {
                 if (binding == null) return; // PERF-FIX: guard against post firing after onDestroy() nulls binding
@@ -6517,10 +6429,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      */
     private void jumpToMessageViaAnchor(String messageId, long anchorTimestamp, String anchorId) {
         if (binding == null || pagingAdapter == null) return;
-        if (binding.fabBackToLatest != null) {
-            binding.fabBackToLatest.setVisibility(View.VISIBLE);
-            binding.fabBackToLatest.setAlpha(1f);
-        }
+        // Animated show (was instant VISIBLE + alpha 1).
+        MessageHighlightAnimator.showIndicator(binding.fabBackToLatest);
         attachPagerWithKey(new com.callx.app.db.paging.MessageCursor(anchorTimestamp, anchorId));
         final kotlin.jvm.functions.Function0<kotlin.Unit>[] listenerHolder = new kotlin.jvm.functions.Function0[1];
         listenerHolder[0] = () -> {
@@ -6538,7 +6448,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 final int fpos = pos;
                 binding.rvMessages.post(() -> {
                     if (binding == null) return; // PERF-FIX: guard — this whole chain is async across a Pager reload
-                    MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, fpos, binding.fabBackToLatest);
+                    MessageHighlightAnimator.showIndicator(binding.fabBackToLatest);
+                    MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, fpos, null);
                     binding.rvMessages.postDelayed(() -> {
                         if (binding == null) return;
                         RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(fpos);
@@ -6820,9 +6731,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 handleStickyDateScrolled(dy);
-                handleBottomTrackingScrolled(rv, dy);
-                captureHistoryViewportAnchor(rv);
-                handleLinkPreviewPrefetch(rv, dy);
+                // PERF (v911): onScrolled fires EVERY frame and three handlers below each used to
+                // call lm.findLastVisibleItemPosition() themselves (a child-view scan each time,
+                // + a 4th scan for findFirstVisible inside the anchor capture). The visible
+                // tail position cannot change between these handlers (none of them scroll or
+                // lay out), so it is read ONCE here and passed down. Pure refactor: same
+                // values, same order, same behaviour — just 1 scan instead of 3.
+                RecyclerView.LayoutManager frameLm = rv.getLayoutManager();
+                final int frameLast = (frameLm instanceof LinearLayoutManager)
+                        ? ((LinearLayoutManager) frameLm).findLastVisibleItemPosition()
+                        : RecyclerView.NO_POSITION;
+                handleBottomTrackingScrolled(rv, dy, frameLast);
+                captureHistoryViewportAnchor(rv, frameLast);
+                handleLinkPreviewPrefetch(rv, dy, frameLast);
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
@@ -6831,11 +6752,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 handleGlideAndPresenceStateChanged(rv, newState);
             }
 
-            private void handleLinkPreviewPrefetch(@NonNull RecyclerView rv, int dy) {
+            private void handleLinkPreviewPrefetch(@NonNull RecyclerView rv, int dy, int lastVisible) {
                 if (pagingAdapter == null) return;
-                RecyclerView.LayoutManager raw = rv.getLayoutManager();
-                if (!(raw instanceof LinearLayoutManager)) return;
-                int lastVisible = ((LinearLayoutManager) raw).findLastVisibleItemPosition();
+                // lastVisible is supplied by onScrolled() (shared scan) — see PERF (v911) there.
                 if (lastVisible < 0) return;
                 long now = android.os.SystemClock.elapsedRealtime();
                 long dt = lastLinkPreviewPrefetchTimeMs == 0L ? 0L : (now - lastLinkPreviewPrefetchTimeMs);
@@ -6852,13 +6771,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * rather than only when the mediator starts: the mediator runs off the UI
      * thread and the Room insert can invalidate Paging very quickly.
      */
-    private void captureHistoryViewportAnchor(@NonNull RecyclerView rv) {
+    private void captureHistoryViewportAnchor(@NonNull RecyclerView rv, int last) {
         if (pagingAdapter == null || isUserAtBottom || historyViewportRestoreRequested) return;
         RecyclerView.LayoutManager raw = rv.getLayoutManager();
         if (!(raw instanceof LinearLayoutManager)) return;
         LinearLayoutManager lm = (LinearLayoutManager) raw;
+        // PERF (v911): `last` is the shared per-frame scan from onScrolled(). `first` is still
+        // read here (and ONLY here, and only when the user is scrolled up) so the at-bottom
+        // frames never pay for it. Anchor semantics are unchanged: still captured every frame.
         int first = lm.findFirstVisibleItemPosition();
-        int last = lm.findLastVisibleItemPosition();
         if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
 
         for (int position = first; position <= last; position++) {
@@ -7068,6 +6989,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void setupFabBackToLatest() {
         if (binding.fabBackToLatest == null) return;
 
+        // POLISH #3/#7: keep FAB + chip centred and anchored above the input stack.
+        anchorScrollIndicatorsToInputStack();
+
         // "Back to latest" FAB — also clears the new-messages indicator
         binding.fabBackToLatest.setOnClickListener(v -> {
             pendingNewMsgCount = 0;
@@ -7081,7 +7005,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 ((LinearLayoutManager) binding.rvMessages.getLayoutManager())
                         .scrollToPositionWithOffset(last, 0);
             }
-            MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+            MessageHighlightAnimator.hideIndicator(binding.fabBackToLatest);
         });
 
         // "↓ N new messages" indicator chip — tapping scrolls to bottom
@@ -7094,7 +7018,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     ((LinearLayoutManager) binding.rvMessages.getLayoutManager())
                             .scrollToPositionWithOffset(last, 0);
                 }
-                MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+                MessageHighlightAnimator.hideIndicator(binding.fabBackToLatest);
             });
         }
 
@@ -7108,10 +7032,56 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // attachUnifiedMessagesScrollListener()'s doc.
     }
 
-    private void handleBottomTrackingScrolled(@NonNull RecyclerView rv, int dy) {
-        LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-        if (lm == null) return;
-        int lastVis = lm.findLastVisibleItemPosition();
+    /**
+     * POLISH #7 (+ #3): positions the scroll-to-latest FAB and the "new messages" chip
+     * relative to the REAL height of ll_floating_bottom_stack instead of fixed 84dp/132dp
+     * margins.
+     *
+     * Why: the stack contains the input capsule, and can also contain the reply bar,
+     * link preview, block banner or a multi-line (taller) input. With fixed margins the
+     * FAB used to end up UNDER the capsule in those cases. Now every time the stack's
+     * height changes we recompute:
+     *   FAB bottom margin  = stackHeight + 12dp
+     *   chip bottom margin = FAB bottom margin + FAB height + 8dp   (chip sits right above FAB)
+     * Both are horizontally centred (layout_gravity in XML), so they form one tidy column.
+     */
+    private void anchorScrollIndicatorsToInputStack() {
+        final View stack = binding.llFloatingBottomStack;
+        final View fab   = binding.fabBackToLatest;
+        final View chip  = binding.tvNewMessagesIndicator;
+        if (stack == null || fab == null) return;
+
+        // PERF #2: we move the FAB/chip with setTranslationY(), NOT with bottomMargin.
+        // A margin change = setLayoutParams() = requestLayout() on the parent FrameLayout,
+        // which re-measures the whole chat area (RecyclerView included) every time the input
+        // stack grows/shrinks (typing multi-line, reply bar open ...). translationY is a
+        // RenderNode property: no measure, no layout, no display-list re-record — the GPU just
+        // draws the same recorded view at a new offset. The XML bottom margins are therefore 0
+        // (the views sit at the very bottom) and the translation lifts them above the stack.
+        final Runnable apply = () -> {
+            if (binding == null) return;
+            int stackH = stack.getHeight();
+            if (stackH <= 0) return; // not laid out yet — views are INVISIBLE anyway
+            float fabLift = stackH + dp(12);
+            fab.setTranslationY(-fabLift);
+            if (chip != null) {
+                // FAB height is 0 before first layout; fall back to mini-FAB size (40dp).
+                int fabH = fab.getHeight() > 0 ? fab.getHeight() : dp(40);
+                chip.setTranslationY(-(fabLift + fabH + dp(8))); // chip sits right above FAB
+            }
+        };
+
+        stack.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            // Only the HEIGHT matters; ignore pure position shifts (keyboard open/close).
+            if ((b - t) != (ob - ot)) apply.run();
+        });
+        // Initial pass (the stack may already be laid out when this runs).
+        stack.post(apply);
+    }
+
+    private void handleBottomTrackingScrolled(@NonNull RecyclerView rv, int dy, int lastVis) {
+        // lastVis = shared per-frame scan from onScrolled() (PERF v911) — no own scan here.
+        if (rv.getLayoutManager() == null) return;
         int total   = pagingAdapter.getItemCount();
         boolean atBottom = (lastVis >= total - 3);
         isUserAtBottom = atBottom;
@@ -7127,13 +7097,41 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             //   • hide the FAB
             pendingNewMsgCount = 0;
             hideNewMessagesIndicator();
-            MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+            MessageHighlightAnimator.hideIndicator(binding.fabBackToLatest);
         } else if (dy < 0) {
-            // User is scrolling UP away from the bottom — show FAB
-            // (indicator only appears when new msgs arrive, not just on scroll)
-            if (binding.fabBackToLatest.getVisibility() != View.VISIBLE) {
-                binding.fabBackToLatest.setVisibility(View.VISIBLE);
-                binding.fabBackToLatest.setAlpha(1f);
+            // User is scrolling UP away from the bottom.
+            // POLISH #4: do NOT show the FAB for a tiny nudge. Only once the user is
+            // far enough from the newest message (about half a screen, or many items).
+            // (The "new messages" chip is separate: it only appears when new msgs arrive.)
+            // NOTE: we deliberately do not hide the FAB again between "half a screen" and
+            // "3 items" — it is still hidden when the user reaches the bottom (branch above),
+            // and hiding here could wrongly dismiss the FAB that jump-to-original-message
+            // shows on purpose.
+            //
+            // PERF #1 (per-frame hot path — onScrolled fires every frame):
+            //   a) FAB already up (or fading in) -> nothing to decide, return immediately.
+            //      The 3 computeVerticalScroll*() calls below each walk the visible children,
+            //      so doing them every frame while the FAB is ALREADY visible was pure waste.
+            //   b) FAB not up yet -> evaluate at most once per FAB_CHECK_INTERVAL_MS, not
+            //      every frame; a human can't tell a 60ms delay on a half-screen threshold.
+            if (MessageHighlightAnimator.isShowing(binding.fabBackToLatest)) return;
+            long nowMs = android.os.SystemClock.uptimeMillis();
+            if (nowMs - lastFabCheckUptimeMs < FAB_CHECK_INTERVAL_MS) return;
+            lastFabCheckUptimeMs = nowMs;
+
+            // Cheap item-count test first (no scroll maths at all when it already passes).
+            boolean farEnoughItems = (total - 1 - lastVis) >= FAB_SHOW_MIN_ITEMS_FROM_TAIL;
+            boolean farEnoughPx = false;
+            if (!farEnoughItems) {
+                int range  = rv.computeVerticalScrollRange();
+                int offset = rv.computeVerticalScrollOffset();
+                int extent = rv.computeVerticalScrollExtent();
+                int distanceFromBottomPx = Math.max(0, range - offset - extent);
+                farEnoughPx = distanceFromBottomPx
+                        >= (int) (rv.getHeight() * FAB_SHOW_MIN_DISTANCE_VIEWPORT_FRACTION);
+            }
+            if (farEnoughPx || farEnoughItems) {
+                MessageHighlightAnimator.showIndicator(binding.fabBackToLatest);
             }
         }
     }

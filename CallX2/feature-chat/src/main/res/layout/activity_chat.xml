@@ -217,19 +217,34 @@
             android:alpha="0"/>
 
         <!-- New Messages floating indicator chip (WhatsApp style).
-             Appears above the FAB when user is scrolled up and new messages arrive. -->
+             Appears directly ABOVE the scroll-to-latest FAB (same horizontal centre)
+             when the user is scrolled up and new messages arrive.
+
+             POLISH NOTES
+             • layout_gravity is bottom|center_horizontal (was bottom|end) so the chip stacks
+               over the FAB instead of floating at the right edge, far from the button.
+             • No bottom margin here on purpose: at runtime
+               ChatActivity.anchorScrollIndicatorsToInputStack() lifts the chip with
+               translationY from the real height of ll_floating_bottom_stack (reply bar /
+               multi-line input make it grow) — no layout pass needed.
+             • minWidth + gravity=center keep the chip the same size for any count, so a
+               "1 -> 2 new messages" update never triggers a re-measure.
+             • visibility is "invisible" (not "gone") so showing it later is an
+               alpha/scale animation only and never forces a parent layout pass — same
+               rationale as tv_emoji_burst above.
+             • Background colour: see drawable/bg_new_msg_chip (brand_primary, theme-tinted). -->
         <TextView
             android:id="@+id/tv_new_messages_indicator"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="8dp"
-            android:layout_marginBottom="132dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:minWidth="124dp"
+            android:gravity="center"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             android:paddingTop="7dp"
             android:paddingBottom="7dp"
-            android:text="↓ new messages"
+            android:text="@string/chat_new_messages_indicator_default"
             android:textColor="@color/white"
             android:textSize="12sp"
             android:textStyle="bold"
@@ -237,10 +252,15 @@
             android:elevation="6dp"
             android:clickable="true"
             android:focusable="true"
-            android:visibility="gone"/>
+            android:alpha="0"
+            android:visibility="invisible"/>
 
         <!-- Back to latest FAB — shown when scrolled up / navigating to original message.
-             Bottom CENTER (not right edge). -->
+             Bottom CENTER (not right edge).
+             POLISH: visibility "invisible" + alpha 0 initially (was "gone") — show/hide is now
+             a fade+scale via MessageHighlightAnimator.showIndicator()/hideIndicator().
+             layout_marginBottom is 0: the real lift above the input stack is applied at runtime
+             via translationY (see ChatActivity.anchorScrollIndicatorsToInputStack). -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_back_to_latest"
             android:layout_width="wrap_content"
@@ -249,14 +269,14 @@
             android:layout_marginStart="12dp"
             android:layout_marginTop="12dp"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="84dp"
+            android:layout_marginBottom="0dp"
             android:src="@drawable/ic_arrow_back"
             android:rotation="270"
-            android:contentDescription="Back to latest"
+            android:contentDescription="@string/chat_back_to_latest"
             app:backgroundTint="@color/brand_primary"
             app:tint="@color/white"
             app:fabSize="mini"
-            android:visibility="gone"
+            android:visibility="invisible"
             android:alpha="0"/>
 
         <!-- ═══════════════════════════════════════════════════════════════
@@ -667,74 +687,6 @@
                         android:visibility="gone"/>
                 </LinearLayout>
 
-                <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->
-                <!-- Pura container: rassi + button ek saath upar se neeche -->
-                <LinearLayout
-                    android:id="@+id/ll_reel_hanging"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center_horizontal"
-                    android:layout_marginEnd="3dp"
-                    android:translationY="-4dp"
-                    android:visibility="gone">
-
-                    <!-- Patli rassi (thin string from top of header) -->
-                    <View
-                        android:id="@+id/view_reel_thread"
-                        android:layout_width="1.5dp"
-                        android:layout_height="8dp"
-                        android:background="@drawable/ic_reel_thread"
-                        android:layout_gravity="center_horizontal"/>
-
-                    <!-- Reel button itself — jhulta hua.
-                         PERF: GONE by default — was VISIBLE from inflate,
-                         so it drew its default drawable for one frame before
-                         partner data even loaded, then a second draw pass
-                         once we knew whether the partner actually has a
-                         reel/X/YouTube profile. Revealed in ChatActivity
-                         once that check comes back true; stays GONE (saving
-                         a draw pass every time this screen opens) when the
-                         partner has no linked profile for that feature. -->
-                    <ImageButton
-                        android:id="@+id/btn_toolbar_reel"
-                        android:layout_width="30dp"
-                        android:layout_height="30dp"
-                        android:src="@drawable/ic_reels"
-                        android:tint="@color/white"
-                        android:background="@drawable/bg_social_reel_btn"
-                        android:padding="6dp"
-                        android:visibility="gone"
-                        android:contentDescription="View Reels Profile"/>
-
-                </LinearLayout>
-
-                <!-- X button — GONE by default, see note above ll_reel_hanging. -->
-                <ImageButton
-                    android:id="@+id/btn_toolbar_x"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
-                    android:src="@drawable/ic_x_logo"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_social_x_btn"
-                    android:padding="6dp"
-                    android:layout_marginEnd="3dp"
-                    android:visibility="gone"
-                    android:contentDescription="View X Profile"/>
-
-                <!-- YouTube button — GONE by default, see note above ll_reel_hanging. -->
-                <ImageButton
-                    android:id="@+id/btn_toolbar_youtube"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
-                    android:src="@drawable/ic_youtube"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_social_youtube_btn"
-                    android:padding="6dp"
-                    android:layout_marginEnd="1dp"
-                    android:visibility="gone"
-                    android:contentDescription="View YouTube Channel"/>
-
                 <!-- Voice call button -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_voice_call"
@@ -772,25 +724,6 @@
                     android:contentDescription="More options"/>
 
         </LinearLayout>
-
-        <!-- ══════════════════════════════════════════════════════════════
-             INSTAGRAM-STYLE PROFILE CARD — big avatar + stats + Subscribe +
-             View Community. See ChatProfileCardBinder for all binding logic.
-             Collapsed by default; expands on tapping the header name row.
-             ══════════════════════════════════════════════════════════════ -->
-        <!-- PERF: lazily inflated on the first header tap (see
-             ChatActivity#ensureProfileCard) — the card is collapsed by default,
-             so inflating + binding it (avatar load + 4 Firebase reads) on every
-             chat open was pure waste for chats where it is never opened. -->
-        <ViewStub
-            android:id="@+id/stub_profile_card"
-            android:layout="@layout/layout_chat_profile_card"
-            android:inflatedId="@+id/include_profile_card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="10dp"
-            android:layout_marginBottom="6dp"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              MULTI-SELECT TOOLBAR (WhatsApp style).

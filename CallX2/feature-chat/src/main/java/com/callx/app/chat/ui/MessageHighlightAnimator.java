@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.graphics.drawable.ColorDrawable;
 import android.view.View;
+import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 
 import androidx.annotation.NonNull;
@@ -91,6 +92,82 @@ public class MessageHighlightAnimator {
             }
         });
         anim.start();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // FLOATING INDICATOR SHOW/HIDE (scroll-to-latest FAB + "new messages" chip)
+    // ─────────────────────────────────────────────────────────────────────
+    // WHY: both views used to pop in/out with setVisibility(VISIBLE/GONE).
+    //   1. A hard pop looks abrupt (WhatsApp/Telegram fade+scale these).
+    //   2. VISIBLE<->GONE makes the parent run a measure+layout pass — exactly the cost
+    //      this app avoids elsewhere (see tv_emoji_burst in activity_chat.xml). We now
+    //      only ever toggle VISIBLE<->INVISIBLE and animate alpha/scale, which is a pure
+    //      draw-time change.
+    // The view's TARGET state is stored in a tag so that calling showIndicator() from
+    // onScrolled() (every frame) does not restart the animation again and again.
+    private static final long INDICATOR_SHOW_MS  = 180L;
+    private static final long INDICATOR_HIDE_MS  = 140L; // hide slightly quicker than show: feels snappier
+    private static final float INDICATOR_HIDDEN_SCALE = 0.7f;
+
+    /**
+     * PERF #1: cheap "is it already shown (or fading in)?" check (2 field reads, no allocation).
+     * Lets the per-frame scroll listener skip all its distance maths once the FAB is up.
+     */
+    public static boolean isShowing(@Nullable View v) {
+        return v != null && v.getVisibility() == View.VISIBLE
+                && !Boolean.FALSE.equals(v.getTag(R.id.tag_indicator_target_shown));
+    }
+
+    /** Fades + scales the view in. Safe to call repeatedly; no-op if already shown/showing. */
+    public static void showIndicator(@Nullable View v) {
+        if (v == null) return;
+        // Already visible AND already heading to "shown" -> nothing to do.
+        if (v.getVisibility() == View.VISIBLE
+                && Boolean.TRUE.equals(v.getTag(R.id.tag_indicator_target_shown))) {
+            return;
+        }
+        v.setTag(R.id.tag_indicator_target_shown, Boolean.TRUE);
+        // Cancel a running hide so its end-action cannot flip us back to INVISIBLE.
+        v.animate().cancel();
+        if (v.getVisibility() != View.VISIBLE) {
+            // Starting from fully hidden: set the "from" frame before making it visible,
+            // otherwise a single frame at alpha 1 would flash.
+            v.setAlpha(0f);
+            v.setScaleX(INDICATOR_HIDDEN_SCALE);
+            v.setScaleY(INDICATOR_HIDDEN_SCALE);
+            v.setVisibility(View.VISIBLE);
+        }
+        v.animate()
+                .alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(INDICATOR_SHOW_MS)
+                .setInterpolator(new DecelerateInterpolator())
+                // PERF #4: FAB (shadow + icon) and chip (bg + text) have OVERLAPPING content, so
+                // an alpha animation would otherwise make the GPU do a saveLayer (offscreen
+                // pass) on EVERY frame. withLayer() renders the view ONCE into a hardware layer
+                // for the ~180ms animation, then drops it automatically — each frame is then
+                // just a cheap texture blit, and the view's display list is not re-recorded.
+                .withLayer()
+                .start();
+    }
+
+    /** Fades + scales the view out, then parks it INVISIBLE (never GONE). No-op if already hidden. */
+    public static void hideIndicator(@Nullable View v) {
+        if (v == null || v.getVisibility() != View.VISIBLE) return; // already hidden
+        if (Boolean.FALSE.equals(v.getTag(R.id.tag_indicator_target_shown))) return; // already fading out
+        v.setTag(R.id.tag_indicator_target_shown, Boolean.FALSE);
+        v.animate().cancel();
+        v.animate()
+                .alpha(0f).scaleX(INDICATOR_HIDDEN_SCALE).scaleY(INDICATOR_HIDDEN_SCALE)
+                .setDuration(INDICATOR_HIDE_MS)
+                .setInterpolator(new AccelerateInterpolator())
+                .withLayer() // PERF #4: same single-layer trick for the fade-out
+                .withEndAction(() -> {
+                    // Only finish the hide if nobody asked to show it again meanwhile.
+                    if (!Boolean.TRUE.equals(v.getTag(R.id.tag_indicator_target_shown))) {
+                        v.setVisibility(View.INVISIBLE);
+                    }
+                })
+                .start();
     }
 
     public static void hideFab(@Nullable View fab) {

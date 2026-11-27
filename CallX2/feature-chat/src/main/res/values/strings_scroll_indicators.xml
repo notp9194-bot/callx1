@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- "New messages" chip that floats above the scroll-to-latest button in a 1:1 chat.
+         PLURALS (not a plain string) because many languages have more than the
+         English one/other split (Russian, Arabic, Polish ...). The %1$s is the already
+         formatted number ("5", "99+"); the caller passes the real count as the quantity selector. -->
+    <plurals name="chat_new_messages_indicator">
+        <item quantity="one">↓ %1$s new message</item>
+        <item quantity="other">↓ %1$s new messages</item>
+    </plurals>
+
+    <!-- Placeholder text only; the real text is always set from code with the count. -->
+    <string name="chat_new_messages_indicator_default">↓ New messages</string>
+
+    <!-- Accessibility label of the round arrow button (scroll to newest message). -->
+    <string name="chat_back_to_latest">Back to latest</string>
+</resources>

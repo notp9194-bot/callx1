@@ -2488,8 +2488,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // iv_anim_youtube_sheet, all 48dp in bottom_sheet_contact_call.xml)
     // were 6 flat, un-tiered Glide loads (3 on the cache-hit path, 3 on the
     // fresh-fetch path below) — these photos are CallX's own hosted
-    // per-platform avatars (x/users, reels/users, youtube/channels — see
-    // ChatProfileCardBinder's cross-module doc), so they're eligible for
+    // per-platform avatars (x/users, reels/users, youtube/channels — read
+    // straight from those modules' well-known Firebase paths), so they're eligible for
     // the same AvatarUrlBuilder-responsive/L2/L3 pipeline as every other
     // in-app avatar, just bucketed at their own 48dp tier.
     private static final com.callx.app.utils.AvatarSizeTier SOCIAL_BADGE_TIER =

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- View tag key used by MessageHighlightAnimator.showIndicator()/hideIndicator().
+         Stores the indicator's TARGET state (TRUE = fading in / shown, FALSE = fading out)
+         so repeated calls from onScrolled() (fires every frame) do not restart the
+         animation each time. -->
+    <item name="tag_indicator_target_shown" type="id"/>
+</resources>
