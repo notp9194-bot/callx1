@@ -217,8 +217,8 @@
             android:alpha="0"/>
 
         <!-- New Messages floating indicator chip (WhatsApp style).
-             Appears directly ABOVE the scroll-to-latest FAB (same horizontal centre)
-             when the user is scrolled up and new messages arrive.
+             Appears at the bottom-RIGHT (same row as the scroll-to-latest FAB, which stays
+             centred and untouched) only when new UNREAD messages arrive while scrolled up.
 
              POLISH NOTES
              • layout_gravity is bottom|center_horizontal (was bottom|end) so the chip stacks
@@ -237,7 +237,8 @@
             android:id="@+id/tv_new_messages_indicator"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
             android:minWidth="124dp"
             android:gravity="center"
             android:paddingStart="14dp"

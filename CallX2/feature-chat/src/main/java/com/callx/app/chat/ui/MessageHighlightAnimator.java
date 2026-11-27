@@ -108,6 +108,9 @@ public class MessageHighlightAnimator {
     private static final long INDICATOR_SHOW_MS  = 180L;
     private static final long INDICATOR_HIDE_MS  = 140L; // hide slightly quicker than show: feels snappier
     private static final float INDICATOR_HIDDEN_SCALE = 0.7f;
+    // PERF: shared stateless interpolators — no allocation per show/hide call.
+    private static final DecelerateInterpolator INDICATOR_SHOW_INTERP = new DecelerateInterpolator();
+    private static final AccelerateInterpolator INDICATOR_HIDE_INTERP = new AccelerateInterpolator();
 
     /**
      * PERF #1: cheap "is it already shown (or fading in)?" check (2 field reads, no allocation).
@@ -140,7 +143,7 @@ public class MessageHighlightAnimator {
         v.animate()
                 .alpha(1f).scaleX(1f).scaleY(1f)
                 .setDuration(INDICATOR_SHOW_MS)
-                .setInterpolator(new DecelerateInterpolator())
+                .setInterpolator(INDICATOR_SHOW_INTERP)
                 // PERF #4: FAB (shadow + icon) and chip (bg + text) have OVERLAPPING content, so
                 // an alpha animation would otherwise make the GPU do a saveLayer (offscreen
                 // pass) on EVERY frame. withLayer() renders the view ONCE into a hardware layer
@@ -159,7 +162,7 @@ public class MessageHighlightAnimator {
         v.animate()
                 .alpha(0f).scaleX(INDICATOR_HIDDEN_SCALE).scaleY(INDICATOR_HIDDEN_SCALE)
                 .setDuration(INDICATOR_HIDE_MS)
-                .setInterpolator(new AccelerateInterpolator())
+                .setInterpolator(INDICATOR_HIDE_INTERP)
                 .withLayer() // PERF #4: same single-layer trick for the fade-out
                 .withEndAction(() -> {
                     // Only finish the hide if nobody asked to show it again meanwhile.

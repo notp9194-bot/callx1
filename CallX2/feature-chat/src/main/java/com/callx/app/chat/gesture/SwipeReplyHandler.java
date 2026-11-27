@@ -10,6 +10,8 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.HapticFeedbackConstants;
@@ -716,9 +718,26 @@ public class SwipeReplyHandler extends ItemTouchHelper.Callback {
                 @Override public void onViewAttachedToWindow(@NonNull View v) {}
                 @Override public void onViewDetachedFromWindow(@NonNull View v) {
                     v.removeOnAttachStateChangeListener(this);
-                    if (ov.getParent() instanceof ViewGroup) ((ViewGroup) ov.getParent()).removeView(ov);
+                    // CRASH FIX (NPE in ViewGroup.dispatchDetachedFromWindow, seen on activity destroy):
+                    // this callback runs INSIDE the parent's detach loop (the RecyclerView is a
+                    // descendant of android.R.id.content, which is also the overlay's parent).
+                    // ViewGroup.dispatchDetachedFromWindow() iterates mChildren with a cached
+                    // child COUNT; removing the overlay from `content` right here shrinks
+                    // mChildren mid-iteration, so a later index reads null ->
+                    // "Attempt to invoke dispatchDetachedFromWindow() on a null object reference".
+                    // Rule: never add/remove views of an ancestor from a detach callback.
+                    //
+                    // So: (1) neutralise the overlay immediately — no hierarchy change, so it is
+                    // safe mid-detach: inactive + no painter means onDraw paints nothing and the
+                    // activity reference is dropped; (2) remove it from its parent only AFTER the
+                    // current detach pass is finished, via a main-looper post (a plain
+                    // ov.post() is NOT usable: a detached view only runs posts on re-attach).
+                    ov.active = false;
                     ov.painter = null;                      // drop the handler -> activity reference
                     if (overlay == ov) { overlay = null; overlayRv = null; revealItem = null; }
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (ov.getParent() instanceof ViewGroup) ((ViewGroup) ov.getParent()).removeView(ov);
+                    });
                 }
             });
         } catch (Throwable t) {

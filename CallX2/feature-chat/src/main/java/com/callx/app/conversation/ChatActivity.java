@@ -468,6 +468,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // PERF #3: last count rendered in the chip; setText() (-> layout + text re-record) is
     // skipped when the visible number did not change.
     private int lastChipCount = -1;
+    /** Memoized "↓ N new messages" strings, index = displayed count (100 = "99+"). */
+    private final String[] chipTextCache = new String[101];
 
     // ── WHATSAPP-STYLE REVEAL SCROLL TUNING ─────────────────────────────
     // Only one auto-scroll should ever be "in flight" toward the tail —
@@ -3144,22 +3146,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     return;
                 }
                 int total = pagingAdapter.getItemCount();
-                int othersCount = 0;
-                boolean ownMessageInThisInsert = false;
-                for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
-                    Message m = pagingAdapter.peek(i);
-                    if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
-                        othersCount++;
-                    } else if (m != null && m.senderId != null && m.senderId.equals(currentUid)) {
-                        ownMessageInThisInsert = true;
-                    }
-                }
                 // WHATSAPP-STYLE AUTO-SCROLL: only fires when the freshly
                 // inserted rows land at the very TAIL of the list (a real new
                 // message — not an older page getting prepended while the
                 // user has scrolled up to read history; that insert happens
                 // at positionStart 0 and must NOT move the viewport).
                 boolean isTailInsert = (positionStart + itemCount) >= total;
+                // UNREAD-ONLY CHIP FIX: "N new messages" must count ONLY genuinely new,
+                // still-unread incoming rows that landed at the TAIL. Before, this loop ran
+                // for every insert, so scrolling UP (older page prepended at position 0)
+                // counted history messages from the other user as "new" and the chip popped
+                // up while merely reading old chat. Now: tail inserts only, real message
+                // rows only (no date separators / seen markers), and not already "read".
+                // PERF: the scan is only needed for a TAIL insert while the user is scrolled
+                // up (at-bottom already auto-scrolls; a prepended history page of 30-50 rows
+                // is never scanned at all). Own-message check is folded into the same pass.
+                int othersCount = 0;
+                boolean ownMessageInThisInsert = false;
+                if (isTailInsert && !isUserAtBottom) {
+                    final int end = Math.min(positionStart + itemCount, total);
+                    for (int i = positionStart; i < end; i++) {
+                        Message m = pagingAdapter.peek(i);
+                        if (m == null || m.senderId == null) continue;
+                        if (m.senderId.equals(currentUid)) {
+                            ownMessageInThisInsert = true;
+                            break; // own send wins the auto-scroll; count is irrelevant then
+                        }
+                        if (isUnreadIncomingMessageRow(m)) othersCount++;
+                    }
+                }
                 if (com.callx.app.core.BuildConfig.DEBUG) {
                     com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
                             "onItemRangeInserted: positionStart=" + positionStart + " itemCount=" + itemCount
@@ -4586,6 +4601,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         lm.startSmoothScroll(scroller);
     }
 
+    /** True for a real incoming chat message that the user has not read yet. */
+    private static boolean isUnreadIncomingMessageRow(@NonNull Message m) {
+        if ("date_separator".equals(m.type)
+                || "status_seen".equals(m.type)
+                || "reel_seen".equals(m.type)) return false;
+        return !"read".equals(m.status);
+    }
+
     /** Shows or updates the "↓ N new messages" floating indicator chip. */
     private void updateNewMessagesIndicator(int count) {
         if (binding.tvNewMessagesIndicator == null) return;
@@ -4601,10 +4624,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         int shownCount = Math.min(count, 100);
         if (shownCount != lastChipCount) {
             lastChipCount = shownCount;
-            String numText = count > 99 ? "99+"
-                    : java.text.NumberFormat.getInstance().format(count); // locale digits
-            binding.tvNewMessagesIndicator.setText(getResources().getQuantityString(
-                    R.plurals.chat_new_messages_indicator, count, numText));
+            // PERF: formatted text is memoized per displayed count (1..99, 100 = "99+"), so a
+            // burst of incoming messages does zero NumberFormat / plural-resource work after
+            // the first time each number is shown. Activity-scoped => locale changes recreate it.
+            String text = chipTextCache[shownCount];
+            if (text == null) {
+                String numText = count > 99 ? "99+"
+                        : java.text.NumberFormat.getInstance().format(count); // locale digits
+                text = getResources().getQuantityString(
+                        R.plurals.chat_new_messages_indicator, shownCount, numText);
+                chipTextCache[shownCount] = text;
+            }
+            binding.tvNewMessagesIndicator.setText(text);
         }
         // POLISH #1: fade+scale in (no-op if already shown, so a count change from 1 -> 2
         // only swaps the text and does not re-animate).
@@ -7042,7 +7073,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * FAB used to end up UNDER the capsule in those cases. Now every time the stack's
      * height changes we recompute:
      *   FAB bottom margin  = stackHeight + 12dp
-     *   chip bottom margin = FAB bottom margin + FAB height + 8dp   (chip sits right above FAB)
+     *   chip lift          = same as FAB (chip sits bottom-right, FAB stays centred)
      * Both are horizontally centred (layout_gravity in XML), so they form one tidy column.
      */
     private void anchorScrollIndicatorsToInputStack() {
@@ -7065,9 +7096,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             float fabLift = stackH + dp(12);
             fab.setTranslationY(-fabLift);
             if (chip != null) {
-                // FAB height is 0 before first layout; fall back to mini-FAB size (40dp).
-                int fabH = fab.getHeight() > 0 ? fab.getHeight() : dp(40);
-                chip.setTranslationY(-(fabLift + fabH + dp(8))); // chip sits right above FAB
+                // Chip lives at the bottom-RIGHT (layout_gravity bottom|end) on the same row
+                // as the FAB; it only needs the same lift above the input stack.
+                chip.setTranslationY(-fabLift);
             }
         };
 
@@ -7095,9 +7126,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             //   • reset pending counter
             //   • hide the "new messages" indicator
             //   • hide the FAB
-            pendingNewMsgCount = 0;
-            hideNewMessagesIndicator();
-            MessageHighlightAnimator.hideIndicator(binding.fabBackToLatest);
+            // PERF: onScrolled fires every frame; when nothing is pending and both
+            // indicators are already hidden there is nothing to reset.
+            if (pendingNewMsgCount != 0
+                    || binding.fabBackToLatest.getVisibility() == View.VISIBLE
+                    || binding.tvNewMessagesIndicator.getVisibility() == View.VISIBLE) {
+                pendingNewMsgCount = 0;
+                hideNewMessagesIndicator();
+                MessageHighlightAnimator.hideIndicator(binding.fabBackToLatest);
+            }
         } else if (dy < 0) {
             // User is scrolling UP away from the bottom.
             // POLISH #4: do NOT show the FAB for a tiny nudge. Only once the user is
