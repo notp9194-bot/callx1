@@ -3072,7 +3072,24 @@ public class MessageBubbleCanvasView extends View {
     // discardDisplayList()'d: a view's display list may still reference an evicted node, the native
     // RenderNode is ref-counted). Main thread only.
     private static final boolean SHARED_TEXT_NODE_ENABLED = true;
-    private static final int SHARED_NODE_MAX = 192;
+    private static final int SHARED_NODE_MAX = 192;      // default; scaled per device by initSharedBudget()
+    private static int sSharedNodeMax = SHARED_NODE_MAX;
+    private static int sSharedNodeMaxWeight = 288;
+    private static boolean sSharedBudgetInit;
+    /** v895: scale the shared-node budgets by device memory class (low-RAM: half, big devices: up to 2x). */
+    private static void initSharedBudget(android.content.Context c) {
+        if (sSharedBudgetInit) return;
+        sSharedBudgetInit = true;
+        try {
+            final android.app.ActivityManager am =
+                    (android.app.ActivityManager) c.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            if (am == null) return;
+            final int mc = am.getMemoryClass();
+            final float f = am.isLowRamDevice() ? 0.5f : mc >= 384 ? 2f : mc >= 256 ? 1.5f : mc >= 192 ? 1f : 0.75f;
+            sSharedNodeMax = Math.max(64, (int) (SHARED_NODE_MAX * f));
+            sSharedNodeMaxWeight = Math.max(96, (int) (288 * f));
+        } catch (RuntimeException ignored) { }
+    }
     // v892: eviction is by WEIGHT (1 + lineCount/16), not just count: a 100-line expanded node costs ~7 short ones.
     private static final int SHARED_NODE_MAX_WEIGHT = 288;
     private static int sSharedWeight;
@@ -3084,7 +3101,7 @@ public class MessageBubbleCanvasView extends View {
     /** Main thread only: publish a node, then evict LRU entries until under both budgets. */
     private static void putSharedNode(SharedKey key, android.graphics.RenderNode n) {
         if (SHARED_NODES.put(key, n) == null) sSharedWeight += key.weight;
-        trimSharedNodes(SHARED_NODE_MAX, SHARED_NODE_MAX_WEIGHT, key);
+        trimSharedNodes(sSharedNodeMax, sSharedNodeMaxWeight, key);
     }
 
     private static void trimSharedNodes(int maxCount, int maxWeight, SharedKey keep) {
@@ -3103,7 +3120,7 @@ public class MessageBubbleCanvasView extends View {
     private static void trimSharedNodesOnMain(final boolean all) {
         Runnable r = () -> {
             if (all) clearSharedBubbleNodes();
-            else trimSharedNodes(SHARED_NODE_MAX / 4, SHARED_NODE_MAX_WEIGHT / 4, null);
+            else trimSharedNodes(sSharedNodeMax / 4, sSharedNodeMaxWeight / 4, null);
         };
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) r.run();
         else new android.os.Handler(android.os.Looper.getMainLooper()).post(r);
@@ -3116,16 +3133,21 @@ public class MessageBubbleCanvasView extends View {
         final Object typeface, drawable;
         final int hash;
         final int weight;
+        // v893: everything else baked into the node by pinned/group-sender/forwarded/reply/link-preview rows
+        final long decor;
+        final Object r1, r2, r3, r4, r5;
         SharedKey(CharSequence text, int w, int h, android.graphics.RectF r, int textColor, float textSize,
                   float skew, int alpha, int lineCount, int layoutW, boolean sent, boolean tail,
-                  boolean deleted, boolean inlineFooter, boolean expanded, Object typeface, Object drawable) {
+                  boolean deleted, boolean inlineFooter, boolean expanded, Object typeface, Object drawable,
+                  long decor, Object r1, Object r2, Object r3, Object r4, Object r5, int extraWeight) {
             this.text = text; this.w = w; this.h = h;
             this.bl = Float.floatToIntBits(r.left); this.bt = Float.floatToIntBits(r.top);
             this.br = Float.floatToIntBits(r.right); this.bb = Float.floatToIntBits(r.bottom);
             this.textColor = textColor; this.textSizeBits = Float.floatToIntBits(textSize);
             this.skewBits = Float.floatToIntBits(skew); this.alpha = alpha;
             this.lineCount = lineCount; this.layoutW = layoutW;
-            this.weight = 1 + lineCount / 16;
+            this.weight = 1 + lineCount / 16 + extraWeight;
+            this.decor = decor; this.r1 = r1; this.r2 = r2; this.r3 = r3; this.r4 = r4; this.r5 = r5;
             this.sent = sent; this.tail = tail; this.deleted = deleted; this.inlineFooter = inlineFooter;
             this.expanded = expanded;
             this.typeface = typeface; this.drawable = drawable;
@@ -3135,6 +3157,10 @@ public class MessageBubbleCanvasView extends View {
             hh = 31 * hh + lineCount; hh = 31 * hh + layoutW;
             hh = 31 * hh + (sent ? 1 : 0) + (tail ? 2 : 0) + (deleted ? 4 : 0) + (inlineFooter ? 8 : 0) + (expanded ? 16 : 0);
             hh = 31 * hh + System.identityHashCode(drawable);
+            hh = 31 * hh + (int) (decor ^ (decor >>> 32));
+            hh = 31 * hh + System.identityHashCode(r1); hh = 31 * hh + System.identityHashCode(r2);
+            hh = 31 * hh + System.identityHashCode(r3); hh = 31 * hh + System.identityHashCode(r4);
+            hh = 31 * hh + System.identityHashCode(r5);
             this.hash = hh;
         }
         @Override public int hashCode() { return hash; }
@@ -3146,7 +3172,8 @@ public class MessageBubbleCanvasView extends View {
                     && textColor == k.textColor && textSizeBits == k.textSizeBits && skewBits == k.skewBits
                     && alpha == k.alpha && lineCount == k.lineCount && layoutW == k.layoutW
                     && sent == k.sent && tail == k.tail && deleted == k.deleted && inlineFooter == k.inlineFooter
-                    && expanded == k.expanded
+                    && expanded == k.expanded && decor == k.decor
+                    && r1 == k.r1 && r2 == k.r2 && r3 == k.r3 && r4 == k.r4 && r5 == k.r5
                     && typeface == k.typeface && drawable == k.drawable && text == k.text;
         }
     }
@@ -3161,10 +3188,96 @@ public class MessageBubbleCanvasView extends View {
     /** Only the simplest text bubbles: nothing baked into the node besides bubble bg + glyphs. */
     private boolean isSharedNodeEligible() {
         return SHARED_TEXT_NODE_ENABLED && isPlainTextBubble() && textLayout != null && bubbleDrawable != null
-                && !isPinned && !hasGroupSender && !hasForwarded && !hasReply && !hasLinkPreview;   // v891: long (Read more) bubbles included
+                && sharedDecorStable();   // v891 long bubbles; v893 pinned/group-sender/forwarded/reply/link-preview included
+    }
+
+    /** v893: decor rows may share nodes only while nothing in them is mid-animation or backed by a recycled bitmap. */
+    private boolean sharedDecorStable() {
+        if (hasReply) {
+            if (replySenderLayout == null || replyTextLayout == null) return false;
+            if (replyThumbAlpha < 1f || bigReactionScale != 1f) return false;
+            if (replyThumb != null && replyThumb.isRecycled()) return false;
+        }
+        if (hasLinkPreview) {
+            if (linkTitleLayout == null) return false;
+            if (linkThumbBitmap != null && linkThumbBitmap.isRecycled()) return false;
+        }
+        return true;
+    }
+
+    /** v893: same geometry bookkeeping drawReplyPreview() does, for a node HIT (draw is skipped on a hit). */
+    private void ensureReplyThumbGeometry() {
+        final int thumbSize = Math.round(REPLY_THUMB_SIZE_DP * density);
+        final int thumbMargin = Math.round(REPLY_THUMB_MARGIN_DP * density);
+        final float thumbLeft = replyBoxRect.right - thumbMargin - thumbSize;
+        final float thumbTop = replyBoxRect.top + (replyBoxRect.height() - thumbSize) / 2f;
+        final float tr = REPLY_CORNER_RADIUS_DP * density;
+        if (thumbLeft != geomL || thumbTop != geomT || thumbSize != geomS || tr != geomR) {
+            geomL = thumbLeft; geomT = thumbTop; geomS = thumbSize; geomR = tr;
+            replyThumbDstRect.set(thumbLeft, thumbTop, thumbLeft + thumbSize, thumbTop + thumbSize);
+            replyThumbClipPath.rewind();
+            replyThumbClipPath.addRoundRect(replyThumbDstRect, tr, tr, android.graphics.Path.Direction.CW);
+            replyPlayPathValid = false;
+        }
+    }
+
+    private static long dMix(long h, long v) { h = (h ^ v) * 0x100000001b3L; return h ^ (h >>> 29); }
+    private static long dF(long h, float f) { return dMix(h, Float.floatToIntBits(f)); }
+    private static long dS(long h, String t) { return dMix(h, t == null ? -7 : ((long) t.hashCode() << 8) ^ t.length()); }
+    private static long dR(long h, android.graphics.RectF r) {
+        return dF(dF(dF(dF(h, r.left), r.top), r.right), r.bottom);
+    }
+    // v893: decor inputs of the current bind (filled by computeSharedDecor(), read by buildSharedKey())
+    private long dHash;
+    private Object dR1, dR2, dR3, dR4, dR5;
+    private int dWeight;
+
+    /**
+     * v893: hash/identity of every value that pinned / group-sender / forwarded / reply / link-preview rows bake into the
+     * node, so those bubbles can share nodes too. Anything drawn into the node must be represented here.
+     */
+    private void computeSharedDecor() {
+        long h = 0xcbf29ce484222325L;
+        dR1 = dR2 = dR3 = dR4 = dR5 = null;
+        int extra = 0;
+        // v895: pinned label is overlay now -> not part of the node, so pinned/unpinned share nodes.
+        if (hasGroupSender) {
+            h = dMix(h, 13);
+            h = dS(h, groupSenderName); h = dS(h, groupSenderBadge);
+            h = dMix(h, groupSenderPaint.getColor());
+            h = dF(dF(dF(dF(h, groupSenderBaselineY), groupSenderNameCenterY), groupSenderWidth), groupSenderBadgeTextW);
+            h = dMix(h, groupSenderTextHeight);
+        }
+        if (hasForwarded) {
+            h = dMix(h, 17);
+            h = dS(h, forwardedText); h = dF(h, forwardedBaselineY);
+            h = dMix(h, forwardedPaint.getColor());
+        }
+        if (hasReply) {
+            h = dMix(h, 19);
+            h = dR(h, replyBoxRect);
+            h = dMix(h, replyBgPaint.getColor()); h = dMix(h, replyBarPaint.getColor());
+            h = dMix(h, replySenderPaint.getColor()); h = dMix(h, replyTextPaint.getColor());
+            h = dMix(h, hasThumbSlot() ? 1 : 0); h = dMix(h, replyVideo ? 1 : 0);
+            h = dS(h, replyExpiredLabel);
+            h = dMix(h, bigReactionBadge ? 1 : 0); h = dS(h, bigReactionEmoji); h = dF(h, bigReactionScale);
+            h = dF(h, replyThumbAlpha);
+            dR1 = replySenderLayout; dR2 = replyTextLayout; dR3 = replyThumb;
+            if (replyThumb != null) extra += replyThumb.getByteCount() >> 16;
+        }
+        if (hasLinkPreview) {
+            h = dMix(h, 23);
+            h = dR(dR(h, linkCardRect), linkThumbRect);
+            h = dMix(h, linkHasThumb ? 1 : 0); h = dS(h, linkDomain);
+            h = dMix(h, linkCardBgPaint.getColor()); h = dMix(h, linkDomainPaint.getColor());
+            dR4 = linkTitleLayout; dR5 = linkThumbBitmap;
+            if (linkThumbBitmap != null) extra += linkThumbBitmap.getByteCount() >> 16;
+        }
+        dHash = h; dWeight = extra;
     }
 
     private SharedKey buildSharedKey(int w, int h) {
+        computeSharedDecor();
         // Read colour/size/etc. from the LAYOUT's own paint: cached layouts own a dedicated TextPaint
         // (see onMeasure), and Layout.draw() uses that one, not this view's textPaint.
         final android.text.TextPaint lp = textLayout.getPaint();
@@ -3173,7 +3286,8 @@ public class MessageBubbleCanvasView extends View {
         return new SharedKey(keyText, w, h, bubbleRect, lp.getColor(), lp.getTextSize(),
                 lp.getTextSkewX(), lp.getAlpha(), textLayout.getLineCount(), textLayout.getWidth(),
                 sent, bubbleTailShown, isDeletedStyle, footerInlineWithText,
-                hasLongText && isTextExpanded, lp.getTypeface(), bubbleDrawable);
+                hasLongText && isTextExpanded, lp.getTypeface(), bubbleDrawable,
+                dHash, dR1, dR2, dR3, dR4, dR5, dWeight);
     }
 
     /** Re-arms the per-view state drawBubbleContent() would have produced (footer anchor + tap rect). */
@@ -3182,7 +3296,9 @@ public class MessageBubbleCanvasView extends View {
         readMoreRect.setEmpty();
         final int hPad = Math.round(H_PADDING_DP * density);
         final int vPad = Math.round(V_PADDING_DP * density);
-        final float textBlockTop = bubbleTop + replyBoxHeight + vPad;
+        final int replyGapR = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;   // v893
+        final float textBlockTop = bubbleTop + replyBoxHeight + replyGapR + vPad;
+        if (hasReply && hasThumbSlot()) ensureReplyThumbGeometry();   // v893
         // v891: the node holds the "Read more" glyphs, but the tap rect is per-view live state -> set it without drawing.
         if (hasLongText) layoutReadMoreRect(bubbleLeft + hPad, textBlockTop + textLayout.getHeight());
         if (footerInlineWithText) {
@@ -3245,6 +3361,136 @@ public class MessageBubbleCanvasView extends View {
      */
     /** v883: true when the last outer record put the media into its own child node (see above). */
     private boolean mediaInnerInOuter;
+    /** v893: true when the last outer record put the album grid into its own child node. */
+    private boolean groupInnerInOuter;
+
+    /** v893: cell-bitmap-only change on an album whose outer node is still valid: re-record just the grid node. */
+    private boolean trySwapGroupBitmapFast() {
+        if (!SUPPORTS_RENDER_NODE || !groupInnerInOuter || !isMediaGroup) return false;
+        if (fullBubbleDirty || isLayoutRequested()) return false;
+        final int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0 || w != fullBubblePictureW || h != fullBubblePictureH) return false;
+        if (w != cachedMediaPictureWidth || h != cachedMediaPictureHeight) return false;
+        if (fullBubbleRenderNode == null || fullBubbleEmptyRecord || !fullBubbleRenderNode.hasDisplayList()) return false;
+        if (cachedMediaRenderNode == null || !cachedMediaRenderNode.hasDisplayList()) return false;
+        try {
+            final int vPad = Math.round(V_PADDING_DP * density);
+            cachedMediaRenderNode.setPosition(0, 0, w, h);
+            android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
+            try {
+                mediaGroupRenderer.draw(rc, vPad, false);
+            } finally {
+                cachedMediaRenderNode.endRecording();
+            }
+            saveInnerFooterAnchor();
+        } catch (RuntimeException e) {
+            return false;
+        }
+        staticPictureDirty = false;
+        super.invalidate();   // bypass the override: outer node stays valid
+        return true;
+    }
+
+    // ── v894: generic "card" child RenderNode ──────────────────────────────────────────────────────────
+    // Reel-share / contact / location / seen / poll / file / audio cards used to be recorded straight into the outer
+    // bubble node, so every late avatar/thumb/map bitmap, poll vote, file state flip or play/pause flip re-recorded the
+    // whole bubble. Now the card body gets its OWN child node (same idea as v883 media / v893 album grid): the outer
+    // node just references it, and these events re-record the child alone via trySwapCardFast().
+    private static final int CARD_NONE = 0, CARD_REEL = 1, CARD_CONTACT = 2, CARD_LOCATION = 3,
+            CARD_SEEN = 4, CARD_POLL = 5, CARD_FILE = 6, CARD_AUDIO = 7;
+    private android.graphics.RenderNode cardNode;
+    private int cardNodeW = -1, cardNodeH = -1, cardInnerKind = CARD_NONE;
+    private boolean cardInnerInOuter;
+
+    /** Same precedence as the renderer dispatch in drawBubbleContent(). */
+    private int currentCardKind() {
+        if (isReelShare) return CARD_REEL;
+        if (isContact) return CARD_CONTACT;
+        if (isLocation) return CARD_LOCATION;
+        if (isViewOnce) return CARD_NONE;
+        if (isSeenBubble) return CARD_SEEN;
+        if (isCallEntry) return CARD_NONE;
+        if (isPoll) return CARD_POLL;
+        if (isMediaGroup || isMedia) return CARD_NONE;
+        if (isAudio) return CARD_AUDIO;
+        if (isFileBubble) return CARD_FILE;
+        return CARD_NONE;
+    }
+
+    private void recordCard(Canvas c, int kind) {
+        switch (kind) {
+            case CARD_REEL:     reelShareRenderer.draw(c); break;
+            case CARD_CONTACT:  contactRenderer.draw(c); break;
+            case CARD_LOCATION: locationRenderer.draw(c); break;
+            case CARD_SEEN:     seenBubbleRenderer.draw(c); break;
+            case CARD_POLL:     pollRenderer.draw(c); break;
+            case CARD_FILE:     fileBubbleRenderer.draw(c, false); break;
+            case CARD_AUDIO: {
+                final int hPad = Math.round(H_PADDING_DP * density);
+                final int vPad = Math.round(V_PADDING_DP * density);
+                if (audioPlaying) {
+                    // live row lives in drawDynamicOverlayLayer(); only the footer anchor is recorded here
+                    drawFooter(c, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
+                } else {
+                    audioRenderer.draw(c, hPad, vPad);
+                }
+                break;
+            }
+            default: break;
+        }
+    }
+
+    /** Records the card body into its own child node and replays it into {@code canvas}. */
+    private void drawCardInChild(Canvas canvas, int kind) {
+        final int w = getWidth(), h = getHeight();
+        if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated() && w > 0 && h > 0) {
+            if (cardNode == null) cardNode = new android.graphics.RenderNode("card");
+            cardNode.setPosition(0, 0, w, h);
+            android.graphics.RecordingCanvas rc = cardNode.beginRecording();
+            try {
+                recordCard(rc, kind);
+            } finally {
+                cardNode.endRecording();
+            }
+            cardInnerKind = kind; cardNodeW = w; cardNodeH = h;
+            cardInnerInOuter = true;
+            canvas.drawRenderNode(cardNode);
+            return;
+        }
+        cardInnerInOuter = false;
+        recordCard(canvas, kind);
+    }
+
+    /**
+     * v894: card-only change (bitmap arrival, vote, file/play state) on a bubble whose outer node is still valid:
+     * re-record just the card child node and redraw, WITHOUT dirtying the whole bubble.
+     * @return true if handled (caller must not invalidate()).
+     */
+    private boolean trySwapCardFast() {
+        if (!SUPPORTS_RENDER_NODE || !cardInnerInOuter) return false;
+        final int kind = currentCardKind();
+        if (kind == CARD_NONE || kind != cardInnerKind) return false;
+        if (fullBubbleDirty || isLayoutRequested()) return false;
+        final int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0 || w != fullBubblePictureW || h != fullBubblePictureH) return false;
+        if (w != cardNodeW || h != cardNodeH) return false;
+        if (fullBubbleRenderNode == null || fullBubbleEmptyRecord || !fullBubbleRenderNode.hasDisplayList()) return false;
+        if (cardNode == null || !cardNode.hasDisplayList()) return false;
+        try {
+            cardNode.setPosition(0, 0, w, h);
+            android.graphics.RecordingCanvas rc = cardNode.beginRecording();
+            try {
+                recordCard(rc, kind);
+            } finally {
+                cardNode.endRecording();
+            }
+        } catch (RuntimeException e) {
+            return false;
+        }
+        staticPictureDirty = false;
+        super.invalidate();   // bypass the override: outer node stays valid
+        return true;
+    }
 
     /**
      * v883: bitmap-only change on a bubble whose outer node is still valid: re-record just the media
@@ -3385,6 +3631,29 @@ public class MessageBubbleCanvasView extends View {
     private void drawMediaGroupWithOptionalCache(Canvas canvas, float vPad) {
         boolean indeterminateActive = false; // v854: cell badges/rings are live in the overlay layer
         if (!indeterminateActive) {
+            // v893: the album grid gets its OWN child RenderNode (same idea as v883 for single media), so one cell's
+            // bitmap arriving re-records only the grid, not the whole bubble (bg, caption text, reply, ...).
+            if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated() && getWidth() > 0 && getHeight() > 0) {
+                final int gw = getWidth(), gh = getHeight();
+                if (cachedMediaRenderNode == null) {
+                    cachedMediaRenderNode = new android.graphics.RenderNode("media");
+                }
+                cachedMediaRenderNode.setPosition(0, 0, gw, gh);
+                android.graphics.RecordingCanvas grc = cachedMediaRenderNode.beginRecording();
+                try {
+                    mediaGroupRenderer.draw(grc, vPad, false);
+                } finally {
+                    cachedMediaRenderNode.endRecording();
+                }
+                saveInnerFooterAnchor();
+                cachedMediaPictureWidth = gw;
+                cachedMediaPictureHeight = gh;
+                groupInnerInOuter = true;
+                staticPictureDirty = false;
+                canvas.drawRenderNode(cachedMediaRenderNode);
+                return;
+            }
+            groupInnerInOuter = false;
             mediaGroupRenderer.draw(canvas, vPad, false);
             staticPictureDirty = true;
             return;
@@ -3444,7 +3713,7 @@ public class MessageBubbleCanvasView extends View {
     private void drawFileBubbleWithOptionalCache(Canvas canvas) {
         boolean indeterminateActive = false; // v853: file ring is live in the overlay layer
         if (!indeterminateActive) {
-            fileBubbleRenderer.draw(canvas, false);
+            drawCardInChild(canvas, CARD_FILE);   // v894
             staticPictureDirty = true;
             return;
         }
@@ -3532,6 +3801,7 @@ public class MessageBubbleCanvasView extends View {
     /** v826: free GPU-side display lists. Call when the holder is recycled to the pool. */
     public void releaseRenderCaches() {
         if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
+        if (cardNode != null) cardNode.discardDisplayList();   // v894
         if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
         sharedNode = null; // v885: shared nodes live in SHARED_NODES, never discarded here
         if (stNode[0] != null) stNode[0].discardDisplayList();
@@ -3549,6 +3819,7 @@ public class MessageBubbleCanvasView extends View {
     public MessageBubbleCanvasView(Context ctx, @Nullable android.util.AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
+        initSharedBudget(ctx);   // v895
         // v827: per-bubble framework work that a canvas-drawn view never needs.
         setSaveEnabled(false);                       // no state save/restore dispatch per bubble
         if (android.os.Build.VERSION.SDK_INT >= 29) setForceDarkAllowed(false); // app themes itself
@@ -3911,8 +4182,13 @@ public class MessageBubbleCanvasView extends View {
         // reserved width — same rare/correctness-over-microopt treatment
         // as setPinned() above (an edit toggle is a one-off event, not a
         // live tick, so a dirty-rect shortcut isn't worth the complexity).
-        requestLayoutIfSizeChanged();
-        invalidate();
+        // v894: footer text is drawn live (overlay); only a real size change needs a node re-record.
+        if (requestLayoutIfSizeChanged()) {
+            invalidate();
+        } else {
+            if (footerLiveValid) drawFooter(null, footerLiveBaseY, footerLiveRightX); // refresh the "edited" tap rect
+            invalidateOverlay();
+        }
     }
 
     /**
@@ -4553,6 +4829,7 @@ public class MessageBubbleCanvasView extends View {
         }
         if (this.audioPlaying == playing) return;
         this.audioPlaying = playing;
+        if (trySwapCardFast()) return;   // v894: flip re-records only the audio card child node
         markBubbleDirty();   // v828: play-state flip changes what the cached node contains
         invalidateAudioRow();
     }
@@ -4574,6 +4851,7 @@ public class MessageBubbleCanvasView extends View {
                     (int) Math.ceil(voiceStripRect.right), (int) Math.ceil(voiceStripRect.bottom));
             return;
         }
+        if (trySwapMediaBitmapFast()) return;   // v894: badge lives in the media child node -> re-record only that
         markBubbleDirty();
         staticPictureDirty = true;
         // Union of both hit-rects — the pill background/glyph/speed chip
@@ -4674,6 +4952,7 @@ public class MessageBubbleCanvasView extends View {
         // v828: while playing, progress/elapsed ticks only touch the overlay row, so the
         // cached node stays valid (play-state flips set fullBubbleDirty explicitly).
         final boolean liveRowOnly = isAudio && audioPlaying;
+        if (!liveRowOnly && trySwapCardFast()) return;   // v894: static row/footer live in the card child node
         if (!liveRowOnly) markBubbleDirty();
         if (audioBtnRect.isEmpty() && audioWaveformRect.isEmpty()) {
             if (liveRowOnly) super.invalidate(); else invalidate();
@@ -5332,6 +5611,7 @@ public class MessageBubbleCanvasView extends View {
     public void setReelShareThumbBitmap(@Nullable Bitmap bitmap) {
         if (this.reelThumbBitmap == bitmap) return; // v856: same instance -> no re-record
         this.reelThumbBitmap = bitmap;
+        if (trySwapCardFast()) return;   // v894: re-record only the card child node
         invalidate();
     }
 
@@ -5339,6 +5619,7 @@ public class MessageBubbleCanvasView extends View {
     public void setReelShareAvatarBitmap(@Nullable Bitmap bitmap) {
         if (this.reelAvatarBitmap == bitmap) return; // v856: same instance -> no re-record
         this.reelAvatarBitmap = bitmap;
+        if (trySwapCardFast()) return;   // v894: re-record only the card child node
         invalidate();
     }
 
@@ -5352,6 +5633,7 @@ public class MessageBubbleCanvasView extends View {
             final String next = "@" + username;
             if (next.equals(this.reelUsername)) return; // v856
             this.reelUsername = next;
+            if (trySwapCardFast()) return;   // v894
             invalidate();
         }
     }
@@ -5414,6 +5696,7 @@ public class MessageBubbleCanvasView extends View {
     public void setContactAvatarBitmap(@Nullable Bitmap bitmap) {
         if (this.contactAvatarBitmap == bitmap) return; // v856: same instance -> no re-record
         this.contactAvatarBitmap = bitmap;
+        if (trySwapCardFast()) return;   // v894: re-record only the card child node
         invalidate();
     }
 
@@ -5558,6 +5841,7 @@ public class MessageBubbleCanvasView extends View {
     public void setSeenAvatarBitmap(@Nullable Bitmap bitmap) {
         if (this.seenAvatarBitmap == bitmap) return; // v856: same instance -> no re-record
         this.seenAvatarBitmap = bitmap;
+        if (trySwapCardFast()) return;   // v894: re-record only the card child node
         invalidate();
     }
 
@@ -5565,6 +5849,7 @@ public class MessageBubbleCanvasView extends View {
     public void setSeenThumbBitmap(@Nullable Bitmap bitmap) {
         if (this.seenThumbBitmap == bitmap) return; // v856: same instance -> no re-record
         this.seenThumbBitmap = bitmap;
+        if (trySwapCardFast()) return;   // v894: re-record only the card child node
         invalidate();
     }
 
@@ -5780,7 +6065,7 @@ public class MessageBubbleCanvasView extends View {
             // Download just ended (or was cancelled): the next onDraw drops
             // back into the outer full-bubble cache path, so force a fresh
             // recording rather than risking a stale cache-hit replay.
-            invalidate();
+            if (!trySwapCardFast()) invalidate();   // v894: card child node only
         }
     }
 
@@ -5790,6 +6075,7 @@ public class MessageBubbleCanvasView extends View {
         this.fileIsCached      = cached;
         this.fileIsDownloading = false;
         staticPictureDirty = true;
+        if (trySwapCardFast()) return;   // v894
         invalidate();
     }
 
@@ -6068,6 +6354,7 @@ public class MessageBubbleCanvasView extends View {
      * RenderNode/Picture cache dirty so it re-records on the next draw.
      */
     private void invalidatePollRegion() {
+        if (trySwapCardFast()) return;   // v894: a vote re-records only the poll card child node
         markBubbleDirty();
         int n = pollOptionRects.size();
         if (n == 0 || bubbleRect.isEmpty()) {
@@ -6102,6 +6389,7 @@ public class MessageBubbleCanvasView extends View {
     public void setLocationMapBitmap(@Nullable Bitmap bitmap) {
         if (this.locationMapBitmap == bitmap) return; // v856: same instance -> no re-record
         this.locationMapBitmap = bitmap;
+        if (trySwapCardFast()) return;   // v894: re-record only the card child node
         invalidate();
     }
 
@@ -6110,6 +6398,7 @@ public class MessageBubbleCanvasView extends View {
         if (groupBitmaps[index] == bitmap) return; // v856: same instance -> no re-record
         if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.bitmap(bitmap, false);
         groupBitmaps[index] = bitmap;
+        if (trySwapGroupBitmapFast()) return;   // v893
         invalidate();
     }
 
@@ -6629,8 +6918,9 @@ public class MessageBubbleCanvasView extends View {
         // here, the size really does change.
         if (this.isPinned == pinned) return;
         this.isPinned = pinned;
-        requestLayoutIfSizeChanged();
-        invalidate();
+        // v895: label is overlay-only; the node needs re-recording only if the pin strip changed the height.
+        if (requestLayoutIfSizeChanged()) invalidate();
+        else invalidateOverlay();
     }
 
     /**
@@ -6799,12 +7089,12 @@ public class MessageBubbleCanvasView extends View {
      */
     public boolean setPollVoters(@NonNull String key, int count, int overflow) {
         boolean changed = pollVoterAvatars.set(key, count, overflow);
-        if (changed) invalidate(); // poll card is baked into the cached bubble → re-record
+        if (changed && !trySwapCardFast()) invalidate(); // v894: poll card child node only
         return changed;
     }
 
     public void setPollVoterBitmap(@NonNull String key, int slot, @Nullable Bitmap bitmap) {
-        if (pollVoterAvatars.setBitmap(key, slot, bitmap)) invalidate();
+        if (pollVoterAvatars.setBitmap(key, slot, bitmap) && !trySwapCardFast()) invalidate();   // v894
     }
 
     /** 1:1 polls: makes the "N votes" footer tappable (shows a "›" cue) → onPollVotersClick(). */
@@ -6819,6 +7109,7 @@ public class MessageBubbleCanvasView extends View {
         pollFooterTappable = tappable;
         if (tappable && !pollFooterText.endsWith(" \u203A")) pollFooterText = pollFooterText + " \u203A";
         if (!tappable && pollVoterAvatars.isEmpty()) pollVotersRect.setEmpty();
+        if (trySwapCardFast()) return;   // v894
         invalidate();
     }
 
@@ -6826,6 +7117,7 @@ public class MessageBubbleCanvasView extends View {
         if (pollVoterAvatars.isEmpty() && pollVotersRect.isEmpty()) return;
         pollVoterAvatars.clear();
         pollVotersRect.setEmpty();
+        if (trySwapCardFast()) return;   // v894
         invalidate();
     }
 
@@ -6867,8 +7159,9 @@ public class MessageBubbleCanvasView extends View {
         boolean wasShowing = hasSeenBy;
         hasSeenBy = true;
         if (!wasShowing) {
-            requestLayoutIfSizeChanged(); // strip appeared → row height grows (onMeasure lays the rect out)
-            invalidate();
+            // v894: the strip is drawn in the overlay layer, so the node only needs re-recording when the size moved
+            if (requestLayoutIfSizeChanged()) invalidate(); // strip appeared → row height grows (onMeasure lays the rect out)
+            else invalidateOverlay();
         } else {
             // Same height, but the circle COUNT may have changed → the strip
             // is right-anchored, so its left edge moves. onMeasure won't rerun
@@ -6941,8 +7234,9 @@ public class MessageBubbleCanvasView extends View {
         seenByRect.setEmpty();
         boolean wasShowing = hasSeenBy;
         hasSeenBy = false;
-        if (wasShowing) requestLayoutIfSizeChanged(); // strip gone → row height shrinks (full re-record anyway)
-        invalidate();
+        // v894: strip is overlay-only; full re-record only if the row height actually changed
+        if (wasShowing && requestLayoutIfSizeChanged()) invalidate();
+        else invalidateOverlay();
     }
 
 
@@ -9176,9 +9470,7 @@ public class MessageBubbleCanvasView extends View {
             bubbleDrawable.draw(canvas);
         }
 
-        if (isPinned) {
-            drawPinnedLabel(canvas);
-        }
+        // v895: "Pinned" label is drawn in the overlay layer (drawDynamicOverlayLayer), not baked into the node.
 
         if (hasGroupSender) {
             drawGroupSenderName(canvas);
@@ -9197,30 +9489,27 @@ public class MessageBubbleCanvasView extends View {
         }
 
         if (isReelShare) {
-            reelShareRenderer.draw(canvas);
+            drawCardInChild(canvas, CARD_REEL);          // v894
         } else if (isContact) {
-            contactRenderer.draw(canvas);
+            drawCardInChild(canvas, CARD_CONTACT);       // v894
         } else if (isLocation) {
-            locationRenderer.draw(canvas);
+            drawCardInChild(canvas, CARD_LOCATION);      // v894
         } else if (isViewOnce) {
             viewOnceRenderer.draw(canvas);
         } else if (isSeenBubble) {
-            seenBubbleRenderer.draw(canvas);
+            drawCardInChild(canvas, CARD_SEEN);          // v894
         } else if (isCallEntry) {
             drawCallEntry(canvas);
         } else if (isPoll) {
-            pollRenderer.draw(canvas);
+            drawCardInChild(canvas, CARD_POLL);          // v894
         } else if (isMediaGroup) {
             drawMediaGroupWithOptionalCache(canvas, vPad);
         } else if (isMedia) {
             drawMediaWithOptionalCache(canvas, hPad, vPad);
         } else if (isAudio) {
-            if (audioPlaying) {
-                // v828: live row lives in drawDynamicOverlayLayer(); cache only the static part.
-                drawFooter(canvas, bubbleRect.bottom - vPad * 0.4f, bubbleRect.right - hPad);
-            } else {
-                audioRenderer.draw(canvas, hPad, vPad);
-            }
+            // v828: live row lives in drawDynamicOverlayLayer(); cache only the static part.
+            // v894: static part (or just the footer anchor while playing) is its own child node.
+            drawCardInChild(canvas, CARD_AUDIO);
         } else if (isFileBubble) {
             drawFileBubbleWithOptionalCache(canvas);
         } else {
@@ -9297,6 +9586,7 @@ public class MessageBubbleCanvasView extends View {
         } else if (isFileBubble && fileIsDownloading) {
             fileBubbleRenderer.drawRingLive(canvas);       // v853
         }
+        if (isPinned) drawPinnedLabel(canvas);   // v895: live, so pin toggles / theme never re-record the node
         if (hasReply && replyPressed) drawReplyPressedOverlay(canvas);
         if (hasGroupSenderAvatar && groupSenderAvatarShown) drawGroupSenderAvatar(canvas); // v854: live
         if (footerLiveValid) drawFooterLive(canvas);
