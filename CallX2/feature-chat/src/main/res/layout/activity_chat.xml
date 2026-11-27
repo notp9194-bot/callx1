@@ -569,7 +569,7 @@
                     android:id="@+id/btn_back"
                     android:layout_width="30dp"
                     android:layout_height="30dp"
-                    android:src="@drawable/ic_chevron_back_ios"
+                    android:src="@drawable/ic_chat_back_arrow"
                     android:tint="@color/text_primary"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Back"/>
