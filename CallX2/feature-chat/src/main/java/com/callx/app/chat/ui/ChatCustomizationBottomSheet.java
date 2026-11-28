@@ -103,6 +103,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
                 dp(16), OPTION_SOLID_COLOR);
         addRow(ctx, root, "❌", "Remove Wallpaper", "Back to default chat background",
                 dp(16), OPTION_REMOVE);
+        addBubbleColourRow(ctx, root);
         addAvatarToggleRow(ctx, root);
 
         return root;
@@ -119,6 +120,22 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         card.setOnClickListener(v -> {
             dismiss();
             if (listener != null) listener.onOptionSelected(option);
+        });
+        root.addView(card);
+    }
+
+    /** v927: opens the bubble-colour picker (screen 1 of 2). */
+    private void addBubbleColourRow(Context ctx, LinearLayout root) {
+        LinearLayout card = buildRow(ctx, "\uD83D\uDCAC", "Bubble colour", "Choose send / receive bubble colours");
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        cp.setMargins(dp(12), 0, dp(12), dp(16));
+        card.setLayoutParams(cp);
+        card.setOnClickListener(v -> {
+            dismiss();
+            ctx.startActivity(new android.content.Intent(ctx,
+                    com.callx.app.chat.bubblecolor.BubbleColourActivity.class));
         });
         root.addView(card);
     }
@@ -152,7 +169,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
-            int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.65f);
+            int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.8f);
             behavior.setPeekHeight(height, false);
             behavior.setMaxHeight(height);
             behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);

@@ -1926,6 +1926,7 @@ public class MessageBubbleCanvasView extends View {
     private static float sBubblePoolDensity = -1f;
     private static int sBubblePoolSentColor = 0;
     private static int sBubblePoolUiMode = -1;
+    private static int sBubblePoolVersion = -1;   // v927: BubbleColorStore.sVersion the pool was built for
     private static int sBubblePoolReceivedColor = 0;
 
     // ── Perf gap #5: requestLayout() skip-if-unchanged ──────────────────
@@ -7551,9 +7552,15 @@ public class MessageBubbleCanvasView extends View {
         final int uiMode = ctx.getResources().getConfiguration().uiMode;
         int sentColor = sBubblePoolSentColor;
         int receivedColor = sBubblePoolReceivedColor;
-        if (uiMode != sBubblePoolUiMode || density != sBubblePoolDensity) {
-            sentColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent);
-            receivedColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received);
+        // v927: + user bubble colours — still ONE int compare on the hot path (BubbleColorStore.sVersion).
+        if (uiMode != sBubblePoolUiMode || density != sBubblePoolDensity
+                || com.callx.app.utils.BubbleColorStore.sVersion != sBubblePoolVersion) {
+            com.callx.app.utils.BubbleColorStore.ensureLoaded(ctx);
+            sBubblePoolVersion = com.callx.app.utils.BubbleColorStore.sVersion;
+            sentColor = com.callx.app.utils.BubbleColorStore.bubbleColor(true,
+                    androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent));
+            receivedColor = com.callx.app.utils.BubbleColorStore.bubbleColor(false,
+                    androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received));
             if (density != sBubblePoolDensity
                     || sentColor != sBubblePoolSentColor
                     || receivedColor != sBubblePoolReceivedColor) {

@@ -752,9 +752,19 @@ public class GroupChatActivity extends AppCompatActivity
         super.onSaveInstanceState(outState);
     }
 
+    // v927: bubble colour feature — repaint only visible rows when the user applied new colours.
+    private int bubbleColorVersionApplied = com.callx.app.utils.BubbleColorStore.sVersion;
+    private void applyBubbleColorChangeIfAny() {
+        final int v = com.callx.app.utils.BubbleColorStore.sVersion;
+        if (v == bubbleColorVersionApplied) return;
+        bubbleColorVersionApplied = v;
+        if (pagingAdapter != null) pagingAdapter.notifyThemeChanged();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        applyBubbleColorChangeIfAny();
         // Re-assert chosen display mode (system can restore bars after
         // returning from a picker / dialog / app-switch).
         applyChatDisplayMode();

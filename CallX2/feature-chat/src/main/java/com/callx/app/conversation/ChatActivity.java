@@ -1451,10 +1451,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (pagingAdapter != null) pagingAdapter.notifyThemeChanged();
     }
 
+    // v927: bubble colour feature — repaint only visible rows when the user applied new colours.
+    private int bubbleColorVersionApplied = com.callx.app.utils.BubbleColorStore.sVersion;
+    private void applyBubbleColorChangeIfAny() {
+        final int v = com.callx.app.utils.BubbleColorStore.sVersion;
+        if (v == bubbleColorVersionApplied) return;
+        bubbleColorVersionApplied = v;
+        if (pagingAdapter != null) pagingAdapter.notifyThemeChanged();
+    }
+
     @Override
     protected void onResume() {
         mark("onResume begin");
         super.onResume();
+        applyBubbleColorChangeIfAny();
         mark("r1 super.onResume");
         // Re-assert chosen display mode (system can restore bars after
         // returning from a picker / dialog / app-switch).

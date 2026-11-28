@@ -93,9 +93,10 @@ public class ChatThemeManager {
     public void applyBubbleOwned(View bubbleView, GradientDrawable owned, boolean sent, boolean hasReply) {
         if (bubbleView == null || owned == null) return;
         ensureRadii(bubbleView.getContext());
-        int color = resolveColor(bubbleView.getContext(), sent
+        BubbleColorStore.ensureLoaded(bubbleView.getContext());
+        int color = BubbleColorStore.bubbleColor(sent, resolveColor(bubbleView.getContext(), sent
                 ? com.callx.app.core.R.color.bubble_sent
-                : com.callx.app.core.R.color.bubble_received);
+                : com.callx.app.core.R.color.bubble_received));
         owned.setColor(color);
         owned.setCornerRadii(sent ? sentRadii : receivedRadii);
         if (bubbleView.getBackground() != owned) {
@@ -125,9 +126,9 @@ public class ChatThemeManager {
     // configuration change transparently re-resolves). Immutable + volatile =
     // safe for the background text-precompute threads that also call this.
     private static final class TextColors {
-        final int uiMode, sent, received;
-        TextColors(int uiMode, int sent, int received) {
-            this.uiMode = uiMode; this.sent = sent; this.received = received;
+        final int uiMode, ver, sent, received;
+        TextColors(int uiMode, int ver, int sent, int received) {
+            this.uiMode = uiMode; this.ver = ver; this.sent = sent; this.received = received;
         }
     }
     private volatile TextColors textColors;
@@ -135,10 +136,12 @@ public class ChatThemeManager {
     public int getTextColor(Context ctx, boolean sent) {
         final int ui = ctx.getResources().getConfiguration().uiMode;
         TextColors tc = textColors;
-        if (tc == null || tc.uiMode != ui) {
-            tc = new TextColors(ui,
-                    resolveColor(ctx, com.callx.app.core.R.color.bubble_sent_text),
-                    resolveColor(ctx, com.callx.app.core.R.color.bubble_received_text));
+        // v927: also re-resolve when the user's bubble colours changed (one int compare per bind).
+        if (tc == null || tc.uiMode != ui || tc.ver != BubbleColorStore.sVersion) {
+            BubbleColorStore.ensureLoaded(ctx);
+            tc = new TextColors(ui, BubbleColorStore.sVersion,
+                    BubbleColorStore.textColor(true, resolveColor(ctx, com.callx.app.core.R.color.bubble_sent_text)),
+                    BubbleColorStore.textColor(false, resolveColor(ctx, com.callx.app.core.R.color.bubble_received_text)));
             textColors = tc;
         }
         return sent ? tc.sent : tc.received;

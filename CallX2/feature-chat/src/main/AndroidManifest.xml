@@ -9,6 +9,10 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="uiMode"/>
+        <activity android:name="com.callx.app.chat.bubblecolor.BubbleColourActivity"
+            android:exported="false"/>
+        <activity android:name="com.callx.app.chat.bubblecolor.BubblePreviewActivity"
+            android:exported="false"/>
         <activity android:name="com.callx.app.group.GroupInfoActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
