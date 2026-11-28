@@ -4417,7 +4417,12 @@ public class MessagePagingAdapter
         VH _r = onCreateViewHolderInner(parent, viewType);
         final long _cdt = System.nanoTime() - _t;
         com.callx.app.debug.OpenPerfLog.acc("adapter.onCreateVH", _cdt);
-        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.create(_cdt);
+        if (com.callx.app.debug.BubblePerfStats.on) {
+            com.callx.app.debug.BubblePerfStats.create(_cdt);
+            final RecyclerView.RecycledViewPool _p = sSharedCanvasPool;
+            com.callx.app.debug.BubblePerfStats.createType(viewType, _cdt,
+                    _p == null ? 0 : _p.getRecycledViewCount(viewType));
+        }
         return _r;
     }
 

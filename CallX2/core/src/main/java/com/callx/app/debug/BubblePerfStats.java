@@ -33,6 +33,13 @@ public final class BubblePerfStats {
     private static long crN, crNs, crMax, crSlow;
     /** onCreateViewHolder cost (main thread). crSlow = creations over 2 ms. */
     public static void create(long ns) { crN++; crNs += ns; if (ns > crMax) crMax = ns; if (ns > 2_000_000L) crSlow++; }
+    // v937: creates by viewType + how many were made while the pool already had holders of that type (should be 0)
+    private static final java.util.HashMap<Integer, long[]> crType = new java.util.HashMap<>();   // [n, ns, poolHadSome]
+    public static void createType(int viewType, long ns, int pooled) {
+        long[] a = crType.get(viewType);
+        if (a == null) { if (crType.size() >= 16) return; crType.put(viewType, a = new long[3]); }
+        a[0]++; a[1] += ns; if (pooled > 0) a[2]++;
+    }
     /** RecyclerView scroll state mirror (main thread writes, frame thread reads): 0 idle, 1 drag, 2 settle. */
     private static volatile int scrollState = 0;
     public static void setScrollState(int s) { scrollState = s; }
@@ -198,7 +205,7 @@ public final class BubblePerfStats {
         vidBindN = vidRecN = vidPreN = vidRecDirty = vidRecNoDl = noDlAttached = noDlDetached = noDlEmptyFlag = 0;
         cCalls = cRefresh = cRefreshNs = cRefreshMax = cPool = cDirectCalls = cDirectRows = cDirectNs = cAttachFix = 0;
         cTick.set(0); cTickNs.set(0);
-        crN = crNs = crMax = crSlow = 0;
+        crN = crNs = crMax = crSlow = 0; crType.clear();
         Arrays.fill(stFrames, 0); Arrays.fill(stOver, 0); Arrays.fill(stOver2, 0); Arrays.fill(stNs, 0L);
         gcCount0 = rtStat("art.gc.gc-count"); gcTime0 = rtStat("art.gc.gc-time"); gcBlk0 = rtStat("art.gc.blocking-gc-count");
         startMs = System.currentTimeMillis();
@@ -366,6 +373,11 @@ public final class BubblePerfStats {
         sb.append("-- Row creation / GC (v935) --\n");
         sb.append("onCreateViewHolder: count=").append(crN).append("  total=").append(ms(crNs)).append(" ms  avg=")
           .append(us(crN, crNs)).append(" us  max=").append(ms(crMax)).append(" ms  over2ms=").append(crSlow).append('\n');
+        for (java.util.Map.Entry<Integer, long[]> e : crType.entrySet()) {
+            long[] a = e.getValue();
+            sb.append("  create viewType=").append(e.getKey()).append(": n=").append(a[0]).append(" avg=").append(us(a[0], a[1]))
+              .append(" us  poolHadSome=").append(a[2]).append('\n');
+        }
         sb.append("GC during run: count=").append(rtStat("art.gc.gc-count") - gcCount0)
           .append("  blocking=").append(rtStat("art.gc.blocking-gc-count") - gcBlk0)
           .append("  time=").append(rtStat("art.gc.gc-time") - gcTime0).append(" ms\n");
