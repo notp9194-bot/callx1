@@ -159,7 +159,12 @@ public class BubblePreviewCanvasView extends View {
         d.draw(c);
         c.drawText(msg, l + innerPadH, top + 21f * density, textPaint);
         if (sent) {
-            c.drawText(foot, r - innerPadH - timePaint.measureText(foot), top + h - 9f * density, timePaint);
+            // v928: ticks use the same contrast-safe colour the real chat bubble uses
+            final float fx = r - innerPadH - timePaint.measureText(foot);
+            final String head = time + "  ";
+            c.drawText(head, fx, top + h - 9f * density, timePaint);
+            timePaint.setColor(sentTick());
+            c.drawText("✓✓", fx + timePaint.measureText(head), top + h - 9f * density, timePaint);
         } else {
             c.drawText(foot, l + innerPadH, top + h - 9f * density, timePaint);
         }
@@ -194,8 +199,12 @@ public class BubblePreviewCanvasView extends View {
         final float l = rightLimit - audioW;
         sentDrawable.setBounds(Math.round(l), Math.round(top), Math.round(rightLimit), Math.round(top + h));
         sentDrawable.draw(c);
-        fillPaint.setColor(sentText);
+        // v928: gold play button + played part of the waveform, contrast-safe like the real bubble
+        final int gold = sentGold();
         final float cx = l + 24f * density, cy = top + h * 0.42f, s = 7f * density;
+        fillPaint.setColor(gold);
+        c.drawCircle(cx, cy, 13f * density, fillPaint);
+        fillPaint.setColor(reqSent != 0 && gold != 0xFFD4AF37 ? BubbleColorStore.readableOn(gold) : 0xFFFFFFFF);
         play.rewind();
         play.moveTo(cx - s * 0.6f, cy - s);
         play.lineTo(cx - s * 0.6f, cy + s);
@@ -203,8 +212,8 @@ public class BubblePreviewCanvasView extends View {
         play.close();
         c.drawPath(play, fillPaint);
         final float bx = l + 44f * density, bw = 3f * density, bg = 2.2f * density, maxH = 22f * density;
-        fillPaint.setColor(withAlpha(sentText, 200));
         for (int i = 0; i < WAVE.length; i++) {
+            fillPaint.setColor(i < WAVE.length * 0.35f ? gold : withAlpha(sentText, 200));
             final float bh = Math.max(3f * density, maxH * WAVE[i]);
             rect.set(bx + i * (bw + bg), cy - bh / 2f, bx + i * (bw + bg) + bw, cy + bh / 2f);
             c.drawRoundRect(rect, bw / 2f, bw / 2f, fillPaint);
@@ -213,8 +222,15 @@ public class BubblePreviewCanvasView extends View {
         final String dur = "0:12";
         c.drawText(dur, rightLimit - innerPadH - timePaint.measureText(dur), cy + 4f * density, timePaint);
         final String foot = time + "  ✓✓";
-        c.drawText(foot, rightLimit - innerPadH - timePaint.measureText(foot), top + h - 7f * density, timePaint);
+        final String head = time + "  ";
+        final float fx = rightLimit - innerPadH - timePaint.measureText(foot);
+        c.drawText(head, fx, top + h - 7f * density, timePaint);
+        timePaint.setColor(sentTick());
+        c.drawText("✓✓", fx + timePaint.measureText(head), top + h - 7f * density, timePaint);
     }
+
+    private int sentTick() { return reqSent != 0 ? BubbleColorStore.tickReadOn(reqSent) : 0xFFD4AF37; }
+    private int sentGold() { return reqSent != 0 ? BubbleColorStore.goldOn(reqSent) : 0xFFD4AF37; }
 
     private static int withAlpha(int color, int a) { return (color & 0x00FFFFFF) | (a << 24); }
 }

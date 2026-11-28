@@ -35,6 +35,7 @@ public class BubblePreviewActivity extends AppCompatActivity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         ui = new BubbleUi(this);
+        BubbleColorDraft.ensureInit(this);   // v928: never start from an empty draft after process death
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
@@ -78,6 +79,10 @@ public class BubblePreviewActivity extends AppCompatActivity {
         ap.setMargins(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(14));
         apply.setOnClickListener(v -> {
             BubbleColorStore.apply(getApplicationContext(), BubbleColorDraft.sent, BubbleColorDraft.recv);
+            // v930: build the new tick bitmaps / accent memo off-thread so the first chat frame has no hitch
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView.prewarmBubbleColors(getApplicationContext());
+            // v931: shared bubble drawable pool rebuilt now (main thread, 4 tiny objects) instead of in the first bind
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView.prewarmBubblePool(this);
             Toast.makeText(this, "Bubble colour applied", Toast.LENGTH_SHORT).show();
             setResult(RESULT_OK);
             finish();

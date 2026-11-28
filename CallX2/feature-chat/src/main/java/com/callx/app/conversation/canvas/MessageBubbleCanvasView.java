@@ -1925,8 +1925,8 @@ public class MessageBubbleCanvasView extends View {
     // pool lazily instead of leaving stale colors baked in forever.
     private static float sBubblePoolDensity = -1f;
     private static int sBubblePoolSentColor = 0;
-    private static int sBubblePoolUiMode = -1;
-    private static int sBubblePoolVersion = -1;   // v927: BubbleColorStore.sVersion the pool was built for
+    private int boundEpoch = -1;                      // v930: per-view stamp of BubbleColorStore.sEpoch (uiMode + colour version)
+    private static int sBubblePoolEpoch = -1;     // v930: BubbleColorStore.sEpoch the pool was built for
     private static int sBubblePoolReceivedColor = 0;
 
     // ── Perf gap #5: requestLayout() skip-if-unchanged ──────────────────
@@ -3850,6 +3850,8 @@ public class MessageBubbleCanvasView extends View {
     public MessageBubbleCanvasView(Context ctx, @Nullable android.util.AttributeSet attrs) {
         super(ctx, attrs);
         density = ctx.getResources().getDisplayMetrics().density;
+        // v930: views are pooled, so this read is once per view — keeps the epoch right for any host Activity.
+        com.callx.app.utils.BubbleColorStore.syncUiMode(ctx.getResources().getConfiguration().uiMode);
         initSharedBudget(ctx);   // v895
         // v827: per-bubble framework work that a canvas-drawn view never needs.
         setSaveEnabled(false);                       // no state save/restore dispatch per bubble
@@ -4319,18 +4321,15 @@ public class MessageBubbleCanvasView extends View {
     /** v834: night-mode bits this view's paints/bubble were last resolved for. A holder that missed a
      *  PAYLOAD_THEME (outside the notified range / item-view-cache) must NOT take the identical-rebind
      *  early return, or it would keep the previous theme's bubble fill even when the text color matches. */
-    private int boundUiNight = -1;
-    private int currentUiNight() {
-        return getContext().getResources().getConfiguration().uiMode
-                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-    }
+    // v930: boundUiNight/currentUiNight() (a getConfiguration() read per bind) replaced by boundEpoch vs
+    // BubbleColorStore.sEpoch — one static int compare; stamped in sharedBubbleDrawable().
 
     public void bind(String text, String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
         // v829: identical rebind (tick/payload refresh, scroll back) on an already-recorded bubble:
         // don't reset flags, re-format, or invalidate() (which discards the cached RenderNode).
         if (lastBindWasPlainText && !fullBubbleDirty && !staticPictureDirty
-                && boundUiNight == currentUiNight()
-                && sent == isSent && read == isRead && delivered == isDelivered
+                && sent == isSent
+                && boundEpoch == (isSent ? com.callx.app.utils.BubbleColorStore.sEpochSent : com.callx.app.utils.BubbleColorStore.sEpochRecv) && read == isRead && delivered == isDelivered
                 && (text != null ? text : "").equals(messageText)
                 && (timeText != null ? timeText : "").equals(footerTimeText)
                 && textPaint.getColor() == ChatThemeManager.get(getContext()).getTextColor(getContext(), isSent)) {
@@ -4379,7 +4378,6 @@ public class MessageBubbleCanvasView extends View {
             textLayout = null;
         }
         lastBindWasPlainText = true;
-        boundUiNight = currentUiNight();
         invalidate();
     }
 
@@ -4824,8 +4822,7 @@ public class MessageBubbleCanvasView extends View {
         // version of the idle color — matches WhatsApp's own played-progress
         // treatment and reads clearly against both the light-green/white and
         // dark-teal/charcoal bubble backgrounds.
-        audioWaveformPlayedPaint.setColor(AUDIO_BTN_BG_COLOR);
-        audioWaveformPlayedPaint.setAlpha(255);
+        applyAudioAccent();
         audioDurPaint.setColor(textPaint.getColor());
         audioDurPaint.setAlpha(180);
 
@@ -6750,6 +6747,27 @@ public class MessageBubbleCanvasView extends View {
      * the message's measured size. The cached Canvas recording is marked dirty
      * so the next draw uses the new paints.
      */
+    /** v928/v929: gold play button + waveform played part, contrast-safe on a custom bubble colour. */
+    private void applyAudioAccent() {
+        final int audioGold = com.callx.app.utils.BubbleColorStore.goldAccent(sent, AUDIO_BTN_BG_COLOR);
+        audioWaveformPlayedPaint.setColor(audioGold);
+        audioWaveformPlayedPaint.setAlpha(255);
+        audioBtnBgPaint.setColor(audioGold);
+        audioBtnIconPaint.setColor(audioGold == AUDIO_BTN_BG_COLOR
+                ? AUDIO_BTN_ICON_COLOR : com.callx.app.utils.BubbleColorStore.readableOn(audioGold));
+    }
+
+    /**
+     * v929: bubble-colour-only refresh. A row already bound/refreshed at the current colour version
+     * returns immediately (no paint writes, no invalidate); everything else takes the normal theme refresh.
+     */
+    public void refreshBubbleColors() {
+        if (boundEpoch == (sent ? com.callx.app.utils.BubbleColorStore.sEpochSent
+                : com.callx.app.utils.BubbleColorStore.sEpochRecv)) return;   // v931: per-side
+        android.os.Trace.beginSection("BubbleColor#refresh");
+        try { refreshThemeColors(); } finally { android.os.Trace.endSection(); }
+    }
+
     public void refreshThemeColors() {
         Context ctx = getContext();
         textPaint.setColor(ChatThemeManager.get(ctx).getTextColor(ctx, sent));
@@ -6771,7 +6789,12 @@ public class MessageBubbleCanvasView extends View {
         if (isAudio) {
             audioWaveformIdlePaint.setColor(textPaint.getColor());
             audioDurPaint.setColor(textPaint.getColor());
+            applyAudioAccent();   // v929: was missing here -> voice rows kept the old gold after Apply
         }
+        // v929: the cached StaticLayouts carry their own paint whose colour is only written at measure time;
+        // refresh doesn't re-measure, so push the new text colour into them (Layout.draw reads it live).
+        if (textLayout != null) textLayout.getPaint().setColor(textPaint.getColor());
+        if (groupCaptionLayout != null) groupCaptionLayout.getPaint().setColor(textPaint.getColor());
         if (hasReply) resolveReplyColors(ctx);
 
         // Keep the same tail geometry as the original bind path. Creating the
@@ -6779,7 +6802,6 @@ public class MessageBubbleCanvasView extends View {
         // fill color into the next frame.
         bubbleDrawable = sharedBubbleDrawable(ctx, sent,
                 isMedia || isReelShare, density);
-        boundUiNight = currentUiNight();
         staticPictureDirty = true;
         invalidate();
     }
@@ -7505,31 +7527,36 @@ public class MessageBubbleCanvasView extends View {
     private int replyColorsKey = -1; // 0/1 sent, | night<<1 ; skips the 5 setColor calls on same-state rebinds
 
     private void resolveReplyColors(Context ctx) {
-        final int night = ctx.getResources().getConfiguration().uiMode
-                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-        if (!sent && sRcvNightKey != night) {
+        com.callx.app.utils.BubbleColorStore.ensureLoaded(ctx);
+        // v930: epoch (uiMode + colour version) instead of a per-call getConfiguration() read.
+        final int epoch = sent ? com.callx.app.utils.BubbleColorStore.sEpochSent
+                : com.callx.app.utils.BubbleColorStore.sEpochRecv;   // v931: per-side
+        if (!sent && sRcvNightKey != epoch) {
             sRcvBrand = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.brand_primary);
             sRcvText = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received_text);
-            sRcvNightKey = night;
+            sRcvNightKey = epoch;
         }
-        final int key = (sent ? 1 : 0) | (night << 1);
+        // v928: key also carries the bubble-colour version so a colour change re-resolves these paints.
+        final int key = (sent ? 1 : 0) | (epoch << 1);
         if (key == replyColorsKey) return;
         replyColorsKey = key;
+        // v928: when the user picked a custom bubble colour every overlay colour is derived from it
+        // (contrast-safe); with the default theme these all return the original constants unchanged.
         if (sent) {
-            replyBgPaint.setColor(SENT_REPLY_BG);
-            replyBarPaint.setColor(SENT_REPLY_BAR);
-            replySenderPaint.setColor(SENT_REPLY_SENDER);
-            replyTextPaint.setColor(SENT_REPLY_TEXT);
+            replyBgPaint.setColor(com.callx.app.utils.BubbleColorStore.replyBg(true, SENT_REPLY_BG));
+            replyBarPaint.setColor(com.callx.app.utils.BubbleColorStore.accent(true, SENT_REPLY_BAR));
+            replySenderPaint.setColor(com.callx.app.utils.BubbleColorStore.accent(true, SENT_REPLY_SENDER));
+            replyTextPaint.setColor(com.callx.app.utils.BubbleColorStore.replyText(true, SENT_REPLY_TEXT));
             // bg_reply_preview_sent — same #33000000 6dp-radius card background the
             // link-preview card reuses (see LINK_PREVIEW_* constants doc).
-            linkCardBgPaint.setColor(SENT_REPLY_BG);
+            linkCardBgPaint.setColor(com.callx.app.utils.BubbleColorStore.linkCardBg(true, SENT_REPLY_BG));
         } else {
-            replyBgPaint.setColor(RECEIVED_REPLY_BG);
-            replyBarPaint.setColor(sRcvBrand);
-            replySenderPaint.setColor(sRcvBrand);
-            replyTextPaint.setColor(sRcvText);
+            replyBgPaint.setColor(com.callx.app.utils.BubbleColorStore.replyBg(false, RECEIVED_REPLY_BG));
+            replyBarPaint.setColor(com.callx.app.utils.BubbleColorStore.accent(false, sRcvBrand));
+            replySenderPaint.setColor(com.callx.app.utils.BubbleColorStore.accent(false, sRcvBrand));
+            replyTextPaint.setColor(com.callx.app.utils.BubbleColorStore.replyText(false, sRcvText));
             // bg_reply_preview_received — same #22000000 card background.
-            linkCardBgPaint.setColor(RECEIVED_REPLY_BG);
+            linkCardBgPaint.setColor(com.callx.app.utils.BubbleColorStore.linkCardBg(false, RECEIVED_REPLY_BG));
         }
     }
 
@@ -7545,35 +7572,55 @@ public class MessageBubbleCanvasView extends View {
      * image/video bubbles want a sharper, more visible corner poking out
      * from behind the media rect (MEDIA_TAIL_RADIUS_DP vs TAIL_RADIUS_DP).
      */
-    private BubbleTailDrawable sharedBubbleDrawable(Context ctx, boolean sent, boolean isMediaTail, float density) {
-        // PERF: bubble colours only change with the night mode (they are plain resources), so
-        // the two ContextCompat.getColor() resource lookups that used to run on EVERY bind
-        // are now skipped while uiMode + density are unchanged (one int field read instead).
-        final int uiMode = ctx.getResources().getConfiguration().uiMode;
-        int sentColor = sBubblePoolSentColor;
-        int receivedColor = sBubblePoolReceivedColor;
-        // v927: + user bubble colours — still ONE int compare on the hot path (BubbleColorStore.sVersion).
-        if (uiMode != sBubblePoolUiMode || density != sBubblePoolDensity
-                || com.callx.app.utils.BubbleColorStore.sVersion != sBubblePoolVersion) {
-            com.callx.app.utils.BubbleColorStore.ensureLoaded(ctx);
-            sBubblePoolVersion = com.callx.app.utils.BubbleColorStore.sVersion;
-            sentColor = com.callx.app.utils.BubbleColorStore.bubbleColor(true,
-                    androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent));
-            receivedColor = com.callx.app.utils.BubbleColorStore.bubbleColor(false,
-                    androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received));
-            if (density != sBubblePoolDensity
-                    || sentColor != sBubblePoolSentColor
-                    || receivedColor != sBubblePoolReceivedColor) {
-                // Density changed (shouldn't happen mid-process, but cheap to
-                // guard) or the bubble colors changed (day/night switch) —
-                // invalidate the whole pool so nothing stale lingers.
-                java.util.Arrays.fill(BUBBLE_DRAWABLE_POOL, null);
-                sBubblePoolDensity = density;
-                sBubblePoolSentColor = sentColor;
-                sBubblePoolReceivedColor = receivedColor;
-            }
-            sBubblePoolUiMode = uiMode;
+    private static void ensureBubblePool(Context ctx, float density) {
+        final int epoch = com.callx.app.utils.BubbleColorStore.sEpoch;
+        if (epoch == sBubblePoolEpoch && density == sBubblePoolDensity) return;
+        com.callx.app.utils.BubbleColorStore.ensureLoaded(ctx);
+        sBubblePoolEpoch = epoch;
+        final int sentColor = com.callx.app.utils.BubbleColorStore.bubbleColor(true,
+                androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent));
+        final int receivedColor = com.callx.app.utils.BubbleColorStore.bubbleColor(false,
+                androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received));
+        if (density != sBubblePoolDensity
+                || sentColor != sBubblePoolSentColor
+                || receivedColor != sBubblePoolReceivedColor) {
+            // Density changed or the bubble colours changed (day/night / Apply) — invalidate the whole pool.
+            java.util.Arrays.fill(BUBBLE_DRAWABLE_POOL, null);
+            sBubblePoolDensity = density;
+            sBubblePoolSentColor = sentColor;
+            sBubblePoolReceivedColor = receivedColor;
         }
+    }
+
+    /**
+     * v931: MAIN THREAD, call right after BubbleColorStore.apply() (pass an Activity context so day/night
+     * resolves correctly). Rebuilds the 4 shared bubble drawables now instead of during the first bind.
+     */
+    public static void prewarmBubblePool(@NonNull Context ctx) {
+        final float d = ctx.getResources().getDisplayMetrics().density;
+        ensureBubblePool(ctx, d);
+        android.os.Trace.beginSection("BubbleColor#prewarmPool");
+        try {
+            for (int idx = 0; idx < 4; idx++) {
+                if (BUBBLE_DRAWABLE_POOL[idx] != null) continue;
+                final boolean snt = (idx & 2) != 0;
+                final BubbleTailDrawable gd = new BubbleTailDrawable(snt, (idx & 1) != 0);
+                gd.configure(snt ? sBubblePoolSentColor : sBubblePoolReceivedColor, CORNER_RADIUS_DP * d,
+                        TAIL_W_DP * d, TAIL_H_DP * d, d);
+                BUBBLE_DRAWABLE_POOL[idx] = gd;
+            }
+        } finally { android.os.Trace.endSection(); }
+    }
+
+    private BubbleTailDrawable sharedBubbleDrawable(Context ctx, boolean sent, boolean isMediaTail, float density) {
+        // v929: every bind path calls this AFTER setting its text/accent paints, so this stamp means
+        // "this view's colours are current for that bubble-colour version" (see refreshBubbleColors()).
+        boundEpoch = sent ? com.callx.app.utils.BubbleColorStore.sEpochSent
+                : com.callx.app.utils.BubbleColorStore.sEpochRecv;   // v931: per-side stamp
+        // v930/v931: ONE epoch compare (uiMode + colour version) + density; rebuild logic lives in ensureBubblePool().
+        ensureBubblePool(ctx, density);
+        final int sentColor = sBubblePoolSentColor;
+        final int receivedColor = sBubblePoolReceivedColor;
         // 4 shared instances: (sent x tail). isMediaTail no longer changes the shape —
         // the old "sharper media corner" is now the real tail on the run's first bubble.
         final boolean tail = bubbleTailShown;
@@ -10634,14 +10681,81 @@ public class MessageBubbleCanvasView extends View {
     private static final int TICK_VARIANT_DOUBLE_GOLD = 2; // read
     private static final int TICK_VARIANT_PENDING     = 3; // queued/uploading/failed — clock glyph
 
-    private static synchronized Bitmap getTickBitmap(float size, int variant) {
+    // v928: tick glyph colours follow a custom SENT bubble colour (contrast-safe). The cache is flushed
+    // when the bubble colours change; media-overlay pills (onBubble=false) always keep the stock colours.
+    private static int sTickCacheVersion = 0;
+
+    // v929: lock-free read path. Immutable snapshot (size, colour version, 16 slots) published through one
+    // volatile reference; the synchronized builder below runs only on a miss (<= 8 times per size/version).
+    private static final class TickSet {
+        final int sizeKey, ver;
+        final Bitmap[] bmps;
+        TickSet(int sizeKey, int ver, Bitmap[] bmps) { this.sizeKey = sizeKey; this.ver = ver; this.bmps = bmps; }
+    }
+    private static volatile TickSet sTickSet = new TickSet(-1, -1, new Bitmap[16]);
+
+    /**
+     * v930: call right after BubbleColorStore.apply() (and once at cold start when a custom colour is saved).
+     * Builds the new-version tick bitmaps (4 variants x on/off bubble) and the sent-side accent memo on a
+     * background thread, so the first chat draw after Apply never builds anything (no one-frame hitch).
+     * Idempotent / best-effort: a miss just falls back to the normal lazy path.
+     */
+    public static void prewarmBubbleColors(@NonNull Context ctx) {
+        final Context app = ctx.getApplicationContext();
+        final Thread t = new Thread(() -> prewarmBubbleColorsNow(app), "bubble-color-prewarm");
+        t.setPriority(Thread.MIN_PRIORITY + 1);
+        t.start();
+    }
+
+    /** Same as {@link #prewarmBubbleColors} but on the CALLING (background) thread. */
+    public static void prewarmBubbleColorsNow(@NonNull Context app) {
+        try {
+            com.callx.app.utils.BubbleColorStore.ensureLoaded(app);
+            final float size = TICK_SIZE_DP * app.getResources().getDisplayMetrics().density;
+            final boolean custom = com.callx.app.utils.BubbleColorStore.isCustom(true);
+            for (int v = TICK_VARIANT_SINGLE; v <= TICK_VARIANT_PENDING; v++) {
+                getTickBitmap(size, v, false);
+                if (custom) getTickBitmap(size, v, true);
+            }
+            // sent-side accent memo (reply bar + sender) — pure functions of the colour, safe off-thread
+            com.callx.app.utils.BubbleColorStore.accent(true, SENT_REPLY_BAR);
+            com.callx.app.utils.BubbleColorStore.accent(true, SENT_REPLY_SENDER);
+        } catch (Throwable ignored) { /* best-effort warm-up */ }
+    }
+
+    private static Bitmap getTickBitmap(float size, int variant, boolean onBubble) {
+        final int sizeKey = Math.round(size * 10f);
+        final int ver = com.callx.app.utils.BubbleColorStore.sVersionSent;   // v931: ticks follow the SENT side only
+        final int slot = variant + (onBubble ? 8 : 0);
+        final TickSet t = sTickSet;
+        if (t.sizeKey == sizeKey && t.ver == ver) {
+            final Bitmap b = t.bmps[slot];
+            if (b != null && !b.isRecycled()) return b;
+        }
+        final Bitmap bmp = getTickBitmapSlow(size, variant, onBubble);
+        synchronized (TICK_BITMAP_CACHE) {
+            final TickSet cur = sTickSet;
+            final Bitmap[] arr = (cur.sizeKey == sizeKey && cur.ver == ver) ? cur.bmps.clone() : new Bitmap[16];
+            arr[slot] = bmp;
+            sTickSet = new TickSet(sizeKey, ver, arr);   // copy-on-write: readers never see a half-built set
+        }
+        return bmp;
+    }
+
+    private static synchronized Bitmap getTickBitmapSlow(float size, int variant, boolean onBubble) {
+        if (com.callx.app.utils.BubbleColorStore.sVersionSent != sTickCacheVersion) {
+            TICK_BITMAP_CACHE.clear();   // not recycled: a frame in flight may still blit an old one
+            sTickCacheVersion = com.callx.app.utils.BubbleColorStore.sVersionSent;
+        }
         int sizeKey = Math.round(size * 10f); // 0.1px precision — plenty for a 12dp glyph
-        int key = variant * 1_000_000 + sizeKey;
+        int key = (variant + (onBubble ? 8 : 0)) * 1_000_000 + sizeKey;
         Bitmap cached = TICK_BITMAP_CACHE.get(key);
         if (cached != null && !cached.isRecycled()) return cached;
 
         boolean isDouble = variant == TICK_VARIANT_DOUBLE_GRAY || variant == TICK_VARIANT_DOUBLE_GOLD;
-        int color = variant == TICK_VARIANT_DOUBLE_GOLD ? 0xFFD4AF37 : 0xFF8FAF9F;
+        final boolean gold = variant == TICK_VARIANT_DOUBLE_GOLD;
+        int color = gold ? 0xFFD4AF37 : 0xFF8FAF9F;
+        if (onBubble) color = com.callx.app.utils.BubbleColorStore.tickColor(gold, color);
         // Matches tickPaint's own density*1.2f stroke width, expressed
         // relative to `size` (= TICK_SIZE_DP * density) so the cache key
         // only needs one axis (size) instead of tracking density separately.
@@ -10702,7 +10816,9 @@ public class MessageBubbleCanvasView extends View {
         int variant = pending ? TICK_VARIANT_PENDING
                 : !isDouble ? TICK_VARIANT_SINGLE
                 : (read ? TICK_VARIANT_DOUBLE_GOLD : TICK_VARIANT_DOUBLE_GRAY);
-        Bitmap bmp = getTickBitmap(size, variant);
+        // v928: only the footer tick that sits ON the bubble (alignToText) follows the custom colour.
+        final boolean onBubble = alignToText && sent && com.callx.app.utils.BubbleColorStore.isCustom(true);
+        Bitmap bmp = getTickBitmap(size, variant, onBubble);
         float pad = size * 0.12f; // must match getTickBitmap()'s own pad
         canvas.drawBitmap(bmp, x - pad, y - pad, null);
     }
@@ -10739,6 +10855,7 @@ public class MessageBubbleCanvasView extends View {
     @Override
     protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        com.callx.app.utils.BubbleColorStore.syncUiMode(newConfig.uiMode);   // v930
         fwdDarkCached = ChatThemeManager.isDarkMode(getContext());
         scaledDensityCached = -1f;   // font scale may have changed
         invalidate();

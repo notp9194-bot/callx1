@@ -30,6 +30,13 @@ final class BubbleHsvPickerView extends View {
     private final float d, knobR, radius;
     private OnColor listener;
     private int drag = 0; // 1 = sv, 2 = hue
+    // v931: shaders/arrays built once, listener coalesced to one call per frame
+    private Shader vertShader;
+    private final int[] hueCols = new int[7];
+    private boolean notifyPending;
+    private final Runnable notifyRun = new Runnable() {
+        @Override public void run() { flushNotify(); }
+    };
 
     BubbleHsvPickerView(Context c) {
         super(c);
@@ -39,6 +46,20 @@ final class BubbleHsvPickerView extends View {
         knobRing.setStyle(Paint.Style.STROKE);
         knobRing.setStrokeWidth(3f * d);
         knobRing.setColor(0xFFFFFFFF);
+        for (int i = 0; i < 7; i++) { tmp[0] = i * 60f; hueCols[i] = Color.HSVToColor(tmp); }
+        tmp[0] = 0f;
+    }
+
+    private void flushNotify() {
+        if (!notifyPending) return;
+        notifyPending = false;
+        if (listener != null) listener.onColor(Color.HSVToColor(hsv));
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        removeCallbacks(notifyRun);
+        super.onDetachedFromWindow();
     }
 
     void setOnColor(OnColor l) { listener = l; }
@@ -62,19 +83,17 @@ final class BubbleHsvPickerView extends View {
         final float side = 4f * d;
         sv.set(side, side, w - side, side + (w - side * 2f) * 0.62f);
         hueRect.set(side, sv.bottom + 16f * d, w - side, sv.bottom + 16f * d + 28f * d);
-        final int[] cols = new int[7];
-        for (int i = 0; i < 7; i++) cols[i] = Color.HSVToColor(new float[]{i * 60f, 1f, 1f});
-        huePaint.setShader(new LinearGradient(hueRect.left, 0f, hueRect.right, 0f, cols, null, Shader.TileMode.CLAMP));
+        huePaint.setShader(new LinearGradient(hueRect.left, 0f, hueRect.right, 0f, hueCols, null, Shader.TileMode.CLAMP));
+        vertShader = new LinearGradient(0f, sv.top, 0f, sv.bottom, 0xFFFFFFFF, 0xFF000000, Shader.TileMode.CLAMP);
         rebuildSv();
     }
 
     private void rebuildSv() {
-        if (sv.width() <= 0f) return;
+        if (sv.width() <= 0f || vertShader == null) return;
         tmp[0] = hsv[0];
         final int pure = Color.HSVToColor(tmp);
         final Shader horiz = new LinearGradient(sv.left, 0f, sv.right, 0f, 0xFFFFFFFF, pure, Shader.TileMode.CLAMP);
-        final Shader vert = new LinearGradient(0f, sv.top, 0f, sv.bottom, 0xFFFFFFFF, 0xFF000000, Shader.TileMode.CLAMP);
-        svPaint.setShader(new ComposeShader(horiz, vert, PorterDuff.Mode.MULTIPLY));
+        svPaint.setShader(new ComposeShader(horiz, vertShader, PorterDuff.Mode.MULTIPLY));
     }
 
     @Override
@@ -111,6 +130,8 @@ final class BubbleHsvPickerView extends View {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 drag = 0;
+                removeCallbacks(notifyRun);
+                flushNotify();   // the final colour is always delivered before Apply can be tapped
                 return true;
             default:
                 return true;
@@ -127,7 +148,7 @@ final class BubbleHsvPickerView extends View {
             hsv[2] = 1f - clamp((y - sv.top) / sv.height());
         }
         invalidate();
-        if (listener != null) listener.onColor(Color.HSVToColor(hsv));
+        if (!notifyPending) { notifyPending = true; postOnAnimation(notifyRun); }   // <= 1 callback per frame
     }
 
     private static float clamp(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }

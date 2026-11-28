@@ -3,6 +3,11 @@ package com.callx.app.chat.bubblecolor;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.text.InputFilter;
+import android.text.InputType;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -35,6 +40,11 @@ public class BubbleColourActivity extends AppCompatActivity {
     private View defaultPane, customPane;
     private TextView tabDefault, tabCustom, chipSend, chipRecv;
     private boolean customSide = true;          // true = editing SEND in the custom tab
+    private boolean customTabShown;
+    private EditText hexField;
+    private boolean updatingHex;
+    private View recentTitle;
+    private BubbleSwatchGridView recentGrid;
     private int themeSent, themeRecv;           // day/night resource colours (what "Default" looks like)
 
     private final ActivityResultLauncher<Intent> previewLauncher = registerForActivityResult(
@@ -46,7 +56,9 @@ public class BubbleColourActivity extends AppCompatActivity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         ui = new BubbleUi(this);
-        BubbleColorDraft.loadFromStore(this);
+        // v928: a fresh open starts from the saved colours; a rotation / process restore keeps the draft.
+        if (b == null) BubbleColorDraft.loadFromStore(this); else BubbleColorDraft.ensureInit(this);
+        if (b != null) { customSide = b.getBoolean("side", true); customTabShown = b.getBoolean("custom", false); }
         themeSent = ContextCompat.getColor(this, com.callx.app.core.R.color.bubble_sent);
         themeRecv = ContextCompat.getColor(this, com.callx.app.core.R.color.bubble_received);
 
@@ -60,7 +72,7 @@ public class BubbleColourActivity extends AppCompatActivity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(ui.bg);
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
-            androidx.core.graphics.Insets s = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            androidx.core.graphics.Insets s = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.ime());
             v.setPadding(0, s.top, 0, s.bottom);
             return insets;
         });
@@ -96,6 +108,27 @@ public class BubbleColourActivity extends AppCompatActivity {
 
         setContentView(root);
         refreshDefaultSelection();
+        // v928: a non-preset (custom) colour in the draft -> open straight on the Custom tab
+        if (customTabShown || isCustomDraft()) {
+            if (!customTabShown && !isCustomSentDraft()) customSide = false;
+            showTab(true);
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putBoolean("side", customSide);
+        out.putBoolean("custom", customPane.getVisibility() == View.VISIBLE);
+    }
+
+    private boolean isCustomSentDraft() {
+        return BubbleColorDraft.sent != 0 && indexOf(BubbleColorStore.SEND_PRESETS, BubbleColorDraft.sent) < 0;
+    }
+
+    private boolean isCustomDraft() {
+        return isCustomSentDraft()
+                || (BubbleColorDraft.recv != 0 && indexOf(BubbleColorStore.RECV_PRESETS, BubbleColorDraft.recv) < 0);
     }
 
     // ── pieces ──────────────────────────────────────────────────────────────
@@ -185,12 +218,14 @@ public class BubbleColourActivity extends AppCompatActivity {
         pane.addView(sectionTitle("Send Bubble Colours"));
         sendGrid = new BubbleSwatchGridView(this, BubbleUi.ACCENT);
         sendGrid.setColors(resolved(BubbleColorStore.SEND_PRESETS, themeSent));
+        sendGrid.setDescription("Send bubble colour", BubbleColorStore.SEND_NAMES);
         sendGrid.setOnPick(i -> { BubbleColorDraft.sent = BubbleColorStore.SEND_PRESETS[i]; refreshDefaultSelection(); });
         pane.addView(sendGrid, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         pane.addView(sectionTitle("Receive Bubble Colours"));
         recvGrid = new BubbleSwatchGridView(this, BubbleUi.ACCENT);
         recvGrid.setColors(resolved(BubbleColorStore.RECV_PRESETS, themeRecv));
+        recvGrid.setDescription("Receive bubble colour", BubbleColorStore.RECV_NAMES);
         recvGrid.setOnPick(i -> { BubbleColorDraft.recv = BubbleColorStore.RECV_PRESETS[i]; refreshDefaultSelection(); });
         pane.addView(recvGrid, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -217,12 +252,114 @@ public class BubbleColourActivity extends AppCompatActivity {
         cp.bottomMargin = ui.dp(14);
         pane.addView(chips, cp);
         hsv = new BubbleHsvPickerView(this);
+        hsv.setContentDescription("Colour picker. Drag to choose a colour, or type a hex code below.");
         hsv.setOnColor(color -> {
             if (customSide) BubbleColorDraft.sent = color; else BubbleColorDraft.recv = color;
+            setHexText(color);
         });
         pane.addView(hsv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        pane.addView(buildHexRow());
+        recentTitle = sectionTitle("Recent colours");
+        pane.addView(recentTitle);
+        recentGrid = new BubbleSwatchGridView(this, BubbleUi.ACCENT, 1);
+        recentGrid.setDescription("Recent colour", null);
+        recentGrid.setOnPick(i -> {
+            final int[] r = BubbleColorStore.recents();
+            if (i < 0 || i >= r.length) return;
+            if (customSide) BubbleColorDraft.sent = r[i]; else BubbleColorDraft.recv = r[i];
+            hsv.setColor(r[i]);
+            setHexText(r[i]);
+            refreshRecentSelection();
+        });
+        pane.addView(recentGrid, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        refreshRecents();
         return pane;
+    }
+
+    /** "#RRGGBB" entry: an accessible, exact alternative to dragging on the picker. */
+    private View buildHexRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        hexField = new EditText(this);
+        hexField.setHint("#RRGGBB");
+        hexField.setHintTextColor(ui.sub);
+        hexField.setTextColor(ui.text);
+        hexField.setTextSize(16f);
+        hexField.setSingleLine(true);
+        hexField.setContentDescription("Hex colour code");
+        hexField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        hexField.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        hexField.setFilters(new InputFilter[]{new InputFilter.LengthFilter(7)});
+        hexField.setPadding(ui.dp(16), 0, ui.dp(16), 0);
+        hexField.setBackground(ui.round(ui.card, 24f, ui.stroke));
+        hexField.setOnEditorActionListener((v, actionId, ev) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE) { applyHex(); return true; }
+            return false;
+        });
+        TextView set = ui.pillButton(this, "Set", true);
+        set.setOnClickListener(v -> applyHex());
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(0, ui.dp(46), 1f);
+        hp.rightMargin = ui.dp(10);
+        row.addView(hexField, hp);
+        row.addView(set, new LinearLayout.LayoutParams(ui.dp(84), ui.dp(46)));
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = ui.dp(14);
+        row.setLayoutParams(rp);
+        return row;
+    }
+
+    // v932: no String.format / String allocation per drag callback; setText only when the text really changed.
+    private final char[] hexBuf = {'#', '0', '0', '0', '0', '0', '0'};
+    private static final char[] HEX = "0123456789ABCDEF".toCharArray();
+
+    private void setHexText(int color) {
+        if (hexField == null || hexField.hasFocus()) return;   // never fight the user's typing
+        for (int i = 0; i < 6; i++) hexBuf[6 - i] = HEX[(color >> (i * 4)) & 0xF];
+        final CharSequence cur = hexField.getText();
+        boolean same = cur != null && cur.length() == 7;
+        for (int i = 0; same && i < 7; i++) if (cur.charAt(i) != hexBuf[i]) same = false;
+        if (same) return;
+        updatingHex = true;
+        hexField.setText(hexBuf, 0, 7);
+        updatingHex = false;
+    }
+
+    private void applyHex() {
+        if (updatingHex) return;
+        String t = hexField.getText().toString().trim();
+        if (!t.startsWith("#")) t = "#" + t;
+        if (t.length() != 7) { hexField.setError("Use 6 digits, e.g. #6C2BD9"); return; }
+        final int c;
+        try { c = Color.parseColor(t) | 0xFF000000; }
+        catch (IllegalArgumentException e) { hexField.setError("Not a valid hex colour"); return; }
+        if (customSide) BubbleColorDraft.sent = c; else BubbleColorDraft.recv = c;
+        hsv.setColor(c);
+        hexField.setError(null);
+        hexField.clearFocus();
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(hexField.getWindowToken(), 0);
+        setHexText(c);
+    }
+
+    private void refreshRecents() {
+        final int[] r = BubbleColorStore.recents();
+        recentTitle.setVisibility(r.length == 0 ? View.GONE : View.VISIBLE);
+        recentGrid.setVisibility(r.length == 0 ? View.GONE : View.VISIBLE);
+        recentGrid.setColors(r);
+        refreshRecentSelection();
+    }
+
+    private void refreshRecentSelection() {
+        final int[] r = BubbleColorStore.recents();
+        final int cur = customSide ? BubbleColorDraft.sent : BubbleColorDraft.recv;
+        int idx = -1;
+        for (int i = 0; i < r.length; i++) if (r[i] == cur) { idx = i; break; }
+        recentGrid.setSelected(idx);
     }
 
     private TextView sectionTitle(String s) {
@@ -259,6 +396,9 @@ public class BubbleColourActivity extends AppCompatActivity {
         chipRecv.setTextColor(!customSide ? 0xFFFFFFFF : ui.sub);
         chipRecv.setBackground(ui.round(!customSide ? BubbleUi.ACCENT : ui.card, 28f, !customSide ? 0 : ui.stroke));
         final int v = customSide ? BubbleColorDraft.sent : BubbleColorDraft.recv;
-        hsv.setColor(v != 0 ? v : (customSide ? themeSent : themeRecv));
+        final int shown = v != 0 ? v : (customSide ? themeSent : themeRecv);
+        hsv.setColor(shown);
+        setHexText(shown);
+        refreshRecentSelection();
     }
 }

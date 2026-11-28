@@ -126,20 +126,20 @@ public class ChatThemeManager {
     // configuration change transparently re-resolves). Immutable + volatile =
     // safe for the background text-precompute threads that also call this.
     private static final class TextColors {
-        final int uiMode, ver, sent, received;
-        TextColors(int uiMode, int ver, int sent, int received) {
-            this.uiMode = uiMode; this.ver = ver; this.sent = sent; this.received = received;
+        final int epoch, sent, received;   // v930: epoch = BubbleColorStore.sEpoch (uiMode + colour version)
+        TextColors(int epoch, int sent, int received) {
+            this.epoch = epoch; this.sent = sent; this.received = received;
         }
     }
     private volatile TextColors textColors;
 
     public int getTextColor(Context ctx, boolean sent) {
-        final int ui = ctx.getResources().getConfiguration().uiMode;
+        // v930: ONE static int compare per bind (was a getConfiguration().uiMode read + version compare).
+        final int ep = BubbleColorStore.sEpoch;
         TextColors tc = textColors;
-        // v927: also re-resolve when the user's bubble colours changed (one int compare per bind).
-        if (tc == null || tc.uiMode != ui || tc.ver != BubbleColorStore.sVersion) {
+        if (tc == null || tc.epoch != ep) {
             BubbleColorStore.ensureLoaded(ctx);
-            tc = new TextColors(ui, BubbleColorStore.sVersion,
+            tc = new TextColors(ep,
                     BubbleColorStore.textColor(true, resolveColor(ctx, com.callx.app.core.R.color.bubble_sent_text)),
                     BubbleColorStore.textColor(false, resolveColor(ctx, com.callx.app.core.R.color.bubble_received_text)));
             textColors = tc;
@@ -239,7 +239,8 @@ public class ChatThemeManager {
         // "tell" of this app, echoed by the same gold in the waveform
         // played-progress and the poll's leading-option accent so it reads
         // as one consistent signature rather than a random recolor.
-        return isRead ? 0xFFD4AF37 : 0xFF8FAF9F;
+        // v928: contrast-safe variant when the user picked a custom SENT bubble colour (static read).
+        return BubbleColorStore.tickColor(isRead, isRead ? 0xFFD4AF37 : 0xFF8FAF9F);
     }
 
     public static boolean isDarkMode(Context ctx) {

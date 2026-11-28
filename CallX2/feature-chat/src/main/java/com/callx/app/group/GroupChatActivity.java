@@ -439,6 +439,8 @@ public class GroupChatActivity extends AppCompatActivity
         }
 
         applyScreenTheme();
+        com.callx.app.utils.BubbleColorStore.syncUiMode(getResources().getConfiguration().uiMode);   // v930
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.prewarmBubblePool(this);   // v932
         lastUiNightMode = getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
 
@@ -758,12 +760,13 @@ public class GroupChatActivity extends AppCompatActivity
         final int v = com.callx.app.utils.BubbleColorStore.sVersion;
         if (v == bubbleColorVersionApplied) return;
         bubbleColorVersionApplied = v;
-        if (pagingAdapter != null) pagingAdapter.notifyThemeChanged();
+        if (pagingAdapter != null) pagingAdapter.notifyBubbleColorChanged();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        com.callx.app.utils.BubbleColorStore.syncUiMode(getResources().getConfiguration().uiMode);   // v930
         applyBubbleColorChangeIfAny();
         // Re-assert chosen display mode (system can restore bars after
         // returning from a picker / dialog / app-switch).
@@ -912,6 +915,7 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        com.callx.app.utils.BubbleColorStore.syncUiMode(newConfig.uiMode);   // v930: before any adapter notify
         int newNightMode = newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         if (newNightMode == lastUiNightMode) return;
         lastUiNightMode = newNightMode;

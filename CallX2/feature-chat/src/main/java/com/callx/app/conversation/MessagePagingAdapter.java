@@ -1273,6 +1273,8 @@ public class MessagePagingAdapter
      * their many theme-dependent child views.
      */
     static final String PAYLOAD_THEME = "theme";
+    // v929: bubble-colour-only refresh; rows already on the current colour version skip it entirely.
+    static final String PAYLOAD_BUBBLE_COLOR = "bubblecolor";
     /** Live upload % per message id, for WhatsApp-style local-first media
      *  bubbles — see ChatMediaController#uploadAndSend()/MediaUploadProgressTracker. */
     private final MediaUploadProgressTracker uploadProgressTracker = new MediaUploadProgressTracker();
@@ -2726,6 +2728,14 @@ public class MessagePagingAdapter
      * chat always uses one in practice).
      */
     private void notifyVisibleRangeChanged(Object payload) {
+        notifyVisibleRangeChanged(payload, 8);
+    }
+
+    /**
+     * v930: {@code bufferRows} = 0 for theme / bubble-colour changes — off-screen cached holders are fixed
+     * by {@link #onViewAttachedToWindow} (one int compare) instead of refreshing ~16 rows nobody sees.
+     */
+    private void notifyVisibleRangeChanged(Object payload, int bufferRows) {
         androidx.recyclerview.widget.RecyclerView.LayoutManager lm =
                 attachedRecyclerView != null ? attachedRecyclerView.getLayoutManager() : null;
         if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
@@ -2735,7 +2745,6 @@ public class MessagePagingAdapter
             int last = llm.findLastVisibleItemPosition();
             if (first != androidx.recyclerview.widget.RecyclerView.NO_POSITION
                     && last != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
-                int bufferRows = 8; // covers RecyclerView's default prefetch/cache window
                 int start = Math.max(0, first - bufferRows);
                 int end = Math.min(getItemCount() - 1, last + bufferRows);
                 notifyItemRangeChanged(start, end - start + 1, payload);
@@ -2757,7 +2766,12 @@ public class MessagePagingAdapter
      * every theme switch regardless of chat length.
      */
     public void notifyThemeChanged() {
-        notifyVisibleRangeChanged(PAYLOAD_THEME);
+        notifyVisibleRangeChanged(PAYLOAD_THEME, 0);   // v930: cached rows self-heal on attach
+    }
+
+    /** v929: user applied new bubble colours — repaint only visible rows that are not yet on this colour version. */
+    public void notifyBubbleColorChanged() {
+        notifyVisibleRangeChanged(PAYLOAD_BUBBLE_COLOR, 0);   // v930: cached rows self-heal on attach
     }
 
     /** Rows kept warm either side of the viewport — matches the largest
@@ -4635,12 +4649,15 @@ public class MessagePagingAdapter
             }
             return;
         }
-        if (!payloads.isEmpty() && PAYLOAD_THEME.equals(payloads.get(0))) {
+        if (!payloads.isEmpty() && (PAYLOAD_THEME.equals(payloads.get(0))
+                || PAYLOAD_BUBBLE_COLOR.equals(payloads.get(0)))) {
+            h.colorEpoch = com.callx.app.utils.BubbleColorStore.sEpoch;   // v930
             Message m = getItem(position);
             if (m != null && h.canvasView != null) {
                 // Canvas bubbles can swap their theme paints/drawable without
                 // repeating media loads, linkification or measurement.
-                h.canvasView.refreshThemeColors();
+                if (PAYLOAD_BUBBLE_COLOR.equals(payloads.get(0))) h.canvasView.refreshBubbleColors();
+                else h.canvasView.refreshThemeColors();
                 applySelectionHighlight(h, m);
             } else {
                 // Legacy holders have several theme-dependent child views
@@ -4901,6 +4918,7 @@ public class MessagePagingAdapter
         // Target: median < 2ms, P99 < 8ms.
         android.os.Trace.beginSection("Msg#bind");
         try {
+        h.colorEpoch = com.callx.app.utils.BubbleColorStore.sEpoch;   // v930: holder is current for this theme epoch
         final long _sp = com.callx.app.debug.BubblePerfStats.t();
         Message m = getItem(position);
         if (m == null) {
@@ -11616,6 +11634,25 @@ public class MessagePagingAdapter
         resetSendAnimState(holder);
     }
 
+    /**
+     * v930: a cached (off-screen) holder re-attached after Apply / a theme flip. ONE int compare when it is
+     * current; otherwise canvas rows take the cheap refreshBubbleColors() (itself an int compare + repaint),
+     * legacy rows fall back to a full bind. Replaces the old +-8 buffer-row refresh on Apply.
+     */
+    @Override
+    public void onViewAttachedToWindow(@NonNull VH holder) {
+        super.onViewAttachedToWindow(holder);
+        final int ep = com.callx.app.utils.BubbleColorStore.sEpoch;
+        if (holder.colorEpoch == ep) return;
+        holder.colorEpoch = ep;
+        if (holder.canvasView != null) {
+            holder.canvasView.refreshBubbleColors();
+        } else {
+            final int pos = holder.getBindingAdapterPosition();
+            if (pos != RecyclerView.NO_POSITION) onBindViewHolder(holder, pos);
+        }
+    }
+
     // PERF: onViewDetachedFromWindow — called when the ViewHolder scrolls off
     // the screen but hasn't been recycled yet. Stop audio playback for this
     // holder so a voice note playing in a bubble that scrolled off-screen stops
@@ -12483,6 +12520,8 @@ public class MessagePagingAdapter
     }
 
     static class VH extends RecyclerView.ViewHolder {
+        /** v930: BubbleColorStore.sEpoch this holder's colours were last resolved for. */
+        int colorEpoch = -1;
         /**
          * One Glide target instance can be re-armed for a holder slot. The
          * callback is deliberately detached before RequestManager.clear():

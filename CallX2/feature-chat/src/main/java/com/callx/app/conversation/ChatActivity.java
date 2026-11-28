@@ -1097,6 +1097,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // every time the chat screen was opened.
 
         themeController    = new ChatThemeController(this);
+        com.callx.app.utils.BubbleColorStore.syncUiMode(getResources().getConfiguration().uiMode);   // v930
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.prewarmBubblePool(this);   // v932: pool ready before the first bind
         lastUiNightMode = getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         // mentionController is initialized later in setupMentionController() once
@@ -1419,6 +1421,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      *      of the whole conversation.
      */
     private void handlePossibleNightModeChange(android.content.res.Configuration newConfig) {
+        com.callx.app.utils.BubbleColorStore.syncUiMode(newConfig.uiMode);   // v930: before any adapter notify
         int newNightMode = newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         if (newNightMode == lastUiNightMode) return; // some other config change — nothing to re-theme
         lastUiNightMode = newNightMode;
@@ -1457,13 +1460,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         final int v = com.callx.app.utils.BubbleColorStore.sVersion;
         if (v == bubbleColorVersionApplied) return;
         bubbleColorVersionApplied = v;
-        if (pagingAdapter != null) pagingAdapter.notifyThemeChanged();
+        if (pagingAdapter != null) pagingAdapter.notifyBubbleColorChanged();
     }
 
     @Override
     protected void onResume() {
         mark("onResume begin");
         super.onResume();
+        com.callx.app.utils.BubbleColorStore.syncUiMode(getResources().getConfiguration().uiMode);   // v930
         applyBubbleColorChangeIfAny();
         mark("r1 super.onResume");
         // Re-assert chosen display mode (system can restore bars after

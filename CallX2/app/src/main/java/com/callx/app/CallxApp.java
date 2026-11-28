@@ -90,6 +90,16 @@ public class CallxApp extends Application implements Configuration.Provider {
         // instead of lazily whenever the Reels tab first happens to load.
         com.callx.app.utils.AppSessionTracker.getSessionStartMs();
 
+        // v929: load the user's bubble colours off the main thread so the first chat bubble bind never
+        // touches SharedPreferences (disk). ensureLoaded() is idempotent + thread-safe.
+        new Thread(() -> {
+            com.callx.app.utils.BubbleColorStore.ensureLoaded(this);
+            // v930: custom colour saved -> build tick bitmaps now (off main), not at the first chat draw
+            if (com.callx.app.utils.BubbleColorStore.isCustom()) {
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView.prewarmBubbleColorsNow(this);
+            }
+        }, "bubble-color-preload").start();
+
         // FIX (cold-start priority queue): marks process-start time so
         // AvatarBinderCore#prefetch can stagger its LOW-priority
         // scroll-ahead work for the next couple seconds instead of letting
@@ -688,6 +698,13 @@ public class CallxApp extends Application implements Configuration.Provider {
     }
 
     // ──────────────────────────────────────────────────────────────
+    // v930: keep the single bubble theme epoch honest on system dark/light flips (Application gets every uiMode change)
+    @Override
+    public void onConfigurationChanged(@androidx.annotation.NonNull android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        com.callx.app.utils.BubbleColorStore.syncUiMode(newConfig.uiMode);
+    }
+
     // onTrimMemory — respond to Android low-memory signals
     //
     // FIX #6: evictConnectionPool() added for TRIM_MEMORY_UI_HIDDEN.
