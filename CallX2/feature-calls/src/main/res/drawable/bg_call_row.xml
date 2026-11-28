@@ -1,11 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v951: row bg = ripple normally, tint when activated (selection). setActivated() flips it —
-     no setBackgroundColor (which replaced the ripple + allocated a ColorDrawable on every bind). -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_activated="true">
+<!-- v951/v953: row bg = ripple normally, tint when activated (selection). setActivated() flips it —
+     no setBackgroundColor (which replaced the ripple + allocated a ColorDrawable on every bind).
+     v953: NO theme attributes (?attr/...) inside this drawable — a selector child with ?attr failed to inflate
+     ("Failed to resolve attribute ... theme=null") on item_call_history. Ripple colour is a fixed translucent grey. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#26808080">
+    <item>
+        <selector>
+            <item android:state_activated="true">
+                <shape android:shape="rectangle">
+                    <solid android:color="#335B5BF6"/>
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent"/>
+                </shape>
+            </item>
+        </selector>
+    </item>
+    <item android:id="@android:id/mask">
         <shape android:shape="rectangle">
-            <solid android:color="#335B5BF6"/>
+            <solid android:color="#000000"/>
         </shape>
     </item>
-    <item android:drawable="?attr/selectableItemBackground"/>
-</selector>
+</ripple>
