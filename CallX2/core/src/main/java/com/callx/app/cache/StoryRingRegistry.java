@@ -69,6 +69,14 @@ public final class StoryRingRegistry {
         ensureSubscribed(ctx);
     }
 
+    /**
+     * v951: optional explicit unregister (e.g. RecyclerView onViewDetachedFromWindow). The registry value (the refresh
+     * Runnable) usually references the key view's holder, so a WeakHashMap alone can't free such entries.
+     */
+    public static void unregister(View ringHostView) {
+        if (ringHostView != null) RINGS.remove(ringHostView);
+    }
+
     private static void ensureSubscribed(Context ctx) {
         if (subscribed || ctx == null) return;
         synchronized (StoryRingRegistry.class) {

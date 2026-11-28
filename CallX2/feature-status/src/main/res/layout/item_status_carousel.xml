@@ -11,21 +11,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <!-- Shown only until the first status data arrives (see StatusListAdapter.beginInitialLoad) -->
-        <LinearLayout
-            android:id="@+id/ll_status_skeleton"
+        <!-- v952: skeleton row is a ViewStub — inflated only if the first data is genuinely not here yet
+             (never on a restored tab). Inflated view keeps id ll_status_skeleton. -->
+        <ViewStub
+            android:id="@+id/stub_status_skeleton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingBottom="8dp"
-            android:importantForAccessibility="no"
-            android:visibility="gone">
-            <include layout="@layout/item_status_card_skeleton"/>
-            <include layout="@layout/item_status_card_skeleton"/>
-            <include layout="@layout/item_status_card_skeleton"/>
-            <include layout="@layout/item_status_card_skeleton"/>
-        </LinearLayout>
+            android:inflatedId="@+id/ll_status_skeleton"
+            android:layout="@layout/layout_status_skeleton_row"/>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_status_carousel"

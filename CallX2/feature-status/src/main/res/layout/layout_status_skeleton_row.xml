@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v952: inflated lazily by the ViewStub in item_status_carousel.xml (only while the first status data is pending). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingBottom="8dp"
+    android:importantForAccessibility="no">
+    <include layout="@layout/item_status_card_skeleton"/>
+    <include layout="@layout/item_status_card_skeleton"/>
+    <include layout="@layout/item_status_card_skeleton"/>
+    <include layout="@layout/item_status_card_skeleton"/>
+</LinearLayout>

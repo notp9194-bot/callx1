@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v949: filter chip (All / Unread / Groups / Archived) as ONE TextView (was a 4-view item_folder_tab). -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="36dp"
+    android:gravity="center"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:layout_marginStart="6dp"
+    android:layout_marginEnd="6dp"
+    android:textSize="14sp"
+    android:textColor="@color/chat_chip_text"
+    android:maxLines="1"
+    android:ellipsize="end"
+    android:clickable="true"
+    android:focusable="true"
+    android:background="@drawable/bg_chat_chip"/>

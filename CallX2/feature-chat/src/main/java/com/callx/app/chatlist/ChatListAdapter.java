@@ -240,10 +240,28 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     /** Cancels this VH's deferred typing-attach/preload if it hasn't fired yet. */
     private void cancelPendingBindWork(VH h) {
+        // v948 BUGFIX: this used to also set h.pendingBindRunnable = null. The runnable is created ONCE per VH
+        // (VH ctor), and onBindViewHolder calls cancel -> post, so the very first bind nulled it and
+        // postDelayed(null) did nothing: the typing listener / preloadChatIfDue / adjacent-avatar preload never ran.
         if (h.pendingBindRunnable != null) {
             h.itemView.removeCallbacks(h.pendingBindRunnable);
-            h.pendingBindRunnable = null;
         }
+    }
+
+    /** v948: re-arms the settle work when a bound row is (re)attached — see onViewAttachedToWindow. */
+    @Override
+    public void onViewAttachedToWindow(@NonNull VH h) {
+        super.onViewAttachedToWindow(h);
+        if (h.boundUser != null && h.pendingBindRunnable != null) {
+            h.itemView.removeCallbacks(h.pendingBindRunnable);
+            h.itemView.postDelayed(h.pendingBindRunnable, BIND_SETTLE_DELAY_MS);
+        }
+    }
+
+    @Override
+    public void onViewDetachedFromWindow(@NonNull VH h) {
+        super.onViewDetachedFromWindow(h);
+        cancelPendingBindWork(h);   // fling-past rows never pay the typing listener / preload
     }
 
     private void preloadChatIfDue(Context ctx, User u) {
@@ -560,15 +578,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         h.boundUser = u; // v92: keep listeners' view of "current row" fresh on partial binds
 
         if ((flags & CHANGE_TIME) != 0) {
-            Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
-            h.nameTimeView.setTime((when != null && when > 0)
-                    ? ChatListTimeCache.getFormatted(when) : "");
+            applyTime(h, u);
         }
         if ((flags & (CHANGE_LAST_MSG | CHANGE_UNREAD)) != 0) {
             // applySelectionVisuals: badge + lastMsg text + ticks + story ring
             // Skips name, time, avatar — exactly what we need for tick flips
             // and new-message unread increments
-            applySelectionVisuals(h, u);
+            applySelectionVisuals(h, u, false);
         }
     }
 
@@ -577,12 +593,23 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     // instrumenting inline avoids touching every early-return branch below.
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
+        // v948: bind timing only in debuggable builds (release: no nanoTime x2 + stats add per bind).
+        if (!sPerfTiming(h.itemView.getContext())) { onBindViewHolderTimed(h, pos); return; }
         long __t0 = com.callx.app.perf.PerformanceMonitor.get().beginBind();
         try {
             onBindViewHolderTimed(h, pos);
         } finally {
             com.callx.app.perf.PerformanceMonitor.get().endBind(__t0);
         }
+    }
+
+    private static int sPerfTimingState = -1;   // -1 unknown, 0 off, 1 on
+    private static boolean sPerfTiming(Context ctx) {
+        if (sPerfTimingState < 0) {
+            sPerfTimingState = (ctx.getApplicationInfo().flags
+                    & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 ? 1 : 0;
+        }
+        return sPerfTimingState == 1;
     }
 
     private void onBindViewHolderTimed(@NonNull VH h, int pos) {
@@ -611,10 +638,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.nameTimeView, h.verifiedSetter,
                 u.isGroup ? null : u.uid);
 
-        Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
-        // v85: ChatListTimeCache — LruCache keyed by minute, avoids SimpleDateFormat per bind
-        h.nameTimeView.setTime((when != null && when > 0)
-                ? ChatListTimeCache.getFormatted(when) : "");
+        applyTime(h, u);
 
         // v208 — PERF FIX: thumb-only policy for the chat list. Was
         // `thumbUrl != null ? thumbUrl : photoUrl` — if thumbUrl was ever
@@ -696,7 +720,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // zero allocations on the hot scroll path, even during a fast fling.
         cancelPendingBindWork(h);
         h.nextBoundUser = (pos + 1 < list.size()) ? list.get(pos + 1) : null;
-        h.itemView.postDelayed(h.pendingBindRunnable, BIND_SETTLE_DELAY_MS);
+        // v948: an unattached view's postDelayed goes through HandlerActionQueue (allocates a HandlerAction per
+        // call) — a not-yet-attached row is armed from onViewAttachedToWindow() instead.
+        if (h.itemView.isAttachedToWindow()) {
+            h.itemView.postDelayed(h.pendingBindRunnable, BIND_SETTLE_DELAY_MS);
+        }
 
         // v92: call-buttons / avatar / item click+long-click listeners are
         // installed ONCE per VH — see installStaticListeners(), called from
@@ -799,6 +827,18 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         return true;
     }
 
+    /**
+     * v948: per-VH memo of the timestamp the content view is already showing. ChatListTimeCache is an
+     * LruCache<Long,String> (boxes a Long on every get) — an unchanged timestamp now skips it entirely.
+     */
+    private static void applyTime(VH h, User u) {
+        final Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
+        final long w = (when != null && when > 0) ? when : 0L;
+        if (h.tmValid && h.tmWhen / 60_000L == w / 60_000L && (w == 0L) == (h.tmWhen == 0L)) return;
+        h.nameTimeView.setTime(w > 0 ? ChatListTimeCache.getFormatted(w) : "");
+        h.tmWhen = w; h.tmValid = true;
+    }
+
     private static boolean strEq(String x, String y) { return x == null ? y == null : x.equals(y); }
 
     /**
@@ -830,7 +870,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         return t;
     }
 
-    private void applySelectionVisuals(VH h, User u) {
+    private void applySelectionVisuals(VH h, User u) { applySelectionVisuals(h, u, true); }
+
+    /** @param refreshRing false for message/unread partial binds: the story ring cannot have changed there
+     *  (StoryRingRegistry repaints attached rings on any story/seen change), so skip the status-cache lookups. */
+    private void applySelectionVisuals(VH h, User u, boolean refreshRing) {
         Context ctx = h.itemView.getContext();
         ensureColorsResolved(ctx);
         boolean selected  = u.uid != null && selectedUids.contains(u.uid);
@@ -888,7 +932,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 h.ringMode = VH.RING_GROUP;
             }
             h.ringUid = null;
-        } else if (u.uid != null) {
+        } else if (u.uid != null && (refreshRing || h.ringMode != VH.RING_USER || !u.uid.equals(h.ringUid))) {
             // Instagram-style instant propagation: ringRefresh is the row's own "repaint my ring"
             // logic. It runs now (initial bind) AND again, automatically, whenever ANY screen in the
             // app marks the uid's story seen — see StoryRingRegistry. It reads ringUid /
@@ -1370,6 +1414,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         long avVer;
         String avPhoto, avUrl;
         // v945: preview memo + reusable typing listeners
+        boolean tmValid;                                 // v948: time memo (see applyTime)
+        long tmWhen;
         boolean pvValid, pvGroup;
         String pvMsg, pvType, pvSender, pvText;
         int pvMembers;

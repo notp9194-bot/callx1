@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Google Phone style — flat row, no card, simple right-side phone icon -->
+<!-- v951: flattened — 7 views / 3 levels (was 13 views / 4 levels).
+     - story ring = background of the avatar host (no ring ImageView overlay, no overdraw)
+     - direction icon = start compound drawable of tv_meta (no ImageView + row LinearLayout)
+     - verified badge = end compound drawable of tv_name (no ImageView + row LinearLayout)
+     - dead 0dp btn_video_call removed -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -11,12 +15,13 @@
     android:paddingTop="11dp"
     android:paddingBottom="11dp"
     android:gravity="center_vertical"
-    android:background="?attr/selectableItemBackground"
+    android:background="@drawable/bg_call_row"
     android:clickable="true"
     android:focusable="true">
 
-    <!-- Avatar + Story ring -->
+    <!-- Avatar (+ story ring as host background, set only when the ring state changes) -->
     <FrameLayout
+        android:id="@+id/avatar_host"
         android:layout_width="50dp"
         android:layout_height="50dp">
 
@@ -29,19 +34,9 @@
             android:clickable="true"
             android:focusable="true"
             app:civ_border_width="0dp"/>
-
-        <ImageView
-            android:id="@+id/iv_story_ring"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:layout_gravity="center"
-            android:background="@drawable/circle_status_unseen"
-            android:clickable="true"
-            android:focusable="true"
-            android:visibility="gone"/>
     </FrameLayout>
 
-    <!-- Name + direction + meta -->
+    <!-- Name + meta -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -49,63 +44,25 @@
         android:orientation="vertical"
         android:layout_marginStart="13dp">
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/tv_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:drawablePadding="3dp"/>
 
-            <TextView
-                android:id="@+id/tv_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:singleLine="true"
-                android:ellipsize="end"/>
-
-            <ImageView
-                android:id="@+id/iv_verified"
-                android:layout_width="13dp"
-                android:layout_height="13dp"
-                android:layout_marginStart="3dp"
-                android:src="@drawable/ic_verified_pink"
-                android:visibility="gone"
-                android:contentDescription="Verified"/>
-        </LinearLayout>
-
-        <LinearLayout
+        <TextView
+            android:id="@+id/tv_meta"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="2dp">
-
-            <ImageView
-                android:id="@+id/iv_direction"
-                android:layout_width="13dp"
-                android:layout_height="13dp"
-                android:src="@drawable/ic_phone"
-                android:layout_marginEnd="4dp"/>
-
-            <TextView
-                android:id="@+id/tv_meta"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"/>
-        </LinearLayout>
+            android:layout_marginTop="2dp"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:drawablePadding="4dp"/>
     </LinearLayout>
-
-    <!-- Right side: simple phone icon only (Google Phone style) -->
-    <!-- btn_video_call kept as 0dp hidden for adapter compatibility -->
-    <ImageButton
-        android:id="@+id/btn_video_call"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:visibility="gone"
-        android:background="@null"
-        android:contentDescription="Video call"/>
 
     <ImageButton
         android:id="@+id/btn_call_back"

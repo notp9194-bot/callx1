@@ -984,6 +984,7 @@ package com.callx.app.feed;
           RecyclerView rvCarousel;
           StatusCardAdapter cardAdapter;
           View llSkeleton;
+          android.view.ViewStub stubSkeleton;   // v952: skeleton row inflated lazily, only while first data is pending
           android.animation.ObjectAnimator pulse;
           Runnable skeletonTimeout;
           View fadeL, fadeR;
@@ -1005,7 +1006,18 @@ package com.callx.app.feed;
               final int t = show ? View.VISIBLE : View.INVISIBLE; // INVISIBLE: no relayout
               if (v.getVisibility() != t) v.setVisibility(t);
           }
+          /** v952: inflates the skeleton row on first need (never on a restored tab). */
+          void ensureSkeleton() {
+              if (llSkeleton != null || stubSkeleton == null) return;
+              llSkeleton = stubSkeleton.inflate();
+              stubSkeleton = null;
+              llSkeleton.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                  @Override public void onViewAttachedToWindow(View x) { if (llSkeleton.getVisibility() == View.VISIBLE) startPulse(); }
+                  @Override public void onViewDetachedFromWindow(View x) { if (pulse != null) pulse.cancel(); }
+              });
+          }
           void showSkeleton() {
+              ensureSkeleton();
               if (llSkeleton == null) return;
               rvCarousel.setVisibility(View.INVISIBLE);
               updateFades();
@@ -1035,7 +1047,7 @@ package com.callx.app.feed;
           CarouselVH(View v) {
               super(v);
               rvCarousel = v.findViewById(R.id.rv_status_carousel);
-              llSkeleton = v.findViewById(R.id.ll_status_skeleton);
+              stubSkeleton = v.findViewById(R.id.stub_status_skeleton);
               tvEmpty    = v.findViewById(R.id.tv_carousel_empty);
               // v561: title moved to the top bar (fragment_status.xml); no tv_carousel_title here anymore.
               // Skeleton safety-net timeout must not outlive the view: cancel on detach, re-arm on attach
@@ -1061,12 +1073,6 @@ package com.callx.app.feed;
                           android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, new int[]{ surface, clear }));
                   fadeR.setBackground(new android.graphics.drawable.GradientDrawable(
                           android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, new int[]{ clear, surface }));
-              }
-              if (llSkeleton != null) {
-                  llSkeleton.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-                      @Override public void onViewAttachedToWindow(View x) { if (llSkeleton.getVisibility() == View.VISIBLE) startPulse(); }
-                      @Override public void onViewDetachedFromWindow(View x) { if (pulse != null) pulse.cancel(); }
-                  });
               }
           }
       }
@@ -1261,19 +1267,13 @@ package com.callx.app.feed;
               setHasStableIds(true);
           }
 
-          // ── v554: async pre-inflated card views ─────────────────────────
-          private final java.util.ArrayDeque<View> preInflated = new java.util.ArrayDeque<>();
+          // ── v952: card views come from StatusCardViewPool (filled off the main thread, survives fragment re-creation) ──
           void preInflate(RecyclerView rv, int count) {
-              try {
-                  final androidx.asynclayoutinflater.view.AsyncLayoutInflater ali =
-                          new androidx.asynclayoutinflater.view.AsyncLayoutInflater(rv.getContext());
-                  for (int i = 0; i < count; i++)
-                      ali.inflate(R.layout.item_status_card, rv, (view, resid, parent) -> preInflated.add(view));
-              } catch (Throwable ignored) { /* falls back to sync inflate in obtainCardView */ }
+              StatusCardViewPool.warm(rv.getContext(), Math.max(count, 7));
           }
           private View obtainCardView(ViewGroup parent) {
-              View v = preInflated.poll();
-              if (v != null && v.getParent() == null) return v;
+              View v = StatusCardViewPool.take(parent.getContext());
+              if (v != null) return v;
               return LayoutInflater.from(parent.getContext()).inflate(R.layout.item_status_card, parent, false);
           }
 
@@ -1629,7 +1629,8 @@ package com.callx.app.feed;
               h.ivBg.setColorFilter(null);
               // v557: setBackgroundColor() allocates a ColorDrawable + invalidates — only needed after a hidden-tile bind
               // (the XML already sets this colour on a fresh holder).
-              if (h.hiddenStyle) { h.ivBg.setBackgroundColor(col(ctx, R.color.status_card_placeholder)); h.hiddenStyle = false; }
+              // v952: the placeholder colour now comes from the card body, so leaving the hidden style just clears the override.
+              if (h.hiddenStyle) { h.ivBg.setBackground(null); h.hiddenStyle = false; }
               h.ring.setVisibility(View.VISIBLE);
               h.ivAvatar.setVisibility(View.VISIBLE);
               if (h.flAvatar != null) h.flAvatar.setVisibility(View.VISIBLE);

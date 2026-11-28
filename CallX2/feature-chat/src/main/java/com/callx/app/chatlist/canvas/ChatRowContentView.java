@@ -264,14 +264,9 @@ public class ChatRowContentView extends View {
     }
 
     private Bitmap loadVerifiedBadgeBitmap(Context ctx) {
-        Drawable d = ContextCompat.getDrawable(ctx, com.callx.app.core.R.drawable.ic_verified_pink);
-        if (d == null) return null;
-        int size = Math.max(1, Math.round(verifiedBadgeSizePx));
-        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(bmp);
-        d.setBounds(0, 0, size, size);
-        d.draw(c);
-        return bmp;
+        // v948: one shared, pre-rasterized bitmap for every row (was a vector inflate + Bitmap per ViewHolder).
+        return ChatRowIconCache.get(ctx, com.callx.app.core.R.drawable.ic_verified_pink,
+                Math.max(1, Math.round(verifiedBadgeSizePx)), 0);
     }
 
     // ── Row 2 setters (identical signatures to ChatListLastMessageView) ─
@@ -411,8 +406,10 @@ public class ChatRowContentView extends View {
         // entries would be too wide for bold (unread) text and get clipped at
         // the view edge — for bold rows measure here instead. Runs once per
         // bind/width change (guarded by msgDirty above), never per frame.
-        CharSequence cached = msgBold ? null : com.callx.app.chatlist.ChatListTextPrecompute
-                .getMessage(rawMsg, avail);
+        // v948: precompute now has a bold-paint variant too, so unread rows no longer fall through to a
+        // main-thread TextUtils.ellipsize in onDraw. Italic is never used by the list -> only plain/bold cached.
+        CharSequence cached = msgItalic ? null : com.callx.app.chatlist.ChatListTextPrecompute
+                .getMessage(rawMsg, avail, msgBold);
         ellipsizedMsg = (cached != null)
                 ? cached
                 : TextUtils.ellipsize(rawMsg, msgPaint,
@@ -472,6 +469,11 @@ public class ChatRowContentView extends View {
             canvas.drawPath(PIN_PATH, pinPaint);
             canvas.restoreToCount(save);
         }
+    }
+
+    @Override
+    public boolean hasOverlappingRendering() {
+        return false;   // v948: text-only content, never needs an off-screen layer
     }
 
     private void drawTicks(Canvas canvas, float x, float baselineY) {

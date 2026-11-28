@@ -121,8 +121,30 @@ public final class StatusAvatarBinder {
     /** No photo: coloured initial circle instead of the grey person icon. No-op when a photo exists. */
     public static void setInitialsIfNoPhoto(ImageView iv, String photo, String name, String uid) {
         if (photo != null && !photo.isEmpty()) return;
-        iv.setImageDrawable(new com.callx.app.utils.InitialsAvatarDrawable(name, uid));
+        iv.setImageDrawable(initialsDrawable(iv.getResources(), name, uid));
         iv.setTag(null);
+    }
+
+    // v952: initials circles are rendered into a small shared bitmap once per (uid, name). A fresh InitialsAvatarDrawable per bind
+    // allocated 2 Paints and made CircleImageView redraw it into a new Bitmap every time.
+    private static final int INITIALS_PX = 144;
+    private static final android.util.LruCache<String, android.graphics.Bitmap> INITIALS_CACHE = new android.util.LruCache<>(32);
+    private static android.graphics.drawable.Drawable initialsDrawable(android.content.res.Resources res, String name, String uid) {
+        final String key = (uid == null ? "" : uid) + "|" + (name == null ? "" : name.trim());
+        android.graphics.Bitmap bmp;
+        synchronized (INITIALS_CACHE) { bmp = INITIALS_CACHE.get(key); }
+        if (bmp == null) {
+            try {
+                bmp = android.graphics.Bitmap.createBitmap(INITIALS_PX, INITIALS_PX, android.graphics.Bitmap.Config.ARGB_8888);
+                final com.callx.app.utils.InitialsAvatarDrawable d = new com.callx.app.utils.InitialsAvatarDrawable(name, uid);
+                d.setBounds(0, 0, INITIALS_PX, INITIALS_PX);
+                d.draw(new android.graphics.Canvas(bmp));
+                synchronized (INITIALS_CACHE) { INITIALS_CACHE.put(key, bmp); }
+            } catch (Throwable t) {
+                return new com.callx.app.utils.InitialsAvatarDrawable(name, uid);   // OOM etc.: old behaviour
+            }
+        }
+        return new android.graphics.drawable.BitmapDrawable(res, bmp);
     }
 
     /** Unconditional real bind — used once a row is known to be visible. See {@link #bindGated} for the offscreen-aware entry point. */

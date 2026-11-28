@@ -10,122 +10,14 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- Selection action bar (visible on long-press) -->
-        <LinearLayout
-            android:id="@+id/ll_selection_bar"
+        <!-- v949: selection action bar is a ViewStub (7 views + 6 listeners no longer built on every tab open);
+             inflated on the first long-press. Layout: chats_selection_bar.xml -->
+        <ViewStub
+            android:id="@+id/vs_selection_bar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:background="@color/brand_primary"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp"
-            android:gravity="center_vertical"
-            android:visibility="gone">
-
-            <!-- Cancel button -->
-            <TextView
-                android:id="@+id/btn_cancel_selection_chats"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="✕"
-                android:textColor="@color/white"
-                android:textSize="18sp"
-                android:paddingStart="4dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <!-- Selected count -->
-            <TextView
-                android:id="@+id/tv_selected_count"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="@color/white"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:text="0 selected"/>
-
-            <!-- Select All -->
-            <TextView
-                android:id="@+id/btn_select_all_chats"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="All"
-                android:textColor="@color/white"
-                android:textSize="13sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <!-- Pin/Unpin selected -->
-            <TextView
-                android:id="@+id/btn_pin_selected_chats"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Pin"
-                android:textColor="@color/white"
-                android:textSize="13sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <!-- Mute/unmute selected groups -->
-            <TextView
-                android:id="@+id/btn_mute_selected_chats"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Mute"
-                android:textColor="@color/white"
-                android:textSize="13sp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <!-- Archive/unarchive selected groups -->
-            <TextView
-                android:id="@+id/btn_archive_selected_chats"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Archive"
-                android:textColor="@color/white"
-                android:textSize="13sp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <!-- Delete selected -->
-            <ImageView
-                android:id="@+id/btn_delete_selected_chats"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
-                android:src="@drawable/ic_delete"
-                android:tint="#FFCDD2"
-                android:paddingStart="4dp"
-                android:paddingEnd="4dp"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:contentDescription="Delete selected"/>
-
-        </LinearLayout>
+            android:inflatedId="@+id/ll_selection_bar"
+            android:layout="@layout/chats_selection_bar"/>
 
         <!-- Premium chat/message search — matches the Status tab search field. -->
         <FrameLayout
@@ -175,65 +67,6 @@
                 android:visibility="gone"
                 android:contentDescription="Clear chat search"/>
         </FrameLayout>
-
-        <!-- Request banner (hidden by default) -->
-        <LinearLayout
-            android:id="@+id/banner_requests"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:padding="14dp"
-            android:layout_margin="10dp"
-            android:background="@drawable/bg_request_banner"
-            android:clickable="true"
-            android:focusable="true"
-            android:visibility="gone">
-
-            <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_person_add"
-                android:padding="8dp"
-                android:background="@drawable/bg_circle_white"/>
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:layout_marginStart="12dp">
-
-                <TextView
-                    android:id="@+id/tv_request_title"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Naye contact requests"
-                    android:textColor="#FFFFFF"
-                    android:textSize="15sp"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:id="@+id/tv_request_sub"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Tap karke dekho"
-                    android:textColor="#E0E7FF"
-                    android:textSize="12sp"/>
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tv_request_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="28dp"
-                android:gravity="center"
-                android:padding="6dp"
-                android:textColor="@color/brand_primary"
-                android:textStyle="bold"
-                android:textSize="14sp"
-                android:background="@drawable/bg_circle_white"/>
-        </LinearLayout>
 
         <!-- v251: Quick-access card header (Add Story / My Status / Games)
              removed — moved to 3-dot overflow menu (MainActivity, X/YouTube/
@@ -313,15 +146,15 @@
 
         <!-- v92: pagination footer — shown briefly while an older page of
              chats loads after the user scrolls near the bottom of the list. -->
-        <ProgressBar
-            android:id="@+id/pb_loading_more_chats"
-            style="?android:attr/progressBarStyleSmall"
+        <ViewStub
+            android:id="@+id/vs_loading_more_chats"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="4dp"
             android:layout_marginBottom="10dp"
-            android:visibility="gone"/>
+            android:inflatedId="@+id/pb_loading_more_chats"
+            android:layout="@layout/chats_loading_more"/>
 
     </LinearLayout>
 

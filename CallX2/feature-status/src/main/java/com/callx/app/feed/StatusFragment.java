@@ -132,6 +132,16 @@ public class StatusFragment extends BaseFragment {
     private androidx.swiperefreshlayout.widget.SwipeRefreshLayout swipeRefresh;
     private String   searchQuery = "";
 
+    // v952: "dirty" = something the card list depends on may have changed since the last rebuild. onStart of a LIVE fragment
+    // skips the (alloc-heavy) main-thread rebuild unless dirty / a label is due / a status expired. Data callbacks all go through
+    // rebuildStatusAdapter()/rebuildStatusAdapterNow() (which set it); mute/hide/close-friends/seen prefs set it via the listener.
+    private boolean rebuildDirty = true;
+    private android.content.Context viewCtx;
+    private static final String[] DIRTY_PREFS = {"status_mute_prefs", "status_hide_prefs", "close_friends_prefs", "story_seen_state"};
+    private final android.content.SharedPreferences.OnSharedPreferenceChangeListener prefsDirtyListener =
+        (sp, key) -> rebuildDirty = true;   // field = strong ref (SharedPreferences holds listeners weakly)
+    private List<StatusListAdapter.Entry> lbUnseen, lbSeen, lbMuted, lbHidden;   // last lists given to the adapter (saved to StatusTabState in onStop)
+
     // ── Lifecycle ─────────────────────────────────────────────────────────
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -147,16 +157,18 @@ public class StatusFragment extends BaseFragment {
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_status, parent, false);
         if (!isAuthenticated()) return v;
+        viewCtx = v.getContext();
+        StatusCardViewPool.warm(viewCtx, 7);   // v952: cards for the first carousel screen are inflated off-thread, before the first layout needs them
+        registerDirtyPrefs();
 
         // ── ViewModels ───────────────────────────────────────────────────
         channelViewModel = new ViewModelProvider(this).get(ChannelViewModel.class);
         statusViewModel  = new ViewModelProvider(this).get(StatusViewModel.class);
 
         // ── Search ───────────────────────────────────────────────────────
-        etSearch = v.findViewById(R.id.et_status_search);
-        final View btnSearchClear = v.findViewById(R.id.btn_status_search_clear);
+        // v952: the inline search field (EditText + box) is a ViewStub — inflated on the first tap of the search icon only.
         final View btnSearchOpen  = v.findViewById(R.id.btn_status_search_open);
-        final View searchBox      = v.findViewById(R.id.fl_status_search);
+        final ViewStub searchStub = v.findViewById(R.id.stub_status_search);
         final TextView titleView  = v.findViewById(R.id.tv_status_title);
         if (titleView != null) {
             androidx.core.view.ViewCompat.setAccessibilityHeading(titleView, true);
@@ -164,19 +176,11 @@ public class StatusFragment extends BaseFragment {
             if (getResources().getConfiguration().fontScale > 1.3f)
                 titleView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 21f * 1.3f);
         }
-        if (etSearch != null) {
-            etSearch.addTextChangedListener(new TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
-                    searchQuery = s.toString().trim().toLowerCase();
-                    rebuildStatusAdapterNow();
-                }
-                @Override public void afterTextChanged(Editable s) {}
-            });
-        }
         // v561: search is an icon in the top row; tapping it swaps title + icon for the inline field.
-        if (btnSearchOpen != null && searchBox != null) {
+        if (btnSearchOpen != null && searchStub != null) {
             btnSearchOpen.setOnClickListener(x -> {
+                View searchBox = v.findViewById(R.id.fl_status_search);
+                if (searchBox == null) searchBox = inflateSearchField(searchStub, v, btnSearchOpen, titleView);
                 searchBox.setVisibility(View.VISIBLE);
                 btnSearchOpen.setVisibility(View.GONE);
                 if (titleView != null) titleView.setVisibility(View.GONE);
@@ -188,20 +192,6 @@ public class StatusFragment extends BaseFragment {
                 }
             });
         }
-        if (btnSearchClear != null)
-            btnSearchClear.setOnClickListener(x -> {
-                if (etSearch != null && etSearch.length() > 0) { etSearch.setText(""); return; } // 1st tap: clear text
-                // 2nd tap (already empty): close the field, bring back title + icon
-                if (searchBox != null) searchBox.setVisibility(View.GONE);
-                if (btnSearchOpen != null) btnSearchOpen.setVisibility(View.VISIBLE);
-                if (titleView != null) titleView.setVisibility(View.VISIBLE);
-                if (etSearch != null) {
-                    etSearch.clearFocus();
-                    android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
-                            requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
-                    if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
-                }
-            });
 
         // ── Status privacy shortcut (v51) ───────────────────────────────
         View btnPrivacy = v.findViewById(R.id.btn_status_privacy);
@@ -380,6 +370,85 @@ public class StatusFragment extends BaseFragment {
         return v;
     }
 
+    /** v952: inflates the search field stub once and wires the EditText watcher + clear/close button. */
+    private View inflateSearchField(ViewStub stub, View root, final View btnSearchOpen, final TextView titleView) {
+        final View searchBox = stub.inflate();
+        etSearch = root.findViewById(R.id.et_status_search);
+        final View btnSearchClear = root.findViewById(R.id.btn_status_search_clear);
+        if (etSearch != null) {
+            etSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                    searchQuery = s.toString().trim().toLowerCase();
+                    rebuildStatusAdapterNow();
+                }
+                @Override public void afterTextChanged(Editable s) {}
+            });
+        }
+        if (btnSearchClear != null)
+            btnSearchClear.setOnClickListener(x -> {
+                if (etSearch != null && etSearch.length() > 0) { etSearch.setText(""); return; } // 1st tap: clear text
+                // 2nd tap (already empty): close the field, bring back title + icon
+                searchBox.setVisibility(View.GONE);
+                if (btnSearchOpen != null) btnSearchOpen.setVisibility(View.VISIBLE);
+                if (titleView != null) titleView.setVisibility(View.VISIBLE);
+                if (etSearch != null) {
+                    etSearch.clearFocus();
+                    android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                            requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+                }
+            });
+        return searchBox;
+    }
+
+    private void registerDirtyPrefs() {
+        try {
+            for (String name : DIRTY_PREFS)
+                viewCtx.getSharedPreferences(name, android.content.Context.MODE_PRIVATE)
+                       .registerOnSharedPreferenceChangeListener(prefsDirtyListener);
+        } catch (Throwable ignored) { rebuildDirty = true; }
+    }
+
+    private void unregisterDirtyPrefs() {
+        if (viewCtx == null) return;
+        try {
+            for (String name : DIRTY_PREFS)
+                viewCtx.getSharedPreferences(name, android.content.Context.MODE_PRIVATE)
+                       .unregisterOnSharedPreferenceChangeListener(prefsDirtyListener);
+        } catch (Throwable ignored) {}
+    }
+
+    /** v952: allocation-free check — has any held status expired / been deleted since the last rebuild? */
+    private boolean anyStatusExpired() {
+        final long now = com.callx.app.utils.ServerClock.now();
+        for (List<StatusItem> l : statusMap.values())
+            for (StatusItem it : l)
+                if (it.effectiveExpiry() <= now || Boolean.TRUE.equals(it.deleted)) return true;
+        for (StatusItem it : myStatuses)
+            if (it.effectiveExpiry() <= now || Boolean.TRUE.equals(it.deleted)) return true;
+        return false;
+    }
+
+    /**
+     * v952: first frame of a re-created tab = the exact lists the adapter last held (StatusTabState), handed over as one
+     * adapter.update() — no per-contact rebuild loop, sorts or prefs reads before first paint. A debounced catch-up rebuild
+     * (expiry / mute / hide / seen changes while the tab was gone) follows; identical content is skipped by lastBuildSig.
+     */
+    private boolean applyBuiltSnapshot() {
+        if (statusAdapter == null || !searchQuery.isEmpty()) return false;
+        final List<StatusListAdapter.Entry>[] b = StatusTabState.builtLists(myUid());
+        if (b == null) return false;
+        lastHiddenEntries = b[3];
+        queueOwnerUids.clear(); queueOwnerNames.clear(); queueOwnerPhotos.clear();
+        for (StatusListAdapter.Entry en : b[0]) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
+        for (StatusListAdapter.Entry en : b[1]) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); queueOwnerPhotos.add(en.ownerPhoto == null ? "" : en.ownerPhoto); }
+        hasBuilt = true; lastBuildSig = StatusTabState.builtSig();
+        statusAdapter.setSearchEmptyQuery(null);
+        statusAdapter.update(b[0], b[1], b[2], b[3].size());
+        return true;
+    }
+
     @Override public void onStart() {
         super.onStart();
         com.callx.app.utils.StatusPerf.begin("StatusTab#start");
@@ -404,11 +473,16 @@ public class StatusFragment extends BaseFragment {
         }
 
         // Status: legacy listeners (will move to StatusViewModel in next sprint)
-        if (restoredFromState) { restoredFromState = false; rebuildStatusAdapterNow(); }   // v731: first frame = last known cards
+        if (restoredFromState) {   // v731: first frame = last known cards (v952: straight from the saved built lists when we have them)
+            restoredFromState = false;
+            if (applyBuiltSnapshot()) { rebuildDirty = false; rebuildStatusAdapter(); }   // debounced catch-up, after first paint
+            else rebuildStatusAdapterNow();
+        }
         final boolean listenersLive = !statusListeners.isEmpty() && seenListener != null;
         if (listenersLive) {
-            // Realtime listeners never stopped (grace period) -> maps are current. Just refresh time labels.
-            rebuildStatusAdapter();
+            // Realtime listeners never stopped (grace period) -> maps are current. v952: rebuild only if something can have changed.
+            if (rebuildDirty || !hasBuilt || System.currentTimeMillis() >= nextLabelChangeMs || anyStatusExpired())
+                rebuildStatusAdapter();
         } else {
             // Only seed from cache/Room when there is nothing in memory yet.
             if (statusMap.isEmpty() && myStatuses.isEmpty()) {
@@ -435,6 +509,11 @@ public class StatusFragment extends BaseFragment {
     @Override public void onStop() {
         if (statusAdapter != null && isAuthenticated())
             StatusTabState.save(myUid(), statusMap, myStatuses, seenMap, blockedUids, statusAdapter.captureCarouselScroll());
+        if (statusAdapter != null && isAuthenticated()) {
+            if (hasBuilt && searchQuery.isEmpty() && lbUnseen != null && (!statusMap.isEmpty() || !myStatuses.isEmpty()))
+                StatusTabState.saveBuilt(lbUnseen, lbSeen, lbMuted, lbHidden, lastBuildSig);
+            else if (!searchQuery.isEmpty()) StatusTabState.saveBuilt(null, null, null, null, 0L);   // filtered lists must never seed a fresh tab
+        }
         // Keep realtime listeners for a short grace period (quick tab switches reuse them); onDestroy detaches for good.
         statusExpirySweepHandler.removeCallbacks(detachRunnable);
         statusExpirySweepHandler.postDelayed(detachRunnable, DETACH_GRACE_MS);
@@ -445,6 +524,16 @@ public class StatusFragment extends BaseFragment {
                 .getInstance(getContext()).removeObserver(statusCacheObserver);
         // mediaPreloader is the app-wide singleton: never shut down here (would reset its dedupe state every tab close).
         super.onStop();
+    }
+
+    @Override public void onDestroyView() {
+        unregisterDirtyPrefs();
+        final android.content.Context c = viewCtx;
+        viewCtx = null;
+        super.onDestroyView();
+        // v952: this view's cards are gone — restock the pool so the NEXT re-creation of the tab finds them ready.
+        if (c != null && !(c instanceof android.app.Activity && ((android.app.Activity) c).isFinishing()))
+            StatusCardViewPool.warm(c, 7);
     }
 
     @Override public void onDestroy() {
@@ -520,6 +609,7 @@ public class StatusFragment extends BaseFragment {
         if (!isAuthenticated() || getContext() == null) return;
         com.callx.app.cache.StatusCacheManager scm =
             com.callx.app.cache.StatusCacheManager.getInstance(getContext());
+        rebuildDirty = true;   // v952: seenMap / statusMap may change below even when no rebuild is triggered
         // v731: seen state from the shared cache too (was: only from the Firebase statusSeen listener, so the first paint
         // treated every contact as unseen and then re-sorted the carousel when the listener answered).
         for (Map.Entry<String, Set<String>> se : scm.getSeenMap().entrySet())
@@ -909,17 +999,20 @@ public class StatusFragment extends BaseFragment {
 
     /** Debounced rebuild — for data callbacks (Firebase, seen map, expiry sweep). */
     private void rebuildStatusAdapter() {
+        rebuildDirty = true;
         rebuildHandler.removeCallbacks(rebuildRunnable);
         rebuildHandler.postDelayed(rebuildRunnable, REBUILD_DEBOUNCE_MS);
     }
 
     /** Immediate rebuild — first paint (cache/Room seed), search typing and direct user actions (hide/mute/close-friend). */
     private void rebuildStatusAdapterNow() {
+        rebuildDirty = true;
         com.callx.app.utils.StatusPerf.begin("StatusTab#rebuild");
         try { rebuildStatusAdapterNowImpl(); } finally { com.callx.app.utils.StatusPerf.end(); }
     }
 
     private void rebuildStatusAdapterNowImpl() {
+        rebuildDirty = false;
         rebuildHandler.removeCallbacks(rebuildRunnable);
         if (getContext() == null) return;
         Set<String> mutedSet  = StatusMuteManager.getMutedSet(getContext());
@@ -981,6 +1074,7 @@ public class StatusFragment extends BaseFragment {
             a.latestTimestamp == null ? 0 : a.latestTimestamp);
         unseen.sort(byTime); seen.sort(byTime); muted.sort(byTime); hidden.sort(byTime);
         lastHiddenEntries = hidden; // v236 — kept for the Hidden updates screen
+        lbUnseen = unseen; lbSeen = seen; lbMuted = muted; lbHidden = hidden;   // v952: saved to StatusTabState in onStop
         // Instagram-style continuous playback: remember the same order the
         // tray is actually rendered in (unseen first, then seen — muted/
         // hidden are deliberately excluded, same as they're tucked away in

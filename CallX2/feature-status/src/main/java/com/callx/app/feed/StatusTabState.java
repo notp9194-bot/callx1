@@ -28,6 +28,28 @@ final class StatusTabState {
     private static final Set<String> BLOCKED = new HashSet<>();
     private static int scrollPos = -1, scrollOff;
     private static boolean has;
+    // v952: last list handed to the adapter (immutable Entry objects) so the first frame of a re-created tab is a plain
+    // adapter.update() — no per-contact rebuild loop / sort / prefs reads on the main thread before first paint.
+    private static List<StatusListAdapter.Entry> bUnseen, bSeen, bMuted, bHidden;
+    private static long bSig;
+    private static boolean hasBuilt;
+
+    /** Main thread only. Pass nulls (or call with a search active) to drop the snapshot. */
+    static synchronized void saveBuilt(List<StatusListAdapter.Entry> unseen, List<StatusListAdapter.Entry> seen,
+                                       List<StatusListAdapter.Entry> muted, List<StatusListAdapter.Entry> hidden, long sig) {
+        if (unseen == null) { hasBuilt = false; bUnseen = bSeen = bMuted = bHidden = null; return; }
+        bUnseen = new ArrayList<>(unseen); bSeen = new ArrayList<>(seen);
+        bMuted  = new ArrayList<>(muted);  bHidden = new ArrayList<>(hidden);
+        bSig = sig; hasBuilt = true;
+    }
+
+    /** {unseen, seen, muted, hidden} copies, or null when no snapshot (or a different account). */
+    @SuppressWarnings("unchecked")
+    static synchronized List<StatusListAdapter.Entry>[] builtLists(String myUid) {
+        if (!has || !hasBuilt || myUid == null || !myUid.equals(uid)) return null;
+        return new List[]{ new ArrayList<>(bUnseen), new ArrayList<>(bSeen), new ArrayList<>(bMuted), new ArrayList<>(bHidden) };
+    }
+    static synchronized long builtSig() { return bSig; }
 
     /** Main thread only. {@code scroll} may be null. */
     static synchronized void save(String myUid, Map<String, List<StatusItem>> status, List<StatusItem> mine,
@@ -62,5 +84,6 @@ final class StatusTabState {
 
     static synchronized void clear() {
         uid = null; STATUS.clear(); MINE.clear(); SEEN.clear(); BLOCKED.clear(); scrollPos = -1; scrollOff = 0; has = false;
+        hasBuilt = false; bUnseen = bSeen = bMuted = bHidden = null;
     }
 }

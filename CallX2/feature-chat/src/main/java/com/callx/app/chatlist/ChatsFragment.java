@@ -229,6 +229,19 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private Long roomCursorTimestamp = null;
     private String roomCursorChatId = null;
     private ProgressBar pbLoadingMoreChats;
+    // v949: lazily-inflated header pieces (ViewStubs) + memo state for the chip rows
+    private android.view.ViewStub vsSelectionBar, vsLoadingMore;
+    private long chipsDataVersion = -1L;
+    private LinearLayout chipsViewRef;
+    private boolean chipHasArchived;
+    private long chipArchivedUnread;
+    private String chipArchivedLabel;
+    private String lastFoldersSig;
+    private LinearLayout foldersBuiltFor;
+    private final View.OnClickListener chatFilterClick = v -> {
+        Object t = v.getTag();
+        if (t instanceof Integer) onChatFilterTapped((Integer) t);
+    };
     // v210: true while `contacts` holds ONLY the instant-snapshot placeholder
     // (see ChatSnapshotCache) and no real Room/Firebase data has landed yet.
     // loadFromRoom()'s "only render if contacts.isEmpty()" guard exists to
@@ -271,9 +284,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         searchEmptyState = v.findViewById(R.id.tv_chat_search_empty);
         etChatSearch     = v.findViewById(R.id.et_chat_search);
         btnChatSearchClear = v.findViewById(R.id.btn_chat_search_clear);
-        llSelectionBar   = v.findViewById(R.id.ll_selection_bar);
-        tvSelectedCount  = v.findViewById(R.id.tv_selected_count);
-        pbLoadingMoreChats = v.findViewById(R.id.pb_loading_more_chats);
+        // v949: selection bar + "loading more" spinner are ViewStubs now (inflated on first use).
+        vsSelectionBar   = v.findViewById(R.id.vs_selection_bar);
+        vsLoadingMore    = v.findViewById(R.id.vs_loading_more_chats);
+        llSelectionBar   = null;
+        tvSelectedCount  = null;
+        pbLoadingMoreChats = null;
 
         // v943: an adapter that survived the previous view already shows the current list — keep the
         // "last applied" markers so applyChatSearch() below is a no-op (no sort, no diff, no precompute)
@@ -295,8 +311,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         archivedChatUids.addAll(chatListPrefs.getStringSet(KEY_ARCHIVED_CHATS, Collections.emptySet()));
 
         com.callx.app.debug.TabOpenPerfLog.mark("pinned/archived prefs read");
-        View banner = v.findViewById(R.id.banner_requests);
-        if (banner != null) banner.setVisibility(View.GONE);
+        // v949: dead banner_requests layout (never shown) removed from fragment_chats.xml.
 
         // v251: Quick-access card header removed (Add Story / My Status /
         // Games) — X / YouTube / Games moved to the 3-dot overflow menu in
@@ -525,33 +540,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         // v21: longPressListener NOT set → long-press now starts selection mode directly.
 
-        // Selection bar buttons
-        v.findViewById(R.id.btn_cancel_selection_chats).setOnClickListener(x -> {
-            adapter.clearSelection();
-            llSelectionBar.setVisibility(View.GONE);
-        });
-
-        v.findViewById(R.id.btn_select_all_chats).setOnClickListener(x -> {
-            adapter.selectAll();
-            updateSelectionCount();
-        });
-
-        v.findViewById(R.id.btn_delete_selected_chats).setOnClickListener(x ->
-            confirmDeleteSelected());
-
-        v.findViewById(R.id.btn_pin_selected_chats).setOnClickListener(x ->
-            togglePinnedSelected());
-
         // Feature 1: Chat Folders — setup folder chip row
         hsvFolders   = v.findViewById(R.id.hsv_folders);
         llFolderTabs = v.findViewById(R.id.ll_folder_tabs);
 
         // Unified list: filter chips + group-aware selection actions
         setupChatFilterChips(v);
-        View btnMute = v.findViewById(R.id.btn_mute_selected_chats);
-        if (btnMute != null) btnMute.setOnClickListener(x -> muteSelectedGroups());
-        View btnArchive = v.findViewById(R.id.btn_archive_selected_chats);
-        if (btnArchive != null) btnArchive.setOnClickListener(x -> archiveSelectedGroups());
         viewModel    = new ViewModelProvider(requireActivity()).get(ChatListViewModel.class);
         viewModel.folders.observe(getViewLifecycleOwner(), folders -> setupFolderTabs(folders));
 
@@ -870,13 +864,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     }
 
     private void addChatFilterChip(String label, int mode) {
-        View chip = LayoutInflater.from(requireContext())
-                .inflate(R.layout.item_folder_tab, llChatFilters, false);
-        View emoji = chip.findViewById(R.id.tv_folder_emoji);
-        if (emoji != null) emoji.setVisibility(View.GONE);
-        ((TextView) chip.findViewById(R.id.tv_folder_name)).setText(label);
+        // v949: ONE TextView per chip (was a 4-view item_folder_tab) + one shared click listener.
+        TextView chip = (TextView) LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_chat_filter_chip, llChatFilters, false);
+        chip.setText(label);
         chip.setTag(mode);
-        chip.setOnClickListener(x -> onChatFilterTapped(mode));
+        chip.setOnClickListener(chatFilterClick);
         llChatFilters.addView(chip);
     }
 
@@ -889,37 +882,44 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (rvChats != null) rvChats.scrollToPosition(0);
     }
 
-    /** Selected-state styling + "Archived" chip only exists while something is archived. */
+    /**
+     * Selected-state styling + "Archived" chip only exists while something is archived.
+     * v949: the two O(n) archived scans are memoised per chatSearchDataVersion (bumped on every contacts / group /
+     * archive change), selection is View.setSelected() (state-list bg + text colour: no drawable/colour churn, no-op
+     * when unchanged) and the archived label is only re-set when its text really changes (a text change re-layouts
+     * the header and with it the RecyclerView below).
+     */
     private void refreshChatFilterChips() {
         if (llChatFilters == null) return;
-        boolean hasArchived = (groupSource != null && groupSource.archivedCount() > 0)
-                || archivedChatCount() > 0;
+        if (chipsDataVersion != chatSearchDataVersion || chipsViewRef != llChatFilters) {
+            chipHasArchived = (groupSource != null && groupSource.archivedCount() > 0)
+                    || archivedChatCount() > 0;
+            chipArchivedUnread = chipHasArchived ? archivedUnreadTotal() : 0L;
+            chipArchivedLabel = chipArchivedUnread > 0
+                    ? getString(R.string.chat_filter_archived_unread,
+                            chipArchivedUnread > 99 ? "99+" : String.valueOf(chipArchivedUnread))
+                    : getString(R.string.chat_filter_archived);
+            chipsDataVersion = chatSearchDataVersion;
+            chipsViewRef = llChatFilters;
+        }
+        final boolean hasArchived = chipHasArchived;
         if (!hasArchived && chatFilterMode == FILTER_ARCHIVED) {
             chatFilterMode = FILTER_ALL;
             chatSearchDataVersion++;
+            chipsDataVersion = chatSearchDataVersion;
         }
-        Context ctx = requireContext();
         for (int i = 0; i < llChatFilters.getChildCount(); i++) {
             View child = llChatFilters.getChildAt(i);
             Object tag = child.getTag();
             if (!(tag instanceof Integer)) continue;
             int mode = (Integer) tag;
             if (mode == FILTER_ARCHIVED) {
-                child.setVisibility(hasArchived ? View.VISIBLE : View.GONE);
-                TextView lbl = child.findViewById(R.id.tv_folder_name);
-                long au = hasArchived ? archivedUnreadTotal() : 0L;
-                if (lbl != null) lbl.setText(au > 0
-                        ? getString(R.string.chat_filter_archived_unread, au > 99 ? "99+" : String.valueOf(au))
-                        : getString(R.string.chat_filter_archived));
+                int vis = hasArchived ? View.VISIBLE : View.GONE;
+                if (child.getVisibility() != vis) child.setVisibility(vis);
+                final TextView tv = (TextView) child;
+                if (!chipArchivedLabel.contentEquals(tv.getText())) tv.setText(chipArchivedLabel);
             }
-            boolean sel = mode == chatFilterMode;
-            child.setBackgroundResource(sel
-                    ? R.drawable.bg_folder_tab_selected
-                    : R.drawable.bg_folder_tab_unselected);
-            TextView tv = child.findViewById(R.id.tv_folder_name);
-            if (tv != null) tv.setTextColor(sel
-                    ? ctx.getResources().getColor(android.R.color.white)
-                    : ctx.getResources().getColor(R.color.text_primary));
+            child.setSelected(mode == chatFilterMode);
         }
     }
 
@@ -1013,10 +1013,30 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
      */
     private void setupFolderTabs(List<ChatFolderEntity> folders) {
         if (llFolderTabs == null || hsvFolders == null) return;
+
+        // v949: LiveData re-delivers the same list on every new view (tab return) and on any unrelated Room
+        // write — rebuilding (N+2 inflates + listeners) for an identical list is pure waste. Same list + same
+        // view = only the (cheap, no-op-when-unchanged) selection pass.
+        final boolean hasFolders = folders != null && !folders.isEmpty();
+        final StringBuilder sig = new StringBuilder();
+        if (hasFolders) {
+            for (ChatFolderEntity f : folders) {
+                sig.append(f.id).append('\u0001').append(f.emoji).append('\u0001').append(f.name).append('\u0002');
+            }
+        }
+        final String sigStr = sig.toString();
+        if (foldersBuiltFor == llFolderTabs && sigStr.equals(lastFoldersSig)) {
+            int vis = hasFolders ? View.VISIBLE : View.GONE;
+            if (hsvFolders.getVisibility() != vis) hsvFolders.setVisibility(vis);
+            if (hasFolders) updateFolderChipSelection(selectedFolderId);
+            return;
+        }
+        lastFoldersSig = sigStr;
+        foldersBuiltFor = llFolderTabs;
+
         llFolderTabs.removeAllViews();
 
         // Show/hide the whole row
-        boolean hasFolders = folders != null && !folders.isEmpty();
         hsvFolders.setVisibility(hasFolders ? View.VISIBLE : View.GONE);
 
         if (!hasFolders) return;
@@ -1107,21 +1127,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void updateFolderChipSelection(int selectedId) {
         if (llFolderTabs == null) return;
-        android.content.Context ctx = requireContext();
+        // v949: state-list bg/text colour driven by View.setSelected() (no-op when unchanged; propagates to the
+        // chip's TextViews) — was setBackgroundResource + 2x getColor + setTextColor on EVERY chip, every call.
         for (int i = 0; i < llFolderTabs.getChildCount(); i++) {
             View child = llFolderTabs.getChildAt(i);
             Object tag = child.getTag();
-            boolean isSelected = (tag instanceof Integer) && ((Integer) tag) == selectedId;
-            child.setBackgroundResource(isSelected
-                ? R.drawable.bg_folder_tab_selected
-                : R.drawable.bg_folder_tab_unselected);
-            // Update text color for chip labels
-            if (child instanceof ViewGroup) {
-                TextView tvName = child.findViewById(R.id.tv_folder_name);
-                if (tvName != null) tvName.setTextColor(isSelected
-                    ? ctx.getResources().getColor(android.R.color.white)
-                    : ctx.getResources().getColor(R.color.text_primary));
-            }
+            child.setSelected((tag instanceof Integer) && ((Integer) tag) == selectedId);
         }
     }
 
@@ -1672,7 +1683,30 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         diffUpdateContacts(new ArrayList<>(contacts));
     }
 
+    /** v949: inflates the selection bar on first use and wires its buttons (was 7 views + 6 listeners per tab open). */
+    private void ensureSelectionBar() {
+        if (llSelectionBar != null || vsSelectionBar == null || vsSelectionBar.getParent() == null) return;
+        final View bar = vsSelectionBar.inflate();
+        llSelectionBar  = (LinearLayout) bar;
+        tvSelectedCount = bar.findViewById(R.id.tv_selected_count);
+        bar.findViewById(R.id.btn_cancel_selection_chats).setOnClickListener(x -> {
+            adapter.clearSelection();
+            llSelectionBar.setVisibility(View.GONE);
+        });
+        bar.findViewById(R.id.btn_select_all_chats).setOnClickListener(x -> {
+            adapter.selectAll();
+            updateSelectionCount();
+        });
+        bar.findViewById(R.id.btn_delete_selected_chats).setOnClickListener(x -> confirmDeleteSelected());
+        bar.findViewById(R.id.btn_pin_selected_chats).setOnClickListener(x -> togglePinnedSelected());
+        bar.findViewById(R.id.btn_mute_selected_chats).setOnClickListener(x -> muteSelectedGroups());
+        bar.findViewById(R.id.btn_archive_selected_chats).setOnClickListener(x -> archiveSelectedGroups());
+    }
+
     private void showLoadingMoreIndicator(boolean show) {
+        if (show && pbLoadingMoreChats == null && vsLoadingMore != null && vsLoadingMore.getParent() != null) {
+            pbLoadingMoreChats = (ProgressBar) vsLoadingMore.inflate();   // v949: lazy
+        }
         if (pbLoadingMoreChats != null) {
             pbLoadingMoreChats.setVisibility(show ? View.VISIBLE : View.GONE);
         }
@@ -1939,6 +1973,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // pagination stuck "loading" forever if the fragment's view is recreated.
         isLoadingMoreChats = false;
         pbLoadingMoreChats = null;
+        llSelectionBar = null; tvSelectedCount = null; vsSelectionBar = null; vsLoadingMore = null;
+        chipsViewRef = null; foldersBuiltFor = null;
         if (pendingChatSearch != null) {
             mainHandler.removeCallbacks(pendingChatSearch);
             pendingChatSearch = null;
@@ -2044,6 +2080,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // ── SelectionListener callbacks ─────────────────────────────────────────
 
     @Override public void onSelectionStarted() {
+        ensureSelectionBar();
         if (llSelectionBar != null) llSelectionBar.setVisibility(View.VISIBLE);
         updateSelectionCount();
     }

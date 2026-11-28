@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    item_chat.xml — v947 flat row (10 views -> 5)
+    item_chat.xml — v948 flat row (v947: 10 views -> 5, v948: 5 -> 4: root FrameLayout wrapper removed)
 
     BEFORE (v946):  FrameLayout(bg_chat_row) → LinearLayout → [ FrameLayout(58dp) → {StoryRingView, CircleImageView,
                     ViewStub}, ChatRowContentView, LinearLayout(ll_meta_normal) → {UnreadBadgeView, CallButtonsView} ]
@@ -17,36 +17,36 @@
     Geometry is identical to v946 (padding 14dp, avatar box 58dp, content marginStart 14dp, meta marginStart 8dp),
     so ChatListTextPrecompute's width math is unchanged.
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="6dp"
+    android:orientation="horizontal"
+    android:padding="14dp"
+    android:gravity="center_vertical"
+    android:clipChildren="false"
     android:foreground="@drawable/fg_chat_row_ripple">
 
-    <LinearLayout
-        android:layout_width="match_parent"
+    <!-- v948: the old FrameLayout root only carried marginBottom + the ripple foreground; both now live on this
+         LinearLayout (View.setForeground, API 23 = minSdk). clipChildren=false: ChatRowMetaView is a fixed 58dp
+         view whose badge/call block can overshoot by 1dp (same placement as the old wrap_content centring). -->
+
+    <com.callx.app.chatlist.canvas.ChatRowAvatarView
+        android:id="@+id/view_avatar"
+        android:layout_width="58dp"
+        android:layout_height="58dp"/>
+
+    <com.callx.app.chatlist.canvas.ChatRowContentView
+        android:id="@+id/view_row_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="14dp"
-        android:gravity="center_vertical">
+        android:layout_weight="1"
+        android:layout_marginStart="14dp"/>
 
-        <com.callx.app.chatlist.canvas.ChatRowAvatarView
-            android:id="@+id/view_avatar"
-            android:layout_width="58dp"
-            android:layout_height="58dp"/>
+    <com.callx.app.chatlist.canvas.ChatRowMetaView
+        android:id="@+id/view_meta"
+        android:layout_width="wrap_content"
+        android:layout_height="58dp"
+        android:layout_marginStart="8dp"/>
 
-        <com.callx.app.chatlist.canvas.ChatRowContentView
-            android:id="@+id/view_row_content"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="14dp"/>
-
-        <com.callx.app.chatlist.canvas.ChatRowMetaView
-            android:id="@+id/view_meta"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"/>
-
-    </LinearLayout>
-</FrameLayout>
+</LinearLayout>

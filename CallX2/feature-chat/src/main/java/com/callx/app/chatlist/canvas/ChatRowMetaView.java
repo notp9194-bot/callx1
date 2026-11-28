@@ -1,6 +1,7 @@
 package com.callx.app.chatlist.canvas;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
@@ -55,7 +56,6 @@ public class ChatRowMetaView extends View {
     private static final int COLOR_BADGE_MUTED = 0xFF9AA5B1;
 
     // Constant states shared by every row's icon copies (loaded once per process, not once per inflated row).
-    private static Drawable.ConstantState sVideoCs, sPhoneCs;
 
     private final float density;
     private final float badgeMinPx, badgeRadiusPx, badgePadHPx, badgePadVPx;
@@ -67,7 +67,14 @@ public class ChatRowMetaView extends View {
     private final float textHalfH;          // (descent - ascent) / 2, cached — never getFontMetrics() in draw/measure
     private final float textAscentDescentMid;
 
-    private final Drawable videoIcon, phoneIcon;
+    // v948: shared pre-rasterized icons (ChatRowIconCache) — drawBitmap, no per-VH VectorDrawable.
+    private final Bitmap videoBmp, phoneBmp;
+    private final int iconPx;
+    private float videoX, phoneX, iconY;
+    /** v948: constant height = avatar box, so a badge / call-strip change never needs requestLayout (row height is fixed). */
+    private final int fixedH;
+    private float badgeHMax;
+    private int curW = 0;
 
     // ── state ───────────────────────────────────────────────────────────────
     private long count = 0;
@@ -110,31 +117,11 @@ public class ChatRowMetaView extends View {
         textHalfH = (fm.descent - fm.ascent) / 2f;
         textAscentDescentMid = (fm.ascent + fm.descent) / 2f;
 
-        videoIcon = tinted(ctx, R.drawable.ic_video_call, COLOR_VIDEO, true);
-        phoneIcon = tinted(ctx, R.drawable.ic_phone, COLOR_VOICE, false);
-    }
-
-    private static synchronized Drawable tinted(Context ctx, int res, int color, boolean video) {
-        Drawable d = null;
-        Drawable.ConstantState cs = video ? sVideoCs : sPhoneCs;
-        if (cs != null) {
-            d = cs.newDrawable(ctx.getResources());
-        } else {
-            final Drawable base = ContextCompat.getDrawable(ctx, res);
-            if (base != null) {
-                final Drawable.ConstantState got = base.getConstantState();
-                if (got != null) {
-                    if (video) sVideoCs = got; else sPhoneCs = got;
-                    d = got.newDrawable(ctx.getResources());
-                } else {
-                    d = base;
-                }
-            }
-        }
-        if (d == null) return null;
-        d = d.mutate();
-        DrawableCompat.setTint(d, color);
-        return d;
+        iconPx = Math.round(ICON_DP * density);
+        videoBmp = ChatRowIconCache.get(ctx, R.drawable.ic_video_call, iconPx, COLOR_VIDEO);
+        phoneBmp = ChatRowIconCache.get(ctx, R.drawable.ic_phone, iconPx, COLOR_VOICE);
+        fixedH = Math.round(58f * density);
+        badgeHMax = Math.max(badgeMinPx, textHalfH * 2f + badgePadVPx * 2f);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -144,8 +131,6 @@ public class ChatRowMetaView extends View {
     /** Unread count; 0 hides the pill. No-op when unchanged. */
     public void setBadgeCount(long c) {
         if (c == count) return;
-        final boolean wasVisible = count > 0;
-        final int prevLen = label.length();
         count = c;
         if (c <= 0) {
             label = "";
@@ -153,17 +138,23 @@ public class ChatRowMetaView extends View {
         } else {
             label = c > 99 ? "99+" : String.valueOf(c);
             badgeW = Math.max(badgeMinPx, textPaint.measureText(label) + badgePadHPx * 2f);
-            badgeH = Math.max(badgeMinPx, textHalfH * 2f + badgePadVPx * 2f);
+            badgeH = badgeHMax;
         }
-        final boolean nowVisible = c > 0;
-        if (wasVisible != nowVisible || label.length() != prevLen) {
-            requestLayout();      // size changed
-        }
+        // v948: height is constant (fixedH) — only a WIDTH change (group rows: pill width / appears) needs a layout.
+        updateWidth();
         relayoutCoords();
         invalidate();
     }
 
-    /** Dimmed grey pill for muted chats (same size). */
+    /** requestLayout only when the measured width really changes. */
+    private void updateWidth() {
+        final int w = (int) Math.ceil(contentW());
+        if (w != curW) {
+            curW = w;
+            requestLayout();
+        }
+    }
+
     public void setMutedStyle(boolean m) {
         if (m == muted) return;
         muted = m;
@@ -175,7 +166,8 @@ public class ChatRowMetaView extends View {
     public void setCallsVisible(boolean v) {
         if (v == callsVisible) return;
         callsVisible = v;
-        requestLayout();
+        updateWidth();      // v948: was an unconditional requestLayout
+        relayoutCoords();
         invalidate();
     }
 
@@ -196,9 +188,8 @@ public class ChatRowMetaView extends View {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        final int w = (int) Math.ceil(contentW());
-        final int h = (int) Math.ceil(contentH());
-        setMeasuredDimension(resolveSize(w, widthMeasureSpec), resolveSize(h, heightMeasureSpec));
+        curW = (int) Math.ceil(contentW());
+        setMeasuredDimension(resolveSize(curW, widthMeasureSpec), resolveSize(fixedH, heightMeasureSpec));
     }
 
     @Override
@@ -207,37 +198,33 @@ public class ChatRowMetaView extends View {
         relayoutCoords();
     }
 
-    /** Pre-bakes every draw coordinate; called on size change and when badge/calls state changes. */
     private void relayoutCoords() {
         final int w = getWidth();
         final int h = getHeight();
         if (w <= 0 || h <= 0) return;
 
+        // v948: block (badge + call strip) is vertically centred INSIDE this fixed-height view, which reproduces
+        // the old wrap_content + gravity=center_vertical placement exactly (y0 may be slightly negative; the row
+        // sets clipChildren=false).
+        final float y0 = (h - contentH()) / 2f;
+
         // badge: top-right
         if (badgeW > 0f) {
-            pill.set(w - badgeW, 0f, w, badgeH);
+            pill.set(w - badgeW, y0, w, y0 + badgeH);
             badgeTextX = pill.centerX();
-            badgeTextY = badgeH / 2f - textAscentDescentMid;
+            badgeTextY = y0 + badgeH / 2f - textAscentDescentMid;
         }
 
-        // calls: bottom strip, right-aligned (== full width, since callsW is the max width when visible)
-        callsTop = badgeH + callsMarginPx;
+        // calls: bottom strip, right-aligned
+        callsTop = y0 + badgeH + callsMarginPx;
         final float left = w - callsWPx;
         final float cy = callsTop + callsHPx / 2f;
-        final float iconD = ICON_DP * density;
         final float btnW = BTN_W_DP * density;
         final float gap = BTN_GAP_DP * density;
 
-        if (videoIcon != null) {
-            final int l = Math.round(left + btnW / 2f - iconD / 2f);
-            final int t = Math.round(cy - iconD / 2f);
-            videoIcon.setBounds(l, t, Math.round(l + iconD), Math.round(t + iconD));
-        }
-        if (phoneIcon != null) {
-            final int l = Math.round(left + btnW + gap + btnW / 2f - iconD / 2f);
-            final int t = Math.round(cy - iconD / 2f);
-            phoneIcon.setBounds(l, t, Math.round(l + iconD), Math.round(t + iconD));
-        }
+        videoX = Math.round(left + btnW / 2f - iconPx / 2f);
+        phoneX = Math.round(left + btnW + gap + btnW / 2f - iconPx / 2f);
+        iconY  = Math.round(cy - iconPx / 2f);
         midX = left + btnW + gap / 2f;
     }
 
@@ -248,8 +235,8 @@ public class ChatRowMetaView extends View {
             canvas.drawText(label, badgeTextX, badgeTextY, textPaint);
         }
         if (callsVisible) {
-            if (videoIcon != null) videoIcon.draw(canvas);
-            if (phoneIcon != null) phoneIcon.draw(canvas);
+            if (videoBmp != null) canvas.drawBitmap(videoBmp, videoX, iconY, null);
+            if (phoneBmp != null) canvas.drawBitmap(phoneBmp, phoneX, iconY, null);
         }
     }
 

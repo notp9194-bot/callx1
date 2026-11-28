@@ -127,6 +127,7 @@ public class MainActivity extends AppCompatActivity
     // skipping the call entirely avoids even that lookup on a path that
     // can run several times a second while scrubbing play/pause).
     private String miniPlayerLoadedAvatarUrl;
+    private int miniPlayerShowsPause = -1;   // v949: -1 unknown, 0 play icon, 1 pause icon
 
 
       // ── X Module ────────────────────────────────────────────────────────────────
@@ -417,6 +418,7 @@ public class MainActivity extends AppCompatActivity
                 // Add to history stack if different from current top
                 if (tabHistoryStack.isEmpty() || tabHistoryStack.peek() != position) {
                     tabHistoryStack.push(position);
+                    if (tabHistoryStack.size() > 24) tabHistoryStack.removeLast();   // v949: was unbounded
                 }
                 
                 int[] ids = {
@@ -504,6 +506,7 @@ public class MainActivity extends AppCompatActivity
         startupQueue.add(() -> refreshFcmToken());
         startupQueue.add(() -> AppUpdateManager.check(this));
         startupQueue.add(() -> YouTubeNotificationWorker.schedule(this));
+        startupQueue.add(() -> com.callx.app.feed.StatusCardViewPool.warm(this, 7)); // v952: Status carousel cards pre-inflated off-thread
         // Wait for the first frame, then drain.
         binding.getRoot().post(() -> android.view.Choreographer.getInstance().postFrameCallback(
                 f -> startupHandler.postDelayed(this::drainStartupQueue, 150L)));
@@ -612,15 +615,31 @@ public class MainActivity extends AppCompatActivity
         headerView = binding.appBarLayout;
         navContainerView = binding.navContainer;
         notificationBadgeView = binding.tvNotifBadge;
-        returnToCallBannerView = binding.bannerReturnToCall;
-        returnToCallNameView = binding.tvReturnToCallName;
-        returnToCallTimerView = binding.tvReturnToCallTimer;
+        // v949: return-to-call banner + voice mini player are ViewStubs, resolved lazily (ensureReturnBanner /
+        // ensureMiniPlayer) — not even inflated unless a call / voice note is active.
+        returnToCallBannerView = null;
         viewPagerMargins = (ViewGroup.MarginLayoutParams) binding.viewPager.getLayoutParams();
         chromeStateInitialized = false;
     }
 
     private void setupReturnToCallBanner() {
-        if (returnToCallBannerView == null) return;
+        // v949: nothing at startup — see ensureReturnBanner().
+    }
+
+    private static final String[] CALL_DOTS = {"●○○", "○●○", "○○●"};
+
+    /** Inflates the return-to-call strip (ViewStub) the first time a call is actually running. */
+    private boolean ensureReturnBanner() {
+        if (returnToCallBannerView != null) return true;
+        if (binding.stubReturnToCall.getParent() == null) return false;
+        returnToCallBannerView = binding.stubReturnToCall.inflate();
+        returnToCallNameView = returnToCallBannerView.findViewById(R.id.tv_return_to_call_name);
+        returnToCallTimerView = returnToCallBannerView.findViewById(R.id.tv_return_to_call_timer);
+        // ●/○ have different advances: pin the timer width once so the 500ms tick never re-layouts the AppBar.
+        float w = 0f;
+        for (String d : CALL_DOTS) w = Math.max(w, returnToCallTimerView.getPaint().measureText(d));
+        returnToCallTimerView.setMinWidth((int) Math.ceil(w));
+        returnToCallBannerView.setVisibility(View.GONE);
         returnToCallBannerView.setOnClickListener(v -> {
             Intent i = new Intent(this, com.callx.app.call.CallActivity.class);
             i.putExtra("partnerUid", CallForegroundService.activePartnerUid);
@@ -635,11 +654,20 @@ public class MainActivity extends AppCompatActivity
                     | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             startActivity(i);
         });
+        return true;
     }
 
     private void setupVoiceMiniPlayer() {
-        View banner = binding.bannerVoiceMiniPlayer;
-        if (banner == null) return;
+        // v949: only the playback listener is registered at startup; the strip itself is a ViewStub.
+        GlobalVoicePlaybackManager.getInstance().addListener(voiceMiniPlayerListener);
+    }
+
+    /** Inflates the voice mini-player strip (ViewStub) the first time a voice note is active. */
+    private boolean ensureMiniPlayer() {
+        if (miniPlayerBanner != null) return true;
+        if (binding.stubVoiceMiniPlayer.getParent() == null) return false;
+        View banner = binding.stubVoiceMiniPlayer.inflate();
+        banner.setVisibility(View.GONE);
         // PERF: resolve every child view once here; updateVoiceMiniPlayer()
         // (the hot path — runs on every play/pause/start/stop and every
         // onResume) then just reads these fields instead of walking the
@@ -648,8 +676,6 @@ public class MainActivity extends AppCompatActivity
         miniPlayerBtnPlay = banner.findViewById(R.id.btn_mini_player_play);
         miniPlayerTvName = banner.findViewById(R.id.tv_mini_player_name);
         miniPlayerIvAvatar = banner.findViewById(R.id.iv_mini_player_avatar);
-
-        GlobalVoicePlaybackManager.getInstance().addListener(voiceMiniPlayerListener);
 
         miniPlayerBtnPlay.setOnClickListener(v ->
                 GlobalVoicePlaybackManager.getInstance().togglePlayPause());
@@ -673,25 +699,29 @@ public class MainActivity extends AppCompatActivity
             startActivity(i);
             overridePendingTransition(0, 0);
         });
+        return true;
     }
 
     private void updateVoiceMiniPlayer() {
-        if (miniPlayerBanner == null) return;
-
         GlobalVoicePlaybackManager mgr = GlobalVoicePlaybackManager.getInstance();
         if (!mgr.hasActiveMessage()) {
-            if (miniPlayerBanner.getVisibility() != View.GONE) {
+            if (miniPlayerBanner != null && miniPlayerBanner.getVisibility() != View.GONE) {
                 miniPlayerBanner.setVisibility(View.GONE);
             }
             miniPlayerLoadedAvatarUrl = null;
             return;
         }
+        if (!ensureMiniPlayer()) return;
 
         if (miniPlayerBanner.getVisibility() != View.VISIBLE) {
             miniPlayerBanner.setVisibility(View.VISIBLE);
         }
 
-        miniPlayerBtnPlay.setImageResource(mgr.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
+        final boolean playingNow = mgr.isPlaying();
+        if (miniPlayerShowsPause != (playingNow ? 1 : 0)) {
+            miniPlayerShowsPause = playingNow ? 1 : 0;
+            miniPlayerBtnPlay.setImageResource(playingNow ? R.drawable.ic_pause : R.drawable.ic_play);
+        }
 
         String name = mgr.getDisplayName();
         miniPlayerTvName.setText(name != null && !name.isEmpty() ? name : "Voice message");
@@ -728,11 +758,31 @@ public class MainActivity extends AppCompatActivity
     // WhatsApp-style green strip — tab dikhata hai jab user call mein ho aur
     // alag screen pe chala jaye. Tap karne par CallActivity wapas khul jaati hai.
     private final Handler bannerTickHandler = new Handler(Looper.getMainLooper());
-    private Runnable bannerTickRunnable;
+    private int bannerDotIdx = -1;
+    private final Runnable bannerTickRunnable = new Runnable() {
+        @Override public void run() {
+            if (!CallForegroundService.isRunning) {
+                updateReturnToCallBanner();
+                return;
+            }
+            if (returnToCallTimerView != null) {
+                final int idx = (int) ((System.currentTimeMillis() / 500) % 3);
+                if (idx != bannerDotIdx) {
+                    bannerDotIdx = idx;
+                    returnToCallTimerView.setText(CALL_DOTS[idx]);
+                }
+            }
+            bannerTickHandler.postDelayed(this, 500);
+        }
+    };
 
     private void updateReturnToCallBanner() {
-        if (returnToCallBannerView == null) return;
         boolean callActive = CallForegroundService.isRunning;
+        if (callActive && !ensureReturnBanner()) return;
+        if (!callActive && returnToCallBannerView == null) {
+            bannerTickHandler.removeCallbacksAndMessages(null);
+            return;
+        }
 
         if (!callActive) {
             if (returnToCallBannerView.getVisibility() != View.GONE) {
@@ -756,21 +806,9 @@ public class MainActivity extends AppCompatActivity
 
         // Only the visual timer is periodic; service state changes arrive via
         // StateListener, so this runnable never performs reflection/polling.
-        bannerTickHandler.removeCallbacksAndMessages(null);
-        bannerTickRunnable = new Runnable() {
-            @Override public void run() {
-                if (!CallForegroundService.isRunning) {
-                    updateReturnToCallBanner();
-                    return;
-                }
-                if (returnToCallTimerView != null) {
-                    String[] dots = {"●○○", "○●○", "○○●"};
-                    returnToCallTimerView.setText(
-                            dots[(int) ((System.currentTimeMillis() / 500) % 3)]);
-                }
-                bannerTickHandler.postDelayed(this, 500);
-            }
-        };
+        // v949: ONE runnable for the activity's lifetime (was a new Runnable + a new String[] per update/tick),
+        // and the label is only set when the dot index really changes.
+        bannerTickHandler.removeCallbacks(bannerTickRunnable);
         bannerTickHandler.post(bannerTickRunnable);
     }
 
@@ -846,6 +884,7 @@ public class MainActivity extends AppCompatActivity
         com.callx.app.utils.ReelTabSwipeLock.setController(null);
         startupHandler.removeCallbacksAndMessages(null);
         startupQueue.clear();
+        com.callx.app.feed.StatusCardViewPool.release(); // v952: drop pooled card views (they hold this Activity)
         CallForegroundService.removeStateListener(callStateListener);
         detachBadgeListeners();
         GlobalVoicePlaybackManager.getInstance().removeListener(voiceMiniPlayerListener);
@@ -1020,7 +1059,11 @@ public class MainActivity extends AppCompatActivity
         });
     }
 
+    private int fabPosition = -1;   // v949
+
     private void updateFab(int position) {
+        if (position == fabPosition) return;
+        fabPosition = position;
         switch (position) {
             case TAB_CHATS:  binding.fabAction.setImageResource(R.drawable.ic_status_add); break;
             case TAB_STATUS: binding.fabAction.setImageResource(R.drawable.ic_camera);     break;
@@ -1620,6 +1663,9 @@ public class MainActivity extends AppCompatActivity
      * be invisible against it even when the bars themselves are visible.
      */
     private void setReelsSystemBarsVisible(boolean visible) {
+        final int target = visible ? 3 : 4;
+        if (sysBarsState == target) return;
+        sysBarsState = target;
         WindowInsetsControllerCompat controller =
             WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         if (visible) {
@@ -1656,7 +1702,15 @@ public class MainActivity extends AppCompatActivity
      *   - Content draws behind both bars (edge-to-edge).
      * When disabled (other tabs), normal system chrome is fully restored.
      */
+    private String reelsFragmentTag;   // v949
+    private int sysBarsState = 0;   // v949: 0 unknown, 1 normal, 2 immersive, 3 reels+bars, 4 reels hidden
+
     private void setImmersiveMode(boolean immersive) {
+        // v949: this ran (setDecorFitsSystemWindows + show/hide + colours = window insets dispatch) on EVERY page
+        // change and EVERY onResume. Only re-apply when the target state actually differs.
+        final int target = immersive ? 2 : 1;
+        if (sysBarsState == target) return;
+        sysBarsState = target;
         WindowInsetsControllerCompat controller =
             WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         if (immersive) {
@@ -1746,8 +1800,10 @@ public class MainActivity extends AppCompatActivity
      */
     @OptIn(markerClass = UnstableApi.class)
     private void notifyReelsTabVisibility(boolean isReelsTabActive, int newTabPosition) {
-        androidx.fragment.app.Fragment f = getSupportFragmentManager()
-                .findFragmentByTag("f" + binding.viewPager.getAdapter().getItemId(TAB_REELS));
+        if (reelsFragmentTag == null) {
+            reelsFragmentTag = "f" + binding.viewPager.getAdapter().getItemId(TAB_REELS);   // v949: built once
+        }
+        androidx.fragment.app.Fragment f = getSupportFragmentManager().findFragmentByTag(reelsFragmentTag);
         if (!(f instanceof ReelsFragment)) return;
         ReelsFragment reelsFragment = (ReelsFragment) f;
 

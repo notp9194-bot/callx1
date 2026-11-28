@@ -77,7 +77,8 @@ public class ChatRowAvatarView extends View {
     // precomputed circle geometry (normal / small-group variants)
     private final float borderR, imageR, smallBorderR, smallImageR, checkR;
 
-    private Drawable personIcon, groupIcon;
+    // v948: shared pre-rasterized placeholders (ChatRowIconCache) — no per-VH VectorDrawable copies.
+    private Bitmap personBmp, groupBmp, groupSmallBmp;
 
     // ── state ───────────────────────────────────────────────────────────────────
     private int ringState = STATE_NONE;
@@ -134,16 +135,11 @@ public class ChatRowAvatarView extends View {
         checkPaint.setStyle(Paint.Style.FILL);
         checkPaint.setColor(ContextCompat.getColor(ctx, R.color.action_call_accept));
 
-        // Own (mutated) copies — the shared constant state is never touched.
-        personIcon = loadIcon(ctx, R.drawable.ic_person);
-        groupIcon  = loadIcon(ctx, R.drawable.ic_group);
+        personBmp     = ChatRowIconCache.get(ctx, R.drawable.ic_person, Math.round(imageR * 2f), 0);
+        groupBmp      = ChatRowIconCache.get(ctx, R.drawable.ic_group,  Math.round(imageR * 2f), 0);
+        groupSmallBmp = ChatRowIconCache.get(ctx, R.drawable.ic_group,  Math.round(smallImageR * 2f), 0);
 
         setWillNotDraw(false);
-    }
-
-    private static Drawable loadIcon(Context ctx, int res) {
-        Drawable d = ContextCompat.getDrawable(ctx, res);
-        return d == null ? null : d.mutate();
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -255,10 +251,10 @@ public class ChatRowAvatarView extends View {
             canvas.drawBitmap(b, null, dst, bmpPaint);
             canvas.drawCircle(cx, cy, borderR, borderPaint);
         } else if (phKind == PH_GROUP_SMALL) {
-            drawIcon(canvas, groupIcon, smallImageR);
+            drawIcon(canvas, groupSmallBmp, smallImageR);
             canvas.drawCircle(cx, cy, smallBorderR, borderPaint);
         } else {
-            drawIcon(canvas, phKind == PH_GROUP_FULL ? groupIcon : personIcon, imageR);
+            drawIcon(canvas, phKind == PH_GROUP_FULL ? groupBmp : personBmp, imageR);
             canvas.drawCircle(cx, cy, borderR, borderPaint);
         }
 
@@ -269,10 +265,9 @@ public class ChatRowAvatarView extends View {
         }
     }
 
-    private void drawIcon(Canvas canvas, @Nullable Drawable d, float r) {
-        if (d == null) return;
-        d.setBounds(Math.round(cx - r), Math.round(cy - r), Math.round(cx + r), Math.round(cy + r));
-        d.draw(canvas);
+    private void drawIcon(Canvas canvas, @Nullable Bitmap bmp, float r) {
+        if (bmp == null) return;
+        canvas.drawBitmap(bmp, cx - bmp.getWidth() / 2f, cy - bmp.getHeight() / 2f, bmpPaint);
     }
 
     private void refreshRing(int w, int h) {

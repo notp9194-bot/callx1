@@ -9,6 +9,7 @@
     android:layout_marginTop="4dp"
     android:layout_marginBottom="4dp">
 
+    <!-- v952: iv_card_bg no longer has its own solid background — the card body (same colour) is the only layer under the image. -->
     <!-- Card body (v554): plain FrameLayout + rounded bg + clipToOutline instead of MaterialCardView
          with a nested FrameLayout — fewer views to inflate/measure/draw. -->
     <FrameLayout
@@ -22,8 +23,7 @@
                 android:id="@+id/iv_card_bg"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:scaleType="centerCrop"
-                android:background="@color/status_card_placeholder"/>
+                android:scaleType="centerCrop"/>
 
             <!-- Top vignette + bottom name scrim, merged into one layer-list view -->
             <View

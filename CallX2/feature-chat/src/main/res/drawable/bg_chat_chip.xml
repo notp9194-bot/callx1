@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v949: chip background by selected state — View.setSelected() flips it, no setBackgroundResource churn. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:drawable="@drawable/bg_folder_tab_selected"/>
+    <item android:drawable="@drawable/bg_folder_tab_unselected"/>
+</selector>

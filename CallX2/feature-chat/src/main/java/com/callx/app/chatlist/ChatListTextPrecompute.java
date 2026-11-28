@@ -101,7 +101,7 @@ public final class ChatListTextPrecompute {
     // ── Constants ─────────────────────────────────────────────────────────────
     private static final char  KEY_SEP    = '\u00A7'; // § — safe separator
     private static final int   NAME_CACHE = 300;      // fits ~300 unique names
-    private static final int   MSG_CACHE  = 300;      // fits ~300 unique previews
+    private static final int   MSG_CACHE  = 600;      // v948: plain + bold variants      // fits ~300 unique previews
     private static final float NAME_SP    = 16f;      // MUST match ChatRowContentView
     private static final float MSG_SP     = 14f;      // MUST match ChatRowContentView
     private static final float TIME_SP    = 11f;      // MUST match ChatRowContentView
@@ -147,6 +147,10 @@ public final class ChatListTextPrecompute {
     // ── TextPaint clones (read-only after init) ───────────────────────────────
     private static volatile TextPaint sNamePaint;
     private static volatile TextPaint sMsgPaint;
+    private static volatile TextPaint sMsgBoldPaint; // v948: unread rows draw the preview bold
+    /** v948: preview cap — a 2000-char message made ellipsize/measure/shape O(full length) on the UI thread. */
+    private static final int MAX_PREVIEW_CHARS = 120;
+    private static final float VERIFIED_BADGE_DP = 13f, VERIFIED_GAP_DP = 3f; // MUST match ChatRowContentView
     private static volatile TextPaint sTimePaint;  // v92: for exact time-string width
     private static volatile TextPaint sBadgePaint; // v92: for exact badge-pill width
     private static volatile boolean   sReady = false;
@@ -177,6 +181,10 @@ public final class ChatListTextPrecompute {
 
             sMsgPaint = new TextPaint(flags);
             sMsgPaint.setTextSize(MSG_SP * sp);
+
+            sMsgBoldPaint = new TextPaint(flags);
+            sMsgBoldPaint.setTextSize(MSG_SP * sp);
+            sMsgBoldPaint.setTypeface(Typeface.defaultFromStyle(Typeface.BOLD));
 
             sTimePaint = new TextPaint(flags);
             sTimePaint.setTextSize(TIME_SP * sp);
@@ -236,8 +244,17 @@ public final class ChatListTextPrecompute {
      * @return the cached {@link CharSequence}, or {@code null} on cache miss
      */
     public static CharSequence getMessage(String rawText, int widthPx) {
+        return getMessage(rawText, widthPx, false);
+    }
+
+    /** v948: bold = unread row (preview drawn bold). Bold entries carry a 'b' key prefix. */
+    public static CharSequence getMessage(String rawText, int widthPx, boolean bold) {
         if (!sReady || rawText == null || rawText.isEmpty()) return null;
-        return sMsgCache.get(rawText + KEY_SEP + widthPx);
+        return sMsgCache.get(msgKey(rawText, widthPx, bold));
+    }
+
+    private static String msgKey(String text, int widthPx, boolean bold) {
+        return bold ? ("b" + KEY_SEP + text + KEY_SEP + widthPx) : (text + KEY_SEP + widthPx);
     }
 
     // ── ULTRA DIAGNOSTICS: live cache efficiency stats ────────────────────────
@@ -280,6 +297,17 @@ public final class ChatListTextPrecompute {
      * LinearLayout math + ChatListUnreadBadgeView/ChatListCallButtonsView's
      * own onMeasure() formulas exactly.
      */
+    /** px of a dp dimension the way the framework resolves XML dimensions (round half up, min 1). */
+    private static int px(float dp, float density) {
+        int v = (int) (dp * density + 0.5f);
+        return v == 0 && dp > 0 ? 1 : v;
+    }
+
+    /**
+     * v948: mirrors ChatRowContentView's real width integer-for-integer (per-component pixel rounding for padding /
+     * avatar / margins, ceil() of the meta view's float width). The old version used one float sum + a single
+     * truncation, which was routinely 1px off -> exact-int cache key miss -> UI-thread ellipsize in onDraw.
+     */
     private static int computeRowContentWidth(User u, DisplayMetrics dm, boolean isSelecting) {
         float density = dm.density;
 
@@ -289,21 +317,27 @@ public final class ChatListTextPrecompute {
         if (badgeVisible) {
             String label = unread > 99 ? "99+" : String.valueOf(unread);
             float textW = sBadgePaint.measureText(label);
-            badgeWidthPx = Math.max(BADGE_MIN_DP * density, textW + BADGE_PAD_H_DP * 2 * density);
+            badgeWidthPx = Math.max(BADGE_MIN_DP * density, textW + BADGE_PAD_H_DP * density * 2f);
         }
         float callBtnWidthPx = (isSelecting || u.isGroup) ? 0f : CALL_BTN_WIDTH_DP * density;
-        float metaWidthPx = Math.max(badgeWidthPx, callBtnWidthPx);
+        int metaWidthPx = (int) Math.ceil(Math.max(badgeWidthPx, callBtnWidthPx));
 
-        float reservedPx = ROW_FIXED_RESERVED_DP * density + metaWidthPx;
-        return (int) (dm.widthPixels - reservedPx);
+        int reservedPx = 2 * px(14f, density) + px(58f, density) + px(14f, density) + px(8f, density) + metaWidthPx;
+        return dm.widthPixels - reservedPx;
     }
 
-    /**
-     * Single source of truth for a row's preview string, shared by the
-     * adapter bind and this precompute so the ellipsize cache keys match.
-     * Groups get the WhatsApp-style "Sender: message" prefix.
-     */
     public static String previewFor(User u) {
+        return capPreview(previewForRaw(u));
+    }
+
+    private static String capPreview(String s) {
+        if (s == null || s.length() <= MAX_PREVIEW_CHARS) return s;
+        int end = MAX_PREVIEW_CHARS;
+        if (Character.isHighSurrogate(s.charAt(end - 1))) end--;   // never split an emoji
+        return s.substring(0, end);
+    }
+
+    private static String previewForRaw(User u) {
         if (u.isGroup) {
             String preview = ChatListPreviewUtil.buildPreview(
                     u.lastMessageType, u.lastMessage, u.memberCount + " members");
@@ -321,36 +355,36 @@ public final class ChatListTextPrecompute {
         int rowWidthPx = computeRowContentWidth(u, dm, isSelecting);
         float density = dm.density;
 
-        // ── Row 1: name avail width = row width − time label (exact, same as
-        // ChatRowContentView.onDraw's `w - timeW - gap`) ────────────────────
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
         String timeStr = (when != null && when > 0) ? ChatListTimeCache.getFormatted(when) : "";
         float timeW = timeStr.isEmpty() ? 0f : sTimePaint.measureText(timeStr);
         float nameGapPx = NAME_TIME_GAP_DP * density;
-        int nameWidthPx = (int) (rowWidthPx - timeW - (timeW > 0f ? nameGapPx : 0f));
 
-        // ── Row 2: message avail width = row width − read-tick reservation
-        // (exact, same tri-state as updateReadStatusTicks()/onDraw). Special-
-        // request badge text and active-selection text are rare transient UI
-        // states not modeled here — those rows simply fall back to the cold
-        // ellipsize() path exactly as designed, no correctness impact. ────
-        float tickReservedPx = 0f;
+        // v948: verified badge reserves width after the name (view: nameAvail = w - timeW - gap - badge).
+        boolean verified = false;
+        if (!u.isGroup && u.uid != null) {
+            Boolean v = com.callx.app.cache.VerifiedStatusCache.getInstance().getCached(u.uid);
+            verified = Boolean.TRUE.equals(v);
+        }
+        float badgeReserved = verified ? (VERIFIED_BADGE_DP * density + VERIFIED_GAP_DP * density) : 0f;
+        int nameWidthPx = (int) (rowWidthPx - timeW - (timeW > 0f ? nameGapPx : 0f) - badgeReserved);
+
+        // v948: view does `w - (int) tickReserved - (int) iconsReserved` (two separate truncations).
+        int tickReservedPx = 0;
         boolean iAmLastSender = myUid != null && u.uid != null && myUid.equals(u.lastMessageSenderUid);
         if (!isSelecting && iAmLastSender && u.lastMessageStatus != null) {
             float tickSizePx = TICK_SIZE_DP * density;
             float tickGapPx  = TICK_GAP_DP * density;
-            float span = "sent".equals(u.lastMessageStatus) ? tickSizePx : tickSizePx * 1.35f;
-            tickReservedPx = span + tickGapPx;
+            boolean wide = "read".equals(u.lastMessageStatus) || "delivered".equals(u.lastMessageStatus);
+            float span = wide ? tickSizePx * 1.35f : tickSizePx;
+            tickReservedPx = (int) (span + tickGapPx);
         }
-        // Pinned rows draw a pin icon at the right of the message row and
-        // reserve its width (ChatRowContentView.setPinned) — mirror that here.
-        float pinReservedPx = u.localPinned ? (PIN_SIZE_DP + PIN_GAP_DP) * density : 0f;
+        float iconsF = (u.localPinned ? (PIN_SIZE_DP + PIN_GAP_DP) * density : 0f);
         if (u.isGroup ? u.localMuted : (u.uid != null && sMutedUids.contains(u.uid))) {
-            pinReservedPx += (MUTE_SIZE_DP + MUTE_GAP_DP) * density;
+            iconsF += (MUTE_SIZE_DP + MUTE_GAP_DP) * density;
         }
-        int msgWidthPx = (int) Math.max(0f, rowWidthPx - tickReservedPx - pinReservedPx);
+        int msgWidthPx = Math.max(0, rowWidthPx - tickReservedPx - (int) iconsF);
 
-        // ── Name ──────────────────────────────────────────────────────────────
         String name    = u.name != null ? u.name : (u.isGroup ? "Group" : "User");
         String nameKey = name + KEY_SEP + nameWidthPx;
         if (sNameCache.get(nameKey) == null) {
@@ -360,12 +394,13 @@ public final class ChatListTextPrecompute {
             sNameCache.put(nameKey, el);
         }
 
-        // ── Last-message preview ───────────────────────────────────────────────
         String preview = previewFor(u);
-        String msgKey  = preview + KEY_SEP + msgWidthPx;
+        long unread = u.unread == null ? 0 : u.unread;
+        boolean bold = unread > 0 && !isSelecting;       // same rule as the adapter's hasUnread
+        String msgKey = msgKey(preview, msgWidthPx, bold);
         if (sMsgCache.get(msgKey) == null) {
             CharSequence el = TextUtils.ellipsize(
-                    preview, sMsgPaint, Math.max(0f, msgWidthPx),
+                    preview, bold ? sMsgBoldPaint : sMsgPaint, Math.max(0f, msgWidthPx),
                     TextUtils.TruncateAt.END);
             sMsgCache.put(msgKey, el);
         }

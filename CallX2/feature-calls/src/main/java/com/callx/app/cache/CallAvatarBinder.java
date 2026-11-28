@@ -93,6 +93,11 @@ public final class CallAvatarBinder {
                     ? DecodeFormat.PREFER_ARGB_8888
                     : DecodeFormat.PREFER_RGB_565;
 
+    /** v951: built once — circle crop + format + RESOURCE cache. */
+    private static final RequestOptions AVATAR_OPTIONS = RequestOptions.circleCropTransform()
+            .format(AVATAR_FORMAT)
+            .diskCacheStrategy(DiskCacheStrategy.RESOURCE);
+
     /** Read-only view over whatever list a screen is scrolling — same shape as ChatAvatarBinder.AvatarSource. */
     public interface AvatarSource {
         String photo(int index);
@@ -131,9 +136,7 @@ public final class CallAvatarBinder {
         Glide.with(ctx)
             .load(url)
             .dontAnimate()
-            .apply(RequestOptions.circleCropTransform()
-                    .format(AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+            .apply(AVATAR_OPTIONS)   // v951: ONE shared options object (was 3 allocations per bind)
             .placeholder(placeholderRes)
             .error(placeholderRes)
             .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {

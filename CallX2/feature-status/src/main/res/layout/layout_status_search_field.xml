@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v952: inflated lazily by the ViewStub in fragment_status.xml (size/weight/margin come from the stub). Close/clear button is always
+     visible while open: clears the text first, closes the field when already empty. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_search_field">
+
+    <ImageView
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_gravity="center_vertical|start"
+        android:layout_marginStart="14dp"
+        android:src="@drawable/ic_search"
+        android:alpha="0.6"
+        app:tint="?attr/colorOnSurfaceVariant"
+        android:importantForAccessibility="no"/>
+
+    <EditText
+        android:id="@+id/et_status_search"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingStart="44dp"
+        android:paddingEnd="40dp"
+        android:hint="@string/status_search_hint"
+        android:singleLine="true"
+        android:imeOptions="actionSearch"
+        android:inputType="text"
+        android:textSize="15sp"
+        android:textColorHint="?attr/colorOnSurfaceVariant"
+        android:textColor="?attr/colorOnSurface"
+        android:background="@null"/>
+
+    <ImageButton
+        android:id="@+id/btn_status_search_clear"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginEnd="4dp"
+        android:src="@drawable/ic_close"
+        android:tint="?attr/colorOnSurfaceVariant"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"
+        android:contentDescription="@string/status_search_close"/>
+</FrameLayout>
