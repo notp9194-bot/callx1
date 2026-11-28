@@ -2771,7 +2771,29 @@ public class MessagePagingAdapter
 
     /** v929: user applied new bubble colours — repaint only visible rows that are not yet on this colour version. */
     public void notifyBubbleColorChanged() {
-        notifyVisibleRangeChanged(PAYLOAD_BUBBLE_COLOR, 0);   // v930: cached rows self-heal on attach
+        // v933: no notifyItemRangeChanged (no RecyclerView change dispatch / layout pass): refresh the attached
+        // holders directly. Cached off-screen holders self-heal in onViewAttachedToWindow via colorEpoch.
+        final RecyclerView rv = attachedRecyclerView;
+        if (rv == null) { notifyVisibleRangeChanged(PAYLOAD_BUBBLE_COLOR, 0); return; }
+        final int ep = com.callx.app.utils.BubbleColorStore.sEpoch;
+        final long _d0 = com.callx.app.debug.BubblePerfStats.t();
+        int _rows = 0;
+        final int n = rv.getChildCount();
+        for (int i = 0; i < n; i++) {
+            final RecyclerView.ViewHolder vh = rv.getChildViewHolder(rv.getChildAt(i));
+            if (!(vh instanceof VH)) continue;
+            final VH h = (VH) vh;
+            if (h.colorEpoch == ep) continue;
+            h.colorEpoch = ep;
+            _rows++;
+            if (h.canvasView != null) {
+                h.canvasView.refreshBubbleColors();   // per-side int compare; repaints only the changed side
+            } else {
+                final int pos = h.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) onBindViewHolder(h, pos);
+            }
+        }
+        if (_d0 != 0L) com.callx.app.debug.BubblePerfStats.colorDirect(_rows, System.nanoTime() - _d0);
     }
 
     /** Rows kept warm either side of the viewport — matches the largest
@@ -11645,6 +11667,7 @@ public class MessagePagingAdapter
         final int ep = com.callx.app.utils.BubbleColorStore.sEpoch;
         if (holder.colorEpoch == ep) return;
         holder.colorEpoch = ep;
+        com.callx.app.debug.BubblePerfStats.colorAttachFix();
         if (holder.canvasView != null) {
             holder.canvasView.refreshBubbleColors();
         } else {

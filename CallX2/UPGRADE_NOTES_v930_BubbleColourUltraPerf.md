@@ -29,3 +29,16 @@ Skipped on purpose: item 4 (shared reply palette, tiny gain).
 - Colour screen hex field: no String.format per drag callback; setText only when the text changed.
 - `prewarmBubblePool(this)` in ChatActivity / GroupChatActivity onCreate: shared bubble drawables ready before the first bind.
 - Still NOT done: fill-as-separate-layer (see v931 notes).
+
+# v933
+- Pool rebuild also clears SHARED_NODES (keyed by drawable identity -> old nodes could never hit again).
+- `notifyBubbleColorChanged()` refreshes attached holders directly (no notifyItemRangeChanged / change dispatch);
+  cached holders still self-heal in `onViewAttachedToWindow`.
+- Skipped on purpose: "lighter refresh for media-only bubbles" — the cost is the RenderNode re-record, not the paint writes,
+  and skipping paints for non-custom-dependent rows risks stale night colours.
+
+# v934 — Bubble Perf menu: "Bubble colour feature" section
+Report header shows colour mode (default / CUSTOM per side) and a new section: refreshBubbleColors calls / repainted / skipped,
+repaint cost (total/avg/max), Apply direct-refresh (rows, time), attach self-heal count, pool rebuilds, tick bitmaps built.
+Use: run the same scroll twice (default colour, custom colour) and compare with the generic sections. During a plain scroll
+repainted / pool rebuilds / tick bitmaps built should be ~0.

@@ -6762,10 +6762,15 @@ public class MessageBubbleCanvasView extends View {
      * returns immediately (no paint writes, no invalidate); everything else takes the normal theme refresh.
      */
     public void refreshBubbleColors() {
+        com.callx.app.debug.BubblePerfStats.colorCall();
         if (boundEpoch == (sent ? com.callx.app.utils.BubbleColorStore.sEpochSent
                 : com.callx.app.utils.BubbleColorStore.sEpochRecv)) return;   // v931: per-side
+        final long _cp = com.callx.app.debug.BubblePerfStats.t();
         android.os.Trace.beginSection("BubbleColor#refresh");
-        try { refreshThemeColors(); } finally { android.os.Trace.endSection(); }
+        try { refreshThemeColors(); } finally {
+            android.os.Trace.endSection();
+            if (_cp != 0L) com.callx.app.debug.BubblePerfStats.colorRefresh(System.nanoTime() - _cp);
+        }
     }
 
     public void refreshThemeColors() {
@@ -7586,9 +7591,13 @@ public class MessageBubbleCanvasView extends View {
                 || receivedColor != sBubblePoolReceivedColor) {
             // Density changed or the bubble colours changed (day/night / Apply) — invalidate the whole pool.
             java.util.Arrays.fill(BUBBLE_DRAWABLE_POOL, null);
+            com.callx.app.debug.BubblePerfStats.colorPool();
             sBubblePoolDensity = density;
             sBubblePoolSentColor = sentColor;
             sBubblePoolReceivedColor = receivedColor;
+            // v933: shared RenderNodes are keyed by drawable identity — the old ones can never match again,
+            // so drop them now instead of letting them squat in the LRU (main thread only, like all SHARED_NODES use).
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) clearSharedBubbleNodes();
         }
     }
 
@@ -10752,6 +10761,7 @@ public class MessageBubbleCanvasView extends View {
         Bitmap cached = TICK_BITMAP_CACHE.get(key);
         if (cached != null && !cached.isRecycled()) return cached;
 
+        final long _tp = com.callx.app.debug.BubblePerfStats.t();
         boolean isDouble = variant == TICK_VARIANT_DOUBLE_GRAY || variant == TICK_VARIANT_DOUBLE_GOLD;
         final boolean gold = variant == TICK_VARIANT_DOUBLE_GOLD;
         int color = gold ? 0xFFD4AF37 : 0xFF8FAF9F;
@@ -10785,6 +10795,7 @@ public class MessageBubbleCanvasView extends View {
         }
 
         TICK_BITMAP_CACHE.put(key, bmp);
+        if (_tp != 0L) com.callx.app.debug.BubblePerfStats.colorTick(System.nanoTime() - _tp);
         return bmp;
     }
 

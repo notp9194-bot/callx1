@@ -29,6 +29,19 @@ public final class BubblePerfStats {
     public static void rec(long ns)     { recN++;  recNs  += ns; if (ns > recMax)  recMax  = ns; }
     public static void hit()            { hitN++; }
 
+    // v934: bubble-colour feature counters (colour cost is invisible in the generic sections above)
+    private static long cCalls, cRefresh, cRefreshNs, cRefreshMax, cPool, cDirectCalls, cDirectRows, cDirectNs, cAttachFix;
+    private static final java.util.concurrent.atomic.AtomicLong cTick = new java.util.concurrent.atomic.AtomicLong(),
+            cTickNs = new java.util.concurrent.atomic.AtomicLong();   // tick bitmaps may be built on a background thread
+    /** every refreshBubbleColors() call (hit or skip) */
+    public static void colorCall() { if (on) cCalls++; }
+    /** a refreshBubbleColors() call that really repainted a row */
+    public static void colorRefresh(long ns) { cRefresh++; cRefreshNs += ns; if (ns > cRefreshMax) cRefreshMax = ns; }
+    public static void colorPool() { if (on) cPool++; }
+    public static void colorTick(long ns) { cTick.incrementAndGet(); cTickNs.addAndGet(ns); }
+    public static void colorDirect(int rows, long ns) { cDirectCalls++; cDirectRows += rows; cDirectNs += ns; }
+    public static void colorAttachFix() { if (on) cAttachFix++; }
+
     // v878: records per single-video bubble (target = 1.0). videoBind = bindVideo() calls (a recycled row
     // that rebinds counts again), videoRec = Bubble.record passes of a video bubble.
     private static long vidBindN, vidRecN, vidPreN, vidRecDirty, vidRecNoDl, noDlAttached, noDlDetached, noDlEmptyFlag;
@@ -166,6 +179,8 @@ public final class BubblePerfStats {
         bmHw = bmSw = bmPh = bmSwBytes = bmSwMax = 0;
         mDirty = mSize = mNoDL = 0; dirtiedClean = 0; dirtiers.clear();
         vidBindN = vidRecN = vidPreN = vidRecDirty = vidRecNoDl = noDlAttached = noDlDetached = noDlEmptyFlag = 0;
+        cCalls = cRefresh = cRefreshNs = cRefreshMax = cPool = cDirectCalls = cDirectRows = cDirectNs = cAttachFix = 0;
+        cTick.set(0); cTickNs.set(0);
         startMs = System.currentTimeMillis();
         synchronized (FL) {
             frameN = 0; fTotal = fLayout = fDraw = fSync = 0; over1 = over2 = 0;
@@ -254,7 +269,20 @@ public final class BubblePerfStats {
           .append(" | Android ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
         sb.append("collected: ").append(secs).append(" s | collecting=").append(on).append('\n');
         sb.append("build: ").append(debuggable ? "DEBUG (R8/baseline-profile off -> numbers pessimistic)" : "release").append('\n');
-        sb.append("budget: ").append(String.format(Locale.US, "%.2f", budgetMs)).append(" ms/frame\n\n");
+        sb.append("budget: ").append(String.format(Locale.US, "%.2f", budgetMs)).append(" ms/frame\n");
+        sb.append("bubble colour: sent=").append(com.callx.app.utils.BubbleColorStore.isCustom(true) ? "CUSTOM" : "default")
+          .append(" recv=").append(com.callx.app.utils.BubbleColorStore.isCustom(false) ? "CUSTOM" : "default")
+          .append("  (label your runs: default vs custom)\n\n");
+        sb.append("-- Bubble colour feature --\n");
+        sb.append("refreshBubbleColors calls=").append(cCalls).append("  repainted=").append(cRefresh)
+          .append("  skipped(per-side epoch)=").append(Math.max(0, cCalls - cRefresh)).append('\n');
+        sb.append("repaint cost: total=").append(ms(cRefreshNs)).append(" ms  avg=").append(us(cRefresh, cRefreshNs))
+          .append(" us  max=").append(ms(cRefreshMax)).append(" ms\n");
+        sb.append("Apply direct-refresh: calls=").append(cDirectCalls).append(" rows=").append(cDirectRows)
+          .append("  total=").append(ms(cDirectNs)).append(" ms  avg/call=").append(us(cDirectCalls, cDirectNs)).append(" us\n");
+        sb.append("attach self-heal (cached rows fixed on re-attach)=").append(cAttachFix).append('\n');
+        sb.append("bubble pool rebuilds=").append(cPool).append("  tick bitmaps built=").append(cTick.get())
+          .append("  total=").append(ms(cTickNs.get())).append(" ms (target: 0 during plain scroll)\n\n");
 
         sb.append("-- Bubble.record (cache miss; re-record) --\n");
         sb.append("count=").append(recN).append("  total=").append(ms(recNs)).append(" ms  avg=")
