@@ -251,7 +251,7 @@ public class MessageBubbleCanvasView extends View {
         return out;
     }
 
-    static final float CORNER_RADIUS_DP = 8f;
+    static final float CORNER_RADIUS_DP = 12f;
     static final float TAIL_RADIUS_DP    = 4f;
     static final float H_PADDING_DP      = 12f;
     // TELEGRAM-STYLE COMPACT PASS: was 8f. Telegram's bubble text padding
@@ -284,6 +284,31 @@ public class MessageBubbleCanvasView extends View {
     static final float REPLY_PADDING_V_DP    = 4f;   // inner vertical padding (text column)
     static final float REPLY_MIN_HEIGHT_DP   = 36f;
     static final float REPLY_CORNER_RADIUS_DP = 6f;
+
+    // ── v926 PERF: corner radii in px, computed once per density (not dp*density on every draw) ──
+    private static float sCpxDensity = -1f, sCpxReply, sCpxMedia;
+    static float replyCornerPx(float density) {
+        if (density != sCpxDensity) refreshCornerPx(density);
+        return sCpxReply;
+    }
+    static float mediaCornerPx(float density) {
+        if (density != sCpxDensity) refreshCornerPx(density);
+        return sCpxMedia;
+    }
+    private static void refreshCornerPx(float density) {
+        sCpxReply = REPLY_CORNER_RADIUS_DP * density;   // values first, key last: a racing reader
+        sCpxMedia = MEDIA_CORNER_RADIUS_DP * density;   // only ever sees the same density's values
+        sCpxDensity = density;
+    }
+
+    /** v926: chat list tells the bubbles it is flinging, so light bubbles skip their 1dp shadow. */
+    public static void setFastScroll(boolean fling) { BubbleTailDrawable.sFastScroll = fling; }
+    /** True once if any shadow was skipped since the last call (caller then invalidates visible rows). */
+    public static boolean consumeShadowSkipped() {
+        if (!BubbleTailDrawable.sShadowSkipped) return false;
+        BubbleTailDrawable.sShadowSkipped = false;
+        return true;
+    }
     static final float REPLY_SENDER_SIZE_SP  = 11f;
     static final float REPLY_TEXT_SIZE_SP    = 12f;
     static final float REPLY_THUMB_SIZE_DP   = 44f;
@@ -323,7 +348,7 @@ public class MessageBubbleCanvasView extends View {
     // nested rect. Pill/badge treatment below also reworked to a softer
     // "glass" look (bigger radius, subtle border, slightly deeper scrim)
     // instead of the flat hard-edged translucent rectangle.
-    static final float MEDIA_CORNER_RADIUS_DP  = 8f;
+    static final float MEDIA_CORNER_RADIUS_DP  = 12f;
     static final float MEDIA_MARGIN_DP         = 2f;   // unused (kept for reference) — the real media/bubble-edge gap is MEDIA_TIGHT_INSET_DP, applied where mediaRect is set
     // v34: WhatsApp-level approach — the image/video itself now sits
     // almost flush against the bubble edge (2dp, just enough for the
@@ -3216,7 +3241,7 @@ public class MessageBubbleCanvasView extends View {
         final int thumbMargin = Math.round(REPLY_THUMB_MARGIN_DP * density);
         final float thumbLeft = replyBoxRect.right - thumbMargin - thumbSize;
         final float thumbTop = replyBoxRect.top + (replyBoxRect.height() - thumbSize) / 2f;
-        final float tr = REPLY_CORNER_RADIUS_DP * density;
+        final float tr = replyCornerPx(density);
         if (thumbLeft != geomL || thumbTop != geomT || thumbSize != geomS || tr != geomR) {
             geomL = thumbLeft; geomT = thumbTop; geomS = thumbSize; geomR = tr;
             replyThumbDstRect.set(thumbLeft, thumbTop, thumbLeft + thumbSize, thumbTop + thumbSize);
@@ -10275,12 +10300,12 @@ public class MessageBubbleCanvasView extends View {
             replyPressedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
             replyPressedPaint.setColor(0x24000000);
         }
-        float r = REPLY_CORNER_RADIUS_DP * density;
+        float r = replyCornerPx(density);
         canvas.drawRoundRect(replyBoxRect, r, r, replyPressedPaint);
     }
 
     private void drawReplyPreview(Canvas canvas) {
-        float r = REPLY_CORNER_RADIUS_DP * density;
+        float r = replyCornerPx(density);
         canvas.drawRoundRect(replyBoxRect, r, r, replyBgPaint);
         // v853: pressed tint is drawn in the overlay layer (drawReplyPressedOverlay)
 
@@ -10319,7 +10344,7 @@ public class MessageBubbleCanvasView extends View {
             int thumbMargin = Math.round(REPLY_THUMB_MARGIN_DP * density);
             float thumbLeft = replyBoxRect.right - thumbMargin - thumbSize;
             float thumbTop = replyBoxRect.top + (replyBoxRect.height() - thumbSize) / 2f;
-            float tr = REPLY_CORNER_RADIUS_DP * density;
+            float tr = replyCornerPx(density);
             // Geometry-derived objects (dst rect, clip path, play-chip path) are rebuilt ONLY when the
             // slot actually moved/resized — not on every draw pass.
             if (thumbLeft != geomL || thumbTop != geomT || thumbSize != geomS || tr != geomR) {

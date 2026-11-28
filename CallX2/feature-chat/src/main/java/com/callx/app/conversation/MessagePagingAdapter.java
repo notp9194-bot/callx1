@@ -90,6 +90,24 @@ public class MessagePagingAdapter
     // Set by ChatActivity's OnScrollListener — used here to optimize bind time
     public void setRecyclerViewScrollState(int state) {
         this.recyclerViewScrollState = state;
+        // v926: light bubbles skip their 1dp shadow while flinging; one idle re-draw restores it.
+        final boolean fling = state == RecyclerView.SCROLL_STATE_SETTLING;
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.setFastScroll(fling);
+        if (state == RecyclerView.SCROLL_STATE_IDLE && com.callx.app.conversation.canvas.MessageBubbleCanvasView.consumeShadowSkipped()) {
+            final RecyclerView rv = attachedRecyclerView;
+            if (rv != null) {
+                for (int i = 0; i < rv.getChildCount(); i++) {
+                    final View c = rv.getChildAt(i);
+                    if (c instanceof com.callx.app.conversation.canvas.MessageBubbleCanvasView) c.invalidate();
+                    else if (c instanceof android.view.ViewGroup) {
+                        final android.view.ViewGroup g = (android.view.ViewGroup) c;
+                        for (int j = 0; j < g.getChildCount(); j++) {
+                            if (g.getChildAt(j) instanceof com.callx.app.conversation.canvas.MessageBubbleCanvasView) g.getChildAt(j).invalidate();
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ── TELEGRAM-STYLE "SEND" ANIMATION — single-spring, multi-property ──

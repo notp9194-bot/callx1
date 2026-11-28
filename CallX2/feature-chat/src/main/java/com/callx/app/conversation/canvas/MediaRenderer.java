@@ -164,7 +164,7 @@ final class MediaRenderer {
     }
 
     void draw(Canvas canvas, int hPad, int vPad, boolean spinnerHandledSeparately) {
-        float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
+        float r = MessageBubbleCanvasView.mediaCornerPx(host.density);
         // BUG FIX: defense-in-depth alongside MessagePagingAdapter's
         // safeCacheCopy()/putBitmapSafely() — this is the last line of
         // defense right at the point BitmapShader construction previously
@@ -618,7 +618,7 @@ final class MediaRenderer {
      * setMediaDownloadGate()/setMediaDownloadProgress().
      */
     private void drawMediaGateScrim(Canvas canvas) {
-        float r = MessageBubbleCanvasView.MEDIA_CORNER_RADIUS_DP * host.density;
+        float r = MessageBubbleCanvasView.mediaCornerPx(host.density);
         canvas.drawRoundRect(host.mediaRect, r, r, host.mediaGateScrimPaint);
         squareTailCorner(canvas, host.mediaGateScrimPaint, r);
     }

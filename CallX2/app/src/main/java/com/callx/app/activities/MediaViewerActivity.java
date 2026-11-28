@@ -517,7 +517,7 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     /** Bubble media corner radius (MessageBubbleCanvasView#MEDIA_CORNER_RADIUS_DP) — kept in sync so the
      *  docking animation's final rounding matches the actual chat-bubble thumbnail exactly. */
-    private static final float BUBBLE_MEDIA_CORNER_RADIUS_DP = 18f;
+    private static final float BUBBLE_MEDIA_CORNER_RADIUS_DP = 12f;
     /** Base duration for the dock-to-source / expand-from-source animation, before velocity adjusts it. */
     private static final long DOCK_ANIM_BASE_MS = 300L;
     private static final long DOCK_ANIM_MIN_MS = 170L;

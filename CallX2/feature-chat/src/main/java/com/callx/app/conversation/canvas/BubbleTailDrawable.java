@@ -44,6 +44,10 @@ final class BubbleTailDrawable extends Drawable {
     private float shadowDy;
     private float radius;
     private float density = -1f;
+    /** v926: set by the chat while the list is flinging (SCROLL_STATE_SETTLING). Written on main only. */
+    static volatile boolean sFastScroll;
+    /** v926: true when a shadow draw was skipped during a fling -> visible rows need one idle re-draw. */
+    static volatile boolean sShadowSkipped;
 
     BubbleTailDrawable(boolean sent, boolean tail) {
         this.sent = sent;
@@ -101,8 +105,14 @@ final class BubbleTailDrawable extends Drawable {
         final float r = Math.min(radius, Math.min(b.width(), b.height()) / 2f);
         // The fused patch is only valid while the corner radius isn't clamped by a tiny bubble.
         final boolean fused = tail && patchOk && r == radius;
-        if (shadow) {                                  // soft edge under bubble + tail, drawn first
-            drawShape(c, b.left, b.top + shadowDy, b.right, b.bottom + shadowDy, r, fused, shadowPaint);
+        if (shadow) {                                  // soft 1dp edge under the bubble body, drawn first
+            if (sFastScroll) {
+                sShadowSkipped = true;                 // v926: skipped mid-fling; host re-invalidates on idle
+            } else {
+                // v926: body only — the 10%-black tail shadow is invisible, and skipping it saves a
+                // save/translate/drawPath/restore per light tail bubble.
+                c.drawRoundRect(b.left, b.top + shadowDy, b.right, b.bottom + shadowDy, r, r, shadowPaint);
+            }
         }
         drawShape(c, b.left, b.top, b.right, b.bottom, r, fused, paint);
     }
