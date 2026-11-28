@@ -4413,7 +4413,9 @@ public class MessagePagingAdapter
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         final long _t = System.nanoTime();
         VH _r = onCreateViewHolderInner(parent, viewType);
-        com.callx.app.debug.OpenPerfLog.acc("adapter.onCreateVH", System.nanoTime() - _t);
+        final long _cdt = System.nanoTime() - _t;
+        com.callx.app.debug.OpenPerfLog.acc("adapter.onCreateVH", _cdt);
+        if (com.callx.app.debug.BubblePerfStats.on) com.callx.app.debug.BubblePerfStats.create(_cdt);
         return _r;
     }
 

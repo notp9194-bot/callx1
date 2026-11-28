@@ -7015,6 +7015,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                com.callx.app.debug.BubblePerfStats.setScrollState(newState);   // v935: perf report fling/idle split
                 handleLayerTypeStateChanged(rv, newState);
                 handleStickyDateStateChanged(newState);
                 handleGlideAndPresenceStateChanged(rv, newState);

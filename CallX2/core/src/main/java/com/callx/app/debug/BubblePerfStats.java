@@ -27,6 +27,23 @@ public final class BubblePerfStats {
     private static long startMs;
 
     public static void rec(long ns)     { recN++;  recNs  += ns; if (ns > recMax)  recMax  = ns; }
+
+    // v935: row creation (onCreateViewHolder) + scroll-state / GC diagnostics. Frame stage "animation" during a
+    // fling is mostly RecyclerView bind/create work, so these split it into create vs bind vs GC.
+    private static long crN, crNs, crMax, crSlow;
+    /** onCreateViewHolder cost (main thread). crSlow = creations over 2 ms. */
+    public static void create(long ns) { crN++; crNs += ns; if (ns > crMax) crMax = ns; if (ns > 2_000_000L) crSlow++; }
+    /** RecyclerView scroll state mirror (main thread writes, frame thread reads): 0 idle, 1 drag, 2 settle. */
+    private static volatile int scrollState = 0;
+    public static void setScrollState(int s) { scrollState = s; }
+    private static long gcCount0, gcTime0, gcBlk0;
+    private static long rtStat(String k) {
+        try { String v = android.os.Debug.getRuntimeStat(k); return v == null ? 0L : Long.parseLong(v); }
+        catch (Throwable t) { return 0L; }
+    }
+    // frames by scroll state: [0]=idle [1]=drag [2]=settle(fling); total / over budget / over 2x
+    private static final int[] stFrames = new int[3], stOver = new int[3], stOver2 = new int[3];
+    private static final long[] stNs = new long[3];
     public static void hit()            { hitN++; }
 
     // v934: bubble-colour feature counters (colour cost is invisible in the generic sections above)
@@ -181,6 +198,9 @@ public final class BubblePerfStats {
         vidBindN = vidRecN = vidPreN = vidRecDirty = vidRecNoDl = noDlAttached = noDlDetached = noDlEmptyFlag = 0;
         cCalls = cRefresh = cRefreshNs = cRefreshMax = cPool = cDirectCalls = cDirectRows = cDirectNs = cAttachFix = 0;
         cTick.set(0); cTickNs.set(0);
+        crN = crNs = crMax = crSlow = 0;
+        Arrays.fill(stFrames, 0); Arrays.fill(stOver, 0); Arrays.fill(stOver2, 0); Arrays.fill(stNs, 0L);
+        gcCount0 = rtStat("art.gc.gc-count"); gcTime0 = rtStat("art.gc.gc-time"); gcBlk0 = rtStat("art.gc.blocking-gc-count");
         startMs = System.currentTimeMillis();
         synchronized (FL) {
             frameN = 0; fTotal = fLayout = fDraw = fSync = 0; over1 = over2 = 0;
@@ -208,6 +228,10 @@ public final class BubblePerfStats {
                         fDraw += fm.getMetric(FrameMetrics.DRAW_DURATION);
                         fSync += fm.getMetric(FrameMetrics.SYNC_DURATION);
                         float ms = total / 1e6f;
+                        final int ss = Math.max(0, Math.min(2, scrollState));
+                        stFrames[ss]++; stNs[ss] += total;
+                        if (ms > budgetMs) stOver[ss]++;
+                        if (ms > budgetMs * 2f) stOver2[ss]++;
                         final long[] st = new long[9];
                         st[0] = fm.getMetric(FrameMetrics.INPUT_HANDLING_DURATION);
                         st[1] = fm.getMetric(FrameMetrics.ANIMATION_DURATION);
@@ -336,6 +360,23 @@ public final class BubblePerfStats {
             long[] a = e.getValue();
             sb.append("  ").append(e.getKey()).append(": n=").append(a[0]).append(" total=").append(ms(a[1]))
               .append(" avg=").append(us(a[0], a[1])).append(" max=").append(ms(a[2])).append('\n');
+        }
+        sb.append('\n');
+
+        sb.append("-- Row creation / GC (v935) --\n");
+        sb.append("onCreateViewHolder: count=").append(crN).append("  total=").append(ms(crNs)).append(" ms  avg=")
+          .append(us(crN, crNs)).append(" us  max=").append(ms(crMax)).append(" ms  over2ms=").append(crSlow).append('\n');
+        sb.append("GC during run: count=").append(rtStat("art.gc.gc-count") - gcCount0)
+          .append("  blocking=").append(rtStat("art.gc.blocking-gc-count") - gcBlk0)
+          .append("  time=").append(rtStat("art.gc.gc-time") - gcTime0).append(" ms\n");
+        synchronized (FL) {
+            String[] nm = {"idle", "drag", "fling"};
+            sb.append("frames by scroll state (n / over budget / over 2x / avg ms):\n");
+            for (int i = 0; i < 3; i++) {
+                sb.append("  ").append(nm[i]).append(": n=").append(stFrames[i]).append(" over=").append(stOver[i])
+                  .append(" (").append(100 * stOver[i] / Math.max(1, stFrames[i])).append("%) over2x=").append(stOver2[i])
+                  .append(String.format(Locale.US, " avg=%.1f", stFrames[i] == 0 ? 0.0 : stNs[i] / 1e6 / stFrames[i])).append('\n');
+            }
         }
         sb.append('\n');
 
