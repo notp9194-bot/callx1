@@ -51,7 +51,7 @@ public final class ChatMoreMenu {
 
     private final View anchor;
     private final Listener listener;
-    private final PopupWindow popup;
+    private PopupWindow popup;
     private final ScrollView scroll;
     private final ArrayList<Row> rows = new ArrayList<>(16);
     private final int widthPx, maxHeightPx, yOffPx;
