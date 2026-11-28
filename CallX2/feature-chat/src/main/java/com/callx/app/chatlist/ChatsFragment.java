@@ -275,9 +275,17 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         tvSelectedCount  = v.findViewById(R.id.tv_selected_count);
         pbLoadingMoreChats = v.findViewById(R.id.pb_loading_more_chats);
 
+        // v943: an adapter that survived the previous view already shows the current list — keep the
+        // "last applied" markers so applyChatSearch() below is a no-op (no sort, no diff, no precompute)
+        // instead of re-submitting the whole list on every tab open. A typed query is cleared with the
+        // old view, so that case still re-applies.
+        final boolean reuseAdapter = adapter != null;
+        final boolean hadQuery = chatSearchQuery != null && !chatSearchQuery.isEmpty();
         chatSearchQuery = "";
-        lastAppliedSearchQuery = null;
-        lastAppliedSearchDataVersion = -1L;
+        if (!reuseAdapter || hadQuery) {
+            lastAppliedSearchQuery = null;
+            lastAppliedSearchDataVersion = -1L;
+        }
         setupChatSearch();
 
         chatListPrefs = requireContext().getSharedPreferences(CHAT_LIST_PREFS, Context.MODE_PRIVATE);
@@ -331,8 +339,21 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             llm.scrollToPositionWithOffset(pendingScrollPosition, pendingScrollOffset);
         }
 
+        // v943: the Activity-scoped ViewHolder pool (filled by recycleChildrenOnDetach on the previous
+        // view) is what makes a reopen cheap — look it up first, it decides whether prewarm is needed.
+        final RecyclerViewPoolViewModel poolVm =
+                new androidx.lifecycle.ViewModelProvider(requireActivity())
+                        .get(RecyclerViewPoolViewModel.class);
+        final boolean poolWarm = poolVm.getChatsPool().getRecycledViewCount(0) >= 6;
+
         // v83: constructor no longer takes a list — submitList() is the write path
-        adapter = new ChatListAdapter(this);
+        // v943: ONE adapter per Fragment instance (was: a new adapter + empty differ on every
+        // onCreateView, so every reopen re-diffed, re-precomputed and re-bound from nothing).
+        if (adapter == null) {
+            adapter = new ChatListAdapter(this);
+        } else if (adapter.isSelecting()) {
+            adapter.clearSelection();   // selection bar of the old view is gone
+        }
         // View may have been recreated while the live listener survived — re-seed.
         adapter.setMutedUids(mutedChatUids);
         rv.setAdapter(adapter);
@@ -343,9 +364,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // LayoutInflater cost on the main thread. `rv` is passed only so the
         // background inflate generates the correct RecyclerView.LayoutParams
         // subtype — it is never touched/mutated off the main thread.
-        prewarmPool.start(requireContext().getApplicationContext(), rv);
+        // v943: only a cold pool needs background pre-inflation. A warm pool (reopen) already holds
+        // built rows, so the HandlerThread + 14 throw-away row inflations per tab open are skipped.
+        if (!poolWarm) prewarmPool.start(requireContext().getApplicationContext(), rv);
         adapter.setPrewarmPool(prewarmPool);
-        contactSheetPool.start(requireContext().getApplicationContext());
+        contactSheetPool.start(requireContext().getApplicationContext());   // idempotent; stopped in onDestroy
 
         // PERF: while the chat list is idle, pre-draw the chat input-bar icon
         // bitmaps on a background thread (once per process) so the first chat
@@ -372,9 +395,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Pool is owned by RecyclerViewPoolViewModel (Activity lifecycle), so the 25 cached
         // ChatListAdapter.VHs are never thrown away when the user visits a distant tab.
         // NEVER pass this pool to GroupsFragment — VH layouts are incompatible.
-        RecyclerViewPoolViewModel poolVm =
-                new androidx.lifecycle.ViewModelProvider(requireActivity())
-                        .get(RecyclerViewPoolViewModel.class);
         rv.setRecycledViewPool(poolVm.getChatsPool());
 
         // Pause Glide bitmap decoding during fast flings (resume on idle/drag).
@@ -403,6 +423,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // speculative decode) until a row actually becomes visible.
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
             private long lastTimeMs = 0L;
+            // v943: onScrolled fires every frame — rebuilding the warm-id list (ArrayList + chat-id
+            // string concat per row) and re-running the prefetchers when the visible window hasn't
+            // moved is pure per-frame garbage. Only act when the first/last visible row changed.
+            private int lastFirstSeen = -2, lastLastSeen = -2, lastTotalSeen = -1;
+            private int accDy = 0;   // |dy| accumulated across skipped frames, so velocity stays correct
 
             @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
@@ -417,9 +442,17 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     loadMoreOlderContacts();
                 }
 
+                accDy += Math.abs(dy);
+                final int firstVisible = lm.findFirstVisibleItemPosition();
+                if (firstVisible == lastFirstSeen && lastVisible == lastLastSeen && total == lastTotalSeen) {
+                    return;
+                }
+                lastFirstSeen = firstVisible; lastLastSeen = lastVisible; lastTotalSeen = total;
+
                 long now = android.os.SystemClock.elapsedRealtime();
                 long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
-                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                float velocity = (dt > 0) ? accDy / (float) dt : 0f;
+                accDy = 0;
                 lastTimeMs = now;
 
                 ChatAvatarBinder.prefetch(requireContext(), chatAvatarSource(), lastVisible + 1, velocity);
@@ -471,10 +504,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         rv.setRecyclerListener(holder -> {
             if (holder instanceof ChatListAdapter.VH) {
                 ChatListAdapter.VH vh = (ChatListAdapter.VH) holder;
-                if (vh.ivAvatar != null) {
-                    try { Glide.with(vh.ivAvatar.getContext()).clear(vh.ivAvatar); }
-                    catch (Exception ignored) {}
-                }
+                // v947: avatar is a canvas view now (no Glide target) — just stop an in-flight bitmap load.
+                if (vh.avatarView != null) vh.avatarView.cancelLoad();
             }
         });
 
@@ -593,6 +624,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             // is a synchronous submitList() over data already in RAM: zero
             // disk read, zero network call, zero wait.
             applyChatSearch();
+            // v943: applyChatSearch() is skipped when nothing changed, so seed the (new) view's
+            // filter-empty state here.
+            if (reuseAdapter) updateChatSearchEmptyState(chatFilterMode != FILTER_ALL && adapter.getItemCount() == 0);
             if (emptyState != null) emptyState.setVisibility(View.GONE);
         }
 
@@ -1862,12 +1896,27 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // below touches rvChats.
         if (rvChats != null && rvChats.getLayoutManager() instanceof LinearLayoutManager) {
             LinearLayoutManager lm = (LinearLayoutManager) rvChats.getLayoutManager();
-            int firstPos = lm.findFirstVisibleItemPosition();
-            if (firstPos != RecyclerView.NO_POSITION) {
-                View firstChild = lm.findViewByPosition(firstPos);
-                pendingScrollPosition = firstPos;
-                pendingScrollOffset = firstChild != null ? firstChild.getTop() : 0;
+            // v943: the layout is already emptied (children recycled into the shared pool on window
+            // detach), so prefer the anchor ChatListLayoutManager captured just before that.
+            if (lm instanceof ChatListLayoutManager
+                    && ((ChatListLayoutManager) lm).getDetachAnchorPos() != RecyclerView.NO_POSITION) {
+                pendingScrollPosition = ((ChatListLayoutManager) lm).getDetachAnchorPos();
+                pendingScrollOffset = ((ChatListLayoutManager) lm).getDetachAnchorOffset();
+            } else {
+                int firstPos = lm.findFirstVisibleItemPosition();
+                if (firstPos != RecyclerView.NO_POSITION) {
+                    View firstChild = lm.findViewByPosition(firstPos);
+                    pendingScrollPosition = firstPos;
+                    pendingScrollOffset = firstChild != null ? firstChild.getTop() : 0;
+                }
             }
+        }
+        // v943: the adapter now outlives the view — unhook it from this RecyclerView so the dead RV
+        // (and its whole view tree) is not kept alive by the adapter's observer list. The shared pool
+        // is detached FIRST: RecycledViewPool.onAdapterChanged() clears a pool whose attach-count hits 0.
+        if (rvChats != null) {
+            rvChats.setRecycledViewPool(null);
+            rvChats.setAdapter(null);
         }
         if (rvChats != null && armAnimatorRunnable != null) {
             rvChats.removeCallbacks(armAnimatorRunnable);
@@ -1900,7 +1949,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // drop; the pool itself is thrown away, a fresh one won't be created
         // until onCreateView runs again.
         prewarmPool.stop();
-        contactSheetPool.stop();
+        // v943: contactSheetPool keeps its 2 pre-inflated sheets across tab switches; stopped in onDestroy.
         super.onDestroyView();
     }
 
@@ -1932,6 +1981,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (groupSource != null) { groupSource.stop(); groupSource = null; }
         groupRows.clear();
         liveListenersAttached = false;
+        contactSheetPool.stop();
         super.onDestroy();
     }
 

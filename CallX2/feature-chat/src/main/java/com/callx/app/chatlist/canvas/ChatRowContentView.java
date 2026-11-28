@@ -126,6 +126,7 @@ public class ChatRowContentView extends View {
     private boolean nameDirty = true;
     private String cachedTimeStr = null;
     private float cachedTimeWidth = 0f;
+    private float nameTextWidth = 0f;   // v945: width of ellipsizedName, measured once per rebuild (was per draw)
     private float nameBaseline = 0f; // relative to row 1's own top (y=0)
     private float timeBaseline = 0f;
 
@@ -399,6 +400,7 @@ public class ChatRowContentView extends View {
                 ? cached
                 : TextUtils.ellipsize(rawName, namePaint,
                         Math.max(0f, nameWidth), TextUtils.TruncateAt.END);
+        nameTextWidth = namePaint.measureText(ellipsizedName, 0, ellipsizedName.length());
         lastNameWidth = nameWidth;
         nameDirty = false;
     }
@@ -432,7 +434,6 @@ public class ChatRowContentView extends View {
 
         canvas.drawText(ellipsizedName, 0, ellipsizedName.length(), 0f, nameBaseline, namePaint);
         if (isVerified && verifiedBadgeBitmap != null) {
-            float nameTextWidth = namePaint.measureText(ellipsizedName, 0, ellipsizedName.length());
             float badgeTop = nameRowHeight / 2f - verifiedBadgeSizePx / 2f;
             canvas.drawBitmap(verifiedBadgeBitmap, nameTextWidth + verifiedBadgeGapPx, badgeTop, null);
         }

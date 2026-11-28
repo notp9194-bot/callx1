@@ -133,6 +133,15 @@ HSPLcom/callx/app/chatlist/canvas/ChatListLastMessageView;->onDraw(Landroid/grap
 HSPLcom/callx/app/chatlist/canvas/ChatListUnreadBadgeView;->onDraw(Landroid/graphics/Canvas;)V
 HSPLcom/callx/app/chatlist/canvas/ChatListStoryRingView;->onDraw(Landroid/graphics/Canvas;)V
 HSPLcom/callx/app/chatlist/canvas/ChatListCallButtonsView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowAvatarView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowAvatarView;->setAvatar(Landroid/content/Context;Ljava/lang/String;Z)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowAvatarView;->setRingState(I)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowAvatarView;->setSelectionOverlay(ZZ)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowMetaView;->onDraw(Landroid/graphics/Canvas;)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowMetaView;->onMeasure(II)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowMetaView;->setBadgeCount(J)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowMetaView;->setMutedStyle(Z)V
+HSPLcom/callx/app/chatlist/canvas/ChatRowMetaView;->setCallsVisible(Z)V
 HSPLcom/callx/app/chatlist/ChatListTextPrecompute;->init(Landroid/content/res/Resources;)V
 HSPLcom/callx/app/chatlist/ChatListTextPrecompute;->precompute(Ljava/util/List;II)V
 HSPLcom/callx/app/chatlist/ChatListTextPrecompute;->getName(Ljava/lang/String;I)Ljava/lang/CharSequence;

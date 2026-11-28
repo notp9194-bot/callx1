@@ -55,7 +55,7 @@ public class RecyclerViewPoolViewModel extends ViewModel {
 
     public RecyclerViewPoolViewModel() {
         chatsPool = new RecyclerView.RecycledViewPool();
-        chatsPool.setMaxRecycledViews(0, 25);   // view type 0 = only type in ChatListAdapter
+        chatsPool.setMaxRecycledViews(0, 32);   // view type 0 = only type in ChatListAdapter
 
         groupsPool = new RecyclerView.RecycledViewPool();
         groupsPool.setMaxRecycledViews(0, 20);  // view type 0 = only type in GroupAdapter

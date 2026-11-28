@@ -299,6 +299,26 @@ public final class ChatAvatarBinder {
      * successful decode is written back into L2 (+ L3 disk) so the very
      * next bind of this exact URL (re-scroll, warm restart) is instant.
      */
+    // ── v947: bitmap-only path for the chat-list row (ChatRowAvatarView draws the bitmap itself —
+    //    no ImageView, no Glide target per row). Same url / L2 key / pipeline as bind(ImageView…). ──
+
+    /** Row-tier (50dp) responsive URL for a user avatar or a group icon (group: pass avatarVersion 0). */
+    public static String rowUrl(Context ctx, String photo, long avatarVersion) {
+        return com.callx.app.cache.AvatarBinderCore.url(ctx, photo, avatarVersion, TIER);
+    }
+
+    /** Synchronous L1/L2 peek for a row URL — null on miss (never decodes, never blocks). */
+    @Nullable
+    public static Bitmap peekRow(Context ctx, String url) {
+        return url == null ? null : PIPELINE.peek(ctx, url);
+    }
+
+    /** Async load of a row URL (L2 hit is delivered synchronously). Cancel via the returned handle. */
+    public static AvatarBitmapPipeline.Cancelable bindRow(Context ctx, String url, AvatarBitmapPipeline.Callback cb) {
+        if (url == null || url.isEmpty()) return AvatarBitmapPipeline.NOOP;
+        return PIPELINE.bind(ctx, url, AvatarUrlBuilder.tierPx(ctx, TIER), cb);
+    }
+
     public static void bind(Context ctx, ImageView iv, String photo, long avatarVersion, int placeholderRes) {
         bind(ctx, iv, photo, avatarVersion, placeholderRes, TIER);
     }

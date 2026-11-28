@@ -411,6 +411,8 @@ public class CallxApp extends Application implements Configuration.Provider {
                     "com.callx.app.chatlist.canvas.ChatListUnreadBadgeView",
                     "com.callx.app.chatlist.canvas.ChatListStoryRingView",
                     "com.callx.app.chatlist.canvas.ChatListCallButtonsView",
+                    "com.callx.app.chatlist.canvas.ChatRowAvatarView",
+                    "com.callx.app.chatlist.canvas.ChatRowMetaView",
                     "com.google.android.material.bottomnavigation.BottomNavigationView",
                     "com.google.android.material.appbar.AppBarLayout",
                     "androidx.viewpager2.widget.ViewPager2",

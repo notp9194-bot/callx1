@@ -54,7 +54,31 @@ public class ChatListLayoutManager extends LinearLayoutManager {
         // padding) so this scales sanely across screen sizes instead of a
         // hardcoded item count.
         setInitialPrefetchItemCount(estimatePrefetchCount(context));
+        // v943: when the Chats view is destroyed (tab switch), hand every attached + cached row to the
+        // Activity-scoped RecycledViewPool instead of dropping it. The next onCreateView then pulls
+        // ready-made ViewHolders (canvas views already built) — no inflate, no prewarm re-spin.
+        setRecycleChildrenOnDetach(true);
     }
+
+    // v943: recycleChildrenOnDetach empties the layout before Fragment.onDestroyView runs, so the scroll
+    // anchor must be captured here, while the children are still attached.
+    private int detachAnchorPos = RecyclerView.NO_POSITION;
+    private int detachAnchorOffset = 0;
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onDetachedFromWindow(RecyclerView view, RecyclerView.Recycler recycler) {
+        final int first = findFirstVisibleItemPosition();
+        if (first != RecyclerView.NO_POSITION) {
+            final android.view.View c = findViewByPosition(first);
+            detachAnchorPos = first;
+            detachAnchorOffset = c != null ? c.getTop() : 0;
+        }
+        super.onDetachedFromWindow(view, recycler);
+    }
+
+    int getDetachAnchorPos()    { return detachAnchorPos; }
+    int getDetachAnchorOffset() { return detachAnchorOffset; }
 
     private static int estimatePrefetchCount(Context context) {
         float density = context.getResources().getDisplayMetrics().density;

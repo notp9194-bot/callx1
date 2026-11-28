@@ -1,30 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    item_chat.xml — v90 canvas consolidation
+    item_chat.xml — v947 flat row (10 views -> 5)
 
-    WHAT CHANGED vs v82:
-      • tv_name + tv_time (already merged into ChatListNameTimeView in v82)
-        and the last-message view (ChatListLastMessageView) are now merged
-        AGAIN into ONE view — ChatRowContentView — so RecyclerView measures
-        and lays out one child here instead of two. Drawing itself was
-        already zero-allocation canvas in both source views; this pass
-        only removes the extra view-tree node, not draw work.
+    BEFORE (v946):  FrameLayout(bg_chat_row) → LinearLayout → [ FrameLayout(58dp) → {StoryRingView, CircleImageView,
+                    ViewStub}, ChatRowContentView, LinearLayout(ll_meta_normal) → {UnreadBadgeView, CallButtonsView} ]
+    AFTER  (v947):  FrameLayout → LinearLayout → [ ChatRowAvatarView, ChatRowContentView, ChatRowMetaView ]
 
-    WHAT CHANGED vs v23 (still applies):
-      • CardView root  →  plain FrameLayout with a simple background drawable
-        (cardElevation was 0dp so no visual change; removes CardView's extra
-        measure/layout pass on every RecyclerView bind).
-      • tv_unread_badge (TextView) →  ChatListUnreadBadgeView (canvas pill + count)
-      • iv_story_ring (ImageView)  →  ChatListStoryRingView (canvas arc, seen/unseen)
-      • ll_call_btns LinearLayout  →  ChatListCallButtonsView (canvas icons + touch regions)
-      • iv_avatar (CircleImageView) — UNCHANGED; Glide cache/transform pipeline kept.
-      • fl_select_overlay + ivCheck + vCheckRing — UNCHANGED; shown only in selection mode.
+      • ChatRowAvatarView — story ring + avatar bitmap + border + selection scrim/check, ONE canvas view (no
+        CircleImageView / Glide target / ViewStub per row).
+      • ChatRowMetaView   — unread pill + voice/video call strip, ONE canvas view (no wrapper LinearLayout).
+      • No android:background on the root: the old bg_chat_row drawable was replaced by a ColorDrawable on the first
+        bind of EVERY row anyway (a wasted drawable + invalidate). The row tint (selected / special request) is now
+        a single per-ViewHolder ColorDrawable attached only while a tint is active (ChatListAdapter.applyRowBg).
+      • Foreground ripple unchanged (independent of the tint).
+
+    Geometry is identical to v946 (padding 14dp, avatar box 58dp, content marginStart 14dp, meta marginStart 8dp),
+    so ChatListTextPrecompute's width math is unchanged.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="6dp"
-    android:background="@drawable/bg_chat_row"
     android:foreground="@drawable/fg_chat_row_ripple">
 
     <LinearLayout
@@ -34,70 +30,11 @@
         android:padding="14dp"
         android:gravity="center_vertical">
 
-        <!-- Avatar area: Glide-loaded CircleImageView + canvas story ring + selection overlay -->
-        <FrameLayout
+        <com.callx.app.chatlist.canvas.ChatRowAvatarView
+            android:id="@+id/view_avatar"
             android:layout_width="58dp"
-            android:layout_height="58dp">
+            android:layout_height="58dp"/>
 
-            <!-- Story ring drawn by canvas — sits BEHIND avatar so the avatar clips over it -->
-            <com.callx.app.chatlist.canvas.ChatListStoryRingView
-                android:id="@+id/view_story_ring"
-                android:layout_width="58dp"
-                android:layout_height="58dp"
-                android:layout_gravity="center"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_avatar"
-                android:layout_width="50dp"
-                android:layout_height="50dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="@color/brand_primary"
-                xmlns:app="http://schemas.android.com/apk/res-auto"/>
-
-            <!-- Selection checkmark overlay (visible only in selection mode) -->
-            <FrameLayout
-                android:id="@+id/fl_select_overlay"
-                android:layout_width="58dp"
-                android:layout_height="58dp"
-                android:layout_gravity="center"
-                android:background="#99000000"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/iv_check"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_gravity="center"
-                    android:src="@drawable/ic_close"
-                    android:tint="#FFFFFF"
-                    android:visibility="invisible"/>
-
-                <View
-                    android:id="@+id/v_check_ring"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
-                    android:layout_gravity="center"
-                    android:background="@drawable/circle_accept"
-                    android:visibility="gone"/>
-
-            </FrameLayout>
-        </FrameLayout>
-
-        <!-- Main text column: name+time+last-message, ONE merged canvas view
-             (v90: was two stacked canvas views — ChatListNameTimeView +
-             ChatListLastMessageView — now a single ChatRowContentView with
-             one measure/layout/draw pass; see that class for details).
-             v91: the wrapping vertical LinearLayout that used to stack the
-             two child views is GONE — with only one child left after the
-             v90 merge it was pure pass-through (measured/laid out every
-             bind for zero layout benefit). Its weight/margin params moved
-             straight onto ChatRowContentView, which is now a DIRECT child
-             of the row's outer horizontal LinearLayout — one fewer
-             ViewGroup in the tree per row. -->
         <com.callx.app.chatlist.canvas.ChatRowContentView
             android:id="@+id/view_row_content"
             android:layout_width="0dp"
@@ -105,30 +42,11 @@
             android:layout_weight="1"
             android:layout_marginStart="14dp"/>
 
-        <!-- Right meta column: unread badge (canvas) + call buttons (canvas) -->
-        <LinearLayout
-            android:id="@+id/ll_meta_normal"
+        <com.callx.app.chatlist.canvas.ChatRowMetaView
+            android:id="@+id/view_meta"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="end|center_vertical"
-            android:layout_marginStart="8dp">
-
-            <!-- v82: unread badge — canvas pill+count, self-sizes to 0 when count=0 -->
-            <com.callx.app.chatlist.canvas.ChatListUnreadBadgeView
-                android:id="@+id/view_unread_badge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
-
-            <!-- v82: call buttons — canvas icons with touch regions -->
-            <com.callx.app.chatlist.canvas.ChatListCallButtonsView
-                android:id="@+id/view_call_buttons"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:visibility="gone"/>
-
-        </LinearLayout>
+            android:layout_marginStart="8dp"/>
 
     </LinearLayout>
 </FrameLayout>
