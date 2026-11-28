@@ -8166,7 +8166,7 @@ public class MessagePagingAdapter
             final String mime     = guessMimeFromFileName(fileName);
             final long   sizeRaw  = m.fileSize != null ? m.fileSize : 0L;
             final String sizeStr  = sizeRaw > 0
-                    ? android.text.format.Formatter.formatShortFileSize(ctx, sizeRaw) : "";
+                    ? formatFileSize(sizeRaw) : "";   // v938: Formatter.formatShortFileSize's first call cost ~20-40 ms (ICU init) in the file bubble's first bind
 
             // v867: positive memo only on the main thread (no disk stat in bind: measured 33 ms avg / 74 ms max
             // on file binds). A memo miss is verified on a background thread and flips the card to "cached".

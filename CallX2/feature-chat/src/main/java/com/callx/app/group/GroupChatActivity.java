@@ -826,6 +826,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     @Override
     protected void onDestroy() {
+        if (groupMoreMenu != null) groupMoreMenu.dismiss();   // v942: never leak the popup window
         chatUiEventBatcher.cancel();
         flushGroupDraftSave();
         // PERF FIX: matching leak-safety half of switching to the shared
@@ -1159,28 +1160,44 @@ public class GroupChatActivity extends AppCompatActivity
         // Video call
         binding.btnToolbarVideoCall.setOnClickListener(v -> startGroupCall(true));
 
+        // v942: prebuilt + pre-measured popup (was: new PopupMenu + 12 m.add(...) on EVERY tap).
         binding.btnMoreOptions.setOnClickListener(v -> {
-            android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
-            android.view.Menu m = popup.getMenu();
-            m.add(0, R.id.menu_group_info,           0, "ℹ Group Info").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_group_settings,       1, "⚙ Group Settings").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_invite,               2, "🔗 Invite Link").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.menu_starred,              3, "⭐ Starred Messages").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_customization, 4, "🎨 Chat Customization").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_privacy,       5, "🛡 Chat Privacy").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            if (canEditGroupInfo()) {
-                m.add(0, R.id.menu_rename,      7, "✏ Rename Group").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            }
-            if (isAdmin) {
-                m.add(0, R.id.menu_admin_panel, 6, "👑 Admin Panel").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-                m.add(0, R.id.menu_bot_settings, 8, "🤖 Bot Commands").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            }
-            m.add(0, R.id.action_export_chat, 9, "📤 Export Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_chat_backup, 10, "💾 Backup Chat").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            m.add(0, R.id.action_display_mode, 11, "🖥️ Display Mode").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER);
-            popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
-            popup.show();
+            final com.callx.app.chat.ui.ChatMoreMenu m = ensureGroupMoreMenu();
+            // role-dependent rows can change while the screen is open — refresh visibility each tap (cheap:
+            // setVisible only re-measures when something really flipped)
+            final boolean edit = canEditGroupInfo();
+            m.setVisible(R.id.menu_rename, edit);
+            m.setVisible(R.id.menu_admin_panel, isAdmin);
+            m.setVisible(R.id.menu_bot_settings, isAdmin);
+            m.show();
         });
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            if (!isFinishing() && !isDestroyed()) {
+                ensureGroupMoreMenu();
+                com.callx.app.chat.ui.ChatMoreMenu.warm(this, groupId);
+            }
+            return false;   // one-shot
+        });
+    }
+
+    private com.callx.app.chat.ui.ChatMoreMenu groupMoreMenu;
+
+    private com.callx.app.chat.ui.ChatMoreMenu ensureGroupMoreMenu() {
+        if (groupMoreMenu != null) return groupMoreMenu;
+        // same order the old PopupMenu produced (by its `order` argument)
+        final int[] ids = {
+                R.id.menu_group_info, R.id.menu_group_settings, R.id.menu_invite, R.id.menu_starred,
+                R.id.action_chat_customization, R.id.action_chat_privacy, R.id.menu_admin_panel,
+                R.id.menu_rename, R.id.menu_bot_settings, R.id.action_export_chat, R.id.action_chat_backup,
+                R.id.action_display_mode };
+        final String[] titles = {
+                "\u2139 Group Info", "\u2699 Group Settings", "\uD83D\uDD17 Invite Link",
+                "\u2B50 Starred Messages", "\uD83C\uDFA8 Chat Customization", "\uD83D\uDEE1 Chat Privacy",
+                "\uD83D\uDC51 Admin Panel", "\u270F Rename Group", "\uD83E\uDD16 Bot Commands",
+                "\uD83D\uDCE4 Export Chat", "\uD83D\uDCBE Backup Chat", "\uD83D\uDDA5\uFE0F Display Mode" };
+        groupMoreMenu = new com.callx.app.chat.ui.ChatMoreMenu(this, binding.btnMoreOptions, ids, titles,
+                id -> handleGroupMenuAction(id));
+        return groupMoreMenu;
     }
 
     private void startGroupCall(boolean isVideo) {
@@ -6205,7 +6222,12 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     @Override public boolean onOptionsItemSelected(MenuItem item) {
-        int id = item.getItemId();
+        if (handleGroupMenuAction(item.getItemId())) return true;
+        return super.onOptionsItemSelected(item);
+    }
+
+    /** v942: single action table shared by the ⋮ popup and the legacy options-menu path. */
+    private boolean handleGroupMenuAction(int id) {
         if (id == R.id.menu_group_info) {
             Intent i = new Intent(this, GroupInfoActivity.class);
             i.putExtra(GroupInfoActivity.EXTRA_GROUP_ID,   groupId);
@@ -6250,7 +6272,7 @@ public class GroupChatActivity extends AppCompatActivity
         if (id == R.id.action_chat_customization) { showChatCustomizationMenu(); return true; }
         if (id == R.id.action_chat_privacy) { showGroupChatPrivacySheet(); return true; }
         if (id == R.id.action_display_mode) { showChatDisplayModePicker(); return true; }
-        return super.onOptionsItemSelected(item);
+        return false;
     }
 
     // ─────────────────────────────────────────────────────────────────────

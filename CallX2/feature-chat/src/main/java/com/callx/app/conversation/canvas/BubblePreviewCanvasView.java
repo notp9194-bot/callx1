@@ -25,6 +25,9 @@ import com.callx.app.utils.BubbleColorStore;
  *
  * PERF: no layout inflation, no images, no Glide, no network. Everything (paints, rects, path, gradient)
  * is created once; {@link #onDraw} allocates nothing. Changing a colour only calls invalidate().
+ * v941: footer strings + every text width are precomputed once (no String concat / measureText per
+ * draw), theme colours are cached, and {@link #prewarmFonts} loads the emoji/tick fallback fonts off the
+ * main thread so the first preview frame has no font-load hitch.
  * Lives in the canvas package because BubbleTailDrawable and the dp constants are package-private.
  */
 public class BubblePreviewCanvasView extends View {
@@ -34,6 +37,12 @@ public class BubblePreviewCanvasView extends View {
     private static final String[] TEXTS = {
             "Hello! 👋", "Hi! How are you?", "I'm good, thanks 😊", "Great! 🎉"};
     private static final String[] TIMES = {"9:41 AM", "9:42 AM", "9:43 AM", "9:44 AM", "9:45 AM", "9:46 AM"};
+    private static final String[] HEAD = new String[TIMES.length];       // "9:41 AM  "
+    private static final String[] FOOT_SENT = new String[TIMES.length];  // "9:41 AM  ✓✓"
+    private static final String TICKS = "✓✓", DUR = "0:12";
+    static {
+        for (int i = 0; i < TIMES.length; i++) { HEAD[i] = TIMES[i] + "  "; FOOT_SENT[i] = HEAD[i] + TICKS; }
+    }
     private static final float[] WAVE = {.35f, .6f, .45f, .8f, 1f, .7f, .5f, .9f, .6f, .4f, .75f, .55f, .3f, .65f,
             .85f, .5f, .4f, .7f, .35f, .6f};
 
@@ -51,6 +60,13 @@ public class BubblePreviewCanvasView extends View {
     private final float pad, gap, avatar, avatarGap, tailW, tailH, radius, mediaRadius, innerPadH;
     private final int rowTextH, rowMediaH, rowAudioH;
     private final int mediaW, audioW;
+
+    // v941: cached once in the constructor (text sizes never change for this view's lifetime)
+    private final float[] bubbleW = new float[ROWS.length];   // text-bubble width per row
+    private final float[] headW = new float[ROWS.length];     // width of "time  " per row
+    private final float[] footW = new float[ROWS.length];     // width of "time  ✓✓" per row
+    private float durW;
+    private final int themeSentFill, themeRecvFill, themeSentText, themeRecvText;
 
     private int sentFill, recvFill, sentText, recvText;   // resolved colours, 0 = theme default requested
     private int reqSent, reqRecv;
@@ -80,21 +96,21 @@ public class BubblePreviewCanvasView extends View {
         timePaint.setTextSize(10.5f * c.getResources().getDisplayMetrics().scaledDensity);
         fillPaint.setStyle(Paint.Style.FILL);
         imgPaint.setStyle(Paint.Style.FILL);
+        themeSentFill = ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_sent);
+        themeRecvFill = ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_received);
+        themeSentText = ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_sent_text);
+        themeRecvText = ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_received_text);
+        measureAll();
         setColors(0, 0);
     }
 
     /** 0 = theme default for that side (same meaning as BubbleColorStore). Cheap; invalidates only. */
     public void setColors(int sent, int recv) {
         reqSent = sent; reqRecv = recv;
-        final Context c = getContext();
-        sentFill = sent != 0 ? sent
-                : ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_sent);
-        recvFill = recv != 0 ? recv
-                : ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_received);
-        sentText = sent != 0 ? BubbleColorStore.readableOn(sent)
-                : ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_sent_text);
-        recvText = recv != 0 ? BubbleColorStore.readableOn(recv)
-                : ContextCompat.getColor(c, com.callx.app.core.R.color.bubble_received_text);
+        sentFill = sent != 0 ? sent : themeSentFill;
+        recvFill = recv != 0 ? recv : themeRecvFill;
+        sentText = sent != 0 ? BubbleColorStore.readableOn(sent) : themeSentText;
+        recvText = recv != 0 ? BubbleColorStore.readableOn(recv) : themeRecvText;
         sentDrawable.configure(sentFill, radius, tailW, tailH, density);
         recvDrawable.configure(recvFill, radius, tailW, tailH, density);
         invalidate();
@@ -103,6 +119,40 @@ public class BubblePreviewCanvasView extends View {
     /** Avatar dot colours (theme-supplied by the host screen). */
     public void setAvatarColors(int sentColor, int recvColor) {
         avatarSentColor = sentColor; avatarRecvColor = recvColor; invalidate();
+    }
+
+    private void measureAll() {
+        int textIdx = 0;
+        for (int i = 0; i < ROWS.length; i++) {
+            final int type = ROWS[i];
+            final boolean sent = type == R_SENT_TEXT || type == R_SENT_AUDIO;
+            headW[i] = timePaint.measureText(HEAD[i]);
+            footW[i] = sent ? timePaint.measureText(FOOT_SENT[i]) : timePaint.measureText(TIMES[i]);
+            if (type == R_SENT_TEXT || type == R_RECV_TEXT) {
+                bubbleW[i] = Math.max(textPaint.measureText(TEXTS[textIdx++]), footW[i]) + innerPadH * 2f;
+            }
+        }
+        durW = timePaint.measureText(DUR);
+    }
+
+    /**
+     * Call from the picker screen (before the user taps Preview): measures every sample string once on a
+     * low-priority thread so the emoji / tick fallback fonts are already loaded when the preview's first
+     * frame is drawn. Pure warm-up — safe to skip, safe to call repeatedly.
+     */
+    public static void prewarmFonts(Context ctx) {
+        final float sd = ctx.getApplicationContext().getResources().getDisplayMetrics().scaledDensity;
+        final Thread t = new Thread(() -> {
+            try {
+                final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                p.setTextSize(15f * sd);
+                for (String m : TEXTS) p.measureText(m);
+                p.setTextSize(10.5f * sd);
+                for (String f : FOOT_SENT) p.measureText(f);
+            } catch (Throwable ignored) { /* best-effort */ }
+        }, "bubble-preview-font-warm");
+        t.setPriority(Thread.MIN_PRIORITY + 1);
+        t.start();
     }
 
     private int rowHeight(int type) {
@@ -132,9 +182,9 @@ public class BubblePreviewCanvasView extends View {
             if (type == R_RECV_MEDIA) {
                 drawMedia(canvas, bodyLeftLimit, y, h, TIMES[i]);
             } else if (type == R_SENT_AUDIO) {
-                drawAudio(canvas, bodyRightLimit, y, h, TIMES[i]);
+                drawAudio(canvas, bodyRightLimit, y, h, i);
             } else {
-                drawText(canvas, sent, bodyLeftLimit, bodyRightLimit, y, h, TEXTS[textIdx++], TIMES[i]);
+                drawText(canvas, sent, bodyLeftLimit, bodyRightLimit, y, h, TEXTS[textIdx++], i);
             }
             y += h + gap;
         }
@@ -147,11 +197,10 @@ public class BubblePreviewCanvasView extends View {
     }
 
     private void drawText(Canvas c, boolean sent, float leftLimit, float rightLimit, float top, int h,
-                          String msg, String time) {
+                          String msg, int row) {
         textPaint.setColor(sent ? sentText : recvText);
         timePaint.setColor(withAlpha(sent ? sentText : recvText, 170));
-        final String foot = sent ? time + "  ✓✓" : time;
-        final float bw = Math.max(textPaint.measureText(msg), timePaint.measureText(foot)) + innerPadH * 2f;
+        final float bw = bubbleW[row];
         final float l = sent ? rightLimit - bw : leftLimit;
         final float r = l + bw;
         final BubbleTailDrawable d = sent ? sentDrawable : recvDrawable;
@@ -160,13 +209,12 @@ public class BubblePreviewCanvasView extends View {
         c.drawText(msg, l + innerPadH, top + 21f * density, textPaint);
         if (sent) {
             // v928: ticks use the same contrast-safe colour the real chat bubble uses
-            final float fx = r - innerPadH - timePaint.measureText(foot);
-            final String head = time + "  ";
-            c.drawText(head, fx, top + h - 9f * density, timePaint);
+            final float fx = r - innerPadH - footW[row];
+            c.drawText(HEAD[row], fx, top + h - 9f * density, timePaint);
             timePaint.setColor(sentTick());
-            c.drawText("✓✓", fx + timePaint.measureText(head), top + h - 9f * density, timePaint);
+            c.drawText(TICKS, fx + headW[row], top + h - 9f * density, timePaint);
         } else {
-            c.drawText(foot, l + innerPadH, top + h - 9f * density, timePaint);
+            c.drawText(TIMES[row], l + innerPadH, top + h - 9f * density, timePaint);
         }
     }
 
@@ -195,7 +243,7 @@ public class BubblePreviewCanvasView extends View {
         return imageGradient;
     }
 
-    private void drawAudio(Canvas c, float rightLimit, float top, int h, String time) {
+    private void drawAudio(Canvas c, float rightLimit, float top, int h, int row) {
         final float l = rightLimit - audioW;
         sentDrawable.setBounds(Math.round(l), Math.round(top), Math.round(rightLimit), Math.round(top + h));
         sentDrawable.draw(c);
@@ -219,14 +267,11 @@ public class BubblePreviewCanvasView extends View {
             c.drawRoundRect(rect, bw / 2f, bw / 2f, fillPaint);
         }
         timePaint.setColor(withAlpha(sentText, 170));
-        final String dur = "0:12";
-        c.drawText(dur, rightLimit - innerPadH - timePaint.measureText(dur), cy + 4f * density, timePaint);
-        final String foot = time + "  ✓✓";
-        final String head = time + "  ";
-        final float fx = rightLimit - innerPadH - timePaint.measureText(foot);
-        c.drawText(head, fx, top + h - 7f * density, timePaint);
+        c.drawText(DUR, rightLimit - innerPadH - durW, cy + 4f * density, timePaint);
+        final float fx = rightLimit - innerPadH - footW[row];
+        c.drawText(HEAD[row], fx, top + h - 7f * density, timePaint);
         timePaint.setColor(sentTick());
-        c.drawText("✓✓", fx + timePaint.measureText(head), top + h - 7f * density, timePaint);
+        c.drawText(TICKS, fx + headW[row], top + h - 7f * density, timePaint);
     }
 
     private int sentTick() { return reqSent != 0 ? BubbleColorStore.tickReadOn(reqSent) : 0xFFD4AF37; }

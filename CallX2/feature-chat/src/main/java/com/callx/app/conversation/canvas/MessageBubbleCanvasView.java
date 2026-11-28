@@ -4350,6 +4350,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.mediaBitmap = null;
         this.mediaBitmapIsPlaceholder = false;
         this.messageText = text != null ? text : "";
@@ -4432,6 +4433,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.videoDuration = null;
         // A recycled holder must never carry a stale voice-caption badge
         // from whatever message it drew before this bind — the caller
@@ -4791,6 +4793,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.videoDuration = null;
         this.mediaBitmap = null;
         this.mediaBitmapIsPlaceholder = false;
@@ -5522,6 +5525,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.groupItems = items != null ? items : java.util.Collections.emptyList();
@@ -5602,6 +5606,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.videoDuration = null;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.reelThumbBitmap = thumb;
@@ -5708,6 +5713,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -5803,6 +5809,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
         this.isViewOnce = true;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.viewOnceVariant = variant;
         this.viewOnceSublabel = sublabel != null ? sublabel : "";
         this.viewOnceExpiredLabel = (expiredLabel != null && !expiredLabel.isEmpty()) ? expiredLabel : "Opened";
@@ -5847,6 +5854,7 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = false;
         this.isViewOnce = false;
         this.isSeenBubble = true;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.seenIsReel = isReel;
         this.seenAvatarBitmap = avatar;
         this.seenThumbBitmap = thumb;
@@ -5911,6 +5919,7 @@ public class MessageBubbleCanvasView extends View {
         this.isFileBubble = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.hasLinkPreview = false;
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -5937,6 +5946,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll = false;
         this.isViewOnce = false;
         this.isSeenBubble = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.hasLinkPreview = false; // stale flag from a recycled view must not leak in here
         this.mediaGated = false;
         this.mediaDownloading = false;
@@ -6046,6 +6056,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll         = false;
         this.isViewOnce     = false;
         this.isSeenBubble   = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.isGifBubble    = false;
         this.isStickerBubble    = false;
         this.isFileBubble   = true;
@@ -6253,6 +6264,7 @@ public class MessageBubbleCanvasView extends View {
         this.isPoll        = true;
         this.isViewOnce    = false;
         this.isSeenBubble  = false;
+        this.isCallEntry = false;   // v939: was never reset -> recycled call-entry flag leaked into text/media binds
         this.hasLinkPreview = false;
         this.mediaBitmap   = null;
         this.mediaBitmapIsPlaceholder = false;
@@ -8229,10 +8241,12 @@ public class MessageBubbleCanvasView extends View {
             float padH = CALL_ENTRY_PAD_H_DP * density;
             float padV = CALL_ENTRY_PAD_V_DP * density;
             float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
-            float iconW  = callEntryIconPaint.measureText(callEntryIcon);
-            float labelW = callEntryLabelPaint.measureText(callEntryLabel);
-            float dotW   = callEntryDotPaint.measureText(CALL_ENTRY_DOT_TEXT);
-            float timeW  = callEntryTimePaint.measureText(callEntryTime);
+            // v940: same width caches drawCallEntry() uses -> a measure + draw of an unchanged row costs 0 measureText calls
+            // (was 4 per measure, and the draw path re-measured icon/label/dot again on its first frame).
+            float iconW  = callIconWidthCache.get(callEntryIconPaint, callEntryIcon);
+            float labelW = callLabelWidthCache.get(callEntryLabelPaint, callEntryLabel);
+            float dotW   = callDotWidthCache.get(callEntryDotPaint, CALL_ENTRY_DOT_TEXT);
+            float timeW  = callTimeWidthCache.get(callEntryTimePaint, callEntryTime);
             float rowContentW = iconW + gap + labelW + dotW + timeW;
 
             // Reuses the same scratch instances drawCallEntry() fills at
@@ -11326,5 +11340,6 @@ public class MessageBubbleCanvasView extends View {
     private final TextWidthCache callIconWidthCache = new TextWidthCache();
     private final TextWidthCache callLabelWidthCache = new TextWidthCache();
     private final TextWidthCache callDotWidthCache = new TextWidthCache();
+    private final TextWidthCache callTimeWidthCache = new TextWidthCache();   // v940
     private final TextWidthCache readMoreWidthCache = new TextWidthCache();
 }

@@ -25,7 +25,7 @@ public class LoginActivityLogActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        secMgr = new SecurityManager(this);
+        secMgr = SecurityManager.get(this);   // v942: singleton (was a fresh EncryptedSharedPreferences build per open)
 
         // Record this session
         secMgr.recordLoginEvent();

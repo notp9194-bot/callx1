@@ -62,7 +62,7 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
     @Override
     public void onViewCreated(@NonNull View v, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(v, savedInstanceState);
-        secMgr = new SecurityManager(requireContext());
+        secMgr = SecurityManager.get(requireContext());   // v942: singleton — `new` rebuilt EncryptedSharedPreferences (~100-300 ms) on main every open
 
         setupToggles(v);
         setupChatLockToggle(v);

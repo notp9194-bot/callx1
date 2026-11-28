@@ -3,10 +3,8 @@ package com.callx.app.chat.bubblecolor;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.ComposeShader;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
-import android.graphics.PorterDuff;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.view.MotionEvent;
@@ -14,13 +12,18 @@ import android.view.View;
 
 /**
  * Custom colour picker: saturation/value square + hue strip, one canvas view.
- * The hue strip shader is built once per size; the SV shader only when the hue moves.
+ * v941: the SV square is 3 stacked fills — solid pure hue, a static white->transparent horizontal
+ * gradient and a static transparent->black vertical gradient (identical result to the old
+ * white->hue x white->black MULTIPLY ComposeShader). Both gradients are built once per size, so a
+ * hue drag only calls setColor() on a paint: zero allocation and no shader rebuild per frame.
  */
 final class BubbleHsvPickerView extends View {
 
     interface OnColor { void onColor(int argb); }
 
-    private final Paint svPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint svPaint = new Paint(Paint.ANTI_ALIAS_FLAG);      // solid pure hue
+    private final Paint svWhite = new Paint(Paint.ANTI_ALIAS_FLAG);      // static white -> transparent (L->R)
+    private final Paint svBlack = new Paint(Paint.ANTI_ALIAS_FLAG);      // static transparent -> black (T->B)
     private final Paint huePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint knobFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint knobRing = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -31,7 +34,6 @@ final class BubbleHsvPickerView extends View {
     private OnColor listener;
     private int drag = 0; // 1 = sv, 2 = hue
     // v931: shaders/arrays built once, listener coalesced to one call per frame
-    private Shader vertShader;
     private final int[] hueCols = new int[7];
     private boolean notifyPending;
     private final Runnable notifyRun = new Runnable() {
@@ -84,21 +86,22 @@ final class BubbleHsvPickerView extends View {
         sv.set(side, side, w - side, side + (w - side * 2f) * 0.62f);
         hueRect.set(side, sv.bottom + 16f * d, w - side, sv.bottom + 16f * d + 28f * d);
         huePaint.setShader(new LinearGradient(hueRect.left, 0f, hueRect.right, 0f, hueCols, null, Shader.TileMode.CLAMP));
-        vertShader = new LinearGradient(0f, sv.top, 0f, sv.bottom, 0xFFFFFFFF, 0xFF000000, Shader.TileMode.CLAMP);
+        svWhite.setShader(new LinearGradient(sv.left, 0f, sv.right, 0f, 0xFFFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
+        svBlack.setShader(new LinearGradient(0f, sv.top, 0f, sv.bottom, 0x00000000, 0xFF000000, Shader.TileMode.CLAMP));
         rebuildSv();
     }
 
+    /** Hue changed: only the base fill colour moves (no Shader / gradient allocation). */
     private void rebuildSv() {
-        if (sv.width() <= 0f || vertShader == null) return;
         tmp[0] = hsv[0];
-        final int pure = Color.HSVToColor(tmp);
-        final Shader horiz = new LinearGradient(sv.left, 0f, sv.right, 0f, 0xFFFFFFFF, pure, Shader.TileMode.CLAMP);
-        svPaint.setShader(new ComposeShader(horiz, vertShader, PorterDuff.Mode.MULTIPLY));
+        svPaint.setColor(Color.HSVToColor(tmp));
     }
 
     @Override
     protected void onDraw(Canvas c) {
         c.drawRoundRect(sv, radius, radius, svPaint);
+        c.drawRoundRect(sv, radius, radius, svWhite);
+        c.drawRoundRect(sv, radius, radius, svBlack);
         c.drawRoundRect(hueRect, hueRect.height() / 2f, hueRect.height() / 2f, huePaint);
         // SV knob
         final float kx = sv.left + hsv[1] * sv.width();

@@ -30,6 +30,7 @@ public class BubblePreviewActivity extends AppCompatActivity {
 
     private BubbleUi ui;
     private BubblePreviewCanvasView preview;
+    private TextView undoBtn, redoBtn;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -110,21 +111,63 @@ public class BubblePreviewActivity extends AppCompatActivity {
         bar.addView(back, bp);
         bar.addView(ui.label(this, "Preview", 20f, ui.text, true), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
-        // reset-to-default (theme colours) for the draft only
-        TextView reset = ui.label(this, "↺", 20f, BubbleUi.ACCENT, true);
-        reset.setGravity(Gravity.CENTER);
-        reset.setBackground(ui.round(ui.card, 20f, ui.stroke));
-        reset.setContentDescription("Reset to default");
-        reset.setOnClickListener(v -> {
+        // v941: top-right action group — undo, redo, reset (all act on the draft only)
+        final int sz = 36, gap = 6, edge = 12;
+        undoBtn = actionBtn("\u21B6", "Undo", () -> {          // ↶
+            BubbleColorDraft.undo();
+            preview.setColors(BubbleColorDraft.sent, BubbleColorDraft.recv);
+            refreshHistoryButtons();
+        });
+        redoBtn = actionBtn("\u21B7", "Redo", () -> {          // ↷
+            BubbleColorDraft.redo();
+            preview.setColors(BubbleColorDraft.sent, BubbleColorDraft.recv);
+            refreshHistoryButtons();
+        });
+        TextView reset = actionBtn("\u21BA", "Reset to default", () -> {   // ↺ (now undoable)
             BubbleColorDraft.sent = 0;
             BubbleColorDraft.recv = 0;
+            BubbleColorDraft.commit();
             preview.setColors(0, 0);
+            refreshHistoryButtons();
         });
-        FrameLayout.LayoutParams rp = new FrameLayout.LayoutParams(ui.dp(40), ui.dp(40));
+        FrameLayout.LayoutParams rp = new FrameLayout.LayoutParams(ui.dp(sz), ui.dp(sz));
         rp.gravity = Gravity.CENTER_VERTICAL | Gravity.END;
-        rp.rightMargin = ui.dp(16);
+        rp.rightMargin = ui.dp(edge);
         bar.addView(reset, rp);
+        FrameLayout.LayoutParams dp2 = new FrameLayout.LayoutParams(ui.dp(sz), ui.dp(sz));
+        dp2.gravity = Gravity.CENTER_VERTICAL | Gravity.END;
+        dp2.rightMargin = ui.dp(edge + (sz + gap));
+        bar.addView(redoBtn, dp2);
+        FrameLayout.LayoutParams up = new FrameLayout.LayoutParams(ui.dp(sz), ui.dp(sz));
+        up.gravity = Gravity.CENTER_VERTICAL | Gravity.END;
+        up.rightMargin = ui.dp(edge + 2 * (sz + gap));
+        bar.addView(undoBtn, up);
+        refreshHistoryButtons();
         return bar;
+    }
+
+    private TextView actionBtn(String glyph, String desc, Runnable r) {
+        TextView t = ui.label(this, glyph, 20f, BubbleUi.ACCENT, true);
+        t.setGravity(Gravity.CENTER);
+        t.setBackground(ui.round(ui.card, 18f, ui.stroke));
+        t.setContentDescription(desc);
+        t.setClickable(true);
+        t.setOnClickListener(v -> r.run());
+        return t;
+    }
+
+    /** Dim + disable undo/redo when there is nothing to undo/redo. */
+    private void refreshHistoryButtons() {
+        if (undoBtn != null) {
+            final boolean u = BubbleColorDraft.canUndo();
+            undoBtn.setEnabled(u);
+            undoBtn.setAlpha(u ? 1f : 0.35f);
+        }
+        if (redoBtn != null) {
+            final boolean r = BubbleColorDraft.canRedo();
+            redoBtn.setEnabled(r);
+            redoBtn.setAlpha(r ? 1f : 0.35f);
+        }
     }
 
     private View buildInfoCard() {

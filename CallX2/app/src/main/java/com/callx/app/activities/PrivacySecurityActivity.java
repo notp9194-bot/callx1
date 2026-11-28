@@ -49,7 +49,7 @@ public class PrivacySecurityActivity extends AppCompatActivity {
 
         lockMgr = new AppLockManager(this);
         bioLoginMgr = BiometricLoginManager.getInstance(this);
-        secMgr  = new SecurityManager(this);
+        secMgr  = SecurityManager.get(this);   // v942: singleton (was a fresh EncryptedSharedPreferences build per open)
 
         applyScreenshotLock(secMgr.isScreenshotLockEnabled());
 

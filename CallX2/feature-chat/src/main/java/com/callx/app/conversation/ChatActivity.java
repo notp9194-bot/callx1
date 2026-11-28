@@ -1820,6 +1820,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     protected void onDestroy() {
+        if (moreMenu != null) moreMenu.dismiss();   // v942: never leak the popup window
         com.callx.app.debug.BubblePerfStats.stop(this);
         chatUiEventBatcher.cancel();
         super.onDestroy();
@@ -2828,14 +2829,47 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
 
+        // v942: prebuilt + pre-measured popup (no per-tap inflate / MenuBuilder / per-row width pass).
+        // Built at the first idle moment after the chat is up, so even the FIRST tap is instant; the click
+        // handler just builds it on demand if the user is faster than idle.
         binding.btnMoreOptions.setOnClickListener(v -> {
-            android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
-            popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
-            android.view.MenuItem muteItem = popup.getMenu().findItem(R.id.action_mute);
-            if (muteItem != null) muteItem.setTitle(isMuted ? "\uD83D\uDD14 Unmute" : "\uD83D\uDD15 Mute");
-            popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
-            popup.show();
+            final com.callx.app.chat.ui.ChatMoreMenu m = ensureMoreMenu();
+            m.setTitle(R.id.action_mute, isMuted ? "\uD83D\uDD14 Unmute" : "\uD83D\uDD15 Mute");
+            m.show();
         });
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            if (!isFinishing() && !isDestroyed()) {
+                ensureMoreMenu();
+                com.callx.app.chat.ui.ChatMoreMenu.warm(this, chatId);
+            }
+            return false;   // one-shot
+        });
+    }
+
+    private com.callx.app.chat.ui.ChatMoreMenu moreMenu;
+
+    /** v942: the ⋮ menu, built once per screen. Debug-only rows are left out of release builds. */
+    private com.callx.app.chat.ui.ChatMoreMenu ensureMoreMenu() {
+        if (moreMenu != null) return moreMenu;
+        final boolean debuggable = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        final int[] ids = {
+                R.id.action_view_profile, R.id.action_edit_profile, R.id.action_search, R.id.action_starred,
+                R.id.action_chat_customization, R.id.action_mute, R.id.action_block, R.id.action_clear_chat,
+                R.id.action_media_links_docs, R.id.action_chat_privacy, R.id.action_security,
+                R.id.action_export_chat, R.id.action_chat_backup, R.id.action_small_window,
+                R.id.action_display_mode, R.id.action_paging_debug_log, R.id.action_bubble_perf };
+        final String[] titles = {
+                "\uD83D\uDC64 View Profile", "\u270F\uFE0F Edit Profile", "\uD83D\uDD0D Search",
+                "\u2B50 Starred Messages", "\uD83D\uDDBC\uFE0F Wallpaper", "\uD83D\uDD15 Mute",
+                "\uD83D\uDEAB Block", "\uD83D\uDDD1 Clear Chat", "\uD83D\uDCC1 Media, Links & Docs",
+                "\uD83D\uDEE1 Chat Privacy", "\uD83D\uDD12 Security", "\uD83D\uDCE4 Export Chat",
+                "\uD83D\uDCBE Backup Chat", "\uD83D\uDDD4 Small window", "\uD83D\uDDA5\uFE0F Display Mode",
+                "\uD83D\uDC1E Paging Debug Log", "\uD83D\uDCCA Bubble Perf" };
+        moreMenu = new com.callx.app.chat.ui.ChatMoreMenu(this, binding.btnMoreOptions, ids, titles,
+                id -> handleMenuAction(id));
+        moreMenu.setVisible(R.id.action_paging_debug_log, debuggable);
+        moreMenu.setVisible(R.id.action_bubble_perf, debuggable);
+        return moreMenu;
     }
 
     private void startCall(boolean isVideo) {
@@ -6527,22 +6561,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     private void openEditProfile() {
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.ProfileActivity");
-            startActivity(new Intent(this, cls));
-        } catch (ClassNotFoundException e) {
+            startActivity(new Intent().setClassName(this, "com.callx.app.activities.ProfileActivity"));
+        } catch (android.content.ActivityNotFoundException e) {
             Toast.makeText(this, "Edit Profile unavailable", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void openAllMediaLinksDocs() {
         try {
-            Class<?> cls = Class.forName("com.callx.app.activities.AllMediaLinksDocsActivity");
-            Intent i = new Intent(this, cls);
+            Intent i = new Intent().setClassName(this, "com.callx.app.activities.AllMediaLinksDocsActivity");
             i.putExtra("chatId",      chatId);
             i.putExtra("partnerName", partnerName);
             i.putExtra("isGroup",     false);
             startActivity(i);
-        } catch (ClassNotFoundException e) {
+        } catch (android.content.ActivityNotFoundException e) {
             android.util.Log.e(TAG, "AllMediaLinksDocsActivity not found", e);
         }
     }
@@ -7526,7 +7558,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        int id = item.getItemId();
+        if (handleMenuAction(item.getItemId())) return true;
+        return super.onOptionsItemSelected(item);
+    }
+
+    /** v942: single action table shared by the ⋮ popup and the (legacy) options-menu path. */
+    private boolean handleMenuAction(int id) {
         if (id == R.id.action_view_profile)          { openAvatarZoom();                          return true; }
         if (id == R.id.action_edit_profile)           { openEditProfile();                          return true; }
         if (id == R.id.action_starred) {
@@ -7553,7 +7590,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (id == R.id.action_display_mode)          { showChatDisplayModePicker();                return true; }
         if (id == R.id.action_paging_debug_log)      { showPagingDebugLogDialog();                 return true; }
         if (id == R.id.action_bubble_perf)           { showBubblePerfDialog();                     return true; }
-        return super.onOptionsItemSelected(item);
+        return false;
     }
 
     // ─────────────────────────────────────────────────────────────────────

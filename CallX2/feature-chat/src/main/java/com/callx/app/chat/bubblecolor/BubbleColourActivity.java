@@ -56,6 +56,8 @@ public class BubbleColourActivity extends AppCompatActivity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         ui = new BubbleUi(this);
+        // v941: load emoji/tick fallback fonts off-thread now, so the Preview screen's first frame has no font hitch
+        com.callx.app.conversation.canvas.BubblePreviewCanvasView.prewarmFonts(this);
         // v928: a fresh open starts from the saved colours; a rotation / process restore keeps the draft.
         if (b == null) BubbleColorDraft.loadFromStore(this); else BubbleColorDraft.ensureInit(this);
         if (b != null) { customSide = b.getBoolean("side", true); customTabShown = b.getBoolean("custom", false); }
@@ -91,7 +93,10 @@ public class BubbleColourActivity extends AppCompatActivity {
         body.addView(buildTabs());
 
         defaultPane = buildDefaultPane();
-        customPane = buildCustomPane();
+        // v941: Custom pane (HSV view + EditText + recents) is built lazily on the first Custom-tab show;
+        // most visits only use the preset swatches, so onCreate no longer pays for the heaviest widgets.
+        customPane = new LinearLayout(this);
+        ((LinearLayout) customPane).setOrientation(LinearLayout.VERTICAL);
         body.addView(defaultPane);
         body.addView(customPane);
         customPane.setVisibility(View.GONE);
@@ -199,7 +204,16 @@ public class BubbleColourActivity extends AppCompatActivity {
         return row;
     }
 
+    private boolean customBuilt;
+
+    private void ensureCustomPane() {
+        if (customBuilt) return;
+        customBuilt = true;
+        ((LinearLayout) customPane).addView(buildCustomPane());
+    }
+
     private void showTab(boolean custom) {
+        if (custom) ensureCustomPane();
         defaultPane.setVisibility(custom ? View.GONE : View.VISIBLE);
         customPane.setVisibility(custom ? View.VISIBLE : View.GONE);
         styleTab(tabDefault, !custom);
@@ -219,14 +233,14 @@ public class BubbleColourActivity extends AppCompatActivity {
         sendGrid = new BubbleSwatchGridView(this, BubbleUi.ACCENT);
         sendGrid.setColors(resolved(BubbleColorStore.SEND_PRESETS, themeSent));
         sendGrid.setDescription("Send bubble colour", BubbleColorStore.SEND_NAMES);
-        sendGrid.setOnPick(i -> { BubbleColorDraft.sent = BubbleColorStore.SEND_PRESETS[i]; refreshDefaultSelection(); });
+        sendGrid.setOnPick(i -> { BubbleColorDraft.sent = BubbleColorStore.SEND_PRESETS[i]; BubbleColorDraft.commit(); refreshDefaultSelection(); });
         pane.addView(sendGrid, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         pane.addView(sectionTitle("Receive Bubble Colours"));
         recvGrid = new BubbleSwatchGridView(this, BubbleUi.ACCENT);
         recvGrid.setColors(resolved(BubbleColorStore.RECV_PRESETS, themeRecv));
         recvGrid.setDescription("Receive bubble colour", BubbleColorStore.RECV_NAMES);
-        recvGrid.setOnPick(i -> { BubbleColorDraft.recv = BubbleColorStore.RECV_PRESETS[i]; refreshDefaultSelection(); });
+        recvGrid.setOnPick(i -> { BubbleColorDraft.recv = BubbleColorStore.RECV_PRESETS[i]; BubbleColorDraft.commit(); refreshDefaultSelection(); });
         pane.addView(recvGrid, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return pane;
@@ -255,6 +269,7 @@ public class BubbleColourActivity extends AppCompatActivity {
         hsv.setContentDescription("Colour picker. Drag to choose a colour, or type a hex code below.");
         hsv.setOnColor(color -> {
             if (customSide) BubbleColorDraft.sent = color; else BubbleColorDraft.recv = color;
+            BubbleColorDraft.commit();
             setHexText(color);
         });
         pane.addView(hsv, new LinearLayout.LayoutParams(
@@ -268,6 +283,7 @@ public class BubbleColourActivity extends AppCompatActivity {
             final int[] r = BubbleColorStore.recents();
             if (i < 0 || i >= r.length) return;
             if (customSide) BubbleColorDraft.sent = r[i]; else BubbleColorDraft.recv = r[i];
+            BubbleColorDraft.commit();
             hsv.setColor(r[i]);
             setHexText(r[i]);
             refreshRecentSelection();
@@ -338,6 +354,7 @@ public class BubbleColourActivity extends AppCompatActivity {
         try { c = Color.parseColor(t) | 0xFF000000; }
         catch (IllegalArgumentException e) { hexField.setError("Not a valid hex colour"); return; }
         if (customSide) BubbleColorDraft.sent = c; else BubbleColorDraft.recv = c;
+        BubbleColorDraft.commit();
         hsv.setColor(c);
         hexField.setError(null);
         hexField.clearFocus();
@@ -383,6 +400,16 @@ public class BubbleColourActivity extends AppCompatActivity {
     private static int indexOf(int[] presets, int value) {
         for (int i = 0; i < presets.length; i++) if (presets[i] == value) return i;
         return -1;   // a custom (non-preset) colour
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // v941: preview screen may have undone / redone / reset the draft — repaint the picker from it
+        if (sendGrid != null && recvGrid != null && hsv != null && chipSend != null) {
+            refreshDefaultSelection();
+            syncPickerToSide();
+        }
     }
 
     private void refreshDefaultSelection() {

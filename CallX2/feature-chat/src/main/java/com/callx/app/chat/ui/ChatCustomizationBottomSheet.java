@@ -37,6 +37,10 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
 
     private OnOptionSelectedListener listener;
 
+    // v942: resolved ONCE per sheet (was ~3 ContextCompat.getColor lookups + 2 fresh GradientDrawables per row)
+    private int cText, cSub, cHint;
+    private android.graphics.drawable.Drawable.ConstantState rowBgState, iconBgState;
+
     public static ChatCustomizationBottomSheet newInstance() {
         return new ChatCustomizationBottomSheet();
     }
@@ -64,6 +68,11 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         Context ctx = requireContext();
+        cText = tc(com.callx.app.core.R.color.sheet_text_primary);
+        cSub  = tc(com.callx.app.core.R.color.sheet_text_secondary);
+        cHint = tc(com.callx.app.core.R.color.sheet_text_hint);
+        // v942: warm the prefs file here, before any row reads it on the main thread
+        com.callx.app.conversation.ChatAvatarPrefs.ensureLoaded(ctx);
 
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -93,7 +102,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         header.setLayoutParams(hp2);
         header.setText("🖼️  Chat Wallpaper");
         header.setTextSize(17f);
-        header.setTextColor(tc(com.callx.app.core.R.color.sheet_text_primary));
+        header.setTextColor(cText);
         header.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         root.addView(header);
 
@@ -146,15 +155,13 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
                 "Profile photo beside bubbles. Turn off for wider bubbles");
         card.removeViewAt(card.getChildCount() - 1); // drop the "›" arrow, a switch replaces it
         final androidx.appcompat.widget.SwitchCompat sw = new androidx.appcompat.widget.SwitchCompat(ctx);
-        sw.setChecked(com.callx.app.conversation.ChatAvatarPrefs.isShowAvatars());
         card.addView(sw);
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         cp.setMargins(dp(12), 0, dp(12), dp(20));
         card.setLayoutParams(cp);
-        com.callx.app.conversation.ChatAvatarPrefs.ensureLoaded(ctx);
-        sw.setChecked(com.callx.app.conversation.ChatAvatarPrefs.isShowAvatars());
+        sw.setChecked(com.callx.app.conversation.ChatAvatarPrefs.isShowAvatars());   // prefs already loaded in onCreateView
         sw.setOnCheckedChangeListener((b, checked) -> {
             com.callx.app.conversation.ChatAvatarPrefs.set(ctx, checked);
             if (avatarsToggledListener != null) avatarsToggledListener.run();
@@ -185,23 +192,29 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         card.setPadding(dp(14), dp(14), dp(14), dp(14));
         card.setClickable(true);
         card.setFocusable(true);
-        GradientDrawable bg = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0x220EA5E9, 0x116366F1});
-        bg.setStroke(dp(1), 0x330EA5E9);
-        bg.setCornerRadius(dp(14));
-        card.setBackground(bg);
+        if (rowBgState == null) {
+            GradientDrawable bg = new GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{0x220EA5E9, 0x116366F1});
+            bg.setStroke(dp(1), 0x330EA5E9);
+            bg.setCornerRadius(dp(14));
+            rowBgState = bg.getConstantState();
+        }
+        card.setBackground(rowBgState.newDrawable());
         card.setMinimumHeight(dp(72));
 
         FrameLayout iconFrame = new FrameLayout(ctx);
         LinearLayout.LayoutParams ifLp = new LinearLayout.LayoutParams(dp(52), dp(52));
         ifLp.setMarginEnd(dp(16));
         iconFrame.setLayoutParams(ifLp);
-        GradientDrawable ifBg = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFF0EA5E9, 0xFF6366F1});
-        ifBg.setCornerRadius(dp(14));
-        iconFrame.setBackground(ifBg);
+        if (iconBgState == null) {
+            GradientDrawable ifBg = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0xFF0EA5E9, 0xFF6366F1});
+            ifBg.setCornerRadius(dp(14));
+            iconBgState = ifBg.getConstantState();
+        }
+        iconFrame.setBackground(iconBgState.newDrawable());
 
         TextView iconTv = new TextView(ctx);
         FrameLayout.LayoutParams itLp = new FrameLayout.LayoutParams(
@@ -221,13 +234,13 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         TextView nameTv = new TextView(ctx);
         nameTv.setText(title);
         nameTv.setTextSize(15f);
-        nameTv.setTextColor(tc(com.callx.app.core.R.color.sheet_text_primary));
+        nameTv.setTextColor(cText);
         nameTv.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
 
         TextView descTv = new TextView(ctx);
         descTv.setText(desc);
         descTv.setTextSize(11.5f);
-        descTv.setTextColor(tc(com.callx.app.core.R.color.sheet_text_secondary));
+        descTv.setTextColor(cSub);
         LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -240,7 +253,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         TextView arrow = new TextView(ctx);
         arrow.setText("›");
         arrow.setTextSize(24f);
-        arrow.setTextColor(tc(com.callx.app.core.R.color.sheet_text_hint));
+        arrow.setTextColor(cHint);
         LinearLayout.LayoutParams arLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
