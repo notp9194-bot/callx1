@@ -91,8 +91,10 @@ public class MessagePagingAdapter
     public void setRecyclerViewScrollState(int state) {
         this.recyclerViewScrollState = state;
         // v926: light bubbles skip their 1dp shadow while flinging; one idle re-draw restores it.
-        final boolean fling = state == RecyclerView.SCROLL_STATE_SETTLING;
-        com.callx.app.conversation.canvas.MessageBubbleCanvasView.setFastScroll(fling);
+        // v936: shadow-skip during fling DISABLED. The shadow is a single drawRoundRect (negligible GPU), but skipping it
+        // baked shadow-less display lists, so every fling end invalidated ALL visible rows -> a re-record of each
+        // (perf report: 255 invalidate() on CLEAN bubble from this line, ~25% of Bubble.record). Net loss.
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.setFastScroll(false);
         if (state == RecyclerView.SCROLL_STATE_IDLE && com.callx.app.conversation.canvas.MessageBubbleCanvasView.consumeShadowSkipped()) {
             final RecyclerView rv = attachedRecyclerView;
             if (rv != null) {

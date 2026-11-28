@@ -3441,7 +3441,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public boolean queueIdle() {
                 if (isFinishing() || isDestroyed() || binding == null || pagingAdapter == null) return false;
                 // stepped: ~3.5ms per idle slot, never one 100ms block
-                return pagingAdapter.warmUpRecycledViewPoolStep(binding.rvMessages, warmupPool, 6);
+                // v936: 10 per hot type (was 6) on normal-RAM devices: perf report showed ~450 onCreateViewHolder (avg 1.7 ms, 17 GCs)
+                // in one scroll; still one holder per idle slot, never a main-thread block. Low-RAM keeps 6.
+                return pagingAdapter.warmUpRecycledViewPoolStep(binding.rvMessages, warmupPool,
+                        com.callx.app.utils.DeviceTier.isLowRamDevice(ChatActivity.this) ? 6 : 10);
             }
         });
     }
