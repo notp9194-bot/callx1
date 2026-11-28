@@ -1871,6 +1871,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     @Override
     public void onResume() {
         super.onResume();
+        // v954 safety net (O(1)): tab return with data present but an empty, not-pending layout = the
+        // blank-list state (see ChatListLayoutManager.onAttachedToWindow) — kick one layout pass.
+        final RecyclerView rvNow = rvChats;
+        if (rvNow != null && adapter != null && rvNow.getChildCount() == 0
+                && adapter.getItemCount() > 0 && !rvNow.isLayoutRequested()) {
+            rvNow.requestLayout();
+        }
         if (android.os.Build.VERSION.SDK_INT >= 24 && getActivity() != null) {
             com.callx.app.perf.PerformanceMonitor.get().attachFrameTracking(getActivity());
         }

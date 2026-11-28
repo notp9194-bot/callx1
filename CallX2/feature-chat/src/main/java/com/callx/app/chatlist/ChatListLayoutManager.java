@@ -65,6 +65,15 @@ public class ChatListLayoutManager extends LinearLayoutManager {
     private int detachAnchorPos = RecyclerView.NO_POSITION;
     private int detachAnchorOffset = 0;
 
+    // v954 BLANK-TAB FIX: ViewPager2 detaches the Chats page from the window on every tab switch WITHOUT
+    // destroying the Fragment view (page goes to ViewPager2's cache). recycleChildrenOnDetach (v943) empties
+    // the layout on that detach, but when the very same RecyclerView is re-attached on tab return nothing
+    // requests a layout (RecyclerView.onAttachedToWindow keeps mFirstLayoutComplete=true, the parent re-uses
+    // the cached measure) -> zero children, blank list until some data change happens to arrive.
+    // Remember that the layout was emptied so onAttachedToWindow can rebuild it (rows come straight from the
+    // Activity-scoped pool: no inflate) at the exact scroll position the user left.
+    private boolean emptiedOnDetach = false;
+
     @SuppressWarnings("deprecation")
     @Override
     public void onDetachedFromWindow(RecyclerView view, RecyclerView.Recycler recycler) {
@@ -75,6 +84,21 @@ public class ChatListLayoutManager extends LinearLayoutManager {
             detachAnchorOffset = c != null ? c.getTop() : 0;
         }
         super.onDetachedFromWindow(view, recycler);
+        emptiedOnDetach = true;   // super just recycled every child (setRecycleChildrenOnDetach(true))
+    }
+
+    @Override
+    public void onAttachedToWindow(RecyclerView view) {
+        super.onAttachedToWindow(view);
+        if (!emptiedOnDetach) return;
+        emptiedOnDetach = false;
+        // Same RV re-attached (tab return): rebuild the rows. The pending scroll also requests the layout;
+        // an explicit requestLayout() covers the "nothing to restore" case. Same frame as the page
+        // appearing (ViewRootImpl re-runs layout for requests made during layout), so no blank flash.
+        if (detachAnchorPos != RecyclerView.NO_POSITION) {
+            scrollToPositionWithOffset(detachAnchorPos, detachAnchorOffset);
+        }
+        view.requestLayout();
     }
 
     int getDetachAnchorPos()    { return detachAnchorPos; }
